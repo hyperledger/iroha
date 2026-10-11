@@ -373,11 +373,11 @@ mod tests {
     }
     #[test]
     fn source_has_one_bounded_typed_codec_registration_inventory() {
-        const EXPECTED_SOURCE_TYPED_CODEC_REGISTRARS: usize = 395;
+        const EXPECTED_SOURCE_TYPED_CODEC_REGISTRARS: usize = 392;
         #[cfg(feature = "governance")]
-        const EXPECTED_ENABLED_TYPED_CODEC_REGISTRARS: usize = 395;
+        const EXPECTED_ENABLED_TYPED_CODEC_REGISTRARS: usize = 392;
         #[cfg(not(feature = "governance"))]
-        const EXPECTED_ENABLED_TYPED_CODEC_REGISTRARS: usize = 377;
+        const EXPECTED_ENABLED_TYPED_CODEC_REGISTRARS: usize = 374;
         let registry_source = include_str!("registry.rs");
         let production = registry_source
             .split("\n#[cfg(test)]\nmod tests")
