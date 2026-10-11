@@ -32,7 +32,6 @@ pub mod profile;
 pub mod proof;
 pub mod state;
 pub mod ton;
-pub mod tron;
 
 use core::fmt;
 
@@ -51,7 +50,6 @@ use iroha_data_model::{
 
 use self::{
     bsc::BscLcError, ethereum::EthereumLcError, profile::SccpChainProfilesV1, ton::TonLcError,
-    tron::TronLcError,
 };
 pub use self::{
     proof::{
@@ -191,8 +189,6 @@ pub enum SccpLcError {
     Ethereum(EthereumLcError),
     /// BSC-specific verification failure.
     Bsc(BscLcError),
-    /// TRON-specific verification failure.
-    Tron(TronLcError),
     /// TON-specific verification failure.
     Ton(TonLcError),
 }
@@ -290,7 +286,6 @@ impl fmt::Display for SccpLcError {
             }
             Self::Ethereum(error) => write!(formatter, "Ethereum light client: {error}"),
             Self::Bsc(error) => write!(formatter, "BSC light client: {error}"),
-            Self::Tron(error) => write!(formatter, "TRON light client: {error}"),
             Self::Ton(error) => write!(formatter, "TON light client: {error}"),
         }
     }
@@ -323,8 +318,6 @@ pub struct SccpVerifierWorkV1 {
     pub ethereum_light_client_updates: u32,
     /// BSC fast-finality vote attestations (each one fast-aggregate BLS check).
     pub bls_vote_attestations: u32,
-    /// secp256k1 recoveries (TRON headers).
-    pub secp256k1_recoveries: u32,
     /// Ed25519 signature checks (TON blocks).
     pub ed25519_signature_checks: u32,
 }
@@ -346,9 +339,6 @@ impl SccpVerifierWorkV1 {
             bls_vote_attestations: self
                 .bls_vote_attestations
                 .checked_add(other.bls_vote_attestations)?,
-            secp256k1_recoveries: self
-                .secp256k1_recoveries
-                .checked_add(other.secp256k1_recoveries)?,
             ed25519_signature_checks: self
                 .ed25519_signature_checks
                 .checked_add(other.ed25519_signature_checks)?,
@@ -359,10 +349,9 @@ impl SccpVerifierWorkV1 {
 /// Fail unless this release has a light client for `network`.
 fn ensure_supported(network: SccpNetworkV1) -> Result<(), SccpLcError> {
     match network {
-        SccpNetworkV1::EthereumMainnet
-        | SccpNetworkV1::BscMainnet
-        | SccpNetworkV1::TronMainnet
-        | SccpNetworkV1::TonMainnet => Ok(()),
+        SccpNetworkV1::EthereumMainnet | SccpNetworkV1::BscMainnet | SccpNetworkV1::TonMainnet => {
+            Ok(())
+        }
         SccpNetworkV1::SoraTaira => Err(SccpLcError::UnsupportedNetwork(network)),
     }
 }
@@ -458,9 +447,6 @@ pub fn verify_bootstrap_with_profiles(
         SccpLcBootstrapDataV1::Bsc(bootstrap) => {
             bsc::verify_bootstrap(&profiles.bsc, params, &bootstrap, taira_now_ms)
         }
-        SccpLcBootstrapDataV1::Tron(bootstrap) => {
-            tron::verify_bootstrap(&profiles.tron, params, &bootstrap, taira_now_ms)
-        }
         SccpLcBootstrapDataV1::Ton(bootstrap) => {
             ton::verify_bootstrap(&profiles.ton, params, &bootstrap, taira_now_ms)
         }
@@ -544,9 +530,6 @@ pub fn initialize_light_client_with_profiles<V: SccpLcStateView + ?Sized>(
                 ethereum::aged_supersessions(&profiles.ethereum, view, &installed)?
             }
             SccpNetworkV1::BscMainnet => bsc::aged_supersessions(view, &installed),
-            SccpNetworkV1::TronMainnet => {
-                tron::aged_supersessions(&profiles.tron, view, &installed)?
-            }
             SccpNetworkV1::TonMainnet => ton::aged_supersessions(view, &installed),
             SccpNetworkV1::SoraTaira => return Err(SccpLcError::UnsupportedNetwork(network)),
         };
@@ -638,9 +621,6 @@ pub fn apply_advance_with_profiles<V: SccpLcStateView + ?Sized>(
         SccpLcAdvanceV1::Bsc(advance) => {
             bsc::apply_advance(&profiles.bsc, view, &light_client, &advance, taira_now_ms)
         }
-        SccpLcAdvanceV1::Tron(advance) => {
-            tron::apply_advance(&profiles.tron, view, &light_client, &advance, taira_now_ms)
-        }
         SccpLcAdvanceV1::Ton(advance) => {
             ton::apply_advance(&profiles.ton, view, &light_client, &advance, taira_now_ms)
         }
@@ -650,9 +630,6 @@ pub fn apply_advance_with_profiles<V: SccpLcStateView + ?Sized>(
         SccpLcAdvanceV1::Backfill {
             segment: SccpLcSegmentV1::Bsc(segment),
         } => bsc::apply_backfill(&profiles.bsc, view, &light_client, &segment, taira_now_ms),
-        SccpLcAdvanceV1::Backfill {
-            segment: SccpLcSegmentV1::Tron(segment),
-        } => tron::apply_backfill(&profiles.tron, view, &light_client, &segment, taira_now_ms),
     }
 }
 
@@ -713,9 +690,6 @@ pub fn verify_proof_with_profiles<V: SccpLcStateView + ?Sized>(
         ),
         SccpSourceProofV1::Bsc(proof) => {
             bsc::verify_proof(&profiles.bsc, view, &light_client, &proof, taira_now_ms)
-        }
-        SccpSourceProofV1::Tron(proof) => {
-            tron::verify_proof(&profiles.tron, view, &light_client, &proof, taira_now_ms)
         }
         SccpSourceProofV1::Ton(proof) => {
             ton::verify_proof(&profiles.ton, view, &proof, taira_now_ms)
@@ -792,16 +766,6 @@ pub fn verify_equivocation_with_profiles<V: SccpLcStateView + ?Sized>(
             (&second, b.as_bytes()),
             taira_now_ms,
         ),
-        (SccpLcEvidenceV1::Tron(first), SccpLcEvidenceV1::Tron(second)) => {
-            tron::verify_equivocation(
-                &profiles.tron,
-                view,
-                &light_client,
-                (&first, a.as_bytes()),
-                (&second, b.as_bytes()),
-                taira_now_ms,
-            )
-        }
         (SccpLcEvidenceV1::Ton(first), SccpLcEvidenceV1::Ton(second)) => ton::verify_equivocation(
             &profiles.ton,
             view,
@@ -865,7 +829,6 @@ fn is_installed_aged<V: SccpLcStateView + ?Sized>(
             taira_now_ms,
         )),
         SccpNetworkV1::BscMainnet => Ok(bsc::is_aged(light_client, taira_now_ms)),
-        SccpNetworkV1::TronMainnet => Ok(tron::is_aged(&profiles.tron, light_client, taira_now_ms)),
         SccpNetworkV1::TonMainnet => Ok(ton::is_aged(
             &profiles.ton,
             view,
@@ -907,9 +870,6 @@ pub fn weak_subjectivity_deadline_ms_with_profiles<V: SccpLcStateView + ?Sized>(
     ensure_supported(network)?;
     Ok(match network {
         SccpNetworkV1::BscMainnet => bsc::weak_subjectivity_deadline_ms(&light_client),
-        SccpNetworkV1::TronMainnet => {
-            tron::weak_subjectivity_deadline_ms(&profiles.tron, &light_client)
-        }
         SccpNetworkV1::TonMainnet => {
             ton::weak_subjectivity_deadline_ms(&profiles.ton, view, &light_client)
         }
@@ -979,7 +939,6 @@ pub fn advance_work(
     Ok(match &decoded {
         SccpLcAdvanceV1::Ethereum(advance) => ethereum::advance_work(advance),
         SccpLcAdvanceV1::Bsc(advance) => bsc::advance_work(advance),
-        SccpLcAdvanceV1::Tron(advance) => tron::advance_work(advance),
         SccpLcAdvanceV1::Ton(advance) => ton::advance_work(advance),
         SccpLcAdvanceV1::Backfill {
             segment: SccpLcSegmentV1::Ethereum(segment),
@@ -987,9 +946,6 @@ pub fn advance_work(
         SccpLcAdvanceV1::Backfill {
             segment: SccpLcSegmentV1::Bsc(segment),
         } => bsc::segment_work(segment),
-        SccpLcAdvanceV1::Backfill {
-            segment: SccpLcSegmentV1::Tron(segment),
-        } => tron::segment_work(segment),
     }
     .with_frame_bytes(advance.len()))
 }
@@ -1009,7 +965,6 @@ pub fn proof_work(
     Ok(match &decoded {
         SccpSourceProofV1::Ethereum(proof) => ethereum::proof_work(proof),
         SccpSourceProofV1::Bsc(proof) => bsc::proof_work(proof),
-        SccpSourceProofV1::Tron(proof) => tron::proof_work(proof),
         SccpSourceProofV1::Ton(proof) => ton::proof_work(proof),
     }
     .with_frame_bytes(proof.len()))
@@ -1033,7 +988,6 @@ pub fn evidence_work(
         let work = match &decoded {
             SccpLcEvidenceV1::Ethereum(record) => ethereum::evidence_work(record),
             SccpLcEvidenceV1::Bsc(record) => bsc::evidence_work(record),
-            SccpLcEvidenceV1::Tron(record) => tron::evidence_work(record),
             SccpLcEvidenceV1::Ton(record) => ton::evidence_work(record),
         }
         .with_frame_bytes(evidence.len());
@@ -1063,13 +1017,22 @@ mod tests {
             native_header_bytes: 20,
             ethereum_light_client_updates: 3,
             bls_vote_attestations: 7,
-            secp256k1_recoveries: 4,
             ed25519_signature_checks: 5,
         };
         let two = one.checked_add(&one).expect("no overflow");
-        assert_eq!(two.proofs, 2);
-        assert_eq!(two.bls_vote_attestations, 14);
-        assert_eq!(two.ed25519_signature_checks, 10);
+        assert_eq!(
+            two,
+            SccpVerifierWorkV1 {
+                proofs: 2,
+                proof_bytes: 20,
+                native_headers: 4,
+                native_header_bytes: 40,
+                ethereum_light_client_updates: 6,
+                bls_vote_attestations: 14,
+                ed25519_signature_checks: 10,
+            },
+            "one category per [zk.sccp] limit; no secp256k1-recovery category exists"
+        );
         let full = SccpVerifierWorkV1 {
             proofs: u32::MAX,
             ..SccpVerifierWorkV1::default()

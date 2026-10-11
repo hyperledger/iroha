@@ -272,6 +272,21 @@ expiry, elapsed rent collection, and hardware signing remain separate coverage.
   required; source presence does not qualify authenticated state-root
   convergence or proof-backed payouts.
 
+### Parliament availability-isolation corridor
+
+The feature-isolated `sora_parliament_lifecycle_smoke` target includes
+`four_validator_pending_parliament_request_never_blocks_unrelated_work_or_restart`.
+Four NPoS validators run with fail-closed beacon signers and a Parliament
+sortition request frozen on the far pre-boundary pulse height. Unrelated
+carrier transactions keep committing on every peer past the retired
+`request_height + delay` height, no global pulse appears, a restarted peer
+rejoins, and the request stays pending on exactly its original slot
+([ballot design](../specs/parliament_private_ballot_design.md) section 9).
+It does not install a below-threshold key session and does not replace the
+mandatory-NPoS corridors, which need the `test-network-parliament-signers`
+beacon fixture. Sortition corridors run on a signed 128-block NPoS epoch and
+compute each slot from the certified epoch length.
+
 ### Parliament timed-OVN deadline/retry corridor
 
 The feature-isolated `sora_parliament_lifecycle_smoke` target includes
@@ -323,6 +338,10 @@ The explicit `sorafs_publication_governance` target requires
 `four_peer_native_publication_repair_and_parliament_revocation` test adds the
 shared real seven-body Parliament corridor, then requires a specific admission
 denial across provider restart while an unaffected replica still serves bytes.
+It is `#[ignore]`d, with the three hidden-ballot Parliament corridors, until the
+anonymous ballot replaces timed-OVN: a timed-OVN release slot is no longer
+consensus demand, so the hidden ballot these corridors enact through cannot
+open.
 The reusable corridor lives in `sora_parliament_lifecycle_support.rs`; it funds
 registered citizens with signed transfers of the signed-genesis NPoS fee asset.
 Its current finality reader validates the independently constructed genesis bundle

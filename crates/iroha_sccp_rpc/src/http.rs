@@ -71,7 +71,7 @@ use crate::{
 
 /// Default ceiling on one response body (64 MiB). Each route has a smaller
 /// cap of its own ([`crate::limits`]); the ceiling bounds the routes without
-/// one: a full `eth_getBlockReceipts` and a 100-block TRON segment.
+/// one, such as a full `eth_getBlockReceipts`.
 pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
 /// Most calls accepted in one JSON-RPC batch.
 pub const MAX_JSON_RPC_BATCH: usize = 100;
@@ -241,13 +241,6 @@ pub enum RpcError {
         /// The error object, as an [`RpcError::JsonRpc`].
         error: Box<RpcError>,
     },
-    /// An HTTP API reported an error in a success response (TRON `{"Error": …}`).
-    Api {
-        /// Endpoint origin.
-        endpoint: String,
-        /// Sanitized error message.
-        message: String,
-    },
     /// Every attempt of every round failed with a failover error.
     Exhausted {
         /// Each failed attempt, in order.
@@ -291,17 +284,14 @@ impl RpcError {
 
     /// Whether this answer is a reason to start the next request at another
     /// endpoint: a non-failover HTTP status (404 included), a JSON-RPC error
-    /// object, a TRON API error, or a malformed response. The answer itself is
-    /// still returned; only the preferred endpoint moves on. Errors raised
-    /// before anything was sent and failover errors discredit nobody.
+    /// object or a malformed response. The answer itself is still returned;
+    /// only the preferred endpoint moves on. Errors raised before anything was
+    /// sent and failover errors discredit nobody.
     pub fn discredits_endpoint(&self) -> bool {
         !self.is_failover()
             && matches!(
                 self,
-                Self::Status { .. }
-                    | Self::JsonRpc { .. }
-                    | Self::Api { .. }
-                    | Self::InvalidResponse { .. }
+                Self::Status { .. } | Self::JsonRpc { .. } | Self::InvalidResponse { .. }
             )
     }
 
@@ -374,9 +364,6 @@ impl fmt::Display for RpcError {
             } => write!(formatter, "{endpoint}: JSON-RPC error {code}: {message}"),
             Self::BatchRejected { error } => {
                 write!(formatter, "JSON-RPC batch rejected: {error}")
-            }
-            Self::Api { endpoint, message } => {
-                write!(formatter, "{endpoint}: API error: {message}")
             }
             Self::Exhausted { failures } => {
                 write!(
@@ -733,32 +720,6 @@ impl HttpTransport {
             cap: http_response_cap(path),
         };
         self.execute_then(&spec, |response| decode(response.json()?))
-    }
-
-    /// `POST path` with a JSON body; parses the answer and passes it with the
-    /// answering endpoint's origin to `decode`, both inside the attempt (see
-    /// [`Self::get_json_then`]).
-    ///
-    /// # Errors
-    /// Any [`RpcError`], including those of `decode`.
-    pub fn post_json_then<T>(
-        &self,
-        path: &str,
-        body: &Value,
-        decode: impl Fn(&str, Value) -> Result<T, RpcError>,
-    ) -> Result<T, RpcError> {
-        let bytes = encode_json(body)?;
-        let spec = RequestSpec {
-            method: Method::POST,
-            path,
-            accept: MEDIA_TYPE_JSON,
-            body: Some((MEDIA_TYPE_JSON, &bytes)),
-            cap: http_response_cap(path),
-        };
-        self.execute_then(&spec, |response| {
-            let value = response.json()?;
-            decode(&response.endpoint, value)
-        })
     }
 
     /// One JSON-RPC 2.0 call against the endpoint URL itself; returns `result`
@@ -1249,22 +1210,18 @@ fn media_type_of(content_type: &str) -> String {
         .to_ascii_lowercase()
 }
 
-/// Extracts a message from an error body: `message`, `error` or `Error`
-/// members of a JSON object, or a `text/plain` body.
+/// Extracts a message from an error body: the `message` or `error` member of
+/// a JSON object, or a `text/plain` body.
 fn error_message(content_type: Option<&str>, body: &[u8]) -> Option<String> {
     let text = std::str::from_utf8(body).ok()?;
     if let Ok(Value::Object(map)) = parse_json(body, JsonLimits::for_cap(ERROR_BODY_LIMIT)) {
-        let message = map
-            .get("message")
-            .and_then(Value::as_str)
-            .or_else(|| map.get("Error").and_then(Value::as_str))
-            .or_else(|| {
-                map.get("error").and_then(|error| {
-                    error
-                        .as_str()
-                        .or_else(|| error.get("message").and_then(Value::as_str))
-                })
-            })?;
+        let message = map.get("message").and_then(Value::as_str).or_else(|| {
+            map.get("error").and_then(|error| {
+                error
+                    .as_str()
+                    .or_else(|| error.get("message").and_then(Value::as_str))
+            })
+        })?;
         return Some(sanitize_message(message));
     }
     let is_plain = content_type.is_some_and(|value| media_type_of(value) == "text/plain");
@@ -1549,13 +1506,6 @@ mod tests {
             }
             .is_failover()
         );
-        assert!(
-            !RpcError::Api {
-                endpoint: "e".to_owned(),
-                message: "x".to_owned(),
-            }
-            .is_failover()
-        );
         // Bodies over their cap or decode limits fail over.
         assert!(
             RpcError::ResponseTooLarge {
@@ -1599,10 +1549,6 @@ mod tests {
             json_rpc(-32000),
             json_rpc(3),
             invalid_response("bad hex"),
-            RpcError::Api {
-                endpoint: "e".to_owned(),
-                message: "x".to_owned(),
-            },
         ] {
             assert!(discrediting.discredits_endpoint(), "{discrediting:?}");
         }
@@ -1758,10 +1704,8 @@ mod tests {
             ),
             Some("LC bootstrap unavailable".to_owned())
         );
-        assert_eq!(
-            error_message(None, br#"{"Error":"class x : y"}"#),
-            Some("class x : y".to_owned())
-        );
+        // The `Error` member of the removed TRON HTTP API is not read.
+        assert_eq!(error_message(None, br#"{"Error":"class x : y"}"#), None);
         assert_eq!(
             error_message(None, br#"{"error":{"code":-1,"message":"m"}}"#),
             Some("m".to_owned())

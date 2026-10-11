@@ -7,8 +7,7 @@
 //! - EIP-1559 (type 2) transactions for Ethereum (chain id 1) and BSC (chain id 56): canonical
 //!   RLP with an empty access list, and secp256k1 signing over
 //!   `keccak256(0x02 ‖ rlp([chainId, nonce, maxPriorityFeePerGas, maxFeePerGas, gasLimit, to,
-//!   value, data, accessList]))` with RFC 6979 nonces, low-S and `yParity ∈ {0, 1}`. TRON uses
-//!   its own `TriggerSmartContract` transactions (`super::tron`).
+//!   value, data, accessList]))` with RFC 6979 nonces, low-S and `yParity ∈ {0, 1}`.
 //! - `--emit` export of the unsigned transaction for an external signer: the raw
 //!   `0x02 ‖ rlp(…)` bytes, the signing hash, and QR-friendly uppercase-hex parts in the QR
 //!   alphanumeric character set. A signature returned by the signer is attached with
@@ -390,7 +389,7 @@ fn minimal(word: &[u8; 32]) -> &[u8] {
 ///
 /// # Errors
 ///
-/// Returns [`EvmError::UnsupportedNetwork`] for Taira, TRON and TON.
+/// Returns [`EvmError::UnsupportedNetwork`] for Taira and TON.
 pub fn eip1559_chain_id(network: SccpNetworkV1) -> Result<u64, EvmError> {
     match network {
         SccpNetworkV1::EthereumMainnet => Ok(ETHEREUM_CHAIN_ID),
@@ -1167,11 +1166,7 @@ mod tests {
             ),
             Err(EvmError::ZeroGasLimit)
         );
-        for network in [
-            SccpNetworkV1::SoraTaira,
-            SccpNetworkV1::TronMainnet,
-            SccpNetworkV1::TonMainnet,
-        ] {
+        for network in [SccpNetworkV1::SoraTaira, SccpNetworkV1::TonMainnet] {
             assert_eq!(
                 eip1559_chain_id(network),
                 Err(EvmError::UnsupportedNetwork(network))
@@ -1334,9 +1329,9 @@ mod tests {
     fn evm_errors_display() {
         assert!(EvmError::WrongPurpose.to_string().contains("different"));
         assert!(
-            EvmError::UnsupportedNetwork(SccpNetworkV1::TronMainnet)
+            EvmError::UnsupportedNetwork(SccpNetworkV1::TonMainnet)
                 .to_string()
-                .contains("tron-mainnet")
+                .contains("ton-mainnet")
         );
         assert!(
             EvmError::WrongSender {

@@ -510,21 +510,25 @@ classified_owner!(WorldData, check_world_fields, WORLD_FIELDS, readers = WorldRe
     parliament_attempts: Storage<iroha_data_model::governance::types::GovernanceAttemptId, ParliamentAttemptStateV1> => ("world.parliament_attempts",
         Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::governance::types::GovernanceAttemptId>(), value: schema::<ParliamentAttemptStateV1>() })), release = parliament_attempts;
     parliament_attempt_counts: Cell<ParliamentAttemptCountsV1> => ("world.parliament_attempt_counts",
-        Role::Derived { sources: &["world.parliament_attempts", "world.global_beacon_pulses"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") }), release = parliament_attempt_counts;
+        Role::Derived { sources: &["world.parliament_attempts"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") }), release = parliament_attempt_counts;
     parliament_member_reference_counts: Storage<AccountId, ParliamentMemberReferenceCountsV1> => ("world.parliament_member_reference_counts",
-        Role::Derived { sources: &["world.parliament_attempts", "world.global_beacon_pulses"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") }), release = parliament_member_reference_counts;
+        Role::Derived { sources: &["world.parliament_attempts"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") }), release = parliament_member_reference_counts;
     parliament_timed_ovn_resource_reservations: Storage<BallotAttemptId, ParliamentTimedOvnResourceReservationV1> => ("world.parliament_timed_ovn_resource_reservations",
-        Role::Derived { sources: &["world.parliament_attempts", "world.global_beacon_pulses"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") }), release = _parliament_timed_ovn_resource_reservations;
+        Role::Derived { sources: &["world.parliament_attempts"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") }), release = _parliament_timed_ovn_resource_reservations;
     parliament_timed_ovn_casting_candidates: Storage<BallotAttemptId, ParliamentTimedOvnCastingCandidateV1> => ("world.parliament_timed_ovn_casting_candidates",
-        Role::Derived { sources: &["world.parliament_attempts", "world.global_beacon_pulses"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") }), release = parliament_timed_ovn_casting_candidates;
+        Role::Derived { sources: &["world.parliament_attempts"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") }), release = parliament_timed_ovn_casting_candidates;
+    // Governance-local read index of the beacon slots that live attempts await (sortition
+    // `AwaitingPulse` slots and timed-OVN release slots). It is derived from the attempts
+    // alone and creates no consensus obligation: no pulse is demanded, vetoed or checked
+    // against it.
+    // TODO: rename and re-scope with the governance due-item iterator when timed-OVN is
+    // retired (specs/parliament_private_ballot_design.md 12.2 step 4).
     parliament_required_beacon_pulse_slots: Storage<(BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>> => ("world.parliament_required_beacon_pulse_slots",
-        Role::Derived { sources: &["world.parliament_attempts", "world.global_beacon_pulses"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") }), release = parliament_required_beacon_pulse_slots;
+        Role::Derived { sources: &["world.parliament_attempts"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") }), release = parliament_required_beacon_pulse_slots;
     parliament_certified_enactments: Storage<u64, BTreeSet<GovernanceAttemptId>> => ("world.parliament_certified_enactments",
-        Role::Derived { sources: &["world.parliament_attempts", "world.global_beacon_pulses"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") }), release = parliament_certified_enactments;
-    parliament_unavailable_beacon_pulse_slots: Storage<(BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>> => ("world.parliament_unavailable_beacon_pulse_slots",
-        Role::Derived { sources: &["world.parliament_attempts", "world.global_beacon_pulses"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") }), release = parliament_unavailable_beacon_pulse_slots;
+        Role::Derived { sources: &["world.parliament_attempts"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") }), release = parliament_certified_enactments;
     parliament_tle_key_session_retention_deadlines: Storage<TleKeySessionId, ParliamentTleKeySessionRetentionIndexV1> => ("world.parliament_tle_key_session_retention_deadlines",
-        Role::Derived { sources: &["world.parliament_attempts", "world.global_beacon_pulses"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") }), release = parliament_tle_key_session_retention_deadlines;
+        Role::Derived { sources: &["world.parliament_attempts"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") }), release = parliament_tle_key_session_retention_deadlines;
     tle_key_session_selection_intervals: Storage<u64, (u64, TleKeySessionId)> => ("world.tle_key_session_selection_intervals",
         Role::Derived { sources: &["world.tle_key_session_lifecycles", "world.tle_active_key_session"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; tle_key_session_selection_intervals_v1") }), release = tle_key_session_selection_intervals;
     tle_key_sessions: Storage<TleKeySessionId, TleKeySessionPublicStateV1> => ("world.tle_key_sessions",

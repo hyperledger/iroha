@@ -761,9 +761,46 @@ pub(crate) fn pending_batched_sortition_attempt(
         "a pulse needs a positive predecessor request height"
     );
     let request_height = pulse_height.saturating_sub(10).max(1);
-    // The fixture's frozen policy must describe the exact requested delay,
-    // including pulses before height 11 where a ten-block delay is impossible.
+    // The fixture's frozen policy must describe the exact requested slot: the delay covers
+    // pulses before height 11, where a ten-block delay is impossible, and the frozen epoch
+    // length makes `pulse_height` the chain's first consensus-native pulse height.
     let pulse_delay = pulse_height - request_height;
+    let pulse_epoch_length = pulse_height + 1;
+    let (governance_attempt_id, request_ids, attempt, slot) =
+        pending_batched_sortition_attempt_with_schedule(
+            network_id,
+            roster,
+            request_height,
+            pulse_delay,
+            pulse_epoch_length,
+        );
+    assert_eq!(slot, pulse_height);
+    (governance_attempt_id, request_ids, attempt)
+}
+
+/// The same pending two-body generation under an explicit frozen schedule: requested at
+/// `request_height` with `pulse_delay` blocks of delay on a chain whose consensus-native
+/// epoch is `pulse_epoch_length` blocks long. Also returns the frozen slot, the first native
+/// pulse height at or after `request_height + pulse_delay`.
+pub(crate) fn pending_batched_sortition_attempt_with_schedule(
+    network_id: &NetworkId,
+    roster: &[PeerId],
+    request_height: u64,
+    pulse_delay: u64,
+    pulse_epoch_length: u64,
+) -> (
+    GovernanceAttemptId,
+    Vec<SortitionRequestId>,
+    ParliamentAttemptStateV1,
+    u64,
+) {
+    let pulse_height = crate::governance::parliament::aligned_sortition_pulse_height_v1(
+        request_height
+            .checked_add(pulse_delay)
+            .expect("fixture earliest pulse height fits"),
+        pulse_epoch_length,
+    )
+    .expect("fixture schedule has a native pulse height");
     let proposal_content_id = ProposalContentId::new([0x41; 32]);
     let governance_attempt_id = GovernanceAttemptId::derive_v1(proposal_content_id, 0);
     let mut attempt = ParliamentAttemptStateV1::try_new(
@@ -777,6 +814,7 @@ pub(crate) fn pending_batched_sortition_attempt(
         },
         1,
         pulse_delay,
+        pulse_epoch_length,
         [0x42; 32],
         GovernanceExpectedHeadV1::Absent(GovernanceExpectedHeadAbsentV1 {
             subject_id: [0x43; 32],
@@ -828,7 +866,7 @@ pub(crate) fn pending_batched_sortition_attempt(
             .expect("register pending logical-beacon request");
     }
     request_ids.sort_unstable();
-    (governance_attempt_id, request_ids, attempt)
+    (governance_attempt_id, request_ids, attempt, pulse_height)
 }
 
 #[test]
@@ -1217,35 +1255,41 @@ fn first_finalized_pulse_initializes_an_empty_ingestion_cursor() {
 }
 
 #[test]
-fn late_sortition_pulse_is_rejected_after_parliament_transcript_restart_roundtrip() {
+fn consensus_pulse_at_an_awaited_parliament_slot_is_stored_after_transcript_restart_roundtrip() {
     let (fixture, pulse, _origin, anchor) = signed_pulse_fixture();
     let roster = live_producer_keys()
         .into_iter()
         .map(|key| PeerId::new(key.public_key().clone()))
         .collect::<Vec<_>>();
-    let (governance_attempt_id, _, mut attempt) =
+    let (governance_attempt_id, _, attempt) =
         pending_batched_sortition_attempt(&pulse.network_id, &roster, pulse.height);
-    let failed_election_id =
+    let awaiting_election_id =
         BodyElectionAttemptId::derive_v1(governance_attempt_id, ParliamentBody::RulesCommittee, 0);
-    attempt
-        .fail_body_election_no_roster(
-            governance_attempt_id,
-            failed_election_id,
-            false,
-            pulse.height + 1,
-        )
-        .expect("terminally classify the missing initial sortition slot");
     let logical_session = BeaconSessionId::for_network_v1(&pulse.network_id);
-    assert!(attempt.classifies_beacon_pulse_unavailable_at(logical_session, pulse.height));
+    assert!(attempt.requires_beacon_pulse_at(logical_session, pulse.height));
 
+    // The pending wait survives both codecs unchanged and restores at any later height.
     let encoded = norito::json::to_json(&attempt)
-        .expect("serialize the terminal Parliament transcript for restart");
+        .expect("serialize the pending Parliament transcript for restart");
     let restored_attempt: ParliamentAttemptStateV1 =
-        norito::json::from_str(&encoded).expect("restore the terminal Parliament transcript");
+        norito::json::from_str(&encoded).expect("restore the pending Parliament transcript");
+    assert_eq!(restored_attempt, attempt);
+    let framed = norito::to_bytes(&attempt).expect("encode the pending Parliament transcript");
+    let decoded: ParliamentAttemptStateV1 =
+        norito::decode_from_bytes(&framed).expect("decode the pending Parliament transcript");
+    assert_eq!(decoded, attempt);
     restored_attempt
         .validate()
-        .expect("restored missing-pulse transcript remains canonical");
-    assert!(restored_attempt.classifies_beacon_pulse_unavailable_at(logical_session, pulse.height));
+        .expect("a restored pulse wait remains canonical");
+    restored_attempt
+        .validate_restored_height_v1(pulse.height + 1_000_000)
+        .expect("a slot far below the restored height is still a valid wait");
+    assert!(restored_attempt.requires_beacon_pulse_at(logical_session, pulse.height));
+    assert!(
+        restored_attempt
+            .unavailable_release_pulse_slots_v1()
+            .is_empty()
+    );
 
     let mut key_record = FinalizedGlobalThresholdBeaconKeySessionRecordV1::new(
         fixture.session.record().clone(),
@@ -1271,8 +1315,11 @@ fn late_sortition_pulse_is_rejected_after_parliament_transcript_restart_roundtri
         .unwrap(),
     );
     transaction
+        .global_beacon_active_session
+        .insert(GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY, pulse.session_id);
+    transaction
         .put_parliament_attempt(restored_attempt)
-        .expect("index restored terminal Parliament pulse classification");
+        .expect("index the restored pulse wait");
     assert_eq!(
         transaction.verify_and_advance_global_beacon_pulse(
             &fixture.session,
@@ -1280,8 +1327,33 @@ fn late_sortition_pulse_is_rejected_after_parliament_transcript_restart_roundtri
             anchor,
             &crate::beacon::pulse_context_fixture_v1(),
         ),
-        Err(GlobalThresholdBeaconError::PersistenceConflict),
-        "restart must not reopen a sortition slot already closed as unavailable"
+        Ok(GlobalThresholdBeaconPulseLinkV1 {
+            pulse_id: pulse.pulse_id,
+            seed: pulse.seed,
+            height: pulse.height,
+            round: pulse.round,
+        }),
+        "no Parliament state may veto a consensus pulse at a slot an election names"
+    );
+    let stored = transaction
+        .parliament_attempts
+        .get(&governance_attempt_id)
+        .expect("stored attempt");
+    let election = stored
+        .election(&awaiting_election_id)
+        .expect("stored election");
+    assert_eq!(
+        election.attempt().status,
+        iroha_data_model::governance::types::BodyElectionAttemptStatusV1::AwaitingPulse,
+        "storing the pulse does not move the election: only consumption draws"
+    );
+    assert_eq!(election.attempt().request.pulse_height, pulse.height);
+    assert!(
+        transaction
+            .parliament_required_beacon_pulse_slots
+            .get(&(logical_session, pulse.height))
+            .is_some_and(|attempts| attempts.contains(&governance_attempt_id)),
+        "the governance-local index keeps the awaited slot until the pulse is consumed"
     );
 }
 

@@ -567,9 +567,7 @@ impl SourceChainBuilder for BscBuilder {
             SourceEventRefV1::Evm { tx_hash, event } => {
                 build_evidence(self, tx_hash, *event, light_client, now_ms)
             }
-            SourceEventRefV1::Tron { .. } | SourceEventRefV1::Ton { .. } => {
-                Err(BuildError::Inconsistent("not a BSC event".into()))
-            }
+            SourceEventRefV1::Ton { .. } => Err(BuildError::Inconsistent("not a BSC event".into())),
         }
     }
 }

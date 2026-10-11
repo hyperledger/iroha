@@ -30,11 +30,12 @@ use iroha::{
         block::SignedBlock,
         governance::types::{
             AbiVersion, BallotAttemptId, BallotAttemptStatusV1, BeaconPulseId, BeaconSessionId,
-            BodyElectionAttemptId, BodyInstanceId, BodyInstanceStatusV1, ContractAbiHash,
-            ContractCodeHash, DeliberationPhaseV1, DeployContractProposal, GovernanceAttemptId,
-            GovernanceAttemptStatusV1, GovernanceStageV1, ParliamentAggregateOutcomeV1,
-            ParliamentBody, ParliamentNoResultKindV1, ProposalKind, SortitionRequestV1,
-            TleSessionId, parliament_ballot_participant_hash_v1, parliament_candidate_root_v1,
+            BodyElectionAttemptId, BodyElectionAttemptStatusV1, BodyInstanceId,
+            BodyInstanceStatusV1, ContractAbiHash, ContractCodeHash, DeliberationPhaseV1,
+            DeployContractProposal, GovernanceAttemptId, GovernanceAttemptStatusV1,
+            GovernanceStageV1, ParliamentAggregateOutcomeV1, ParliamentBody,
+            ParliamentNoResultKindV1, ProposalKind, SortitionRequestV1, TleSessionId,
+            parliament_ballot_participant_hash_v1, parliament_candidate_root_v1,
         },
         isi::{
             InstructionBox, Log,
@@ -65,7 +66,7 @@ use iroha::{
             Parameter,
             system::{
                 ConsensusHandshakeMetadata, SumeragiConsensusMode, SumeragiNposParameters,
-                consensus_metadata,
+                SumeragiParameter, consensus_metadata,
             },
         },
         permission::Permission,
@@ -118,6 +119,14 @@ mod support;
 use support::*;
 
 #[test]
+// TODO: this corridor needs a hidden ballot to open, and the timed-OVN release slot is no
+// longer consensus demand, so the ballot ends `ReleasePulseUnavailable` unless its frozen
+// release height coincides with a native pre-boundary pulse. Re-enable it on the anonymous
+// ballot (specs/parliament_private_ballot_design.md 12.2 step 4), which must replace the
+// timed-OVN half of `enactment::enact`; the sortition half already uses the native slot,
+// and the public-finding NoResult tail runs on its own in
+// `four_validator_public_finding_no_result_retries_take_later_native_slots`.
+#[ignore = "timed-OVN release slot is no longer consensus demand; the hidden ballot is replaced by the anonymous ballot (specs/parliament_private_ballot_design.md 12.2 step 4)"]
 fn four_validator_policy_jury_uses_future_pulses_and_mandatory_timed_ovn() -> Result<()> {
     let name = stringify!(four_validator_policy_jury_uses_future_pulses_and_mandatory_timed_ovn);
     let handle = std::thread::Builder::new()
@@ -520,6 +529,9 @@ async fn four_validator_mandatory_npos_epoch_boundary_threshold_beacon_release_g
                     TEST_NEXUS_LOCAL_STORAGE_BUDGET_BYTES,
                 );
         })
+        .with_genesis_instruction(SetParameter::new(Parameter::Sumeragi(
+            SumeragiParameter::EpochLengthBlocks(npos.epoch_length_blocks),
+        )))
         .with_genesis_instruction(SetParameter::new(Parameter::Custom(
             npos.into_custom_parameter(),
         )));
@@ -799,9 +811,18 @@ async fn four_validator_mandatory_npos_epoch_boundary_threshold_beacon_release_g
                         .collect::<Vec<_>>(),
                     expected_roster
                 );
-                original_authority = Some(context.authority.clone());
+                original_authority = Some((
+                    context.authorization.authority_generation,
+                    context.authorization.authority_id,
+                ));
             }
-            assert_eq!(&context.authority, original_authority.as_ref().unwrap());
+            assert_eq!(
+                (
+                    context.authorization.authority_generation,
+                    context.authorization.authority_id,
+                ),
+                original_authority.unwrap()
+            );
             assert_eq!(context.da_layout, recommended_data_availability_layout());
             assert_eq!(context.committee.len(), VALIDATOR_COUNT);
             // visit_certified_prefix checks the exact three equal native votes at
@@ -937,6 +958,9 @@ async fn four_validator_mandatory_npos_beacon_fails_closed_below_threshold_impl(
                     TEST_NEXUS_LOCAL_STORAGE_BUDGET_BYTES,
                 );
         })
+        .with_genesis_instruction(SetParameter::new(Parameter::Sumeragi(
+            SumeragiParameter::EpochLengthBlocks(npos.epoch_length_blocks),
+        )))
         .with_genesis_instruction(SetParameter::new(Parameter::Custom(
             npos.into_custom_parameter(),
         )));
@@ -1215,6 +1239,457 @@ async fn four_validator_mandatory_npos_beacon_fails_closed_below_threshold_impl(
 }
 
 #[test]
+fn four_validator_pending_parliament_request_never_blocks_unrelated_work_or_restart() -> Result<()>
+{
+    let name = stringify!(
+        four_validator_pending_parliament_request_never_blocks_unrelated_work_or_restart
+    );
+    let handle = std::thread::Builder::new()
+        .name(name.to_owned())
+        .stack_size(PARLIAMENT_NETWORK_STACK_BYTES)
+        .spawn(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(4)
+                .thread_stack_size(PARLIAMENT_NETWORK_STACK_BYTES)
+                .enable_all()
+                .build()
+                .expect("build four-validator governance-isolation test runtime")
+                .block_on(
+                    four_validator_pending_parliament_request_never_blocks_unrelated_work_or_restart_impl(),
+                )
+        })
+        .expect("spawn four-validator governance-isolation test thread");
+    match handle.join() {
+        Ok(result) => result,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
+// A pending Parliament sortition request is governance-local. Its slot is the far native
+// pre-boundary height of the default epoch, no validator quorum can sign a threshold pulse,
+// and the chain still commits unrelated work, restarts a validator and stays ready.
+async fn four_validator_pending_parliament_request_never_blocks_unrelated_work_or_restart_impl()
+-> Result<()> {
+    assert_eq!(
+        FAIL_CLOSED_BEACON_SIGNER_MODES
+            .iter()
+            .filter(|mode| **mode == ParliamentBeaconSignerMode::Valid)
+            .count(),
+        1,
+        "the isolation corridor must leave the beacon below its exact threshold of two",
+    );
+    let contract_address = ContractAddress::from_str(CONTRACT_ADDRESS)?;
+    // No explicit NPoS snapshot: the network signs the default epoch length.
+    let builder = enactment::builder_with_signer_modes(
+        NetworkBuilder::new()
+            .with_peers(VALIDATOR_COUNT)
+            .with_auto_populated_trusted_peers(),
+        FAIL_CLOSED_BEACON_SIGNER_MODES,
+    )
+    .with_genesis_instruction(Grant::account_permission(
+        Permission::from(CanManageSmartContractCode),
+        ALICE_ID.clone(),
+    ))
+    .with_genesis_instruction(Grant::account_permission(
+        Permission::from(CanProposeContractDeployment {
+            contract_address: contract_address.clone(),
+        }),
+        ALICE_ID.clone(),
+    ));
+    let context = stringify!(
+        four_validator_pending_parliament_request_never_blocks_unrelated_work_or_restart
+    );
+    let network = sandbox::start_network_async_or_skip(builder, context).await?;
+    let Some(network) = sandbox::enforce_network_start_requirement(network, context)? else {
+        return Ok(());
+    };
+    assert_eq!(network.peers().len(), VALIDATOR_COUNT);
+    assert_eq!(
+        signed_consensus_handshake(&network)?.mode,
+        SumeragiConsensusMode::Npos
+    );
+    network.ensure_blocks(1).await?;
+
+    let client = network.client();
+    let epoch_length_blocks = certified_npos_epoch_length(&network, &client).await?;
+    assert_eq!(
+        epoch_length_blocks,
+        SumeragiNposParameters::default().epoch_length_blocks.get(),
+        "the isolation corridor must run on the default signed NPoS epoch",
+    );
+    // No beacon key session is installed, and the signer profile stays below the exact
+    // threshold of two for any session: no validator set can produce a threshold pulse
+    // at any height of this corridor.
+    // TODO: also run this corridor with an installed, below-threshold key session (as the
+    // fail-closed corridor installs it) once the test-network beacon fixture
+    // `deterministic_parliament_beacon_key_record_v1` is rebuilt on the all-edge DKG; it is
+    // currently rejected with "test Parliament beacon cryptographic fixture is invalid".
+    for peer in network.peers() {
+        let (_, horizon) = require_beacon_horizon(
+            &peer.client(),
+            "governance-isolation precondition without a beacon key session",
+        )
+        .await?;
+        assert!(
+            horizon.active_session_id.is_none(),
+            "the isolation corridor must run without an installed beacon key session",
+        );
+    }
+
+    let (code_hash, abi_hash) =
+        stage_contract_artifact(&client, &minimal_contract_artifact()).await?;
+    let create = CreateParliamentGovernanceAttemptV1 {
+        proposal: ProposalKind::DeployContract(DeployContractProposal {
+            proposal_operator: client.client().account().clone(),
+            contract_address: contract_address.clone(),
+            code_hash,
+            abi_hash,
+            abi_version: AbiVersion::new(1),
+            manifest_provenance: None,
+        }),
+        attempt_sequence: 0,
+    };
+    let attempt_id = create.governance_attempt_id();
+    let request_height =
+        next_execution_height(&client, 0, "governance-isolation sortition request").await?;
+    submit_parliament_instructions(
+        &client,
+        [
+            InstructionBox::from(ProposeDeployContract {
+                contract_address: contract_address.clone(),
+                code_hash,
+                abi_hash,
+                abi_version: AbiVersion::new(1),
+                manifest_provenance: None,
+            }),
+            InstructionBox::from(create),
+            InstructionBox::from(SubmitParliamentLifecycleTransitionV1 {
+                governance_attempt_id: attempt_id,
+                transition: ParliamentLifecycleTransitionV1::CompleteQualification,
+            }),
+            InstructionBox::from(SubmitParliamentLifecycleTransitionV1 {
+                governance_attempt_id: attempt_id,
+                transition: ParliamentLifecycleTransitionV1::RegisterInitialSortition,
+            }),
+        ],
+    )
+    .await?;
+    assert_eq!(current_height(&client).await?, request_height);
+
+    let pending = read_attempt(&client, attempt_id).await?;
+    assert_eq!(pending.attempt().status, GovernanceAttemptStatusV1::Active);
+    assert_eq!(
+        pending.sortition_pulse_epoch_length_blocks(),
+        epoch_length_blocks
+    );
+    let retired_slot = request_height
+        .checked_add(pending.sortition_pulse_delay_blocks())
+        .ok_or_else(|| eyre!("retired governance slot overflow"))?;
+    let pending_slot = aligned_native_pulse_height(retired_slot, epoch_length_blocks)?;
+    assert_eq!(
+        pending_slot,
+        epoch_length_blocks - 1,
+        "the frozen slot must be the first native pre-boundary height of the default epoch",
+    );
+    let isolation_tip = retired_slot
+        .checked_add(ISOLATION_CARRIERS_PAST_RETIRED_SLOT - 1)
+        .ok_or_else(|| eyre!("governance-isolation tip overflow"))?;
+    assert!(
+        isolation_tip < pending_slot - 1,
+        "the corridor must stay far below the only native pulse height",
+    );
+    let election_ids = pending
+        .required_bodies()
+        .iter()
+        .filter(|required| required.body != ParliamentBody::ConfirmationJury)
+        .map(|required| BodyElectionAttemptId::derive_v1(attempt_id, required.body, 0))
+        .collect::<Vec<_>>();
+    assert_eq!(election_ids.len(), 6);
+    let assert_pending_on_original_slot = |state: &ParliamentAttemptStateV1| {
+        assert_eq!(state.attempt().status, GovernanceAttemptStatusV1::Active);
+        assert!(state.certificate().is_none());
+        for election_id in &election_ids {
+            let election = state
+                .election(election_id)
+                .expect("the pending sortition request must stay registered");
+            assert_eq!(
+                election.attempt().status,
+                BodyElectionAttemptStatusV1::AwaitingPulse
+            );
+            assert_eq!(election.attempt().request.request_height, request_height);
+            assert_eq!(
+                election.attempt().request.pulse_height,
+                pending_slot,
+                "a pending sortition request must stay on exactly its original frozen slot",
+            );
+            assert!(election.pulse_id().is_none());
+            assert!(election.pulse_output().is_none());
+            assert!(election.primary_assignments().is_empty());
+        }
+    };
+    assert_pending_on_original_slot(&pending);
+    let pending_payload = read_on_dedicated_thread({
+        let client = client.client().clone();
+        move || client.get_parliament_attempt(attempt_id)
+    })
+    .await?
+    .state_payload_hex;
+
+    // Unrelated work up to the height just below the retired slot.
+    advance_to_height_with_carriers(
+        &network,
+        &client,
+        retired_slot - 1,
+        "governance-isolation unrelated work before the retired slot",
+    )
+    .await?;
+    admit_parliament_height_carrier(
+        &client,
+        [Log::new(
+            Level::INFO,
+            format!("governance-isolation unrelated work at the retired slot {retired_slot}"),
+        )],
+    )
+    .await?;
+    // BASELINE-FAILING ASSERTION: before governance availability was isolated, the pending
+    // request made `request_height + delay` a consensus-demanded pulse height. No key session
+    // is installed here (and the signer profile is below threshold for any session), so that
+    // pulse could never be produced: this wait timed out and the chain stayed at
+    // `retired_slot - 1`. It must now commit as an ordinary block.
+    network.ensure_blocks(retired_slot).await?;
+    observe_exact_height(
+        &client,
+        retired_slot,
+        "a pending Parliament request must not stall the chain at its retired mid-epoch slot",
+    )
+    .await?;
+    advance_to_height_with_carriers(
+        &network,
+        &client,
+        isolation_tip,
+        "governance-isolation unrelated work past the retired slot",
+    )
+    .await?;
+    assert_eq!(
+        isolation_tip - request_height,
+        pending.sortition_pulse_delay_blocks() + ISOLATION_CARRIERS_PAST_RETIRED_SLOT - 1,
+        "at least twelve unrelated carriers must commit while the request is pending",
+    );
+    network.ensure_blocks(isolation_tip).await?;
+
+    let tip_hash = exact_block(&client, isolation_tip).await?.hash();
+    for peer in network.peers() {
+        let peer_client = peer.client();
+        assert_eq!(
+            exact_block(&peer_client, isolation_tip).await?.hash(),
+            tip_hash,
+            "every validator must commit the same unrelated work",
+        );
+        for height in request_height..=isolation_tip {
+            assert_no_global_beacon_pulse_at(
+                &peer_client,
+                height,
+                "a pending Parliament request must not create a global beacon pulse",
+            )
+            .await?;
+        }
+        let response = read_on_dedicated_thread({
+            let client = peer_client.client().clone();
+            move || client.get_parliament_attempt(attempt_id)
+        })
+        .await?;
+        assert_eq!(
+            response.state_payload_hex, pending_payload,
+            "unrelated work must not move the pending request on any validator",
+        );
+        assert_pending_on_original_slot(&read_attempt(&peer_client, attempt_id).await?);
+        // Readiness reads the consensus-native horizon only: the next required pulse is the
+        // epoch's own pre-boundary height, never the governance request's retired slot. The
+        // horizon is required, so these assertions cannot pass by its absence.
+        let (status, horizon) = require_beacon_horizon(
+            &peer_client,
+            "governance-isolation readiness while the request is pending",
+        )
+        .await?;
+        assert!(
+            !status.is_halted(),
+            "a pending Parliament request must not fail-stop a validator",
+        );
+        assert!(status.committed_height >= isolation_tip);
+        assert!(status.applied_height <= status.committed_height);
+        assert_eq!(horizon.epoch_length_blocks, epoch_length_blocks);
+        assert_ne!(horizon.next_required_pulse_height, Some(retired_slot));
+        assert_eq!(
+            horizon.next_required_pulse_height,
+            Some(pending_slot),
+            "the beacon horizon must name only the native pre-boundary pulse",
+        );
+    }
+
+    let restart_peer = network
+        .peers()
+        .last()
+        .expect("four-validator network has a restart peer")
+        .clone();
+    let config_layers = network.config_layers().collect::<Vec<_>>();
+    assert!(
+        restart_peer.shutdown_if_started().await,
+        "the restart validator must be running while the request is pending",
+    );
+    tokio::time::timeout(
+        network.peer_startup_timeout(),
+        restart_peer.start_checked(config_layers.iter(), None),
+    )
+    .await
+    .map_err(|_| eyre!("governance-isolation restart exceeded its startup window"))??;
+    tokio::time::timeout(
+        network.sync_timeout(),
+        restart_peer.once_block(isolation_tip),
+    )
+    .await
+    .map_err(|_| eyre!("restarted validator did not recover the pending-request chain"))?;
+    assert_eq!(
+        exact_block(&restart_peer.client(), isolation_tip)
+            .await?
+            .hash(),
+        tip_hash,
+    );
+    let restarted_response = read_on_dedicated_thread({
+        let client = restart_peer.client().client().clone();
+        move || client.get_parliament_attempt(attempt_id)
+    })
+    .await?;
+    assert_eq!(
+        restarted_response.state_payload_hex, pending_payload,
+        "restart must restore the pending request on exactly its original slot",
+    );
+
+    // The restarted validator rejoins and the chain keeps committing unrelated work.
+    let final_tip = isolation_tip + ISOLATION_CARRIERS_AFTER_RESTART;
+    advance_to_height_with_carriers(
+        &network,
+        &client,
+        final_tip,
+        "governance-isolation unrelated work after restart",
+    )
+    .await?;
+    tokio::time::timeout(network.sync_timeout(), restart_peer.once_block(final_tip))
+        .await
+        .map_err(|_| eyre!("restarted validator did not catch up with later unrelated work"))?;
+    let final_hash = exact_block(&client, final_tip).await?.hash();
+    for peer in network.peers() {
+        let peer_client = peer.client();
+        assert_eq!(
+            exact_block(&peer_client, final_tip).await?.hash(),
+            final_hash
+        );
+        for height in isolation_tip..=final_tip {
+            assert_no_global_beacon_pulse_at(
+                &peer_client,
+                height,
+                "post-restart unrelated work must not create a global beacon pulse",
+            )
+            .await?;
+        }
+        let response = read_on_dedicated_thread({
+            let client = peer_client.client().clone();
+            move || client.get_parliament_attempt(attempt_id)
+        })
+        .await?;
+        assert_eq!(response.state_payload_hex, pending_payload);
+        assert_pending_on_original_slot(&read_attempt(&peer_client, attempt_id).await?);
+        let status = read_on_dedicated_thread({
+            let client = peer_client.client().clone();
+            move || client.get_sumeragi_status()
+        })
+        .await?;
+        assert!(!status.is_halted());
+        assert!(status.committed_height >= final_tip);
+    }
+
+    network.shutdown().await;
+    Ok(())
+}
+
+#[test]
+fn four_validator_public_finding_no_result_retries_take_later_native_slots() -> Result<()> {
+    let name = stringify!(four_validator_public_finding_no_result_retries_take_later_native_slots);
+    let handle = std::thread::Builder::new()
+        .name(name.to_owned())
+        .stack_size(PARLIAMENT_NETWORK_STACK_BYTES)
+        .spawn(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(4)
+                .thread_stack_size(PARLIAMENT_NETWORK_STACK_BYTES)
+                .enable_all()
+                .build()
+                .expect("build four-validator public-finding NoResult test runtime")
+                .block_on(
+                    four_validator_public_finding_no_result_retries_take_later_native_slots_impl(),
+                )
+        })
+        .expect("spawn four-validator public-finding NoResult test thread");
+    match handle.join() {
+        Ok(result) => result,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
+// Sortition-only corridor: two governance attempts each draw from their own native
+// pre-boundary pulse and end in a public-finding NoResult; no hidden ballot is registered.
+async fn four_validator_public_finding_no_result_retries_take_later_native_slots_impl() -> Result<()>
+{
+    let citizen_keys = citizen_keys();
+    let citizens = citizen_accounts(&citizen_keys);
+    let contract_address = ContractAddress::from_str(NO_RESULT_RETRY_CONTRACT_ADDRESS)?;
+    let builder = enactment::builder(
+        NetworkBuilder::new()
+            .with_peers(VALIDATOR_COUNT)
+            .with_auto_populated_trusted_peers(),
+    )
+    .with_genesis_instruction(Grant::account_permission(
+        Permission::from(CanManageSmartContractCode),
+        ALICE_ID.clone(),
+    ))
+    .with_genesis_instruction(Grant::account_permission(
+        Permission::from(CanProposeContractDeployment {
+            contract_address: contract_address.clone(),
+        }),
+        ALICE_ID.clone(),
+    ));
+    let context =
+        stringify!(four_validator_public_finding_no_result_retries_take_later_native_slots);
+    let network = sandbox::start_network_async_or_skip(builder, context).await?;
+    let Some(network) = sandbox::enforce_network_start_requirement(network, context)? else {
+        return Ok(());
+    };
+    assert_eq!(network.peers().len(), VALIDATOR_COUNT);
+    network.ensure_blocks(1).await?;
+    let client = network.client();
+    assert_eq!(
+        certified_npos_epoch_length(&network, &client).await?,
+        CORRIDOR_NPOS_EPOCH_LENGTH_BLOCKS,
+    );
+    enactment::fund_citizen_fees(&network, &client, &citizens).await?;
+    let sessions = failure_paths::install_threshold_sessions(&network, &client).await?;
+    let (code_hash, abi_hash) =
+        stage_contract_artifact(&client, &minimal_contract_artifact()).await?;
+    no_result_paths::exercise_public_finding_no_result_retries_and_restore(
+        &network,
+        &client,
+        &citizens,
+        &citizen_keys,
+        &contract_address,
+        code_hash,
+        abi_hash,
+        sessions.logical_beacon,
+    )
+    .await?;
+    network.shutdown().await;
+    Ok(())
+}
+
+#[test]
 fn parliament_network_corridor_has_no_legacy_or_consensus_bypass_surface() {
     let source = [
         include_str!("sora_parliament_lifecycle_smoke.rs"),
@@ -1270,10 +1745,7 @@ fn parliament_network_corridor_has_no_legacy_or_consensus_bypass_surface() {
         "with_parliament_beacon_",
         "signer_modes(FAIL_CLOSED_BEACON_SIGNER_MODES)"
     )));
-    assert!(source.contains(concat!(
-        "SumeragiGenesisContextParameters::recommended()",
-        ".da_layout"
-    )));
+    assert!(source.contains(concat!("recommended_data_availability_", "layout()")));
     let boundary_helper = concat!("assert_transition_rejected_without_state_", "change(");
     assert_eq!(
         source.matches(boundary_helper).count(),
@@ -1287,8 +1759,41 @@ fn parliament_network_corridor_has_no_legacy_or_consensus_bypass_surface() {
         5,
         "the typed private-retry helper and all four boundary cases must remain",
     );
+    // The retired mid-epoch slot rule and its Parliament-demanded pulse wait must not return.
+    for retired in [
+        concat!("request_height", " + 4"),
+        concat!(".checked_add(CAPACITY_SORTITION", "_DELAY_BLOCKS)"),
+        concat!("retry_request_height", "\n        .checked_add(4)"),
+        concat!("demanded sortition ", "threshold-beacon effect"),
+    ] {
+        assert!(
+            !source.contains(retired),
+            "Parliament corridor restored the retired sortition slot rule `{retired}`",
+        );
+    }
+    assert_eq!(
+        source
+            .matches(concat!("expected_sortition_", "slot("))
+            .count(),
+        6,
+        "the helper definition plus five native-slot derivations must remain",
+    );
+    assert_eq!(
+        source
+            .matches(concat!("cross_native_boundary_", "after_pulse("))
+            .count(),
+        5,
+        "the helper definition plus four after-boundary consumptions must remain",
+    );
     for required in [
         concat!("ConsumeSortition", "PulseBatch"),
+        concat!("with_signed_npos_", "epoch("),
+        concat!("await_native_sortition_", "pulse("),
+        concat!("BASELINE-FAILING ", "ASSERTION"),
+        concat!(
+            "builder_with_signer_modes(",
+            "\n        NetworkBuilder::new()"
+        ),
         concat!("RegisterBallot", "Participant"),
         concat!("CloseBallot", "Registration"),
         concat!("FreezeBallot", "Survivors"),

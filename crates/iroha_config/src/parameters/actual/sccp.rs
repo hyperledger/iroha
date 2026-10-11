@@ -1,18 +1,18 @@
-//! Runtime view of the node-local SCCP configuration (`specs/sccp.md` §4.9, §4.13.4).
+//! Runtime view of the node-local SCCP configuration (`specs/sccp.md` §4.13.4).
 //!
-//! `[sccp.attestor]` configures the in-node bridge-key attestor and
-//! `[sccp.light_client_keeper]` the in-node inbound light-client keeper. Every default works
-//! without operator input: the bridge-key directory derives from `kura.store_dir`, and an
+//! `[sccp.keeper]` configures the in-node keeper and its keeper key, and
+//! `[sccp.light_client_keeper]` the keeper's light-client advance duty. Every default works
+//! without operator input: the keeper-key directory derives from `kura.store_dir`, and an
 //! empty endpoint list resolves to the compiled public list in
 //! [`defaults::sccp::endpoints`]. The endpoint syntax checks are public so that the RPC and
 //! wallet crates apply exactly the same rules to their own endpoint lists. Configuration
-//! parsing checks syntax only; owner-only file checks of key directories and secret-header
-//! files happen at runtime in the attestor, the keeper and the RPC crate.
+//! parsing checks syntax only; owner-only file checks of the key directory and secret-header
+//! files happen at runtime in the keeper and the RPC crate.
 
 use core::{fmt, str::FromStr};
 use std::{
     net::{Ipv4Addr, SocketAddrV4},
-    num::{NonZeroU32, NonZeroU64, NonZeroUsize},
+    num::NonZeroUsize,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -25,9 +25,9 @@ use crate::parameters::defaults;
 /// Node-local SCCP components (`[sccp]`).
 #[derive(Debug, Clone)]
 pub struct SccpNode {
-    /// In-node attestor (`[sccp.attestor]`, §4.9).
-    pub attestor: SccpAttestor,
-    /// In-node inbound light-client keeper (`[sccp.light_client_keeper]`, §4.13.4).
+    /// In-node keeper and its keeper key (`[sccp.keeper]`, §4.13.4).
+    pub keeper: SccpKeeper,
+    /// The keeper's light-client advance duty (`[sccp.light_client_keeper]`, §4.13.4).
     pub light_client_keeper: SccpLightClientKeeper,
 }
 
@@ -35,7 +35,7 @@ impl SccpNode {
     /// Complete default configuration for a node whose Kura store lives in `kura_store_dir`.
     pub fn defaults_for_kura_store_dir(kura_store_dir: &WithOrigin<PathBuf>) -> Self {
         Self {
-            attestor: SccpAttestor::defaults_for_kura_store_dir(kura_store_dir),
+            keeper: SccpKeeper::defaults_for_kura_store_dir(kura_store_dir),
             light_client_keeper: SccpLightClientKeeper::default(),
         }
     }
@@ -50,84 +50,75 @@ impl Default for SccpNode {
     }
 }
 
-/// In-node attestor (`[sccp.attestor]`, §4.9).
+/// In-node keeper (`[sccp.keeper]`, §4.13.4).
 ///
-/// The attestor generates the node's secp256k1 bridge key on first start, registers it with
-/// `SetSccpBridgeKeyV1`, signs every attestation subject its generations cover from local
-/// durably final state, and submits the signatures fee-exempt from the key's own account.
+/// The keeper is its own supervised task. It signs with a node-local Ed25519 keeper key that it
+/// generates on first start; the key is neither registered nor funded, because every
+/// transaction the keeper submits is fee-exempt on success (§4.19).
 #[derive(Debug, Clone)]
-pub struct SccpAttestor {
-    /// Whether the attestor runs. When the key directory is unusable the attestor stays inert
-    /// and reports `sccp_attestor_unconfigured`; the node itself never aborts.
+pub struct SccpKeeper {
+    /// Whether the keeper runs. When the key directory is unusable the keeper stays inert and
+    /// reports `sccp_keeper_unconfigured`; the node itself never aborts.
     pub enabled: bool,
-    /// Bridge-key directory: `<kura.store_dir>/sccp/bridge-keys` unless configured. The
-    /// directory is created `0700` and holds one owner-only `0600` file `<address-hex>.key`
-    /// per key; symlinks and other modes are refused at runtime. Resolve it with
+    /// Keeper-key directory: `<kura.store_dir>/sccp/keeper-key` unless configured. The
+    /// directory is created `0700` and holds the keeper key as one owner-only `0600` file;
+    /// symlinks and other modes are refused at runtime. Resolve it with
     /// [`Self::key_dir_path`].
     pub key_dir: WithOrigin<PathBuf>,
-    /// Build and submit `SetSccpBridgeKeyV1` for the newest local key automatically while the
-    /// node is a registered, non-barred validator (§4.2.3).
-    pub auto_register: bool,
-    /// Attestation entries batched into one `SubmitSccpAttestationsV1` transaction (1..=1024).
-    /// The node additionally caps it by the on-chain `max_attestation_entries_per_instruction`.
-    pub max_entries_per_transaction: NonZeroU32,
-    /// Blocks after which entries that are still unrecorded are resubmitted.
-    pub resubmit_after_blocks: NonZeroU64,
-    /// Largest lead of a rotation subject's `timestamp_ms` over the local wall clock that the
-    /// attestor still signs; a future-dated rotation would extend roster validity.
-    pub max_clock_drift: Duration,
-    /// Longest delay of a graceful shutdown while pending subjects of the node's keys are
-    /// signed, submitted and recorded.
-    pub shutdown_grace: Duration,
+    /// Whether the keeper submits due keepalives (§4.7.4).
+    // TODO: WP-S3: the keeper does not read `keepalive` and `keepalive_stagger` yet; the
+    // keepalive duty lands with the `Keepalive` instruction.
+    pub keepalive: bool,
+    /// Keepalive stagger per canonical committee index (nonzero).
+    pub keepalive_stagger: Duration,
+    /// Whether the keeper watches the registered destinations; it uses the endpoints of
+    /// [`SccpLightClientKeeper`].
+    // TODO: WP-S6: the keeper does not read `watch` yet; the watch duty lands with forgery
+    // evidence.
+    pub watch: bool,
 }
 
-impl SccpAttestor {
-    /// Default attestor configuration for a node whose Kura store lives in `kura_store_dir`.
+impl SccpKeeper {
+    /// Default keeper configuration for a node whose Kura store lives in `kura_store_dir`.
     pub fn defaults_for_kura_store_dir(kura_store_dir: &WithOrigin<PathBuf>) -> Self {
         Self {
-            enabled: defaults::sccp::attestor::ENABLED,
-            key_dir: derived_bridge_key_dir(kura_store_dir),
-            auto_register: defaults::sccp::attestor::AUTO_REGISTER,
-            max_entries_per_transaction: NonZeroU32::new(
-                defaults::sccp::attestor::MAX_ENTRIES_PER_TRANSACTION,
-            )
-            .expect("default SCCP attestation batch is nonzero"),
-            resubmit_after_blocks: NonZeroU64::new(defaults::sccp::attestor::RESUBMIT_AFTER_BLOCKS)
-                .expect("default SCCP resubmission delay is nonzero"),
-            max_clock_drift: Duration::from_millis(defaults::sccp::attestor::MAX_CLOCK_DRIFT_MS),
-            shutdown_grace: Duration::from_millis(defaults::sccp::attestor::SHUTDOWN_GRACE_MS),
+            enabled: defaults::sccp::keeper::ENABLED,
+            key_dir: derived_keeper_key_dir(kura_store_dir),
+            keepalive: defaults::sccp::keeper::KEEPALIVE,
+            keepalive_stagger: Duration::from_millis(defaults::sccp::keeper::KEEPALIVE_STAGGER_MS),
+            watch: defaults::sccp::keeper::WATCH,
         }
     }
 
-    /// Bridge-key directory resolved against the configuration file that set it.
+    /// Keeper-key directory resolved against the configuration file that set it.
     pub fn key_dir_path(&self) -> PathBuf {
         self.key_dir.resolve_relative_path()
     }
 }
 
-/// Default bridge-key directory `<kura.store_dir>/sccp/bridge-keys`, derived like the default
+/// Default keeper-key directory `<kura.store_dir>/sccp/keeper-key`, derived like the default
 /// snapshot store directory.
-pub fn derived_bridge_key_dir(kura_store_dir: &WithOrigin<PathBuf>) -> WithOrigin<PathBuf> {
+pub fn derived_keeper_key_dir(kura_store_dir: &WithOrigin<PathBuf>) -> WithOrigin<PathBuf> {
     WithOrigin::new(
-        kura_store_dir.resolve_relative_path().join(Path::new(
-            defaults::sccp::attestor::KEY_DIR_UNDER_KURA_STORE,
-        )),
+        kura_store_dir
+            .resolve_relative_path()
+            .join(Path::new(defaults::sccp::keeper::KEY_DIR_UNDER_KURA_STORE)),
         ParameterOrigin::custom(
-            "derived from kura.store_dir because sccp.attestor.key_dir was empty".to_owned(),
+            "derived from kura.store_dir because sccp.keeper.key_dir was empty".to_owned(),
         ),
     )
 }
 
-/// In-node inbound light-client keeper (`[sccp.light_client_keeper]`, §4.13.4).
+/// The keeper's light-client advance duty (`[sccp.light_client_keeper]`, §4.13.4).
 ///
-/// The keeper is effective only while the node holds an active or pending registered bridge
-/// key. It advances stale light clients with proof-carrying advances built from public RPC
-/// endpoints and submits them fee-exempt from that key's account. Its submissions are
-/// verified like anyone's, so a lying endpoint can only cause rejected advances.
+/// The duty is effective while [`SccpKeeper`] runs. It advances stale light clients with
+/// proof-carrying advances built from public RPC endpoints and submits them fee-exempt from the
+/// keeper key's account. Its submissions are verified like anyone's, so a lying endpoint can
+/// only cause rejected advances.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SccpLightClientKeeper {
-    /// Whether the keeper runs; effective only while the node holds an active or pending
-    /// bridge key.
+    /// Whether the keeper advances stale light clients; effective only while [`SccpKeeper`] is
+    /// enabled.
     pub enabled: bool,
     /// Staleness after which a light client is advanced; `None` means `ws_bound_ms / 4` of
     /// each light client. Use [`Self::advance_after_for`].
@@ -197,8 +188,6 @@ pub struct SccpLightClientKeeperEndpoints {
     pub ethereum_beacon: Vec<Url>,
     /// BNB Smart Chain JSON-RPC endpoints.
     pub bsc: Vec<Url>,
-    /// TRON HTTP API endpoints.
-    pub tron: Vec<Url>,
     /// TON liteservers reached over ADNL-TCP.
     pub ton_liteservers: Vec<SccpTonLiteserver>,
 }
@@ -212,7 +201,6 @@ impl SccpLightClientKeeperEndpoints {
             ),
             ethereum_beacon: compiled_http_endpoints(defaults::sccp::endpoints::ETHEREUM_BEACON),
             bsc: compiled_http_endpoints(defaults::sccp::endpoints::BSC),
-            tron: compiled_http_endpoints(defaults::sccp::endpoints::TRON),
             ton_liteservers: compiled_ton_liteservers(defaults::sccp::endpoints::TON_LITESERVERS),
         }
     }
@@ -234,7 +222,6 @@ impl fmt::Debug for SccpLightClientKeeperEndpoints {
             .field("ethereum_execution", &urls(&self.ethereum_execution))
             .field("ethereum_beacon", &urls(&self.ethereum_beacon))
             .field("bsc", &urls(&self.bsc))
-            .field("tron", &urls(&self.tron))
             .field("ton_liteservers", &self.ton_liteservers)
             .finish()
     }
@@ -542,7 +529,6 @@ mod tests {
                 defaults::sccp::endpoints::ETHEREUM_BEACON,
             ),
             (&endpoints.bsc, defaults::sccp::endpoints::BSC),
-            (&endpoints.tron, defaults::sccp::endpoints::TRON),
         ] {
             assert!(!list.is_empty());
             assert_eq!(list.len(), compiled.len());
@@ -570,7 +556,6 @@ mod tests {
             &endpoints.ethereum_execution,
             &endpoints.ethereum_beacon,
             &endpoints.bsc,
-            &endpoints.tron,
         ] {
             let unique: std::collections::BTreeSet<_> = list.iter().map(Url::as_str).collect();
             assert_eq!(unique.len(), list.len());
@@ -697,24 +682,25 @@ mod tests {
             PathBuf::from("/var/lib/iroha"),
             ParameterOrigin::custom("test".to_owned()),
         );
-        let attestor = SccpAttestor::defaults_for_kura_store_dir(&kura);
+        let keeper = SccpKeeper::defaults_for_kura_store_dir(&kura);
         assert_eq!(
-            attestor.key_dir_path(),
-            PathBuf::from("/var/lib/iroha/sccp/bridge-keys")
+            keeper.key_dir_path(),
+            PathBuf::from("/var/lib/iroha/sccp/keeper-key")
         );
         assert_eq!(
-            derived_bridge_key_dir(&kura).into_value(),
-            attestor.key_dir_path()
+            derived_keeper_key_dir(&kura).into_value(),
+            keeper.key_dir_path()
         );
         let node = SccpNode::default();
         assert_eq!(
-            node.attestor.key_dir_path(),
-            PathBuf::from(defaults::kura::STORE_DIR).join("sccp/bridge-keys")
+            node.keeper.key_dir_path(),
+            PathBuf::from(defaults::kura::STORE_DIR).join("sccp/keeper-key")
         );
-        assert_eq!(node.attestor.max_entries_per_transaction.get(), 64);
-        assert_eq!(node.attestor.resubmit_after_blocks.get(), 3);
-        assert_eq!(node.attestor.max_clock_drift, Duration::from_secs(3_600));
-        assert_eq!(node.attestor.shutdown_grace, Duration::from_secs(30));
+        assert!(node.keeper.enabled);
+        assert!(node.keeper.keepalive);
+        assert_eq!(node.keeper.keepalive_stagger, Duration::from_secs(15));
+        assert!(node.keeper.watch);
+        assert_eq!(node.light_client_keeper, SccpLightClientKeeper::default());
     }
 
     #[test]

@@ -376,11 +376,33 @@ passes.
 - **Parliament:** binding juries move to [anonymous on-chain ballots](specs/parliament_private_ballot_design.md):
   public votes and tally, voter-to-ballot linkage hidden by a PQ membership and
   nullifier proof, and no ballot custodian. The construction is selected but its
-  proof profile is unqualified and nothing is implemented. Binding-governance
-  mainnet launch is no-go until qualification. The epoch-seated fast pause
-  panel is specified, not implemented. Current timed-OVN ballots and consensus-mandatory
-  Parliament pulse/custody checks are retirement and availability-isolation
-  targets.
+  proof profile is unqualified and the ballot is not implemented. Binding-governance
+  mainnet launch is no-go until qualification. The
+  [profile evaluation](specs/parliament_ballot_proof_profile.md) selects no
+  profile: no candidate family has an applicable published argument for
+  authorization, unforgeability, joint zero knowledge or registration in the
+  quantum random-oracle model, nothing is implemented or measured for the
+  ballot relation, and selection waits on the owner decisions it lists, so
+  schemas and integration have not started. The epoch-seated fast pause
+  panel is specified, not implemented. Availability isolation (ballot design
+  section 9) is implemented in `iroha_core` and `irohad`: no Parliament state
+  creates pulse demand, vetoes a pulse or block, or gates startup; a sortition
+  request waits governance-locally for the first consensus-native pulse height
+  at or above its minimum lead; the missing-pulse failure, its redraw and the
+  unavailable-slot index are deleted; attempt creation needs an NPoS cadence.
+  Core mutation `HC220` guards the split, and the four-validator isolation
+  corridor passes. Real-peer qualification is incomplete: the
+  `test-network-parliament-signers` beacon fixture fails to derive, so the
+  mandatory-NPoS corridors and every corridor that installs a key session
+  cannot run, and the committee-rotation corridor has not run. Open: the proof
+  profile, schemas and ballot; retirement of timed-OVN, whose ballot now opens
+  only when a native pulse sits at exactly its release height, so its four
+  hidden-ballot corridors are ignored; the owner decision on binding the
+  attempt id into the draw seed; and the SCCP hold rule, which must account for
+  a sortition wait that is unbounded in wall time on an idle chain. The
+  state-table inventory generator fails at `45f112b1cc` on unrelated domains,
+  so the Parliament rows of `specs/state_table_inventory.json` were aligned by
+  hand.
 - **Services:** Musubi publication/paid contracts, standalone elections,
   SoraNet/Linux helpers, SCCP live corridors and Inrou Linux/AArch64/KVM isolation
   remain unqualified.

@@ -1,3 +1,8 @@
+/// Consensus-native epoch length frozen by the reducer fixtures: with the fixtures' ten-block
+/// delay, a request at height 10 targets the native pulse height 20 and one at height 40
+/// targets 50.
+const FIXTURE_SORTITION_PULSE_EPOCH_LENGTH_BLOCKS: u64 = 3;
+
 fn root(tag: u8) -> [u8; 32] {
     [tag.max(1); 32]
 }
@@ -507,6 +512,26 @@ fn consume_sortition(
     )
 }
 
+/// Reach `NoRoster` for the generation of `election_attempt_id` through the only remaining
+/// path: consume the pulse of its exact slot, open invitations and let them close empty.
+fn fail_generation_with_empty_roster(
+    state: &mut ParliamentAttemptStateV1,
+    election_attempt_id: BodyElectionAttemptId,
+    pulse_id: BeaconPulseId,
+    failure_height: u64,
+) {
+    let governance = governance_for_pending_draws(state);
+    state
+        .fail_sortition_generation_with_empty_roster_for_tests(
+            election_attempt_id,
+            pulse_id,
+            &network_id(),
+            &governance,
+            failure_height,
+        )
+        .expect("the consumed pulse left an empty roster when invitations closed");
+}
+
 fn candidates(first_tag: u8, count: u32) -> Vec<AccountId> {
     let mut candidates: Vec<_> = (0..count)
         .map(|offset| {
@@ -597,6 +622,17 @@ fn sortition_request_intent(
     request
 }
 
+/// Return the pulse slot a fresh fixture generation requested at `request_height` targets.
+fn generation_slot(
+    state: &ParliamentAttemptStateV1,
+    request_height: u64,
+    beacon_session_id: BeaconSessionId,
+) -> u64 {
+    state
+        .next_sortition_generation_pulse_height_v1(request_height, beacon_session_id)
+        .expect("fixture generation slot fits u64")
+}
+
 fn attempt_with_proposal_tag(proposal_tag: u8) -> GovernanceAttemptV1 {
     let proposal_content_id = proposal_id(proposal_tag);
     GovernanceAttemptV1 {
@@ -621,6 +657,7 @@ fn state_with_proposal_tag(
         attempt_with_proposal_tag(proposal_tag),
         PARLIAMENT_GOVERNANCE_POLICY_VERSION_V1,
         10,
+        FIXTURE_SORTITION_PULSE_EPOCH_LENGTH_BLOCKS,
         root(3),
         GovernanceExpectedHeadV1::Absent(GovernanceExpectedHeadAbsentV1 {
             subject_id: root(4),
@@ -954,6 +991,7 @@ fn proposal_bound_state(proposal: &ProposalKind) -> ParliamentAttemptStateV1 {
         },
         PARLIAMENT_GOVERNANCE_POLICY_VERSION_V1,
         10,
+        FIXTURE_SORTITION_PULSE_EPOCH_LENGTH_BLOCKS,
         proposal.effect_preimage_hash_v1(),
         GovernanceExpectedHeadV1::Absent(GovernanceExpectedHeadAbsentV1 {
             subject_id: proposal
@@ -979,6 +1017,7 @@ fn governance_attempt_retry_bound_is_enforced_at_construction_and_restore() {
         final_attempt,
         PARLIAMENT_GOVERNANCE_POLICY_VERSION_V1,
         10,
+        FIXTURE_SORTITION_PULSE_EPOCH_LENGTH_BLOCKS,
         root(3),
         GovernanceExpectedHeadV1::Absent(GovernanceExpectedHeadAbsentV1 {
             subject_id: root(4),
@@ -999,6 +1038,7 @@ fn governance_attempt_retry_bound_is_enforced_at_construction_and_restore() {
             over_limit,
             PARLIAMENT_GOVERNANCE_POLICY_VERSION_V1,
             10,
+            FIXTURE_SORTITION_PULSE_EPOCH_LENGTH_BLOCKS,
             root(3),
             GovernanceExpectedHeadV1::Absent(GovernanceExpectedHeadAbsentV1 {
                 subject_id: root(4),
@@ -1043,9 +1083,7 @@ fn successor_attempt_inherits_exact_proposal_redraw_prefix() {
     first
         .register_sortition_request(first_id, 0, initial_request, initial_candidates)
         .expect("register the proposal baseline draw");
-    first
-        .fail_body_election_no_roster(first_id, initial_election_id, false, 21)
-        .expect("record missing baseline pulse");
+    fail_generation_with_empty_roster(&mut first, initial_election_id, pulse_id(156), 21);
     let (retry_request, retry_candidates) = sortition_request(
         first_id,
         1,
@@ -1054,7 +1092,7 @@ fn successor_attempt_inherits_exact_proposal_redraw_prefix() {
         3,
         3,
         21,
-        31,
+        32,
         beacon_session(153),
         None,
     );
@@ -1078,6 +1116,7 @@ fn successor_attempt_inherits_exact_proposal_redraw_prefix() {
         first.randomness_redraws_used_v1().expect("bounded prefix"),
         PARLIAMENT_GOVERNANCE_POLICY_VERSION_V1,
         10,
+        FIXTURE_SORTITION_PULSE_EPOCH_LENGTH_BLOCKS,
         root(3),
         GovernanceExpectedHeadV1::Absent(GovernanceExpectedHeadAbsentV1 {
             subject_id: root(4),
@@ -1115,6 +1154,7 @@ fn successor_attempt_inherits_exact_proposal_redraw_prefix() {
         0,
         PARLIAMENT_GOVERNANCE_POLICY_VERSION_V1,
         10,
+        FIXTURE_SORTITION_PULSE_EPOCH_LENGTH_BLOCKS,
         root(3),
         GovernanceExpectedHeadV1::Absent(GovernanceExpectedHeadAbsentV1 {
             subject_id: root(4),
@@ -1149,6 +1189,7 @@ fn proposal_attempt_lineage_requires_exact_contiguous_sequences() {
         0,
         PARLIAMENT_GOVERNANCE_POLICY_VERSION_V1,
         10,
+        FIXTURE_SORTITION_PULSE_EPOCH_LENGTH_BLOCKS,
         root(3),
         GovernanceExpectedHeadV1::Absent(GovernanceExpectedHeadAbsentV1 {
             subject_id: root(4),
@@ -1325,6 +1366,23 @@ pub(crate) fn active_timed_ovn_reservation_attempt_fixture_v1(
     key_session_tag: u8,
     registered_at_height: u64,
 ) -> ParliamentAttemptStateV1 {
+    active_timed_ovn_attempt_awaiting_release_fixture_v1(
+        proposal_tag,
+        key_session_tag,
+        registered_at_height,
+        beacon_session(key_session_tag.wrapping_add(1)),
+    )
+}
+
+/// The same active timed-OVN ballot, still in registration, whose frozen release slot is on
+/// the caller's logical beacon session. Its release height is whatever the fixture policy
+/// derives from `registered_at_height`; read it from `required_beacon_pulse_slots_v1`.
+pub(crate) fn active_timed_ovn_attempt_awaiting_release_fixture_v1(
+    proposal_tag: u8,
+    key_session_tag: u8,
+    registered_at_height: u64,
+    release_beacon_session_id: BeaconSessionId,
+) -> ParliamentAttemptStateV1 {
     let BodyFixture {
         mut state, body_id, ..
     } = sealed_policy_body_with_proposal_tag(3, proposal_tag);
@@ -1333,7 +1391,6 @@ pub(crate) fn active_timed_ovn_reservation_attempt_fixture_v1(
     let policy = timed_ovn_policy();
     let ballot_attempt_id = BallotAttemptId::derive_v1(body_id, 0);
     let tle_key_session_id = tle_key_session(key_session_tag);
-    let release_beacon_session_id = beacon_session(key_session_tag.wrapping_add(1));
     let release_height = timed_ballot_schedule(registered_at_height, policy)
         .expect("reservation fixture schedule")
         .3;
@@ -1403,7 +1460,7 @@ fn timed_ovn_schedule_reserves_one_maximum_chunk_block_per_corpus_slice() {
 }
 
 #[test]
-fn beacon_demand_tracks_sortition_timeout_and_frozen_ballot_release_slot() {
+fn awaited_beacon_slots_are_exact_for_sortition_and_frozen_ballot_release() {
     let mut sortition = policy_only_state();
     let governance_attempt_id = sortition.attempt.id;
     sortition
@@ -1423,75 +1480,68 @@ fn beacon_demand_tracks_sortition_timeout_and_frozen_ballot_release_slot() {
         None,
     );
     let election_attempt_id = request.body_election_attempt_id;
+    let request_id = request.id;
     sortition
         .register_sortition_request(governance_attempt_id, 0, request, candidate_snapshot)
         .expect("register immutable sortition pulse slot");
     assert!(sortition.requires_beacon_pulse_at(session_id, 20));
     assert!(!sortition.requires_beacon_pulse_at(beacon_session(83), 20));
     assert_eq!(
-        sortition.fail_body_election_no_roster(
-            governance_attempt_id,
-            election_attempt_id,
-            false,
-            20,
-        ),
-        Err(ParliamentReducerErrorV1::SortitionPulseStillPending)
+        sortition.required_beacon_pulse_slots_v1(),
+        BTreeSet::from([(session_id, 20)])
     );
-    assert_eq!(
-        sortition.fail_body_election_no_roster(
-            governance_attempt_id,
-            election_attempt_id,
-            true,
-            21,
-        ),
-        Err(ParliamentReducerErrorV1::SortitionPulseAvailable)
-    );
+    assert!(sortition.unavailable_release_pulse_slots_v1().is_empty());
+
+    // The wait never expires: at the slot, just past it and arbitrarily far past it the
+    // election still awaits exactly its frozen slot and no sortition slot is classified.
+    for height in [20, 21, 1_000_000, u64::MAX] {
+        let mut waiting = sortition.clone();
+        assert_eq!(
+            waiting.fail_body_election_no_roster(
+                governance_attempt_id,
+                election_attempt_id,
+                height,
+            ),
+            Err(ParliamentReducerErrorV1::InvalidLifecycleTransition(
+                ParliamentReducerEntityV1::BodyElection
+            ))
+        );
+        assert_eq!(
+            waiting, sortition,
+            "a rejected failure must not mutate state"
+        );
+    }
     assert_eq!(
         sortition
             .election(&election_attempt_id)
-            .expect("pending election after rejected grind")
+            .expect("pending election")
             .attempt
             .status,
         BodyElectionAttemptStatusV1::AwaitingPulse
     );
-    sortition
-        .fail_body_election_no_roster(governance_attempt_id, election_attempt_id, false, 21)
-        .expect("missing sortition pulse becomes an objective retryable failure");
-    assert!(!sortition.requires_beacon_pulse_at(session_id, 20));
-    assert_eq!(
-        sortition.unavailable_beacon_pulse_slots_v1(),
-        BTreeSet::from([(session_id, 20)])
-    );
-    assert!(sortition.classifies_beacon_pulse_unavailable_at(session_id, 20));
-    assert!(!sortition.classifies_beacon_pulse_unavailable_at(session_id, 21));
+    assert!(sortition.requires_beacon_pulse_at(session_id, 20));
+    assert!(sortition.unavailable_release_pulse_slots_v1().is_empty());
     sortition
         .validate()
-        .expect("pulse-missing NoRoster is a canonical persistable terminal shape");
-    sortition
-        .validate_restored_height_v1(21)
-        .expect("pulse-missing NoRoster is valid at the first post-pulse height");
+        .expect("an election awaiting its pulse is canonical persisted state");
+    for restored_height in [10, 20, 21, 1_000_000] {
+        sortition
+            .validate_restored_height_v1(restored_height)
+            .expect("an awaited slot far below the restored height restores cleanly");
+    }
 
-    let (retry, retry_candidates) = sortition_request(
+    // Consuming the pulse of exactly that slot is the only way out of the wait.
+    consume_sortition(
+        &mut sortition,
         governance_attempt_id,
-        1,
-        ParliamentBody::PolicyJury,
-        86,
-        3,
-        3,
-        21,
-        31,
+        vec![request_id],
         session_id,
-        None,
-    );
-    sortition
-        .register_sortition_request(governance_attempt_id, 1, retry, retry_candidates)
-        .expect("retry supersedes the persistable pulse-missing terminal attempt");
-    sortition
-        .validate()
-        .expect("pulse-missing Superseded predecessor remains persistable");
-    sortition
-        .validate_restored_height_v1(21)
-        .expect("retry and pulse-missing predecessor restore at registration height");
+        20,
+        pulse_id(86),
+    )
+    .expect("the exact slot pulse still draws, however late it is consumed");
+    assert!(!sortition.requires_beacon_pulse_at(session_id, 20));
+    assert!(sortition.required_beacon_pulse_slots_v1().is_empty());
 
     let BodyFixture {
         mut state, body_id, ..

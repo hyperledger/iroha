@@ -818,7 +818,7 @@ async fn capabilities_list_paths_profiles_and_limits() {
     let capabilities: SccpCapabilitiesV1 =
         decode(capabilities_response(&state.view(), Some(&norito_accept()))).await;
     assert_eq!(capabilities.limits, SccpReadLimitsV1::v1());
-    assert_eq!(capabilities.profiles.len(), 4);
+    assert_eq!(capabilities.profiles.len(), 3);
     for route in iroha_torii_shared::route_catalog::sccp::ROUTES {
         assert!(
             capabilities

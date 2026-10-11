@@ -63,7 +63,7 @@ class NativeInventoryTests(unittest.TestCase):
     def test_real_checkout_matches_every_reviewed_owner(self):
         names = inventory.validate_native_source_inventory(ROOT)
         self.assertEqual(len(names), sum(len(row[-1]) for row in inventory.NATIVE_CORE_TEST_OWNERS))
-        self.assertEqual(len(names), 442)
+        self.assertEqual(len(names), 446)
 
     def test_current_native_owner_additions_reject_same_count_selector_replacement(self):
         expected = {
@@ -187,6 +187,18 @@ class NativeInventoryTests(unittest.TestCase):
                     'admitted_prefix_initializes_every_field_like_the_owned_constructor',
                     'admitted_prefix_finish_matches_original_step_and_retains_original_slot_until_finish',
                     'admitted_prefix_finish_preserves_original_pool_refusal_and_certificate_error_order',
+                )),
+            'native beacon custody': (
+                ('sumeragi/epoch_beacon/producer.rs', 'sumeragi/epoch_beacon/producer/tests.rs', 'tests', 'sumeragi::epoch_beacon::producer::tests'),
+                (
+                    'parliament_attempt_admission_derives_the_slot_index_and_no_pulse_demand',
+                    'readiness_horizon_is_native_only_with_pending_parliament_slots',
+                )),
+            'native executed beacon controls': (
+                ('sumeragi/epoch_beacon/producer/tests.rs', 'sumeragi/epoch_beacon/producer/execution_tests.rs', 'execution_tests', 'sumeragi::epoch_beacon::producer::tests::execution_tests'),
+                (
+                    'pending_parliament_slots_create_no_native_control_demand_and_never_block_unrelated_work',
+                    'npos_boundary_pulse_stays_mandatory_with_or_without_pending_parliament_slots',
                 )),
         }
         for label, (edge, added) in expected.items():

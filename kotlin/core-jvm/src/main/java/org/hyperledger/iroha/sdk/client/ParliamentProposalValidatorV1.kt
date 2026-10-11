@@ -18,7 +18,7 @@ internal object ParliamentProposalValidatorV1 {
     private val FIRST_RELEASE_MAX_EXACT_JSON_U64 = BigInteger("9007199254740991")
     private const val SCCP_GOVERNANCE_MAX_ENTRIES = 16
     private val SCCP_EXTERNAL_NETWORKS = setOf(
-        "ethereum_mainnet", "bsc_mainnet", "ton_mainnet", "tron_mainnet",
+        "ethereum_mainnet", "bsc_mainnet", "ton_mainnet",
     )
     private val SCCP_GOVERNANCE_ACTIONS = setOf(
         "register_route", "activate_revision", "switch_revision", "deactivate_outbound",

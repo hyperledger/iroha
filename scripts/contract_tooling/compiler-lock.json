@@ -25,31 +25,6 @@
           "reported_version": "0.8.31+commit.fd3a2265.Darwin.appleclang"
         }
       }
-    },
-    "tron": {
-      "identity": "tron-solc-tv_0.8.31+commit.c2812a3d",
-      "banner": "solc.tron, the solidity compiler commandline interface",
-      "reported_version": "0.8.31+commit.c2812a3d",
-      "artifacts": {
-        "linux-amd64": {
-          "url": "https://github.com/tronprotocol/solidity/releases/download/tv_0.8.31/solc-static-linux",
-          "sha256": "fa664fe58fb300ead5fb7ffda7bf75bc0b0db03fcb6f1686a53edaa16b6a9a91",
-          "format": "elf-x86-64",
-          "reported_version": "0.8.31+commit.c2812a3d.Linux.g++"
-        },
-        "linux-arm64": {
-          "url": "https://github.com/tronprotocol/solidity/releases/download/tv_0.8.31/solc-static-linux-arm",
-          "sha256": "8388ebaba91254f2be08c334fb0d853ec6f9745797fbd5db9f952cec18a88991",
-          "format": "elf-aarch64",
-          "reported_version": "0.8.31+commit.c2812a3d.Linux.g++"
-        },
-        "macos-universal": {
-          "url": "https://github.com/tronprotocol/solidity/releases/download/tv_0.8.31/solc-macos",
-          "sha256": "a29ada19f85fbcb42e910b797b6672f6e47add7320c5cd227a72aeb6d1d08061",
-          "format": "macho-universal-arm64-x86-64",
-          "reported_version": "0.8.31+commit.c2812a3d.Darwin.appleclang"
-        }
-      }
     }
   },
   "settings": {
@@ -82,24 +57,14 @@
   },
   "sources": {
     "evm": [
-      "contracts/evm/sccp/SccpTairaXor.sol"
-    ],
-    "tron": [
-      "contracts/evm/sccp/SccpTairaXor.sol"
+      "contracts/evm/sccp/SccpTairaXor.sol",
+      "contracts/evm/sccp/lib/BLS12_381.sol"
     ]
   },
   "size_limits": {
     "evm": {
       "creation_bytecode_bytes": 49152,
       "runtime_bytecode_bytes": 24576
-    },
-    "tron": {
-      "creation_bytecode_bytes": 49152,
-      "runtime_bytecode_bytes": 24576
     }
-  },
-  "tvm_runner": {
-    "image": "tronbox/tre@sha256:e57deeb0d8201498549dbec28e7c329d8647ef0976b547cfbb6fa6a41a10f491",
-    "platform": "linux/amd64"
   }
 }

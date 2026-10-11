@@ -5709,22 +5709,6 @@ fn validate_global_beacon_persistence(world: &World) -> Result<(), json::Error> 
             ));
         }
     }
-    let unavailable_beacon_pulse_slots = world
-        .parliament_attempts
-        .view()
-        .iter()
-        .flat_map(|(_, attempt)| attempt.unavailable_beacon_pulse_slots_v1())
-        .collect::<BTreeSet<_>>();
-    for (_, pulse) in pulses.iter() {
-        let logical_session =
-            iroha_data_model::governance::types::BeaconSessionId::for_network_v1(&pulse.network_id);
-        if unavailable_beacon_pulse_slots.contains(&(logical_session, pulse.height)) {
-            return Err(invalid_global_beacon_persistence(
-                "finalized pulse conflicts with a Parliament slot terminally classified as unavailable",
-            ));
-        }
-    }
-
     let latest = latest_pulses
         .get(&GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY)
         .copied();
@@ -5766,7 +5750,7 @@ mod global_beacon_persistence_tests {
     use iroha_model_base::peer::PeerId;
 
     #[test]
-    fn restore_rejects_pulse_after_sortition_slot_was_terminally_unavailable() {
+    fn restore_accepts_pulse_at_a_slot_a_pending_sortition_election_names() {
         let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
         let network_id = iroha_data_model::NetworkId::from_genesis_hash(
             HashOf::<BlockHeader>::from_untyped_unchecked(Hash::prehashed([0xC1; 32])),
@@ -5780,7 +5764,7 @@ mod global_beacon_persistence_tests {
                     .expect("derive deterministic Parliament candidate")
             })
             .collect::<Vec<_>>();
-        let (governance_attempt_id, _, mut attempt) =
+        let (governance_attempt_id, _, attempt) =
             crate::beacon::tests::pending_batched_sortition_attempt(
                 &network_id,
                 &roster,
@@ -5791,14 +5775,17 @@ mod global_beacon_persistence_tests {
             ParliamentBody::RulesCommittee,
             0,
         );
-        attempt
-            .fail_body_election_no_roster(
-                governance_attempt_id,
-                election_attempt_id,
-                false,
-                pulse.height + 1,
-            )
-            .expect("terminally classify the missing sortition slot");
+        // The election still awaits exactly this slot; the pulse was committed but not
+        // consumed yet. Parliament state never contradicts a consensus pulse.
+        assert_eq!(
+            attempt
+                .election(&election_attempt_id)
+                .expect("pending election")
+                .attempt()
+                .request
+                .pulse_height,
+            pulse.height
+        );
 
         let link = validate_persisted_global_threshold_beacon_pulse_v1(&pulse)
             .expect("canonical persisted pulse link");
@@ -5826,11 +5813,257 @@ mod global_beacon_persistence_tests {
             .parliament_attempts
             .insert(governance_attempt_id, attempt);
 
-        let error = validate_global_beacon_persistence(&world)
-            .expect_err("restart must reject a pulse contradicting terminal Parliament state");
-        assert!(
-            error.to_string().contains("terminally classified"),
-            "unexpected restore rejection: {error}"
+        validate_global_beacon_persistence(&world)
+            .expect("no Parliament state vetoes a finalized pulse at restart");
+        let restored = world.parliament_attempts.view();
+        let election = restored
+            .get(&governance_attempt_id)
+            .expect("restored attempt")
+            .election(&election_attempt_id)
+            .expect("restored election")
+            .attempt();
+        assert_eq!(
+            election.status,
+            iroha_data_model::governance::types::BodyElectionAttemptStatusV1::AwaitingPulse
+        );
+        assert_eq!(election.request.pulse_height, pulse.height);
+    }
+
+    #[test]
+    fn world_snapshot_roundtrip_keeps_a_pulse_wait_on_its_exact_slot() {
+        let account = |seed: u8| {
+            let key_pair = KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519)
+                .expect("derive deterministic Parliament candidate");
+            iroha_data_model::account::AccountId::new(key_pair.public_key().clone())
+        };
+        let kind = ProposalKind::DeployContract(
+            iroha_data_model::governance::types::DeployContractProposal {
+                proposal_operator: account(59),
+                contract_address: "irohac1qyqqqqqqqqqqqq95fes93ygegsv5enq9mqsz6x4lv4vp9gg4yxgjw"
+                    .parse()
+                    .expect("contract address"),
+                code_hash: iroha_data_model::governance::types::ContractCodeHash::new([0x31; 32]),
+                abi_hash: iroha_data_model::governance::types::ContractAbiHash::new([0x41; 32]),
+                abi_version: iroha_data_model::governance::types::AbiVersion::new(1),
+                manifest_provenance: None,
+            },
+        );
+        let (attempt, pulse_slot, election_attempt_ids) =
+            crate::governance::parliament::pulse_awaiting_parliament_attempt_for_testing(
+                &kind,
+                vec![account(61), account(62), account(63)],
+            );
+        let governance_attempt_id = attempt.attempt().id;
+        let pulse_height = pulse_slot.1;
+        assert!(!election_attempt_ids.is_empty());
+        // No pulse was ever committed for the slot and the chain is far past it.
+        attempt
+            .validate_restored_height_v1(pulse_height + 1_000_000)
+            .expect("a wait on an old slot is ordinary restorable state");
+
+        let mut world = World::new();
+        world.governance_proposals.insert(
+            kind.fingerprint(),
+            GovernanceProposalRecord {
+                proposer: account(59),
+                kind,
+                created_height: 1,
+                status: GovernanceProposalStatus::Proposed,
+            },
+        );
+        world
+            .parliament_attempts
+            .insert(governance_attempt_id, attempt.clone());
+        let encoded = json::to_json(&world).expect("serialize the World snapshot");
+        let ivm = IVM::new(0);
+        let seed = IvmSeed {
+            ivm: &ivm,
+            _marker: PhantomData,
+        };
+        let restored = parse_world(
+            &iroha_allocation::AllocationBudget::new(
+                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
+            ),
+            SnapshotJsonMap::parse(&encoded, "world").expect("World snapshot map"),
+            &seed,
+        )
+        .map_err(crate::state::deserialize::snapshot_format_error_for_test)
+        .expect("a World carrying a pulse wait without a pulse restores");
+
+        let view = restored.parliament_attempts.view();
+        let restored_attempt = view.get(&governance_attempt_id).expect("restored attempt");
+        assert_eq!(restored_attempt, &attempt);
+        for election_attempt_id in &election_attempt_ids {
+            let election = restored_attempt
+                .election(election_attempt_id)
+                .expect("restored election")
+                .attempt();
+            assert_eq!(
+                election.status,
+                iroha_data_model::governance::types::BodyElectionAttemptStatusV1::AwaitingPulse
+            );
+            assert_eq!(election.request.pulse_height, pulse_height);
+        }
+        assert_eq!(
+            restored
+                .parliament_required_beacon_pulse_slots
+                .view()
+                .iter()
+                .map(|(slot, attempts)| (*slot, attempts.clone()))
+                .collect::<Vec<_>>(),
+            vec![(pulse_slot, BTreeSet::from([governance_attempt_id]))]
+        );
+    }
+
+    /// The chain is far past an unserved sortition slot and has since committed a consensus
+    /// pulse at a later height. The World snapshot restores, the later pulse is not attached
+    /// to the election, and the request is still pending on exactly its original slot.
+    #[test]
+    fn world_snapshot_roundtrip_past_an_unserved_slot_keeps_the_request_on_that_slot() {
+        const LATER_PULSE: u64 = 41;
+        let budget = iroha_allocation::AllocationBudget::new(
+            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
+        );
+        let network_id = iroha_data_model::NetworkId::from_genesis_hash(
+            HashOf::<BlockHeader>::from_untyped_unchecked(Hash::prehashed([0xC4; 32])),
+        );
+        let (key_record, pulse) = crate::beacon::signed_persisted_pulse_fixture_for_world(
+            network_id,
+            LATER_PULSE,
+            &budget,
+        );
+        let account = |seed: u8| {
+            let key_pair = KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519)
+                .expect("derive deterministic Parliament candidate");
+            iroha_data_model::account::AccountId::new(key_pair.public_key().clone())
+        };
+        // Restore binds an attempt to its exact governance proposal, so the pending request is
+        // the proposal-bound fixture.
+        let kind = ProposalKind::DeployContract(
+            iroha_data_model::governance::types::DeployContractProposal {
+                proposal_operator: account(69),
+                contract_address: "irohac1qyqqqqqqqqqqqq95fes93ygegsv5enq9mqsz6x4lv4vp9gg4yxgjw"
+                    .parse()
+                    .expect("contract address"),
+                code_hash: iroha_data_model::governance::types::ContractCodeHash::new([0x32; 32]),
+                abi_hash: iroha_data_model::governance::types::ContractAbiHash::new([0x42; 32]),
+                abi_version: iroha_data_model::governance::types::AbiVersion::new(1),
+                manifest_provenance: None,
+            },
+        );
+        let (attempt, pulse_slot, election_attempt_ids) =
+            crate::governance::parliament::pulse_awaiting_parliament_attempt_for_testing(
+                &kind,
+                vec![account(71), account(72), account(73)],
+            );
+        let governance_attempt_id = attempt.attempt().id;
+        assert!(!election_attempt_ids.is_empty());
+        assert!(pulse_slot.1 + 12 < LATER_PULSE);
+        let pending = |attempt: &crate::governance::parliament::ParliamentAttemptStateV1| {
+            for election_attempt_id in &election_attempt_ids {
+                let election = attempt
+                    .election(election_attempt_id)
+                    .expect("pending election")
+                    .attempt();
+                assert_eq!(
+                    election.status,
+                    iroha_data_model::governance::types::BodyElectionAttemptStatusV1::AwaitingPulse
+                );
+                assert_eq!(
+                    (
+                        election.request.beacon_session_id,
+                        election.request.pulse_height
+                    ),
+                    pulse_slot
+                );
+            }
+        };
+        pending(&attempt);
+        // Every restored height past the slot accepts the wait.
+        for restored_height in [
+            pulse_slot.1,
+            pulse_slot.1 + 12,
+            LATER_PULSE,
+            LATER_PULSE + 1_000_000,
+        ] {
+            attempt
+                .validate_restored_height_v1(restored_height)
+                .expect("a wait on an unserved old slot is ordinary restorable state");
+        }
+
+        let link = validate_persisted_global_threshold_beacon_pulse_v1(&pulse)
+            .expect("canonical persisted pulse link");
+        let later_slot = (
+            iroha_data_model::governance::types::BeaconSessionId::for_network_v1(&network_id),
+            pulse.height,
+        );
+        let mut world = World::new();
+        world
+            .global_beacon_key_sessions
+            .insert(pulse.session_id, key_record);
+        world
+            .global_beacon_active_session
+            .insert(GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY, pulse.session_id);
+        world.global_beacon_pulses.insert(pulse.pulse_id, pulse);
+        world
+            .global_beacon_pulse_slots
+            .insert(later_slot, pulse.pulse_id);
+        world
+            .global_beacon_latest_pulse
+            .insert(GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY, link);
+        world.governance_proposals.insert(
+            kind.fingerprint(),
+            GovernanceProposalRecord {
+                proposer: account(69),
+                kind,
+                created_height: 1,
+                status: GovernanceProposalStatus::Proposed,
+            },
+        );
+        world
+            .parliament_attempts
+            .insert(governance_attempt_id, attempt.clone());
+        validate_global_beacon_persistence(&world)
+            .expect("a later pulse and an older unserved wait are consistent");
+
+        let encoded = json::to_json(&world).expect("serialize the World snapshot");
+        let ivm = IVM::new(0);
+        let seed = IvmSeed {
+            ivm: &ivm,
+            _marker: PhantomData,
+        };
+        let restored = parse_world(
+            &budget,
+            SnapshotJsonMap::parse(&encoded, "world").expect("World snapshot map"),
+            &seed,
+        )
+        .map_err(crate::state::deserialize::snapshot_format_error_for_test)
+        .expect("a World past an unserved sortition slot restores");
+
+        let attempts = restored.parliament_attempts.view();
+        let restored_attempt = attempts
+            .get(&governance_attempt_id)
+            .expect("restored attempt");
+        assert_eq!(restored_attempt, &attempt);
+        pending(restored_attempt);
+        assert_eq!(
+            restored
+                .parliament_required_beacon_pulse_slots
+                .view()
+                .iter()
+                .map(|(slot, attempts)| (*slot, attempts.clone()))
+                .collect::<Vec<_>>(),
+            vec![(pulse_slot, BTreeSet::from([governance_attempt_id]))],
+            "the rebuilt index names the original slot and not the later pulse height"
+        );
+        assert_eq!(
+            restored
+                .global_beacon_pulse_slots
+                .view()
+                .iter()
+                .map(|(slot, id)| (*slot, *id))
+                .collect::<Vec<_>>(),
+            vec![(later_slot, pulse.pulse_id)]
         );
     }
 }
@@ -8909,7 +9142,6 @@ fn decode_world_fields(
         parliament_timed_ovn_casting_candidates: Storage::default(),
         parliament_required_beacon_pulse_slots: Storage::default(),
         parliament_certified_enactments: Storage::default(),
-        parliament_unavailable_beacon_pulse_slots: Storage::default(),
         parliament_tle_key_session_retention_deadlines: Storage::default(),
         tle_key_session_selection_intervals: Storage::default(),
         tle_key_sessions,

@@ -22,9 +22,22 @@ fn policy_margin_is_strict_and_atomic_confirmation_roster_is_fresh() {
         .body(&narrow.body_id)
         .and_then(ParliamentBodyStateV1::result_height)
         .expect("Policy result height");
-    let confirmation_pulse_height = confirmation_request_height
-        .checked_add(narrow.state.sortition_pulse_delay_blocks())
-        .expect("Confirmation pulse height");
+    // The slot depends only on frozen attempt fields and the attempt's generation history.
+    let before_confirmation = narrow.state.clone();
+    let confirmation_pulse_height = generation_slot(
+        &before_confirmation,
+        confirmation_request_height,
+        beacon_session(104),
+    );
+    assert_eq!(
+        (confirmation_pulse_height + 1) % narrow.state.sortition_pulse_epoch_length_blocks(),
+        0,
+        "the Confirmation Jury slot is a consensus-native pulse height"
+    );
+    assert!(
+        confirmation_pulse_height
+            >= confirmation_request_height + narrow.state.sortition_pulse_delay_blocks()
+    );
     let policy_members: Vec<_> = narrow
         .state
         .bodies
@@ -94,8 +107,11 @@ fn policy_margin_is_strict_and_atomic_confirmation_roster_is_fresh() {
     let mut delayed_transition = narrow.state.clone();
     let mut delayed_request = request;
     delayed_request.request_height = confirmation_request_height + 1;
-    delayed_request.pulse_height =
-        delayed_request.request_height + delayed_transition.sortition_pulse_delay_blocks();
+    delayed_request.pulse_height = generation_slot(
+        &delayed_transition,
+        delayed_request.request_height,
+        beacon_session(104),
+    );
     delayed_request.id = delayed_request.canonical_id();
     assert_eq!(
         delayed_transition.register_sortition_request(
@@ -151,7 +167,6 @@ fn policy_margin_is_strict_and_atomic_confirmation_roster_is_fresh() {
         "restore must reject a narrow Policy approval without its atomic Confirmation request"
     );
     let mut backdated = narrow.state.clone();
-    let pulse_delay = backdated.sortition_pulse_delay_blocks();
     let request = &mut backdated
         .elections
         .get_mut(&confirmation_election_id)
@@ -159,7 +174,11 @@ fn policy_margin_is_strict_and_atomic_confirmation_roster_is_fresh() {
         .attempt
         .request;
     request.request_height = confirmation_request_height - 1;
-    request.pulse_height = request.request_height + pulse_delay;
+    request.pulse_height = generation_slot(
+        &before_confirmation,
+        request.request_height,
+        beacon_session(104),
+    );
     request.id = request.canonical_id();
     assert_eq!(
         backdated.validate(),
@@ -167,7 +186,6 @@ fn policy_margin_is_strict_and_atomic_confirmation_roster_is_fresh() {
         "restore must reject a Confirmation snapshot backdated before the Policy result"
     );
     let mut delayed = narrow.state.clone();
-    let pulse_delay = delayed.sortition_pulse_delay_blocks();
     let request = &mut delayed
         .elections
         .get_mut(&confirmation_election_id)
@@ -175,7 +193,11 @@ fn policy_margin_is_strict_and_atomic_confirmation_roster_is_fresh() {
         .attempt
         .request;
     request.request_height = confirmation_request_height + 1;
-    request.pulse_height = request.request_height + pulse_delay;
+    request.pulse_height = generation_slot(
+        &before_confirmation,
+        request.request_height,
+        beacon_session(104),
+    );
     request.id = request.canonical_id();
     assert_eq!(
         delayed.validate(),

@@ -450,8 +450,8 @@ mod tests {
             "/v1/sccp/outbound/bsc-mainnet/3"
         );
         assert_eq!(
-            path(sccp::LIGHT_CLIENT_CHECKPOINTS, &["tron-mainnet"]),
-            "/v1/sccp/light-clients/tron-mainnet/checkpoints"
+            path(sccp::LIGHT_CLIENT_CHECKPOINTS, &["ethereum-mainnet"]),
+            "/v1/sccp/light-clients/ethereum-mainnet/checkpoints"
         );
         assert_eq!(
             path(sccp::GOVERNANCE_PROPOSAL, &["ab"]),

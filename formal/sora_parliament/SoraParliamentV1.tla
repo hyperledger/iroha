@@ -7,11 +7,23 @@ attempt reducer. It deliberately abstracts hashes, signatures, zero-knowledge
 proofs, and the exact set of Parliament bodies. Those primitives are admitted
 as already verified inputs; this model checks only their lifecycle bindings.
 
+Sortition waits are governance-local. A request freezes one consensus-native
+pulse slot and stays AwaitingPulse until the pulse of exactly that slot is
+known; no unavailable-pulse classification, fallback, fresh height or redraw
+can substitute another draw. The model has no fairness condition, so an
+election may stay AwaitingPulse forever. That consensus keeps producing blocks
+meanwhile is not modelled here: it is evidenced by the Core mutation and tests.
+
+The timed-release ballot phases below (registration through aggregate opening,
+the TLE sessions and the timed-OVN reservations) are retired by
+specs/parliament_private_ballot_design.md and are replaced in a later revision.
+
 The model is not a liveness proof, a cryptographic proof, or release evidence.
 ***************************************************************************)
 
 CONSTANTS
     MaxHeight,
+    EpochLengthBlocks,
     SortitionPulseDelayBlocks,
     MaxSortitionRetries,
     MaxRandomnessRedraws,
@@ -40,6 +52,8 @@ CONSTANTS
     None
 
 ASSUME /\ MaxHeight \in Nat \ {0}
+       /\ EpochLengthBlocks \in Nat
+       /\ EpochLengthBlocks >= 3
        /\ SortitionPulseDelayBlocks \in Nat \ {0}
        /\ MaxSortitionRetries \in Nat
        /\ MaxRandomnessRedraws \in Nat \ {0}
@@ -85,6 +99,8 @@ VARIABLES
     sortitionPulseHeight,
     sortitionPulseKnown,
     sortitionPulseConsumed,
+    sortitionGenerationSlots,
+    sortitionConsumedPulseHeight,
     sortitionCandidateCount,
     candidateSnapshotFrozen,
     rosterBodies,
@@ -157,6 +173,8 @@ vars == <<
     sortitionPulseHeight,
     sortitionPulseKnown,
     sortitionPulseConsumed,
+    sortitionGenerationSlots,
+    sortitionConsumedPulseHeight,
     sortitionCandidateCount,
     candidateSnapshotFrozen,
     rosterBodies,
@@ -223,9 +241,7 @@ AttemptStates == {
 SortitionStates == {
     "None", "AwaitingPulse", "NoRoster", "Drawn", "RosterSealed"
 }
-SortitionFailureKinds == {
-    None, "PulseUnavailable", "HiddenElectorateCapacityUnavailable"
-}
+SortitionFailureKinds == {None, "HiddenElectorateCapacityUnavailable"}
 FindingStates == {
     "None", "AwaitingReflection", "Collecting", "Approved", "NoResult"
 }
@@ -263,6 +279,38 @@ ProposalRandomnessRedrawsUsed ==
         SortitionRandomnessRedrawsUsed +
         BallotRandomnessRedrawsUsed +
         BoolToNat(confirmationRequestCommitted)
+
+\* Consensus-native pulse heights: the last block of every epoch. The cadence
+\* is frozen in the attempt, so it is a constant of each trace.
+IsNativePulseHeight(candidate) == (candidate + 1) % EpochLengthBlocks = 0
+
+\* First native pulse height at or above `earliest`.
+AlignedSortitionPulseHeight(earliest) ==
+    earliest + (EpochLengthBlocks - 1 - (earliest % EpochLengthBlocks))
+
+MaxHeightOf(heights) ==
+    CHOOSE top \in heights: \A other \in heights: other <= top
+
+\* The one slot a request freezes: the first native pulse height that is at or
+\* above `request + SortitionPulseDelayBlocks` and strictly above every earlier
+\* generation slot of the same attempt.
+SortitionPulseSlot(request, priorSlots) ==
+    LET delayed == request + SortitionPulseDelayBlocks
+        earliest ==
+            IF priorSlots = {} \/ MaxHeightOf(priorSlots) < delayed
+            THEN delayed
+            ELSE MaxHeightOf(priorSlots) + 1
+    IN AlignedSortitionPulseHeight(earliest)
+
+GenerationSlotsBefore(count) ==
+    {sortitionGenerationSlots[index] : index \in 1..count}
+
+PriorSortitionGenerationSlots ==
+    GenerationSlotsBefore(Len(sortitionGenerationSlots))
+
+\* Slot of a request registered in the current block.
+FreshSortitionPulseSlot ==
+    SortitionPulseSlot(height, PriorSortitionGenerationSlots)
 
 PublicFindingQuorum ==
     (2 * Cardinality(SeatedAssignments) + 2) \div 3
@@ -311,6 +359,8 @@ Init ==
     /\ sortitionPulseHeight = None
     /\ sortitionPulseKnown = FALSE
     /\ sortitionPulseConsumed = FALSE
+    /\ sortitionGenerationSlots = <<>>
+    /\ sortitionConsumedPulseHeight = None
     /\ sortitionCandidateCount = None
     /\ candidateSnapshotFrozen = FALSE
     /\ rosterBodies = {}
@@ -413,6 +463,7 @@ AttemptPrefixFrame ==
 
 CoreFrame ==
     UNCHANGED <<
+        sortitionGenerationSlots, sortitionConsumedPulseHeight,
         height, attemptStatus, sortitionState, sortitionSequence,
         sortitionFailureKind, sortitionFailureHeight,
         supersededSortitionAttempts, requestHeight,
@@ -434,6 +485,7 @@ CoreFrame ==
 
 CoreFrameExceptAttemptStatus ==
     UNCHANGED <<
+        sortitionGenerationSlots, sortitionConsumedPulseHeight,
         height, governanceAttemptSequence, randomnessRedrawsBeforeAttempt,
         sortitionState, sortitionSequence, sortitionFailureKind,
         sortitionFailureHeight, supersededSortitionAttempts, requestHeight,
@@ -458,6 +510,7 @@ Tick ==
     /\ ~(attemptStatus = "Certified" /\ height = enactAtHeight)
     /\ height' = height + 1
     /\ UNCHANGED <<
+        sortitionGenerationSlots, sortitionConsumedPulseHeight,
         attemptStatus, sortitionState, sortitionSequence,
         sortitionFailureKind, sortitionFailureHeight,
         supersededSortitionAttempts, requestHeight, sortitionPulseHeight,
@@ -478,11 +531,14 @@ CommitInitialSortitionBatch ==
     /\ sortitionState = "None"
     /\ ProposalRandomnessRedrawsUsed + InitialSortitionRedrawCost <=
           MaxRandomnessRedraws
-    /\ height + SortitionPulseDelayBlocks <= MaxHeight
+    /\ FreshSortitionPulseSlot <= MaxHeight
     /\ sortitionState' = "AwaitingPulse"
     /\ requestHeight' = height
-    /\ sortitionPulseHeight' = height + SortitionPulseDelayBlocks
+    /\ sortitionPulseHeight' = FreshSortitionPulseSlot
+    /\ sortitionGenerationSlots' =
+          Append(sortitionGenerationSlots, FreshSortitionPulseSlot)
     /\ sortitionPulseConsumed' = FALSE
+    /\ sortitionConsumedPulseHeight' = None
     /\ sortitionCandidateCount' = 3
     /\ candidateSnapshotFrozen' = TRUE
     /\ UNCHANGED <<
@@ -505,14 +561,17 @@ RecordInitialHiddenSortitionCapacityFailure(candidateCount) ==
     /\ ProposalRandomnessRedrawsUsed + InitialSortitionRedrawCost <=
           MaxRandomnessRedraws
     /\ candidateCount \in 0..2
-    /\ height + SortitionPulseDelayBlocks <= MaxHeight
+    /\ FreshSortitionPulseSlot <= MaxHeight
     /\ sortitionState' = "NoRoster"
     /\ sortitionFailureKind' = "HiddenElectorateCapacityUnavailable"
     /\ sortitionFailureHeight' = height
     /\ requestHeight' = height
-    /\ sortitionPulseHeight' = height + SortitionPulseDelayBlocks
+    /\ sortitionPulseHeight' = FreshSortitionPulseSlot
+    /\ sortitionGenerationSlots' =
+          Append(sortitionGenerationSlots, FreshSortitionPulseSlot)
     /\ sortitionPulseKnown' = FALSE
     /\ sortitionPulseConsumed' = FALSE
+    /\ sortitionConsumedPulseHeight' = None
     /\ sortitionCandidateCount' = candidateCount
     /\ candidateSnapshotFrozen' = TRUE
     /\ attemptStatus' =
@@ -533,12 +592,16 @@ RecordInitialHiddenSortitionCapacityFailure(candidateCount) ==
         >>
     /\ FindingFrame
 
+\* The pulse of the frozen slot is committed in its own block, so it cannot be
+\* known before the modelled height reaches that slot. Nothing forces this
+\* action: a pulse that never becomes known leaves the election AwaitingPulse.
 RevealSortitionPulse ==
     /\ sortitionState = "AwaitingPulse"
     /\ ~sortitionPulseKnown
     /\ height >= sortitionPulseHeight
     /\ sortitionPulseKnown' = TRUE
     /\ UNCHANGED <<
+        sortitionGenerationSlots, sortitionConsumedPulseHeight,
         height, attemptStatus, sortitionState, sortitionSequence,
         sortitionFailureKind, sortitionFailureHeight,
         supersededSortitionAttempts, requestHeight,
@@ -554,47 +617,24 @@ RevealSortitionPulse ==
         >>
     /\ FindingFrame
 
+\* Consumption reads the pulse of exactly the frozen slot and may happen at any
+\* height at or after it. It is the only exit from AwaitingPulse.
 ConsumeInitialSortitionBatch ==
     /\ attemptStatus = "Active"
     /\ sortitionState = "AwaitingPulse"
     /\ sortitionPulseKnown
+    /\ height >= sortitionPulseHeight
     /\ sortitionState' = "Drawn"
     /\ sortitionPulseConsumed' = TRUE
+    /\ sortitionConsumedPulseHeight' = sortitionPulseHeight
     /\ rosterBodies' = Bodies
     /\ UNCHANGED <<
+        sortitionGenerationSlots,
         height, attemptStatus, sortitionSequence, sortitionFailureKind,
         sortitionFailureHeight, supersededSortitionAttempts, requestHeight,
         sortitionPulseHeight,
         sortitionPulseKnown, sortitionCandidateCount, candidateSnapshotFrozen,
         invitationCloseHeight,
-        ballotState, ballotSequence, currentTleSession, usedTleSessions,
-        registeredAtHeight, registrationCloseHeight, survivorFreezeHeight,
-        commitmentCloseHeight, releaseHeight, registrationClosedAt,
-        survivorsFrozenAt, commitmentClosedAt, releasePulseKnown,
-        openingHeight, failureHeight, ballotApproved, certifiedAtHeight,
-        enactAtHeight, certificateHead, observedHead, effectApplied,
-        terminalHeight, plaintextPath, fallbackPath
-        >>
-    /\ FindingFrame
-
-FailSortitionPulseUnavailable ==
-    /\ attemptStatus = "Active"
-    /\ sortitionState = "AwaitingPulse"
-    /\ ~sortitionPulseKnown
-    /\ height > sortitionPulseHeight
-    /\ sortitionState' = "NoRoster"
-    /\ sortitionFailureKind' = "PulseUnavailable"
-    /\ sortitionFailureHeight' = height
-    /\ attemptStatus' =
-          IF (sortitionSequence = MaxSortitionRetries \/
-                ProposalRandomnessRedrawsUsed = MaxRandomnessRedraws)
-          THEN "Rejected"
-          ELSE attemptStatus
-    /\ UNCHANGED <<
-        height, sortitionSequence, supersededSortitionAttempts,
-        requestHeight, sortitionPulseHeight, sortitionPulseKnown,
-        sortitionPulseConsumed, sortitionCandidateCount,
-        candidateSnapshotFrozen, rosterBodies, invitationCloseHeight,
         ballotState, ballotSequence, currentTleSession, usedTleSessions,
         registeredAtHeight, registrationCloseHeight, survivorFreezeHeight,
         commitmentCloseHeight, releaseHeight, registrationClosedAt,
@@ -617,29 +657,29 @@ FailSortitionPulseUnavailable ==
 \* body records capacity evidence for its whole generation, as modeled below.
 \* Per-body stages are abstracted away: a body serving a later stage that fails
 \* here rejects the attempt even while an earlier stage is still in progress.
-SortitionRetryHeightEligible ==
-    IF sortitionFailureKind = "HiddenElectorateCapacityUnavailable"
-    THEN height > sortitionFailureHeight
-    ELSE height >= sortitionFailureHeight
+\* Hidden-capacity evidence is the only failure that precedes the first consumed
+\* pulse: an AwaitingPulse election has no failure, redraw or retry transition.
+SortitionRetryHeightEligible == height > sortitionFailureHeight
 
 RetryInitialSortitionBatch ==
     /\ attemptStatus = "Active"
     /\ sortitionState = "NoRoster"
-    /\ sortitionFailureKind \in {
-          "PulseUnavailable", "HiddenElectorateCapacityUnavailable"
-       }
+    /\ sortitionFailureKind = "HiddenElectorateCapacityUnavailable"
     /\ sortitionFailureHeight # None
     /\ sortitionSequence < MaxSortitionRetries
     /\ ProposalRandomnessRedrawsUsed < MaxRandomnessRedraws
     /\ SortitionRetryHeightEligible
-    /\ height + SortitionPulseDelayBlocks <= MaxHeight
+    /\ FreshSortitionPulseSlot <= MaxHeight
     /\ sortitionState' = "AwaitingPulse"
     /\ sortitionSequence' = sortitionSequence + 1
     /\ supersededSortitionAttempts' = supersededSortitionAttempts + 1
     /\ requestHeight' = height
-    /\ sortitionPulseHeight' = height + SortitionPulseDelayBlocks
+    /\ sortitionPulseHeight' = FreshSortitionPulseSlot
+    /\ sortitionGenerationSlots' =
+          Append(sortitionGenerationSlots, FreshSortitionPulseSlot)
     /\ sortitionPulseKnown' = FALSE
     /\ sortitionPulseConsumed' = FALSE
+    /\ sortitionConsumedPulseHeight' = None
     /\ sortitionCandidateCount' = 3
     /\ sortitionFailureKind' = None
     /\ sortitionFailureHeight' = None
@@ -659,21 +699,22 @@ RetryInitialSortitionBatch ==
 RecordRetryHiddenSortitionCapacityFailure(candidateCount) ==
     /\ attemptStatus = "Active"
     /\ sortitionState = "NoRoster"
-    /\ sortitionFailureKind \in {
-          "PulseUnavailable", "HiddenElectorateCapacityUnavailable"
-       }
+    /\ sortitionFailureKind = "HiddenElectorateCapacityUnavailable"
     /\ sortitionFailureHeight # None
     /\ sortitionSequence < MaxSortitionRetries
     /\ ProposalRandomnessRedrawsUsed < MaxRandomnessRedraws
     /\ SortitionRetryHeightEligible
     /\ candidateCount \in 0..2
-    /\ height + SortitionPulseDelayBlocks <= MaxHeight
+    /\ FreshSortitionPulseSlot <= MaxHeight
     /\ sortitionSequence' = sortitionSequence + 1
     /\ supersededSortitionAttempts' = supersededSortitionAttempts + 1
     /\ requestHeight' = height
-    /\ sortitionPulseHeight' = height + SortitionPulseDelayBlocks
+    /\ sortitionPulseHeight' = FreshSortitionPulseSlot
+    /\ sortitionGenerationSlots' =
+          Append(sortitionGenerationSlots, FreshSortitionPulseSlot)
     /\ sortitionPulseKnown' = FALSE
     /\ sortitionPulseConsumed' = FALSE
+    /\ sortitionConsumedPulseHeight' = None
     /\ sortitionCandidateCount' = candidateCount
     /\ candidateSnapshotFrozen' = TRUE
     /\ sortitionFailureKind' = "HiddenElectorateCapacityUnavailable"
@@ -704,6 +745,7 @@ SealInvitationRosters ==
     /\ invitationCloseHeight' = height + 1
     /\ findingState' = "AwaitingReflection"
     /\ UNCHANGED <<
+        sortitionGenerationSlots, sortitionConsumedPulseHeight,
         height, attemptStatus, sortitionSequence, sortitionFailureKind,
         sortitionFailureHeight, supersededSortitionAttempts, requestHeight,
         sortitionPulseHeight,
@@ -880,6 +922,7 @@ RegisterPrivateBallot ==
         /\ failureHeight' = None
         /\ ballotApproved' = FALSE
     /\ UNCHANGED <<
+        sortitionGenerationSlots, sortitionConsumedPulseHeight,
         height, attemptStatus, sortitionState, sortitionSequence,
         sortitionFailureKind, sortitionFailureHeight,
         supersededSortitionAttempts, requestHeight,
@@ -898,6 +941,7 @@ CloseRegistrationAtBoundary ==
     /\ ballotState' = "SurvivorFreeze"
     /\ registrationClosedAt' = height
     /\ UNCHANGED <<
+        sortitionGenerationSlots, sortitionConsumedPulseHeight,
         height, attemptStatus, sortitionState, sortitionSequence,
         sortitionFailureKind, sortitionFailureHeight,
         supersededSortitionAttempts, requestHeight,
@@ -921,6 +965,7 @@ FreezeSurvivorsAtBoundary ==
     /\ ballotState' = "TimedCommitment"
     /\ survivorsFrozenAt' = height
     /\ UNCHANGED <<
+        sortitionGenerationSlots, sortitionConsumedPulseHeight,
         height, attemptStatus, sortitionState, sortitionSequence,
         sortitionFailureKind, sortitionFailureHeight,
         supersededSortitionAttempts, requestHeight,
@@ -951,6 +996,7 @@ FreezeCommitmentInWindow ==
     /\ ballotState' = "AwaitingRelease"
     /\ commitmentClosedAt' = height
     /\ UNCHANGED <<
+        sortitionGenerationSlots, sortitionConsumedPulseHeight,
         height, attemptStatus, sortitionState, sortitionSequence,
         sortitionFailureKind, sortitionFailureHeight,
         supersededSortitionAttempts, requestHeight,
@@ -974,6 +1020,7 @@ ObserveCommittedReleasePulse ==
     /\ currentTleSession \in AvailableReleaseSessions
     /\ releasePulseKnown' = TRUE
     /\ UNCHANGED <<
+        sortitionGenerationSlots, sortitionConsumedPulseHeight,
         height, attemptStatus, sortitionState, sortitionSequence,
         sortitionFailureKind, sortitionFailureHeight,
         supersededSortitionAttempts, requestHeight,
@@ -998,6 +1045,7 @@ BeginAggregateOpening ==
     /\ ballotState' = "Opening"
     /\ openingHeight' = height
     /\ UNCHANGED <<
+        sortitionGenerationSlots, sortitionConsumedPulseHeight,
         height, attemptStatus, sortitionState, sortitionSequence,
         sortitionFailureKind, sortitionFailureHeight,
         supersededSortitionAttempts, requestHeight,
@@ -1037,6 +1085,7 @@ FailPrivateBallotNoResult ==
           THEN "Rejected"
           ELSE attemptStatus
     /\ UNCHANGED <<
+        sortitionGenerationSlots, sortitionConsumedPulseHeight,
         height, sortitionState, sortitionSequence, sortitionFailureKind,
         sortitionFailureHeight, supersededSortitionAttempts, requestHeight,
         sortitionPulseHeight, sortitionPulseKnown, sortitionPulseConsumed,
@@ -1080,6 +1129,7 @@ FinalizeAggregateApprovedAndCertify ==
     /\ certificateFindingEndorsementCount' = findingEndorsementCount
     /\ certificateFindingQuorum' = PublicFindingQuorum
     /\ UNCHANGED <<
+        sortitionGenerationSlots, sortitionConsumedPulseHeight,
         height, sortitionState, sortitionSequence, sortitionFailureKind,
         sortitionFailureHeight, supersededSortitionAttempts, requestHeight,
         sortitionPulseHeight, sortitionPulseKnown, sortitionPulseConsumed,
@@ -1114,6 +1164,7 @@ FinalizeNarrowPolicyCapacityNoResult(eligibleCount) ==
     /\ confirmationRequestHeight' = None
     /\ confirmationPulseHeight' = None
     /\ UNCHANGED <<
+        sortitionGenerationSlots, sortitionConsumedPulseHeight,
         height, sortitionState, sortitionSequence, sortitionFailureKind,
         sortitionFailureHeight, supersededSortitionAttempts, requestHeight,
         sortitionPulseHeight, sortitionPulseKnown, sortitionPulseConsumed,
@@ -1151,6 +1202,7 @@ FinalizeNarrowPolicyRandomnessRedrawBudgetExhausted ==
     /\ confirmationRequestHeight' = None
     /\ confirmationPulseHeight' = None
     /\ UNCHANGED <<
+        sortitionGenerationSlots, sortitionConsumedPulseHeight,
         height, sortitionState, sortitionSequence, sortitionFailureKind,
         sortitionFailureHeight, supersededSortitionAttempts, requestHeight,
         sortitionPulseHeight, sortitionPulseKnown, sortitionPulseConsumed,
@@ -1172,7 +1224,7 @@ FinalizeNarrowPolicyAndRegisterConfirmationRequest ==
     /\ ballotState = "Opening"
     /\ height >= openingHeight
     /\ height <= releaseHeight + OpeningBlocks
-    /\ height + SortitionPulseDelayBlocks <= MaxHeight
+    /\ FreshSortitionPulseSlot <= MaxHeight
     /\ ProposalRandomnessRedrawsUsed < MaxRandomnessRedraws
     /\ ballotState' = "Approved"
     /\ ballotApproved' = TRUE
@@ -1183,8 +1235,9 @@ FinalizeNarrowPolicyAndRegisterConfirmationRequest ==
     /\ confirmationRequirementCommitted' = TRUE
     /\ confirmationRequestCommitted' = TRUE
     /\ confirmationRequestHeight' = height
-    /\ confirmationPulseHeight' = height + SortitionPulseDelayBlocks
+    /\ confirmationPulseHeight' = FreshSortitionPulseSlot
     /\ UNCHANGED <<
+        sortitionGenerationSlots, sortitionConsumedPulseHeight,
         height, attemptStatus, sortitionState, sortitionSequence,
         sortitionFailureKind, sortitionFailureHeight,
         supersededSortitionAttempts, requestHeight, sortitionPulseHeight,
@@ -1211,6 +1264,7 @@ FinalizeAggregateRejected ==
     /\ attemptStatus' = "Rejected"
     /\ terminalHeight' = height
     /\ UNCHANGED <<
+        sortitionGenerationSlots, sortitionConsumedPulseHeight,
         height, sortitionState, sortitionSequence, sortitionFailureKind,
         sortitionFailureHeight, supersededSortitionAttempts, requestHeight,
         sortitionPulseHeight,
@@ -1231,6 +1285,7 @@ ChangeGovernedHead ==
     /\ observedHead = ExpectedHead
     /\ observedHead' = CompetingHead
     /\ UNCHANGED <<
+        sortitionGenerationSlots, sortitionConsumedPulseHeight,
         height, attemptStatus, sortitionState, sortitionSequence,
         sortitionFailureKind, sortitionFailureHeight,
         supersededSortitionAttempts, requestHeight,
@@ -1255,6 +1310,7 @@ EnactAtExactHeight ==
     /\ effectApplied' = TRUE
     /\ terminalHeight' = height
     /\ UNCHANGED <<
+        sortitionGenerationSlots, sortitionConsumedPulseHeight,
         height, sortitionState, sortitionSequence, sortitionFailureKind,
         sortitionFailureHeight, supersededSortitionAttempts, requestHeight,
         sortitionPulseHeight,
@@ -1279,6 +1335,7 @@ RecordInternalExecutionFailureAtExactHeight ==
     /\ effectApplied' = FALSE
     /\ terminalHeight' = height
     /\ UNCHANGED <<
+        sortitionGenerationSlots, sortitionConsumedPulseHeight,
         height, sortitionState, sortitionSequence, sortitionFailureKind,
         sortitionFailureHeight, supersededSortitionAttempts, requestHeight,
         sortitionPulseHeight,
@@ -1302,6 +1359,7 @@ SupersedeAtExactHeight ==
     /\ attemptStatus' = "Superseded"
     /\ terminalHeight' = height
     /\ UNCHANGED <<
+        sortitionGenerationSlots, sortitionConsumedPulseHeight,
         height, sortitionState, sortitionSequence, sortitionFailureKind,
         sortitionFailureHeight, supersededSortitionAttempts, requestHeight,
         sortitionPulseHeight,
@@ -1369,7 +1427,6 @@ ReducerNext ==
     \/ \E candidateCount \in 0..2:
           RecordInitialHiddenSortitionCapacityFailure(candidateCount)
     \/ RevealSortitionPulse
-    \/ FailSortitionPulseUnavailable
     \/ RetryInitialSortitionBatch
     \/ \E candidateCount \in 0..2:
           RecordRetryHiddenSortitionCapacityFailure(candidateCount)
@@ -1447,6 +1504,9 @@ TypeOK ==
     /\ sortitionPulseHeight \in OptionalHeight
     /\ sortitionPulseKnown \in BOOLEAN
     /\ sortitionPulseConsumed \in BOOLEAN
+    /\ sortitionGenerationSlots \in Seq(0..MaxHeight)
+    /\ Len(sortitionGenerationSlots) <= MaxSortitionRetries + 1
+    /\ sortitionConsumedPulseHeight \in OptionalHeight
     /\ sortitionCandidateCount \in (0..3) \cup {None}
     /\ candidateSnapshotFrozen \in BOOLEAN
     /\ rosterBodies \subseteq Bodies
@@ -1527,8 +1587,9 @@ FuturePulseSortition ==
        \/ /\ candidateSnapshotFrozen
           /\ requestHeight # None
           /\ sortitionPulseHeight # None
-          /\ sortitionPulseHeight =
+          /\ sortitionPulseHeight >=
                 requestHeight + SortitionPulseDelayBlocks
+          /\ sortitionPulseHeight > requestHeight
     /\ sortitionPulseKnown => height >= sortitionPulseHeight
 
 ObjectiveBoundedSortitionRetries ==
@@ -1547,17 +1608,11 @@ ObjectiveBoundedSortitionRetries ==
           /\ ~sortitionPulseConsumed
           /\ sortitionCandidateCount = 3
     /\ sortitionState = "NoRoster" =>
-          /\ sortitionFailureKind \in {
-                "PulseUnavailable", "HiddenElectorateCapacityUnavailable"
-             }
-          /\ sortitionFailureHeight # None
+          /\ sortitionFailureKind = "HiddenElectorateCapacityUnavailable"
+          /\ sortitionFailureHeight = requestHeight
           /\ ~sortitionPulseKnown
           /\ ~sortitionPulseConsumed
-          /\ IF sortitionFailureKind = "PulseUnavailable"
-                THEN /\ sortitionFailureHeight > sortitionPulseHeight
-                     /\ sortitionCandidateCount = 3
-                ELSE /\ sortitionFailureHeight = requestHeight
-                     /\ sortitionCandidateCount \in 0..2
+          /\ sortitionCandidateCount \in 0..2
           /\ attemptStatus =
                 IF (sortitionSequence = MaxSortitionRetries \/
                       ProposalRandomnessRedrawsUsed = MaxRandomnessRedraws)
@@ -1579,6 +1634,93 @@ HiddenElectorateCapacityConsumesNoPulse ==
           /\ ~sortitionPulseConsumed
     /\ sortitionCandidateCount \in 0..2 =>
           sortitionFailureKind = "HiddenElectorateCapacityUnavailable"
+
+\* Every frozen slot, including the Confirmation request's, is a
+\* consensus-native pulse height.
+NativeSortitionPulseSlots ==
+    /\ \A index \in 1..Len(sortitionGenerationSlots):
+          IsNativePulseHeight(sortitionGenerationSlots[index])
+    /\ sortitionPulseHeight # None =>
+          IsNativePulseHeight(sortitionPulseHeight)
+    /\ confirmationPulseHeight # None =>
+          IsNativePulseHeight(confirmationPulseHeight)
+
+\* One generation per slot: the slots of one attempt strictly increase, and the
+\* Confirmation slot is above all of them.
+StrictlyIncreasingGenerationSlots ==
+    /\ \A earlier, later \in 1..Len(sortitionGenerationSlots):
+          earlier < later =>
+              sortitionGenerationSlots[earlier] <
+                  sortitionGenerationSlots[later]
+    /\ confirmationPulseHeight # None =>
+          \A index \in 1..Len(sortitionGenerationSlots):
+              sortitionGenerationSlots[index] < confirmationPulseHeight
+
+\* The slot recorded at registration is the slot of the live request, it is
+\* exactly the derived one, and a consumed pulse is the pulse of that slot.
+FrozenSortitionRequestSlot ==
+    /\ sortitionState = "None" =>
+          /\ sortitionGenerationSlots = <<>>
+          /\ sortitionConsumedPulseHeight = None
+    /\ sortitionState # "None" =>
+          /\ Len(sortitionGenerationSlots) = sortitionSequence + 1
+          /\ sortitionGenerationSlots[sortitionSequence + 1] =
+                sortitionPulseHeight
+          /\ sortitionPulseHeight =
+                SortitionPulseSlot(
+                    requestHeight, GenerationSlotsBefore(sortitionSequence))
+          /\ sortitionConsumedPulseHeight \in {None, sortitionPulseHeight}
+          /\ (sortitionConsumedPulseHeight # None) = sortitionPulseConsumed
+    /\ confirmationRequestCommitted =>
+          confirmationPulseHeight =
+              SortitionPulseSlot(
+                  confirmationRequestHeight, PriorSortitionGenerationSlots)
+
+\* The wait is governance-local and exact. An AwaitingPulse election is neither
+\* failed nor rejected by sortition, no failure, redraw or retry transition is
+\* enabled for it, and it cannot be consumed before its pulse is known.
+ExactPulseWaitIsGovernanceLocal ==
+    sortitionState = "AwaitingPulse" =>
+        /\ sortitionFailureKind = None
+        /\ sortitionFailureHeight = None
+        /\ sortitionConsumedPulseHeight = None
+        /\ ~ENABLED CommitInitialSortitionBatch
+        /\ ~ENABLED RetryInitialSortitionBatch
+        /\ \A candidateCount \in 0..2:
+              /\ ~ENABLED
+                    RecordInitialHiddenSortitionCapacityFailure(candidateCount)
+              /\ ~ENABLED
+                    RecordRetryHiddenSortitionCapacityFailure(candidateCount)
+        /\ ~sortitionPulseKnown => ~ENABLED ConsumeInitialSortitionBatch
+
+\* Action property: the only step that leaves AwaitingPulse consumes the known
+\* pulse of exactly the frozen slot.
+AwaitingPulseLeavesOnlyByExactConsumption ==
+    [][(sortitionState = "AwaitingPulse" /\
+            sortitionState' # "AwaitingPulse") =>
+          /\ sortitionPulseKnown
+          /\ height >= sortitionPulseHeight
+          /\ sortitionState' = "Drawn"
+          /\ sortitionPulseConsumed'
+          /\ sortitionConsumedPulseHeight' = sortitionPulseHeight
+          /\ sortitionPulseHeight' = sortitionPulseHeight
+          /\ sortitionSequence' = sortitionSequence]_vars
+
+\* Action property: a registered slot never changes. History is append-only,
+\* a live request keeps its request height and slot until a later generation
+\* is registered, and the Confirmation slot is write-once.
+SortitionSlotNeverChangesAfterRegistration ==
+    [][/\ Len(sortitionGenerationSlots') >= Len(sortitionGenerationSlots)
+       /\ \A index \in 1..Len(sortitionGenerationSlots):
+             sortitionGenerationSlots'[index] =
+                 sortitionGenerationSlots[index]
+       /\ (sortitionState # "None" /\
+              sortitionSequence' = sortitionSequence) =>
+             /\ requestHeight' = requestHeight
+             /\ sortitionPulseHeight' = sortitionPulseHeight
+             /\ sortitionGenerationSlots' = sortitionGenerationSlots
+       /\ confirmationPulseHeight # None =>
+             confirmationPulseHeight' = confirmationPulseHeight]_vars
 
 TimedOvnReservationSafety ==
     /\ Cardinality(timedOvnResourceReservations) <=
@@ -1770,7 +1912,7 @@ AtomicPolicyConfirmationCapacity ==
                      /\ confirmationRequirementCommitted
                      /\ confirmationRequestCommitted
                      /\ confirmationRequestHeight = policyResultHeight
-                     /\ confirmationPulseHeight =
+                     /\ confirmationPulseHeight >=
                            policyResultHeight + SortitionPulseDelayBlocks
     /\ ~policyRequiresConfirmation =>
           /\ eligibleConfirmationCandidates = None

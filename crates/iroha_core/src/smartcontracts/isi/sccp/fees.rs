@@ -47,8 +47,8 @@ fn single<T: 'static>(payload: &TransactionPayload) -> Option<&T> {
 /// * attestation batch: the authority is a registered bridge key's account (§4.8);
 /// * key binding: [`bridge_keys::binding_exempt`], once per peer per epoch (§4.2.3);
 /// * fault evidence: always (§4.11);
-/// * keeper advance: [`light_clients::keeper_advance_eligible`], a live unfaulted bridge key
-///   and not a `Backfill` (§4.13.4);
+/// * keeper advance: [`light_clients::keeper_advance_eligible`], from any authority, registered
+///   or not, unless it is a `Backfill` (§4.13.4);
 /// * self-claim: [`self_claim::eligible`], the recipient claiming more than the self-claim fee
 ///   (§4.12.4).
 ///
@@ -71,9 +71,7 @@ pub fn exempt_class(
             .is_some_and(|set| bridge_keys::binding_exempt(world, set, authority)),
         SccpExemptClassV1::Fault => true,
         SccpExemptClassV1::KeeperAdvance { .. } => single::<AdvanceSccpLightClientV1>(payload)
-            .is_some_and(|advance| {
-                light_clients::keeper_advance_eligible(world, authority, advance)
-            }),
+            .is_some_and(light_clients::keeper_advance_eligible),
         SccpExemptClassV1::SelfClaim => {
             self_claim::eligible(world, authority, &payload.instructions)
         }
@@ -165,6 +163,56 @@ mod tests {
         assert_eq!(
             exempt_class(&*stx.world, &payload),
             Some(SccpExemptClassV1::Attestation)
+        );
+    }
+
+    #[test]
+    fn keeper_advances_are_exempt_from_any_authority_with_sccp_only() {
+        use crate::smartcontracts::isi::sccp::test_support::authority;
+        use iroha_sccp::light_client::{
+            ethereum::{EthereumHeaderSegmentV1, EthereumLcAdvanceV1},
+            proof::{SccpLcAdvanceV1, SccpLcSegmentV1},
+        };
+        let network = iroha_data_model::bridge::SccpNetworkV1::EthereumMainnet;
+        let frame = |advance: SccpLcAdvanceV1| AdvanceSccpLightClientV1 {
+            network,
+            expected_state_hash: None,
+            advance: advance.to_bytes().expect("bounded advance"),
+        };
+        let advance = frame(SccpLcAdvanceV1::Ethereum(EthereumLcAdvanceV1 {
+            updates: Vec::new(),
+        }));
+        let backfill = frame(SccpLcAdvanceV1::Backfill {
+            segment: SccpLcSegmentV1::Ethereum(EthereumHeaderSegmentV1 {
+                headers: Vec::new(),
+            }),
+        });
+        let state = blank_state();
+        let mut block = state.block(header(2));
+        let mut stx = block.transaction();
+        let payload = with_instructions(vec![advance.clone().into()]);
+        assert!(!exempt_on_success(&*stx.world, &payload), "no SCCP");
+        store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
+        let class = Some(SccpExemptClassV1::KeeperAdvance { network });
+        assert_eq!(exempt_class(&*stx.world, &payload), class);
+        // No account of the test World is registered: the authority does not matter.
+        for seed in [1, 2] {
+            let mut other = payload.clone();
+            other.authority = authority(seed);
+            assert_eq!(exempt_class(&*stx.world, &other), class);
+        }
+        assert_eq!(
+            exempt_class(&*stx.world, &with_instructions(vec![backfill.into()])),
+            None,
+            "a Backfill pays the ordinary fee"
+        );
+        assert_eq!(
+            exempt_class(
+                &*stx.world,
+                &with_instructions(vec![advance.clone().into(), advance.into()])
+            ),
+            None,
+            "only a single advance has the keeper-advance shape"
         );
     }
 

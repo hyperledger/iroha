@@ -119,9 +119,11 @@ pub struct ParliamentSortitionRequestRegistrationV1 {
 ///
 /// Core derives the complete canonical candidate snapshot from authoritative
 /// citizenship state once in the containing block; callers never retransmit
-/// it. The initial batch contains every initially required body. If that shared
-/// initial pulse is objectively unavailable, the exact full initial generation
-/// retries atomically. After any pulse has been consumed, a no-roster retry
+/// it. The initial batch contains every initially required body. A generation
+/// awaiting its pulse is never retried or redrawn: it waits for the pulse of
+/// exactly its frozen slot. Before any pulse is consumed, only a hidden-capacity
+/// failure of the full initial generation retries, atomically. After any pulse
+/// has been consumed, a no-roster retry
 /// contains exactly every body whose active generation ended without a roster,
 /// and a Confirmation Jury draw contains exactly one fresh request.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Encode, Decode, IntoSchema)]
@@ -165,7 +167,8 @@ pub struct ParliamentBeginInvitationAcceptanceV1 {
     pub election_attempt_id: BodyElectionAttemptId,
 }
 
-/// Payload terminally recording a missing sortition pulse or empty roster.
+/// Payload terminally recording an election whose invitation window closed
+/// without a viable roster. It never applies to an election awaiting its pulse.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Encode, Decode, IntoSchema)]
 #[norito(deny_unknown_fields)]
 #[derive(crate :: DeriveJsonSerialize, crate :: DeriveJsonDeserialize, norito::NoritoSchema)]
@@ -531,7 +534,8 @@ pub enum ParliamentLifecycleTransitionV1 {
     /// Derive the deterministic draw plan and begin invitation acceptance.
     #[codec(index = 4)]
     BeginInvitationAcceptance(ParliamentBeginInvitationAcceptanceV1),
-    /// Terminally record an expired pulse wait or failure to form a nonempty roster.
+    /// Terminally record an election whose invitation window closed without a viable roster
+    /// (never an election awaiting its pulse).
     #[codec(index = 5)]
     FailBodyElectionNoRoster(ParliamentFailBodyElectionNoRosterV1),
     /// Seal a nonempty canonical roster into a body instance.
@@ -620,7 +624,7 @@ pub enum ParliamentLifecycleTransitionKindV1 {
     /// Invitation-acceptance start.
     #[codec(index = 4)]
     BeginInvitationAcceptance,
-    /// Terminal election failure after a missing pulse or without a roster.
+    /// Terminal election failure after invitations closed without a viable roster.
     #[codec(index = 5)]
     FailBodyElectionNoRoster,
     /// Canonical body-roster sealing.

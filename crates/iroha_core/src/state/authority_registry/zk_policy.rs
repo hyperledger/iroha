@@ -78,8 +78,6 @@ sccp_policy! {
     max_ethereum_light_client_updates_per_block: u32,
     max_native_header_bytes_per_transaction: u64,
     max_native_header_bytes_per_block: u64,
-    max_secp256k1_recoveries_per_transaction: u32,
-    max_secp256k1_recoveries_per_block: u32,
     max_ed25519_signature_checks_per_transaction: u32,
     max_ed25519_signature_checks_per_block: u32,
     max_bls_vote_attestations_per_transaction: u32,

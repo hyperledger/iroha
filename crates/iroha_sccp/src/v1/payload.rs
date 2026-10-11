@@ -21,8 +21,8 @@ use super::{
     amount::check_lane_amount,
     constants::{
         ASSET_ID_XOR, CODEC_CANONICAL_TEXT, CODEC_EVM_ADDRESS20, CODEC_TAIRA_ACCOUNT,
-        CODEC_TON_ACCOUNT36, CODEC_TRON_ADDRESS21, MAX_CANONICAL_TEXT_BYTES, MAX_PAYLOAD_BYTES,
-        MAX_TAIRA_ACCOUNT_BYTES, PAYLOAD_KIND_TRANSFER, PAYLOAD_VERSION, TRON_ADDRESS_PREFIX,
+        CODEC_TON_ACCOUNT36, MAX_CANONICAL_TEXT_BYTES, MAX_PAYLOAD_BYTES, MAX_TAIRA_ACCOUNT_BYTES,
+        PAYLOAD_KIND_TRANSFER, PAYLOAD_VERSION,
     },
     hashes,
     network::{self, account_codec, network_from_domain},
@@ -99,20 +99,15 @@ impl PayloadAccountV1 {
 /// Whether `bytes` satisfies the §3.1 rule of `codec`.
 ///
 /// Codec 1 is printable ASCII of 1..=256 bytes; 2 is 20 nonzero bytes; 3 is 1..=1024 bytes
-/// (Taira decodes the `AccountAddress` itself); 5 is `0x41` then 20 nonzero bytes; 7 is a
-/// big-endian `i32` workchain 0 then a nonzero 32-byte account id. Codecs 4, 6 and every other
-/// value are unassigned.
+/// (Taira decodes the `AccountAddress` itself); 7 is a big-endian `i32` workchain 0 then a
+/// nonzero 32-byte account id. Codecs 4, 5, 6 and every other value are unassigned; codec 5
+/// belonged to the removed TRON profile.
 #[must_use]
 pub fn is_valid_account(codec: u8, bytes: &[u8]) -> bool {
     match codec {
         CODEC_CANONICAL_TEXT => is_canonical_text(bytes),
         CODEC_EVM_ADDRESS20 => bytes.len() == 20 && bytes.iter().any(|byte| *byte != 0),
         CODEC_TAIRA_ACCOUNT => (1..=MAX_TAIRA_ACCOUNT_BYTES).contains(&bytes.len()),
-        CODEC_TRON_ADDRESS21 => {
-            bytes.len() == 21
-                && bytes[0] == TRON_ADDRESS_PREFIX
-                && bytes[1..].iter().any(|byte| *byte != 0)
-        }
         CODEC_TON_ACCOUNT36 => {
             bytes.len() == 36 && bytes[..4] == [0; 4] && bytes[4..].iter().any(|byte| *byte != 0)
         }
@@ -498,11 +493,6 @@ mod tests {
     fn external_account(network: SccpNetworkV1) -> Vec<u8> {
         match network {
             SccpNetworkV1::EthereumMainnet | SccpNetworkV1::BscMainnet => vec![0x22; 20],
-            SccpNetworkV1::TronMainnet => {
-                let mut bytes = vec![0x41];
-                bytes.extend_from_slice(&[0x33; 20]);
-                bytes
-            }
             SccpNetworkV1::TonMainnet => {
                 let mut bytes = vec![0; 4];
                 bytes.extend_from_slice(&[0x44; 32]);
@@ -531,7 +521,7 @@ mod tests {
     }
 
     #[test]
-    fn all_eight_directions_roundtrip() {
+    fn all_six_directions_roundtrip() {
         for network in network::EXTERNAL_NETWORKS {
             for payload in [outbound(network), inbound(network)] {
                 let encoded = payload.encode().expect("encode");
@@ -590,6 +580,7 @@ mod tests {
         assert_eq!(mutate(1, 0x02), Err(PayloadError::WrongVersion));
         assert_eq!(mutate(9, 0x00), Err(PayloadError::BadDomains));
         assert_eq!(mutate(9, 0x03), Err(PayloadError::BadDomains));
+        assert_eq!(mutate(9, 0x05), Err(PayloadError::BadDomains));
         assert_eq!(mutate(21, 0x00), Err(PayloadError::ZeroRevision));
         assert_eq!(mutate(33, 0x01), Err(PayloadError::BadAsset));
         assert_eq!(mutate(34, 0x02), Err(PayloadError::BadAsset));
@@ -614,12 +605,59 @@ mod tests {
     }
 
     #[test]
+    fn payload_rejects_the_retired_tron_domain_and_codec_5() {
+        // The retired TRON account: codec 5, `0x41` then 20 nonzero bytes.
+        let mut tron_account = vec![0x41];
+        tron_account.extend_from_slice(&[0x33; 20]);
+        assert!(!is_valid_account(5, &tron_account));
+
+        // Outbound to domain 5 and inbound from domain 5, as the retired profile encoded them.
+        let mut outbound_tron = outbound(SccpNetworkV1::EthereumMainnet);
+        outbound_tron.dest_domain = 5;
+        outbound_tron.recipient = PayloadAccountV1::new(5, tron_account.clone());
+        outbound_tron.route_id = "taira_tron_xor".to_owned();
+        let mut inbound_tron = inbound(SccpNetworkV1::EthereumMainnet);
+        inbound_tron.source_domain = 5;
+        inbound_tron.sender = PayloadAccountV1::new(5, tron_account.clone());
+        inbound_tron.route_id = "taira_tron_xor".to_owned();
+        for retired in [outbound_tron, inbound_tron] {
+            assert_eq!(retired.validate(), Err(PayloadError::BadDomains));
+            assert_eq!(retired.encode(), Err(PayloadError::BadDomains));
+            assert_eq!(retired.external_network(), Err(PayloadError::BadDomains));
+            assert_eq!(retired.lane_bytes(&TAIRA), Err(PayloadError::BadDomains));
+            let bytes = retired.encode_unvalidated().expect("layout only");
+            assert_eq!(
+                SccpTransferPayloadV1::decode(&bytes),
+                Err(PayloadError::BadDomains)
+            );
+        }
+
+        // Codec 5 on a surviving lane is refused by the direction table.
+        for network in network::EXTERNAL_NETWORKS {
+            let mut recipient = outbound(network);
+            recipient.recipient = PayloadAccountV1::new(5, tron_account.clone());
+            let bytes = recipient.encode_unvalidated().expect("layout only");
+            assert_eq!(
+                SccpTransferPayloadV1::decode(&bytes),
+                Err(PayloadError::WrongRecipientCodec)
+            );
+            let mut sender = inbound(network);
+            sender.sender = PayloadAccountV1::new(5, tron_account.clone());
+            let bytes = sender.encode_unvalidated().expect("layout only");
+            assert_eq!(
+                SccpTransferPayloadV1::decode(&bytes),
+                Err(PayloadError::WrongSenderCodec)
+            );
+        }
+    }
+
+    #[test]
     fn inbound_rules() {
-        let mut payload = inbound(SccpNetworkV1::TronMainnet);
+        let mut payload = inbound(SccpNetworkV1::BscMainnet);
         payload.deadline_ms = 1;
         assert_eq!(payload.validate(), Err(PayloadError::DeadlineMismatch));
-        let mut payload = inbound(SccpNetworkV1::TronMainnet);
-        payload.sender.bytes[0] = 0x42;
+        let mut payload = inbound(SccpNetworkV1::BscMainnet);
+        payload.sender.bytes = vec![0; 20];
         assert_eq!(payload.validate(), Err(PayloadError::BadSender));
         let mut payload = inbound(SccpNetworkV1::TonMainnet);
         payload.sender.bytes[3] = 1;
@@ -673,18 +711,13 @@ mod tests {
         assert!(!is_valid_account(2, &[1; 21]));
         assert!(!is_valid_account(3, &[]));
         assert!(is_valid_account(3, &[0; 1024]));
-        let mut tvm_account = vec![0x41];
-        tvm_account.extend_from_slice(&[0; 20]);
-        assert!(!is_valid_account(5, &tvm_account));
-        tvm_account[20] = 1;
-        assert!(is_valid_account(5, &tvm_account));
         let mut ton_account = vec![0; 36];
         assert!(!is_valid_account(7, &ton_account));
         ton_account[35] = 1;
         assert!(is_valid_account(7, &ton_account));
         ton_account[0] = 0xff;
         assert!(!is_valid_account(7, &ton_account));
-        for unassigned in [0_u8, 4, 6, 8, 255] {
+        for unassigned in [0_u8, 4, 5, 6, 8, 255] {
             assert!(!is_valid_account(unassigned, &[1; 20]));
         }
     }

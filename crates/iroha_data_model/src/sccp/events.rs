@@ -4,6 +4,9 @@
 //! payload struct. Parliament proposal lifecycle outcomes are reported by the existing
 //! Parliament governance events; SCCP adds only [`SccpEvent::GovernanceEnacted`] with the
 //! subjects it changed.
+//!
+//! Codec indices 2 to 9 belonged to the events of the attestation transport and stay
+//! unassigned: no variant decodes from them, and new events take indices above the last one.
 
 use super::{
     governance::SccpGovernanceSubjectV1,
@@ -15,7 +18,6 @@ use super::{
 use crate::{
     DeriveJsonDeserialize, DeriveJsonSerialize, account::AccountId, bridge::SccpNetworkV1,
 };
-use iroha_model_base::peer::PeerId;
 use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
 
@@ -80,163 +82,6 @@ sccp_event_payload! {
         pub count: u32,
         /// History size after appending the block.
         pub history_size: u64,
-    }
-}
-
-sccp_event_payload! {
-    /// An attestation subject was written (§4.6).
-    #[derive(Copy)]
-    #[norito_schema(name = "iroha_data_model::sccp::events::SccpSubjectCreatedV1")]
-    pub struct SccpSubjectCreatedV1 {
-        /// Subject height.
-        pub height: u64,
-        /// Signing generation.
-        pub generation: u64,
-        /// Committed SCCP messages.
-        pub message_count: u32,
-        /// Whether the subject hands off to a successor generation.
-        pub rotation: bool,
-    }
-}
-
-sccp_event_payload! {
-    /// One attestation signature was stored (§4.8).
-    #[derive(Copy)]
-    #[norito_schema(name = "iroha_data_model::sccp::events::SccpAttestationSignedV1")]
-    pub struct SccpAttestationSignedV1 {
-        /// Attested height.
-        pub height: u64,
-        /// Generation that signs the height.
-        pub generation: u64,
-        /// Roster slot of the signer.
-        pub signer_index: u8,
-        /// Bridge-key address of the signer.
-        pub address: [u8; 20],
-    }
-}
-
-sccp_event_payload! {
-    /// A subject first reached its generation's threshold (§4.8).
-    #[derive(Copy)]
-    #[norito_schema(name = "iroha_data_model::sccp::events::SccpBlockAttestedV1")]
-    pub struct SccpBlockAttestedV1 {
-        /// Attested height.
-        pub height: u64,
-        /// Signing generation.
-        pub generation: u64,
-        /// Stored signers when the threshold was reached.
-        pub signer_bitmap: u32,
-    }
-}
-
-sccp_event_payload! {
-    /// A new roster generation was created at a rotation height (§4.3.2).
-    #[derive(Copy)]
-    #[norito_schema(name = "iroha_data_model::sccp::events::SccpRosterGenerationCreatedV1")]
-    pub struct SccpRosterGenerationCreatedV1 {
-        /// New generation number.
-        pub generation: u64,
-        /// §3.7 digest.
-        pub digest: [u8; 32],
-        /// First height it signs.
-        pub activation_height: u64,
-        /// End of its validity.
-        pub valid_until_ms: u64,
-    }
-}
-
-/// Why roster derivation failed closed at a rotation height (§4.3.2).
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    IntoSchema,
-    DeriveJsonSerialize,
-    DeriveJsonDeserialize,
-)]
-#[norito(no_fast_from_json)]
-#[norito(decode_from_slice)]
-#[norito(deny_unknown_fields)]
-#[norito(tag = "failure", content = "detail")]
-#[derive(norito::NoritoSchema)]
-#[norito_schema(name = "iroha_data_model::sccp::events::SccpRosterDerivationFailureV1")]
-pub enum SccpRosterDerivationFailureV1 {
-    /// An epoch boundary lacked `next_epoch_snapshot`.
-    #[codec(index = 0)]
-    #[norito(rename = "missing_next_epoch_snapshot")]
-    MissingNextEpochSnapshot,
-    /// The roster size was outside `4..=31`.
-    #[codec(index = 1)]
-    #[norito(rename = "roster_size_out_of_range")]
-    RosterSizeOutOfRange,
-}
-
-sccp_event_payload! {
-    /// Roster derivation failed closed; the current generation stays (§4.3.2).
-    #[derive(Copy)]
-    #[norito_schema(name = "iroha_data_model::sccp::events::SccpRosterDerivationFailedV1")]
-    pub struct SccpRosterDerivationFailedV1 {
-        /// Rotation height.
-        pub height: u64,
-        /// Generation that stays current.
-        pub generation: u64,
-        /// Failure cause.
-        pub reason: SccpRosterDerivationFailureV1,
-        /// Roster size seen (0 when the snapshot was missing).
-        pub roster_size: u32,
-    }
-}
-
-sccp_event_payload! {
-    /// A rotation subject stayed unattested past `attestation_stall_ms` (§4.3.3).
-    #[derive(Copy)]
-    #[norito_schema(name = "iroha_data_model::sccp::events::SccpHandoffStalledV1")]
-    pub struct SccpHandoffStalledV1 {
-        /// Rotation height.
-        pub height: u64,
-        /// Outgoing generation.
-        pub generation: u64,
-    }
-}
-
-sccp_event_payload! {
-    /// `SetSccpBridgeKeyV1` staged a key or a revocation (§4.2.2).
-    #[norito_schema(name = "iroha_data_model::sccp::events::SccpBridgeKeySetV1")]
-    pub struct SccpBridgeKeySetV1 {
-        /// Peer whose key changes.
-        pub peer: PeerId,
-        /// Address of the new key; `None` for a revocation.
-        #[norito(required)]
-        pub address: Option<[u8; 20]>,
-        /// Account of the new key; `None` for a revocation.
-        #[norito(required)]
-        pub account: Option<AccountId>,
-        /// Epoch from which the binding applies.
-        pub activation_epoch: u64,
-    }
-}
-
-sccp_event_payload! {
-    /// Equivocation evidence was recorded and the key faulted (§4.11).
-    #[norito_schema(name = "iroha_data_model::sccp::events::SccpAttestationFaultV1")]
-    pub struct SccpAttestationFaultV1 {
-        /// Peer that owns the faulted key.
-        pub peer: PeerId,
-        /// Faulted key address.
-        pub address: [u8; 20],
-        /// Height named by the faulty statement.
-        pub height: u64,
-        /// §3.6 digest of the faulty statement.
-        pub statement_hash: [u8; 32],
-        /// Taira height that recorded the evidence.
-        pub reported_at_height: u64,
     }
 }
 
@@ -606,38 +451,6 @@ pub enum SccpEvent {
     #[codec(index = 1)]
     #[norito(rename = "block_committed")]
     BlockCommitted(SccpBlockCommittedV1),
-    /// Attestation subject created.
-    #[codec(index = 2)]
-    #[norito(rename = "subject_created")]
-    SubjectCreated(SccpSubjectCreatedV1),
-    /// Attestation signature stored.
-    #[codec(index = 3)]
-    #[norito(rename = "attestation_signed")]
-    AttestationSigned(SccpAttestationSignedV1),
-    /// Subject reached its threshold.
-    #[codec(index = 4)]
-    #[norito(rename = "block_attested")]
-    BlockAttested(SccpBlockAttestedV1),
-    /// Roster generation created.
-    #[codec(index = 5)]
-    #[norito(rename = "roster_generation_created")]
-    RosterGenerationCreated(SccpRosterGenerationCreatedV1),
-    /// Roster derivation failed closed.
-    #[codec(index = 6)]
-    #[norito(rename = "roster_derivation_failed")]
-    RosterDerivationFailed(SccpRosterDerivationFailedV1),
-    /// Rotation subject stalled.
-    #[codec(index = 7)]
-    #[norito(rename = "handoff_stalled")]
-    HandoffStalled(SccpHandoffStalledV1),
-    /// Bridge key or revocation staged.
-    #[codec(index = 8)]
-    #[norito(rename = "bridge_key_set")]
-    BridgeKeySet(SccpBridgeKeySetV1),
-    /// Equivocation evidence recorded.
-    #[codec(index = 9)]
-    #[norito(rename = "attestation_fault")]
-    AttestationFault(SccpAttestationFaultV1),
     /// Inbound burn proven.
     #[codec(index = 10)]
     #[norito(rename = "inbound_proven")]

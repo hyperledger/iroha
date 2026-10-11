@@ -3,7 +3,7 @@
 //! One escrow account per route holds every XOR the route has locked. Its id is derived from
 //! the live Taira `NetworkId`, the route id and the asset id — never from a revision — as a
 //! hash-to-point Ed25519 public key with no known scalar, so nobody can sign for it.
-//! `InitializeSccpV1` creates all four escrows in genesis.
+//! `InitializeSccpV1` creates all three escrows in genesis.
 
 use super::registry::route_id_for;
 use crate::{NetworkId, account::AccountId, asset::AssetDefinitionId, bridge::SccpNetworkV1};
@@ -63,7 +63,7 @@ mod tests {
     use super::*;
     use crate::sccp::registry::{
         SCCP_ROUTE_ID_TAIRA_BSC_XOR_V1, SCCP_ROUTE_ID_TAIRA_ETH_XOR_V1,
-        SCCP_ROUTE_ID_TAIRA_TON_XOR_V1, SCCP_ROUTE_ID_TAIRA_TRON_XOR_V1,
+        SCCP_ROUTE_ID_TAIRA_TON_XOR_V1,
     };
     use iroha_crypto::{Algorithm, Hash, HashOf};
     use std::collections::BTreeSet;
@@ -74,10 +74,9 @@ mod tests {
         ))
     }
 
-    const ROUTES: [&str; 4] = [
+    const ROUTES: [&str; 3] = [
         SCCP_ROUTE_ID_TAIRA_ETH_XOR_V1,
         SCCP_ROUTE_ID_TAIRA_BSC_XOR_V1,
-        SCCP_ROUTE_ID_TAIRA_TRON_XOR_V1,
         SCCP_ROUTE_ID_TAIRA_TON_XOR_V1,
     ];
 
@@ -102,7 +101,7 @@ mod tests {
                 assert!(seen.insert(escrow), "distinct per route and NetworkId");
             }
         }
-        assert_eq!(seen.len(), 8);
+        assert_eq!(seen.len(), 6);
         let id = network_id(1);
         assert_ne!(
             sccp_route_escrow_account_id_v1(&id, SCCP_ROUTE_ID_TAIRA_ETH_XOR_V1, "xor"),
@@ -138,7 +137,6 @@ mod tests {
                 SCCP_ROUTE_ID_TAIRA_ETH_XOR_V1,
             ),
             (SccpNetworkV1::BscMainnet, SCCP_ROUTE_ID_TAIRA_BSC_XOR_V1),
-            (SccpNetworkV1::TronMainnet, SCCP_ROUTE_ID_TAIRA_TRON_XOR_V1),
         ] {
             assert_eq!(
                 sccp_xor_route_escrow_account_id_v1(&id, network),

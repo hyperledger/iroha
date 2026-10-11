@@ -958,6 +958,8 @@ CORE_MUTATIONS = [
       ["sumeragi::amx::native::tests::paid_borrowed_custody::restarted_paid_intent_refuses_authenticated_row_subset_before_any_delivery"]),
     m("HC219", "returned native AMX context: replace original-pool retained graph with the uncharged epoch clone",
       ["sumeragi::amx::native::tests::returned_context::native_amx_returned_global_context_keeps_every_original_graph_charge_until_retirement"]),
+    m("HC220", "native pulse demand: treat a committed Parliament slot row as mandatory control",
+      ["sumeragi::epoch_beacon::producer::tests::execution_tests::pending_parliament_slots_create_no_native_control_demand_and_never_block_unrelated_work"]),
 
 ]
 

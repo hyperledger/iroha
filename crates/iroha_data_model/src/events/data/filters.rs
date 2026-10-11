@@ -1048,8 +1048,8 @@ impl Default for SccpEventFilter {
 }
 /// Return the external network an SCCP event names, if any.
 ///
-/// Block, roster, attestation, bridge-key and fault events concern Taira itself and name no
-/// external network; the governance event names the subjects it changed instead.
+/// The block commitment event concerns Taira itself and names no external network; the
+/// governance event names the subjects it changed instead.
 #[cfg(feature = "transparent_api")]
 fn sccp_event_network(
     event: &crate::sccp::events::SccpEvent,
@@ -1072,16 +1072,7 @@ fn sccp_event_network(
         SccpEvent::TrustedCheckpointInstalled(ev) => Some(ev.network),
         SccpEvent::RevisionActivationChanged(ev) => Some(ev.network),
         SccpEvent::ControlRecorded(ev) => Some(ev.network),
-        SccpEvent::BlockCommitted(_)
-        | SccpEvent::SubjectCreated(_)
-        | SccpEvent::AttestationSigned(_)
-        | SccpEvent::BlockAttested(_)
-        | SccpEvent::RosterGenerationCreated(_)
-        | SccpEvent::RosterDerivationFailed(_)
-        | SccpEvent::HandoffStalled(_)
-        | SccpEvent::BridgeKeySet(_)
-        | SccpEvent::AttestationFault(_)
-        | SccpEvent::GovernanceEnacted(_) => None,
+        SccpEvent::BlockCommitted(_) | SccpEvent::GovernanceEnacted(_) => None,
     }
 }
 #[cfg(feature = "transparent_api")]

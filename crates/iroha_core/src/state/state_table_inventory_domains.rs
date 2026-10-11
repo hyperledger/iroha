@@ -174,8 +174,11 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
         usage: Use::ResultBinding,
         reason: "Domain tags of the execution result R, of the certified block identity and of lane results: they bind the listed roots and the fields of the listed protocol carriers, and commit no State content of their own",
         literals: &[
+            r"SCCP/COMMITTEE/V1",
+            r"SCCP/FINALITY/V1",
             r"iroha/sumeragi/certified-block/v1",
             r"iroha/sumeragi/lane/result/v1",
+            r"iroha/sumeragi/result-body/v1",
             r"iroha/sumeragi/result/v1",
         ],
     },

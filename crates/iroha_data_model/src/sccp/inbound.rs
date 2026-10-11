@@ -300,9 +300,9 @@ mod tests {
 
     fn record(status: SccpInboundStatusV1) -> SccpInboundRecordV1 {
         SccpInboundRecordV1 {
-            network: SccpNetworkV1::TronMainnet,
+            network: SccpNetworkV1::BscMainnet,
             revision: 2,
-            payload: vec![2, 1, 0, 0, 0, 5],
+            payload: vec![2, 1, 0, 0, 0, 2],
             source_locator: SccpSourceLocatorV1 {
                 source_height: 70_000_000,
                 block_hash: [7; 32],

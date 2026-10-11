@@ -2,7 +2,7 @@
 //!
 //! Validates that it executes inside the genesis block under NPoS with `max_validators` in
 //! 4..=31, checks every §4.1 parameter rule, stores the parameters and the nonzero reset nonce,
-//! creates the four route escrow accounts and an empty registry. SCCP exists on a network iff
+//! creates the three route escrow accounts and an empty registry. SCCP exists on a network iff
 //! `sccp_parameters` is present, so a second initialization is refused.
 
 use super::{Error, escrow, store};

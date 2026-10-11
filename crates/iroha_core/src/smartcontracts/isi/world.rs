@@ -9113,9 +9113,12 @@ pub mod isi {
     ///
     /// - `CompleteQualification` and `RegisterInitialSortition` carry no field.
     /// - `RegisterSortitionRequest`: `request_height` is the containing block, `pulse_height`
-    ///   is `request_height + sortition_pulse_delay_blocks`, `beacon_session_id` is the
-    ///   network's logical beacon, `target_seats` is the configured body size, the candidate
-    ///   root and count are the canonical citizen snapshot, and every id is derived. A retry
+    ///   is the first consensus-native pulse height at or after `request_height` plus the
+    ///   frozen delay and above every earlier generation slot of the attempt
+    ///   (`ParliamentAttemptStateV1::next_sortition_generation_pulse_height_v1`),
+    ///   `beacon_session_id` is the network's logical beacon, `target_seats` is the configured
+    ///   body size, the candidate root and count are the canonical citizen snapshot, and every
+    ///   id is derived. A retry
     ///   batch holds exactly every body whose generation ended `NoRoster`, each at its next
     ///   sequence, so the driver plan lists the one admissible retry for each height.
     /// - `AdvanceBodyPhase`: the body is the attempt's active body and `target` is the only
@@ -9170,6 +9173,66 @@ pub mod isi {
                 )
             })?;
         Ok(expected_height)
+    }
+
+    /// Stable rejection of Parliament attempt creation on a chain without a native pulse
+    /// cadence.
+    pub(crate) const PARLIAMENT_SORTITION_REQUIRES_NPOS_CADENCE_V1: &str =
+        "Parliament sortition requires the consensus-native NPoS pulse cadence";
+
+    /// Return the consensus-native `NPoS` epoch length a new Parliament attempt freezes.
+    ///
+    /// Native beacon pulses exist only at the pre-boundary heights of an `NPoS` chain
+    /// (`(h + 1) % L == 0`). The length comes from committed state that is immutable and
+    /// identical on every validator, and every available signal must agree:
+    ///
+    /// - the genesis-installed `NPoS` policy (its length cannot change after installation);
+    /// - the committed consensus schedule of the containing block, whose epoch must be
+    ///   `Npos` and end on a multiple of that length.
+    ///
+    /// A Permissioned chain has no `NPoS` policy and genesis execution has no schedule yet:
+    /// both are rejected with [`PARLIAMENT_SORTITION_REQUIRES_NPOS_CADENCE_V1`]. Node-local
+    /// configuration and the mutable Permissioned `epoch_length_blocks` are never read.
+    fn parliament_sortition_pulse_epoch_length_v1(
+        state_transaction: &mut StateTransaction<'_, '_>,
+    ) -> Result<u64, Error> {
+        let no_native_cadence = || {
+            Error::from(InstructionExecutionError::InvariantViolation(
+                PARLIAMENT_SORTITION_REQUIRES_NPOS_CADENCE_V1.into(),
+            ))
+        };
+        let policy = match state_transaction.world.sumeragi_npos_parameters() {
+            Ok(policy) => policy,
+            Err(error) => {
+                return Err(contract_attempt_instruction_error(
+                    state_transaction,
+                    error.map_rejection(|message| {
+                        Error::from(InstructionExecutionError::InvariantViolation(
+                            message.into(),
+                        ))
+                    }),
+                ));
+            }
+        };
+        let epoch_length_blocks = policy
+            .map(|policy| policy.epoch_length_blocks().get())
+            .filter(|length| {
+                *length
+                    >= crate::governance::parliament::MIN_PARLIAMENT_SORTITION_PULSE_EPOCH_LENGTH_BLOCKS_V1
+            })
+            .ok_or_else(no_native_cadence)?;
+        let height = state_transaction.block_height();
+        let schedule = state_transaction.world.consensus_schedule();
+        let epoch = &schedule
+            .ready(height)
+            .map_err(|_| no_native_cadence())?
+            .epoch;
+        if epoch.mode != iroha_data_model::parameter::system::ConsensusMode::Npos
+            || epoch.authorization.last_height % epoch_length_blocks != 0
+        {
+            return Err(no_native_cadence());
+        }
+        Ok(epoch_length_blocks)
     }
 
     impl Execute for gov::CreateParliamentGovernanceAttemptV1 {
@@ -9295,6 +9358,11 @@ pub mod isi {
                     "Parliament governance attempt already exists".into(),
                 ));
             }
+            // Every sortition slot is a consensus-native pulse height derived from this
+            // frozen length. A chain without that cadence creates no attempt: nothing is
+            // stored and no bond or reference count is touched before this rejection.
+            let sortition_pulse_epoch_length_blocks =
+                parliament_sortition_pulse_epoch_length_v1(state_transaction)?;
             let (risk_tier, required_bodies) = parliament_attempt_policy_v1(&self.proposal);
             let effect_preimage_hash = self.proposal.effect_preimage_hash_v1();
             let expected_head = parliament_expected_head_v1(&self.proposal, state_transaction)
@@ -9306,6 +9374,7 @@ pub mod isi {
                 state_transaction
                     .gov
                     .parliament_sortition_pulse_delay_blocks,
+                sortition_pulse_epoch_length_blocks,
                 effect_preimage_hash,
                 expected_head,
                 required_bodies,
@@ -9460,17 +9529,19 @@ pub mod isi {
             )
         })?;
         let request_height = state_transaction.block_height();
-        let pulse_height = request_height
-            .checked_add(attempt.sortition_pulse_delay_blocks())
+        let beacon_session_id =
+            iroha_data_model::governance::types::BeaconSessionId::for_network_v1(
+                &state_transaction.network_id,
+            );
+        // The slot depends only on frozen attempt fields and the attempt's own generation
+        // history; it can fail only on `u64` overflow.
+        let pulse_height = attempt
+            .next_sortition_generation_pulse_height_v1(request_height, beacon_session_id)
             .ok_or_else(|| {
                 InstructionExecutionError::InvariantViolation(
                     "initial Parliament sortition pulse height overflow".into(),
                 )
             })?;
-        let beacon_session_id =
-            iroha_data_model::governance::types::BeaconSessionId::for_network_v1(
-                &state_transaction.network_id,
-            );
         let requests = attempt
             .required_bodies()
             .iter()
@@ -9553,8 +9624,15 @@ pub mod isi {
                 "configured Confirmation Jury size exceeds the V1 request domain".into(),
             )
         })?;
-        let pulse_height = request_height
-            .checked_add(attempt.sortition_pulse_delay_blocks())
+        let beacon_session_id =
+            iroha_data_model::governance::types::BeaconSessionId::for_network_v1(
+                &state_transaction.network_id,
+            );
+        // This request is registered inside the Policy-ballot finalize transaction. Its
+        // slot depends only on frozen attempt fields and the attempt's own generation
+        // history, so it can fail only on `u64` overflow.
+        let pulse_height = attempt
+            .next_sortition_generation_pulse_height_v1(request_height, beacon_session_id)
             .ok_or_else(|| {
                 InstructionExecutionError::InvariantViolation(
                     "Confirmation Jury sortition pulse height overflow".into(),
@@ -9578,9 +9656,7 @@ pub mod isi {
             target_seats,
             request_height,
             pulse_height,
-            iroha_data_model::governance::types::BeaconSessionId::for_network_v1(
-                &state_transaction.network_id,
-            ),
+            beacon_session_id,
             None,
         )
         .map_err(|error| {
@@ -9991,26 +10067,14 @@ pub mod isi {
                         .map_err(parliament_reducer_error)?;
                 }
                 gov::ParliamentLifecycleTransitionV1::FailBodyElectionNoRoster(payload) => {
-                    let election =
-                        attempt
-                            .election(&payload.election_attempt_id)
-                            .ok_or_else(|| {
-                                InstructionExecutionError::InvariantViolation(
-                                    "unknown Parliament election attempt at no-roster transition"
-                                        .into(),
-                                )
-                            })?;
-                    let request = election.attempt().request;
-                    let pulse_available = parliament_verified_pulse_available_v1(
-                        request.beacon_session_id,
-                        request.pulse_height,
-                        state_transaction,
-                    );
+                    // Only a closed invitation window with an objectively unviable roster
+                    // fails an election. Pulse availability is never consulted: an election
+                    // awaiting its pulse is rejected here at any height and leaves that state
+                    // only by consuming the pulse of exactly its frozen slot.
                     attempt
                         .fail_body_election_no_roster(
                             governance_attempt_id,
                             payload.election_attempt_id,
-                            pulse_available,
                             current_height,
                         )
                         .map_err(parliament_reducer_error)?;
@@ -18733,6 +18797,12 @@ pub mod isi {
                     state_transaction
                         .gov
                         .parliament_sortition_pulse_delay_blocks,
+                    // The containing block's request targets the first native pulse height.
+                    state_transaction.block_height()
+                        + state_transaction
+                            .gov
+                            .parliament_sortition_pulse_delay_blocks
+                        + 1,
                     proposal.effect_preimage_hash_v1(),
                     expected_head,
                     requirements.clone(),
@@ -18928,6 +18998,11 @@ pub mod isi {
             let header = first_test_block_header();
             let mut block = state.block(header);
             let mut state_transaction = block.transaction();
+            // Attempt creation needs the committed consensus-native NPoS pulse cadence.
+            crate::governance::parliament::seed_npos_sortition_cadence_for_tests(
+                &mut state_transaction,
+                10,
+            );
             state_transaction.world.account_permissions.insert(
                 ALICE_ID.clone(),
                 BTreeSet::from([Permission::from(CanManageParliament)]),
@@ -19645,10 +19720,25 @@ pub mod isi {
                     .expect("configured target fits u32")
             );
             assert_eq!(request.request_height, request_height);
+            // The slot is the first consensus-native pulse height the frozen attempt
+            // fields and the attempt's own generation history derive.
             assert_eq!(
-                request.pulse_height,
-                request_height + attempt.sortition_pulse_delay_blocks()
+                Some(request.pulse_height),
+                attempt.next_sortition_generation_pulse_height_v1(
+                    request_height,
+                    BeaconSessionId::for_network_v1(&state_transaction.network_id),
+                )
             );
+            assert_eq!(
+                (request.pulse_height + 1) % attempt.sortition_pulse_epoch_length_blocks(),
+                0
+            );
+            assert!(
+                request.pulse_height >= request_height + attempt.sortition_pulse_delay_blocks()
+            );
+            // Independent literal: the first native height at or after the delay and above
+            // every earlier generation slot of the fixture, which a skipped boundary misses.
+            assert_eq!(request.pulse_height, 13);
             assert_eq!(
                 request.beacon_session_id,
                 BeaconSessionId::for_network_v1(&state_transaction.network_id)
@@ -19789,6 +19879,8 @@ pub mod isi {
                 },
                 PARLIAMENT_GOVERNANCE_POLICY_VERSION_V1,
                 PULSE_HEIGHT - REQUEST_HEIGHT,
+                // `PULSE_HEIGHT` is the first native pulse height.
+                PULSE_HEIGHT + 1,
                 proposal.effect_preimage_hash_v1(),
                 expected_head,
                 requirements.clone(),
@@ -20267,6 +20359,70 @@ pub mod isi {
                 "a rejected relayer-selected request subset must not mutate the draw"
             );
 
+            // The wait is exact. The block is past the frozen slot and the pulse is committed,
+            // yet nothing but the pulse of that slot moves the election: it cannot be failed,
+            // and no other height or pulse identifier substitutes the draw.
+            let awaiting_pulse = |state_transaction: &StateTransaction<'_, '_>| {
+                state_transaction
+                    .world
+                    .parliament_attempts
+                    .get(&fixture.governance_attempt_id)
+                    .expect("retained permissionless-progress attempt")
+                    .election(&fixture.election_attempt_id)
+                    .expect("retained permissionless-progress election")
+                    .attempt()
+                    .status
+                    == BodyElectionAttemptStatusV1::AwaitingPulse
+            };
+            let error = gov::SubmitParliamentLifecycleTransitionV1 {
+                governance_attempt_id: fixture.governance_attempt_id,
+                transition: gov::ParliamentLifecycleTransitionV1::FailBodyElectionNoRoster(
+                    gov::ParliamentFailBodyElectionNoRosterV1 {
+                        election_attempt_id: fixture.election_attempt_id,
+                    },
+                ),
+            }
+            .execute(&ALICE_ID, &mut state_transaction)
+            .expect_err("an election awaiting its pulse can never be failed");
+            let rendered = format!("{error:?}");
+            assert!(
+                rendered.contains("invalid or replayed BodyElection lifecycle transition"),
+                "unexpected pulse-wait failure rejection: {rendered}"
+            );
+            assert!(awaiting_pulse(&state_transaction));
+            for (pulse_height, pulse_id, expected) in [
+                (
+                    fixture.pulse_height + 1,
+                    fixture.pulse_id,
+                    "does not match the persisted finalized beacon pulse",
+                ),
+                (
+                    fixture.pulse_height,
+                    iroha_data_model::governance::types::BeaconPulseId::new([0xE3; 32]),
+                    "unknown finalized beacon pulse",
+                ),
+            ] {
+                let error = gov::SubmitParliamentLifecycleTransitionV1 {
+                    governance_attempt_id: fixture.governance_attempt_id,
+                    transition: gov::ParliamentLifecycleTransitionV1::ConsumeSortitionPulseBatch(
+                        gov::ParliamentConsumeSortitionPulseBatchV1 {
+                            request_ids: fixture.request_ids.clone(),
+                            beacon_session_id: fixture.beacon_session_id,
+                            pulse_height,
+                            pulse_id,
+                        },
+                    ),
+                }
+                .execute(&ALICE_ID, &mut state_transaction)
+                .expect_err("a substituted pulse never draws");
+                let rendered = format!("{error:?}");
+                assert!(
+                    rendered.contains(expected),
+                    "unexpected substituted-pulse rejection: {rendered}"
+                );
+                assert!(awaiting_pulse(&state_transaction));
+            }
+
             gov::SubmitParliamentLifecycleTransitionV1 {
                 governance_attempt_id: fixture.governance_attempt_id,
                 transition: gov::ParliamentLifecycleTransitionV1::ConsumeSortitionPulseBatch(
@@ -20389,7 +20545,10 @@ pub mod isi {
             .execute(&ALICE_ID, &mut state_transaction)
             .expect_err("a relayer cannot choose an unknown election failure");
             let rendered = format!("{error:?}");
-            assert!(rendered.contains("unknown Parliament election attempt"));
+            assert!(
+                rendered.contains("unknown BodyElection"),
+                "unexpected unknown-election rejection: {rendered}"
+            );
             assert!(!rendered.contains("CanManageParliament"));
             assert_eq!(
                 state_transaction
@@ -20725,6 +20884,8 @@ pub mod isi {
                 },
                 PARLIAMENT_GOVERNANCE_POLICY_VERSION_V1,
                 10,
+                // Height 20, the fixture's sortition slot, is the first native pulse height.
+                21,
                 proposal_kind.effect_preimage_hash_v1(),
                 expected_head,
                 requirements.clone(),
@@ -22619,6 +22780,7 @@ pub mod isi {
         include!("world_parliament_due_effect_tests.rs");
         include!("world_parliament_initial_sortition_tests.rs");
         include!("world_parliament_sortition_retry_tests.rs");
+        include!("world_parliament_attempt_cadence_tests.rs");
         include!("world_sccp_governance_tests.rs");
         include!("world_permission_association_tests.rs");
         world_test!(set_parameter_rejects_malformed_governed_gas_rates_but_accepts_zero_rate {

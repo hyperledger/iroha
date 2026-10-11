@@ -620,6 +620,12 @@ invalid proofs, thermal effects and cancellation. Derive `B_work`, `B_bytes` and
 the stamp difficulty from the qualified worst case. A missed target requires an
 explicit profile and resource review; limits are never raised silently.
 
+The evaluation of 2026-10-11 is recorded in
+[parliament_ballot_proof_profile.md](parliament_ballot_proof_profile.md). It
+selects no profile: gates 1, 2, 5 and 8 lack an applicable published argument
+for every candidate family, and it lists the owner decisions that selection
+needs.
+
 Repository reference components are not qualified profiles:
 
 - **PQ-MASP** (`crates/iroha_core_privacy/src/privacy_engines/pq_masp/`)
@@ -727,10 +733,11 @@ There is no node-local consensus toggle.
 
 ## 9. Sortition waits belong to governance
 
-Parliament pulse demand is currently consensus-mandatory
-(`iroha_core::sumeragi::epoch_beacon::{required, capture}`), and daemon startup
-preflights Parliament TLE custody. Both are replacement targets. The TLE
-preflight is deleted with the TLE.
+Parliament pulse demand has left consensus.
+`iroha_core::sumeragi::epoch_beacon::required` is the NPoS pre-boundary rule
+only. No Parliament state can require, veto or invalidate a pulse or a block.
+Daemon startup reads no Parliament TLE custody; its global-beacon custody check
+stays. The TLE signer slot is deleted with the TLE.
 
 There are two separate paths:
 
@@ -741,30 +748,54 @@ There are two separate paths:
   startup or an unrelated transaction.
 
 The beacon signing that produces sortition pulses is the validators' existing
-consensus-adjacent duty, not a ballot role. Aligning Parliament slots to
-consensus-native pulses, so that validators do no Parliament-specific work, is
-part of the availability-isolation step (section 12.2).
+consensus-adjacent duty, not a ballot role. Parliament slots are aligned to
+consensus-native pulses, so validators do no Parliament-specific work.
 
 A sortition request freezes its eligible snapshot, proposal content, attempt
 and election identities, exact sequence, request height and one future logical
-pulse slot, computed by checked addition. No relayer, timeout, key rotation,
+pulse slot, computed by checked arithmetic. No relayer, timeout, key rotation,
 restart, membership change or manager action can change the slot.
 
-A late pulse is verified against the authenticated historical beacon context
-retained for its slot, not against the current key pointer. Rotation cannot
-change a resolved slot.
+The slot is a consensus-native pulse height. Native pulse heights are those `h`
+with `(h + 1) % L == 0`, where `L` is the NPoS `epoch_length_blocks`. The
+attempt freezes `L` at creation from the genesis-immutable NPoS policy, beside
+its frozen `parliament_sortition_pulse_delay_blocks` `d`, which is a minimum
+lead. A request at height `r` takes the first native pulse height at or above
+`max(r + d, g + 1)`, where `g` is the highest slot of an earlier generation of
+the same attempt. Creating a Parliament attempt on a chain with no NPoS cadence
+is rejected with a stable error before anything is stored.
+
+A late pulse is one consumed late. It was committed on time in the block of
+its slot and is verified against the key session retained for its own height,
+not against the current key pointer. Rotation cannot change a resolved slot.
+No pulse for an elapsed slot is produced or carried later.
 
 ```text
 Requested -> AwaitingExactPulse -> Drawing -> AcceptingInvitations
                                    -> Sealed | ObjectiveRosterFailure
 ```
 
-`AwaitingExactPulse` can wait indefinitely. No fallback pulse, fresh height,
+`AwaitingExactPulse` can wait indefinitely. An election leaves it only by
+consuming the pulse of exactly its slot. No fallback pulse, fresh height,
 alternate source, cancellation-and-redraw or unavailable-pulse certificate may
 substitute another draw. Pending requests and snapshot bytes are bounded at
 admission: 65,536 citizens and 8 MiB snapshots. An indefinitely pending
 election can retain candidate bonds; releasing them is a separate
 economic-policy change.
+
+Two consequences follow, and one decision is open:
+
+- Sortition latency is height-based. A generation waits up to `d + L - 1`
+  blocks when no earlier generation slot of the attempt lies at or above
+  `r + d`. Otherwise it takes the next boundary after that slot, one further
+  epoch. Each `NoRoster` retry and the Confirmation Jury wait for a further
+  boundary. On an idle chain the wait is unbounded in wall time. This bears on
+  the section 11 hold rule and on `parliament_sccp_attempt_latency_ms()`.
+- Requests that share a pulse, candidate snapshot, body set and sizing
+  configuration draw identical panels. Alignment widens that from one block to
+  one epoch window.
+- Open owner decision: binding the governance attempt id into the draw seed. It
+  trades correlated capture for a proposal-multiplicity grinding channel.
 
 ## 10. NoRoster, Confirmation and enactment
 
@@ -875,7 +906,8 @@ The standing panel does not make binding ballots ready for mainnet.
 - Parliament TLE key sessions and their install and retire certificates.
 - The `[gov.parliament_timed_ovn]` and `[gov.parliament_tle_key_lifecycle]`
   configuration.
-- The irohad custody preflight and broker signer slot.
+- The irohad broker signer slot. The custody preflight is already deleted
+  (section 12.2 step 1).
 
 **Torii and clients:**
 
@@ -893,7 +925,8 @@ The standing panel does not make binding ballots ready for mainnet.
 - The shared timed-OVN corridor support in
   `integration_tests/tests/sora_parliament_lifecycle_support.rs`, and the
   corridors that depend on it.
-- The formal model's timed-release phases and unavailable-pulse branch.
+- The formal model's timed-release phases. Its unavailable-pulse branch is
+  already removed (section 12.2 step 1).
 - The release pipeline's timed-OVN audit inputs
   (`scripts/run_release_pipeline.py`). They are replaced by audit inputs for the
   section 5 relations.
@@ -905,7 +938,8 @@ Keep beacon machinery still required for consensus or sortition.
 1. **Isolate governance availability.** Split Parliament from native beacon
    demand and the daemon preflight. Prove unrelated transactions and restart
    stay live while an exact pulse is absent. This does not depend on the
-   ballot.
+   ballot. It is implemented; Core mutation `HC220`
+   ([sumeragi.md](sumeragi.md) section 13.4) guards the split.
 2. **Qualify the proof profile.** Discharge section 5 and select `P`. Do not
    begin integration around a placeholder relation.
 3. **Specify the schemas.** The Norito stored and wire forms are:
@@ -986,21 +1020,21 @@ These are obligations for the implementation, not tests this document passed.
 
 | Case | Required observation |
 | --- | --- |
-| Missing Parliament pulse for many heights | Blocks and restart succeed; exactly the original pulse stays pending |
-| Delayed pulse after beacon rotation | Historical authorization checked; substitution fails |
+| Missing Parliament pulse for many heights | Blocks and restart succeed while the request waits for its frozen native slot; no Parliament state creates pulse demand at any height |
+| Delayed pulse consumption after beacon rotation | The pulse is verified against the key session retained for its own height; substitution fails |
 | Pause and casting open in the same block-start pass; older decision against a newer hold; stale head | Lift rule applied by `(height, position in pass)`; stale or older decisions rejected |
 | Pure CPU versus supported acceleration | Identical verification and consensus outputs |
 | Wallet anonymity mode | No account, session, leaf-specific or nullifier-keyed request is observable |
 
-**Formal model.** Replace the timed-release phases and the unavailable-pulse
-branch with:
+**Formal model.** The unavailable-pulse branch is removed and the
+governance-local exact-pulse wait is modelled (section 12.2 step 1). Replace
+the timed-release phases with:
 
 - credential sealing (`S >= 3`);
 - casting open;
 - verified unique-nullifier append;
 - deterministic closure;
-- the terminal outcome;
-- the governance-local exact-pulse wait.
+- the terminal outcome.
 
 Preserve immutable quorum, the sortition retry generation, public findings,
 disjoint Confirmation, atomic capacity failure and the enactment and rollback

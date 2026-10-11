@@ -9,6 +9,9 @@ use crate::{DeriveJsonDeserialize, DeriveJsonSerialize};
 use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
 /// A supported SCCP network profile for the V1 wire format.
+///
+/// Tag `0x43` and SCCP domain 5 belonged to the removed TRON profile. Both stay unassigned and
+/// fail decoding (`specs/sccp.md` preamble and §2.1).
 #[derive(
     Debug,
     Clone,
@@ -43,10 +46,6 @@ pub enum SccpNetworkV1 {
     #[codec(index = 66)]
     #[norito(rename = "bsc_mainnet")]
     BscMainnet,
-    /// TRON mainnet.
-    #[codec(index = 67)]
-    #[norito(rename = "tron_mainnet")]
-    TronMainnet,
     /// TON mainnet (global id −239).
     #[codec(index = 68)]
     #[norito(rename = "ton_mainnet")]
@@ -61,7 +60,6 @@ impl SccpNetworkV1 {
             Self::EthereumMainnet => 1,
             Self::BscMainnet => 2,
             Self::TonMainnet => 4,
-            Self::TronMainnet => 5,
         }
     }
     /// Return the canonical, stable textual key for this exact profile.
@@ -71,7 +69,6 @@ impl SccpNetworkV1 {
             Self::SoraTaira => "sora-taira",
             Self::EthereumMainnet => "ethereum-mainnet",
             Self::BscMainnet => "bsc-mainnet",
-            Self::TronMainnet => "tron-mainnet",
             Self::TonMainnet => "ton-mainnet",
         }
     }
@@ -86,7 +83,6 @@ impl SccpNetworkV1 {
             "sora-taira" => Some(Self::SoraTaira),
             "ethereum-mainnet" => Some(Self::EthereumMainnet),
             "bsc-mainnet" => Some(Self::BscMainnet),
-            "tron-mainnet" => Some(Self::TronMainnet),
             "ton-mainnet" => Some(Self::TonMainnet),
             _ => None,
         }
@@ -106,16 +102,15 @@ impl SccpNetworkV1 {
 mod tests {
     use super::*;
     use norito::codec::DecodeAll as _;
-    const NETWORKS: [SccpNetworkV1; 5] = [
+    const NETWORKS: [SccpNetworkV1; 4] = [
         SccpNetworkV1::SoraTaira,
         SccpNetworkV1::EthereumMainnet,
         SccpNetworkV1::BscMainnet,
-        SccpNetworkV1::TronMainnet,
         SccpNetworkV1::TonMainnet,
     ];
     #[test]
     fn network_inventory_and_profile_keys_are_exact() {
-        assert_eq!(NETWORKS.len(), 5);
+        assert_eq!(NETWORKS.len(), 4);
         for network in NETWORKS {
             assert_eq!(
                 SccpNetworkV1::from_profile_key(network.profile_key()),
@@ -130,6 +125,8 @@ mod tests {
             "ethereum-sepolia",
             "ETHEREUM-MAINNET",
             "bsc-testnet",
+            "tron-mainnet",
+            "tron_mainnet",
             "tron-nile",
             "tron-shasta",
             "solana-mainnet-beta",
@@ -145,8 +142,18 @@ mod tests {
         assert_eq!(SccpNetworkV1::SoraTaira.domain_id(), 0);
         assert_eq!(SccpNetworkV1::EthereumMainnet.domain_id(), 1);
         assert_eq!(SccpNetworkV1::BscMainnet.domain_id(), 2);
-        assert_eq!(SccpNetworkV1::TronMainnet.domain_id(), 5);
         assert_eq!(SccpNetworkV1::TonMainnet.domain_id(), 4);
+    }
+    #[test]
+    fn retired_tron_tag_0x43_and_profile_keys_do_not_decode() {
+        let retired_tag = 0x43_u32.encode();
+        assert!(SccpNetworkV1::decode_all(&mut retired_tag.as_slice()).is_err());
+        for profile in ["tron-mainnet", "tron_mainnet"] {
+            assert_eq!(SccpNetworkV1::from_profile_key(profile), None);
+        }
+        let json = r#"{"network":"tron_mainnet","profile":null}"#;
+        assert!(norito::json::from_json::<SccpNetworkV1>(json).is_err());
+        assert!(NETWORKS.iter().all(|network| network.domain_id() != 5));
     }
     #[test]
     fn network_binary_roundtrips_cover_the_closed_inventory() {
@@ -174,6 +181,7 @@ mod tests {
             14,
             15,
             63,
+            0x43,
             69,
             u32::MAX,
         ] {
@@ -190,7 +198,6 @@ mod tests {
             (SccpNetworkV1::SoraTaira, 0x40_u32),
             (SccpNetworkV1::EthereumMainnet, 0x41),
             (SccpNetworkV1::BscMainnet, 0x42),
-            (SccpNetworkV1::TronMainnet, 0x43),
             (SccpNetworkV1::TonMainnet, 0x44),
         ];
         for (network, tag) in expected {
@@ -207,6 +214,7 @@ mod tests {
             "sora_nexus",
             "ethereum_sepolia",
             "bsc_testnet",
+            "tron_mainnet",
             "tron_nile",
             "tron_shasta",
             "solana_testnet",

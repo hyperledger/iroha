@@ -74,7 +74,7 @@ pub fn sender_bytes(account: &AccountId) -> Result<Vec<u8>, Error> {
 }
 
 /// Check §4.4 step 5: `recipient` is valid for `network`'s codec and is not the destination
-/// deployment itself (the EVM/TRON contract or the TON minter).
+/// deployment itself (the EVM contract or the TON minter).
 fn check_recipient(
     network: SccpNetworkV1,
     deployment: &SccpDeploymentV1,
@@ -85,7 +85,6 @@ fn check_recipient(
     }
     let is_deployment = match deployment {
         SccpDeploymentV1::Evm(evm) => recipient == evm.address.as_slice(),
-        SccpDeploymentV1::Tron(tron) => recipient == tron.address.as_slice(),
         SccpDeploymentV1::Ton(ton) => recipient.get(4..) == Some(ton.master_account.as_slice()),
     };
     if is_deployment {
