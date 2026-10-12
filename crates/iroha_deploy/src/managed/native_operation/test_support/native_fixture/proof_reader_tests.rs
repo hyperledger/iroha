@@ -52,6 +52,7 @@ fn with_generated_chain(height: u64, check: fn(&NativeFixture, &ServiceAuthority
 // comes from its original source, with no fabricated response or verifier verdict.
 struct CountedSource<'a, S> {
     source: &'a S,
+    scope: iroha_data_model::sumeragi_finality::CertifiedResultScope,
     heights: RefCell<Vec<u64>>,
     attesters: RefCell<Vec<PeerId>>,
 }
@@ -71,7 +72,7 @@ impl<S: FinalitySource> FinalitySource for CountedSource<'_, S> {
         self.attesters.borrow_mut().push(peer.clone());
         let actual = self.source.latest_attestation(peer, challenge)?;
         assert_eq!(&actual.attestation().body.challenge, challenge);
-        actual.attestation().verify().unwrap();
+        actual.attestation().verify(self.scope).unwrap();
         Ok(actual)
     }
 }
@@ -106,6 +107,7 @@ fn check_original_observation(native: &NativeFixture, authority: &ServiceAuthori
         };
         let counted = CountedSource {
             source: &source,
+            scope: native.chain.root_scope().into(),
             heights: RefCell::new(Vec::new()),
             attesters: RefCell::new(Vec::new()),
         };
@@ -135,7 +137,9 @@ fn check_original_observation(native: &NativeFixture, authority: &ServiceAuthori
                     .finality_proof(NonZeroU64::new(height).unwrap())
                     .unwrap()
             );
-            proof.decode_checked().unwrap();
+            proof
+                .decode_checked(native.chain.root_scope().into())
+                .unwrap();
         }
     });
     assert_eq!(budget.reserved_bytes(), reserved);

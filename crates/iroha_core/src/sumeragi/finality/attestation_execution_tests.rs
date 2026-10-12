@@ -42,8 +42,12 @@ fn same_body_except_fresh_clock(
     actual: &SumeragiFinalityAttestation,
     original: &SumeragiFinalityAttestation,
 ) {
-    actual.verify().unwrap();
-    original.verify().unwrap();
+    actual
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+        .unwrap();
+    original
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+        .unwrap();
     let mut expected = original.body.clone();
     // Each real invocation must read its own clock; every other body byte is unchanged.
     expected.observed_at_unix_ms = actual.body.observed_at_unix_ms;
@@ -100,7 +104,9 @@ fn check_joined_source(chain: &CertifiedTestChain) {
         build_proof(&view, height).unwrap().encode()
     );
     let fresh = capture(&view, chain, [62; 32], status(chain)).unwrap();
-    fresh.verify().unwrap();
+    fresh
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+        .unwrap();
     assert_ne!(fresh.signature, actual.signature);
 
     // Every source frame is still required. A damaged intermediate is not a cache hit.
@@ -341,17 +347,15 @@ fn check_coherent_replacement(chain: &CertifiedTestChain) {
     let genesis = chain.committed(1).block().clone();
     let second = chain.committed(2).block().clone();
     let certificate = genesis.commit_certificate().unwrap();
-    let (finality_header, mut result) =
-        iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
-            certificate.result_preimage(),
-            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
-        )
-        .unwrap()
-        .into_parts();
+    let (original_x, mut result) = iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+        certificate.result_preimage(),
+        chain.root_scope().into(),
+    )
+    .unwrap()
+    .into_parts();
     result.execution.world_state_root = Hash::new(b"different coherent genesis execution");
     let preimage = iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
-        finality_header,
-        result.clone(),
+        original_x, result,
     )
     .preimage()
     .unwrap();

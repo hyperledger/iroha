@@ -103,6 +103,14 @@ not claimed to replay, and no old-layout or alternate-suite verifier remains.
 This local artifact cutover authorizes no live reset and does not establish
 SCCP destination-launch readiness.
 
+The same local first-release history uses the coherent signed-genesis resource
+policy of a 16 MiB block cap and a 10 MiB transaction cap. Replacing the earlier
+4 MiB block cap declares `fresh_genesis` for `genesis` and
+`execution_semantics`: the transaction cap plus its block reserve must fit the
+block policy. The pinned replay reads these exact values from the restored
+State and still verifies the native certified result, World root and execution
+tip. No old-cap exception or alternate decoder is retained.
+
 ## Deliberately incompatible change
 
 A change is incompatible when it alters the bytes, validity or certified result

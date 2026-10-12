@@ -35,6 +35,7 @@ FOUNDATIONAL_DEPENDENCIES = frozenset(
 # while callers depend on the smaller vocabulary below.
 EXPECTED_FEATURES: dict[str, dict[str, tuple[str, ...]]] = {
     "norito": {
+        "mutation-testing": (),
         "default": ("node-codec",),
         "base-codec": ("json",),
         "node-codec": (

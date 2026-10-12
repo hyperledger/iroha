@@ -747,6 +747,7 @@ mod tests {
             body::Body,
             http::{Request, StatusCode},
         };
+        use iroha_core::state::StateReadOnly;
         use iroha_crypto::{Algorithm, Hash, KeyPair};
         use iroha_data_model::sumeragi_finality::SumeragiFinalityAttestation;
         use iroha_model_base::peer::PeerId;
@@ -904,7 +905,18 @@ mod tests {
                 norito::canonical_decode_limits(bytes.len()),
             )
             .unwrap();
-            attestation.verify().unwrap();
+            attestation
+                .verify(
+                    fixture
+                        .app
+                        .state
+                        .view()
+                        .native_execution_tip()
+                        .unwrap()
+                        .root_scope()
+                        .into(),
+                )
+                .unwrap();
         }
 
         #[tokio::test]
@@ -931,7 +943,14 @@ mod tests {
             )
             .expect("canonical current-node HTTP attestation");
             attestation
-                .verify()
+                .verify(
+                    app.state
+                        .view()
+                        .native_execution_tip()
+                        .unwrap()
+                        .root_scope()
+                        .into(),
+                )
                 .expect("real node signature and current embedded certificate");
             let body = &attestation.body;
             assert_eq!(body.challenge, challenge);
@@ -955,7 +974,14 @@ mod tests {
             assert_eq!(body.genesis_finality_proof.height(), 1);
             assert_eq!(body.finality_proof.height(), 2);
             body.finality_proof
-                .decode_checked()
+                .decode_checked(
+                    app.state
+                        .view()
+                        .native_execution_tip()
+                        .unwrap()
+                        .root_scope()
+                        .into(),
+                )
                 .expect("actual non-genesis BLS quorum proof");
             for endpoint in ["/v1/bridge/finality/2", "/v1/bridge/finality/bundle/2"] {
                 let mut request = Request::builder()
@@ -1023,13 +1049,35 @@ mod tests {
                 norito::canonical_decode_limits(bytes.len()),
             )
             .unwrap();
-            attestation.verify().unwrap();
+            attestation
+                .verify(
+                    fixture
+                        .app
+                        .state
+                        .view()
+                        .native_execution_tip()
+                        .unwrap()
+                        .root_scope()
+                        .into(),
+                )
+                .unwrap();
             assert_eq!(attestation.body.challenge, challenge);
             assert_eq!(attestation.body.finality_proof.height(), 1);
             let mut tampered = attestation;
             tampered.body.status.view += 1;
             assert!(
-                tampered.verify().is_err(),
+                tampered
+                    .verify(
+                        fixture
+                            .app
+                            .state
+                            .view()
+                            .native_execution_tip()
+                            .unwrap()
+                            .root_scope()
+                            .into()
+                    )
+                    .is_err(),
                 "node signature covers actual status"
             );
             fixture.stop();

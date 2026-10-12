@@ -436,6 +436,8 @@ fn fixture_with_effects_in_root(
                 &state.zk.gas,
                 tx.payload(),
                 u64::try_from(header.creation_time().as_millis()).unwrap(),
+                crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                    .expect("original committed fixture time"),
                 header.height().get(),
                 Some(dataspace),
             )

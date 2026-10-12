@@ -506,7 +506,30 @@ fn independent_dataspace_roots_pay_and_restart_without_sharing_state_or_storage(
     assert_eq!(committed_heights(&b), vec![1; 4]);
     assert!(b.iter().all(|v| !v.state.has_committed_entrypoint(a_work)));
     let a_roots = world_state_roots(&a);
+    let stopped_private_state = Arc::clone(&a[0].state);
     shutdown(a);
+    {
+        // Even a genuinely paid, quorum-certified private receipt is not Global SCCP
+        // authority. Observe the original pool after node workers stop, so unrelated
+        // publication cleanup cannot race the refusal/refund assertion.
+        use crate::smartcontracts::isi::sccp::read::{
+            SccpCertificateReadError, certificate_from_native,
+        };
+        use crate::sumeragi::certified_chain::{CertifiedChain, QcVerification};
+        let view = stopped_private_state.view();
+        let reader = CertifiedChain::new(&view).unwrap();
+        let original = reader.certified(2).unwrap();
+        assert_eq!(original.verification(), QcVerification::Verified);
+        assert_eq!(original.root_scope(), first.scope);
+        let budget = stopped_private_state.ivm_execution_budget();
+        let occupied = budget.reserved_bytes();
+        assert!(matches!(
+            certificate_from_native(&original, &budget),
+            Err(SccpCertificateReadError::Source(_))
+        ));
+        assert_eq!(budget.reserved_bytes(), occupied);
+    }
+    drop(stopped_private_state);
     let (_, b_fee) = second.submit(&b, "B advances while A is stopped");
     second.balances(&b, b_fee);
     let inspection_budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);

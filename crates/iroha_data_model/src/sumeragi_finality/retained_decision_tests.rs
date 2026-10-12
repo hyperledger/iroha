@@ -17,12 +17,13 @@ fn proof_with_certified_beacon(fixture: &Fixture) -> SumeragiFinalityProof {
     let availability = certificate.availability().to_vec();
     let native_header: CoreHeader = norito::decode_canonical(&header).unwrap();
     let mut qc: Qc = norito::decode_canonical(certificate.commit_qc()).unwrap();
-    let (finality_header, mut value) = CertifiedResultV1::decode(
+    let mut value = CertifiedResultV1::decode(
         certificate.result_preimage(),
         CertifiedResultScope::TairaGlobal,
     )
     .unwrap()
-    .into_parts();
+    .into_parts()
+    .1;
     let (_, signature) = fixture.keys[0].public_key().try_to_bytes().unwrap();
     let mut pulse = FinalizedGlobalThresholdBeaconPulseV1 {
         version: GLOBAL_THRESHOLD_BEACON_VERSION_V1,
@@ -50,14 +51,12 @@ fn proof_with_certified_beacon(fixture: &Fixture) -> SumeragiFinalityProof {
     pulse.pulse_id = global_threshold_beacon_pulse_id_v1(&pulse, pulse.seed);
     value.beacon = Some(pulse);
     value.validate().unwrap();
-    let value =
-        CertifiedResultV1::new(finality_header, value, CertifiedResultScope::TairaGlobal).unwrap();
-    qc.result = value.result().unwrap();
+    qc.result = tests::full_result(&block, &value).result().unwrap();
     super::tests::sign_qc(&mut qc, &fixture.keys, &[0, 1, 2]);
     block.set_commit_certificate(Some(crate::block::CommitCertificate::from_untrusted_parts(
         header,
         norito::encode_canonical(&qc).unwrap(),
-        value.preimage().unwrap(),
+        tests::full_result(&block, &value).preimage().unwrap(),
         availability,
     )));
     proof.block_wire = block.encode_wire().unwrap();
@@ -289,7 +288,9 @@ fn borrowed_trusted_check_keeps_authentic_parent_refusal_before_retained_compari
     // The same original canonical H2, exact BLS quorum and signed RS16 source remain intact.
     // Only independent test-owned selected parent commitments below are changed or removed.
     let source = norito::encode_canonical(proof).unwrap();
-    proof.decode_checked().unwrap();
+    proof
+        .decode_checked(CertifiedResultScope::TairaGlobal)
+        .unwrap();
     let retained = retained_prefix(&fixture, proof);
     let original = retained.export_checkpoint(proof).unwrap();
     let mut ordinary = fixture.verifier();

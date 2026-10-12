@@ -706,7 +706,7 @@ fn body_and_real_pipeline_fee_replace_one_complete_entry_counter() {
     use iroha_data_model::transaction::{FeeChargeKind, FeeChargeLimit};
     use iroha_primitives::numeric::Numeric;
     let _fee_guard = crate::status::nexus_fee_test_lock().lock().unwrap();
-    let (mut state, alice, bob) = fixture();
+    let (state, alice, bob) = fixture();
     {
         let mut setup = state.block(quantity_successor_header(&state));
         let mut transaction = setup.transaction_for_callback_testing();

@@ -37,7 +37,7 @@ pub struct InitialReputationPolicySelection {
     pub gateway_ids: Vec<[u8; 32]>,
     /// Exact canonical digest of the full initial policy, including delivery fees and lifetime.
     pub policy_digest: [u8; 32],
-    /// Exact policy PoR recorder; no new distinctness rule is imposed on recorder roles.
+    /// Exact policy `PoR` recorder; no new distinctness rule is imposed on recorder roles.
     pub por_recorder: AccountId,
     /// Exact policy capacity-dispute recorder.
     pub dispute_recorder: AccountId,
@@ -161,9 +161,10 @@ pub(super) fn instructions(
     plan.instructions(config)
 }
 
+#[derive(Clone, Copy)]
 pub(super) struct ReputationPolicyExpectation<'a>(pub(super) &'a InitialReputationPolicyRequest);
 impl ReputationPolicyExpectation<'_> {
-    pub(super) fn verify(&self, record: &preparation::Selection<'_>) -> Result<()> {
+    pub(super) fn verify(self, record: &preparation::Selection<'_>) -> Result<()> {
         let NativeOperation::InitialReputationPolicy { plan, terms } = record.operation else {
             eyre::bail!("setup journal differs from selected setup purpose");
         };

@@ -166,17 +166,77 @@ impl Core {
                 return;
             }
         }
-        let votes = self.votes.matching(x);
-        if votes.len() != self.cfg.committee.q() {
+        self.try_form_qc(x);
+    }
+
+    /// Retry only verified custody, selecting an exact quorum even if more votes arrived.
+    fn try_form_qc(&mut self, x: &Vote) {
+        if x.kind == VoteKind::Prepare && self.high_pqc.as_ref().is_some_and(|qc| qc.view >= x.view)
+        {
             return;
         }
-        let Ok(qc) = form_qc(&*self.crypto, self.n(), &votes) else {
+        let mut votes = self.votes.matching(x);
+        let q = self.cfg.committee.q();
+        if votes.len() < q {
             return;
+        }
+        votes.truncate(q);
+        let qc = match form_qc(&*self.crypto, self.n(), &votes) {
+            Ok(qc) => qc,
+            Err(crate::crypto::FormError::AggregationFailed(error)) => {
+                self.local_fault(crate::api::LocalFault::AggregationFailed {
+                    kind: match x.kind {
+                        VoteKind::Prepare => crate::api::CertificateKind::Prepare,
+                        VoteKind::Commit => crate::api::CertificateKind::Commit,
+                    },
+                    height: x.height,
+                    view: x.view,
+                    error,
+                });
+                return;
+            }
+            Err(_) => return,
         };
         self.cache_cert_qc(&qc);
         match qc.kind {
             VoteKind::Prepare => self.on_qc(qc, PqcVia::Formed),
             VoteKind::Commit => self.commit_height(qc, Via::Formed),
+        }
+    }
+
+    /// Retry retained certificate inputs at the existing rebroadcast cadence after local refusal.
+    pub(super) fn retry_certificates(&mut self) {
+        let height = self.height;
+        let q = self.cfg.committee.q();
+        // At most one value in each bounded phase/view pool can have an exact quorum.
+        let candidates: Vec<Vote> = self
+            .votes
+            .slots
+            .values()
+            .filter_map(|slots| {
+                let mut values = BTreeMap::new();
+                for vote in slots.iter().flatten() {
+                    let entry = values.entry(vote.value()).or_insert((0, *vote));
+                    entry.0 += 1;
+                }
+                values
+                    .into_values()
+                    .find_map(|(count, vote)| (count >= q).then_some(vote))
+            })
+            .collect();
+        for vote in candidates {
+            self.try_form_qc(&vote);
+            if !self.same_height(height) {
+                return;
+            }
+        }
+        let views: std::collections::BTreeSet<u64> =
+            self.timeouts.iter().flatten().map(|t| t.view).collect();
+        for view in views {
+            self.try_form_tc(view);
+            if !self.same_height(height) {
+                return;
+            }
         }
     }
 
@@ -308,7 +368,21 @@ impl Core {
         kind: VoteKind,
         (bh, result): (Hash32, Hash32),
     ) -> Option<Vote> {
-        let mut vote = Vote {
+        let signing_kind = match kind {
+            VoteKind::Prepare => crate::api::SigningKind::Prepare,
+            VoteKind::Commit => crate::api::SigningKind::Commit,
+        };
+        let preimage = crate::preimage::vote_preimage(
+            kind,
+            &self.instance,
+            &self.cfg.epoch.id,
+            self.height,
+            self.view,
+            &bh,
+            &result,
+        );
+        let sig = self.sign(me.slot, signing_kind, self.height, self.view, &preimage)?;
+        let vote = Vote {
             kind,
             instance: self.instance,
             epoch: self.cfg.epoch.id,
@@ -317,10 +391,8 @@ impl Core {
             block_hash: bh,
             result,
             signer: me.index,
-            sig: crate::types::Signature([0; crate::types::SIGNATURE_LEN]),
+            sig,
         };
-        // Only the fully signed object enters custody below; failure retains no vote.
-        vote.sig = self.sign(me, &vote.preimage())?;
         match kind {
             VoteKind::Prepare => self.mine.prepare = Some(vote),
             VoteKind::Commit => self.mine.commit = Some(vote),

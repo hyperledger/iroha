@@ -245,8 +245,10 @@ fn certified_tip(network: &Network, client: &Client, height: u64) -> Result<Veri
     let reader = client.client().clone().with_request_deadline(deadline);
     let mut tip = None;
     for next in 1..=height {
-        let proof = reader
-            .get_sumeragi_finality_proof(NonZeroU64::new(next).expect("positive bounded height"))?;
+        let proof = reader.get_sumeragi_finality_proof(
+            NonZeroU64::new(next).expect("positive bounded height"),
+            verifier.root_scope(),
+        )?;
         let verified = verifier.verify(&proof)?;
         let members: BTreeSet<_> = proof
             .committee

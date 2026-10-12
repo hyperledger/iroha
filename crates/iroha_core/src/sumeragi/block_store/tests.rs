@@ -69,13 +69,22 @@ fn fixture() -> Fixture {
     let executed = iroha_data_model::block::SharedSignedBlock::reserve(&budget)
         .unwrap()
         .initialize(executed);
-    let store = KuraBlockStore::new(kura, crypto, 1, Staging::new(), budget, schedule.clone());
+    let store = KuraBlockStore::new(
+        kura,
+        crypto,
+        1,
+        fixture.root_scope(),
+        Staging::new(),
+        budget,
+        schedule.clone(),
+    );
     let mut read = CommittedRead::new(
         executed.clone(),
         2,
         store.execution_budget.clone(),
         store.hasher.clone(),
         schedule.clone(),
+        store.root_scope,
     );
     let (body, qc) = read.poll().unwrap();
     Fixture {
@@ -558,6 +567,7 @@ fn real_valid_future_certificate_cannot_skip_a_height_and_reopening_keeps_origin
         f.store.execution_budget.clone(),
         f.store.hasher.clone(),
         f.schedule.clone(),
+        f.store.root_scope,
     );
     let (body, qc) = read.poll().unwrap();
     assert_eq!(
@@ -571,6 +581,7 @@ fn real_valid_future_certificate_cannot_skip_a_height_and_reopening_keeps_origin
         f.store.kura.clone(),
         f.store.hasher.clone(),
         1,
+        f.store.root_scope,
         Staging::new(),
         f.store.execution_budget.clone(),
         f.schedule.clone(),
@@ -673,7 +684,7 @@ fn review_changed_executed_result_must_not_publish_under_original_certificate() 
     assert!(publication::matches_payload(&changed, f.body.payload().as_slice()).unwrap());
     let commitment = iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
         changed.commit_certificate().unwrap().result_preimage(),
-        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        f.store.root_scope.into(),
     )
     .unwrap();
     let (len, hash) = changed.executed_block_wire_identity().unwrap();
@@ -729,7 +740,7 @@ fn review_changed_executed_result_must_not_be_served_from_committed_storage() {
     assert!(publication::matches_payload(&changed, f.body.payload().as_slice()).unwrap());
     let commitment = iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
         changed.commit_certificate().unwrap().result_preimage(),
-        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        f.store.root_scope.into(),
     )
     .unwrap();
     let (len, hash) = changed.executed_block_wire_identity().unwrap();
@@ -862,49 +873,41 @@ fn merged_execution_fixture() -> Fixture {
         .unwrap_or_else(|_| panic!("original signed availability authoring"));
     assert_eq!(authored.body.payload().as_slice(), original_wire);
 
-    let (finality_header, mut result) =
-        iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
-            f.executed.commit_certificate().unwrap().result_preimage(),
-            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
-        )
-        .unwrap()
-        .into_parts();
+    let (original_x, mut result) = iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+        f.executed.commit_certificate().unwrap().result_preimage(),
+        f.store.root_scope.into(),
+    )
+    .unwrap()
+    .into_parts();
     let (len, hash) = executed.executed_block_wire_identity().unwrap();
     result.execution.executed_block_wire_len = len;
     result.execution.executed_block_wire_hash = hash;
     result.execution.transaction_input_commitment = executed.network_input_merkle_commitment();
     result.execution.transaction_output_commitment = executed.output_merkle_commitment();
     result.validate().unwrap();
+    let result = iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
+        original_x, result,
+    );
     let mut qc = f.qc.clone();
     qc.block_hash = authored.body.header().hash(&*f.store.hasher);
-    qc.result = iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
-        finality_header,
-        result.clone(),
-    )
-    .result()
-    .unwrap();
+    qc.result = result.result().unwrap();
     qc.signers = Bitmap::from_indices(4, [0, 1, 2]).unwrap();
     let shares: Vec<_> = signers[..3]
         .iter()
-        .map(|signer| signer.sign(&qc.preimage()))
+        .map(|signer| signer.sign(&qc.preimage()).unwrap())
         .collect();
-    qc.agg_sig = f.store.hasher.aggregate(&shares);
+    qc.agg_sig = f.store.hasher.aggregate(&shares).unwrap();
     let certificate = commit_certificate(
         authored.body.header(),
         &qc,
-        iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
-            finality_header,
-            result.clone(),
-        )
-        .preimage()
-        .unwrap(),
+        result.preimage().unwrap(),
         norito::encode_canonical(authored.body.availability()).unwrap(),
     )
     .unwrap()
     .admit(budget)
     .unwrap();
     executed.set_commit_certificate(Some(certificate));
-    execution::validate(&executed).unwrap();
+    execution::validate(&executed, f.store.root_scope).unwrap();
     f.executed = iroha_data_model::block::SharedSignedBlock::reserve(&f.store.execution_budget)
         .unwrap()
         .initialize(executed);
@@ -951,6 +954,7 @@ fn merged_execution_cold_read_restores_original_signed_availability() {
         f.store.kura.clone(),
         f.store.hasher.clone(),
         1,
+        f.store.root_scope,
         Staging::new(),
         f.store.execution_budget.clone(),
         f.schedule.clone(),
@@ -1003,7 +1007,7 @@ fn changed_merged_execution_suffix_cannot_use_the_original_result_certificate() 
         f.executed.executed_block_wire_identity().unwrap(),
     );
     assert!(publication::matches_payload(&changed, f.body.payload().as_slice()).unwrap());
-    assert!(execution::validate(&changed).is_err());
+    assert!(execution::validate(&changed, f.store.root_scope).is_err());
     let changed = iroha_data_model::block::SharedSignedBlock::reserve(&f.store.execution_budget)
         .unwrap()
         .initialize(changed);
@@ -1021,7 +1025,7 @@ fn stored_native_result_requires_fixed_x_and_exact_carrier_time() {
         CertifiedResultScope, CertifiedResultV1, SccpFinalityHeaderV1,
     };
     let f = fixture();
-    execution::validate(&f.executed).unwrap();
+    execution::validate(&f.executed, f.store.root_scope).unwrap();
     let certificate = f.executed.commit_certificate().unwrap();
     for mutation in 0..3 {
         let (header, body) = CertifiedResultV1::decode(
@@ -1055,7 +1059,7 @@ fn stored_native_result_requires_fixed_x_and_exact_carrier_time() {
             ),
         ));
         assert!(
-            matches!(execution::validate(&changed), Err(Attempt::Rejected(error)) if error.kind() == io::ErrorKind::InvalidData),
+            matches!(execution::validate(&changed, f.store.root_scope), Err(Attempt::Rejected(error)) if error.kind() == io::ErrorKind::InvalidData),
             "mutation {mutation}"
         );
     }

@@ -419,6 +419,8 @@ fn native_quote(state: &State, payload: &TransactionPayload) -> FeeQuoteResponse
         &view.zk().gas,
         payload,
         header.creation_time_ms,
+        iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+            .expect("original native quote time"),
         header.height().get() + 1,
         Some(DataSpaceId::UNIVERSAL),
     )

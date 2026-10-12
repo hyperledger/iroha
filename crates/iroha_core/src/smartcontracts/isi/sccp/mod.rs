@@ -1,4 +1,4 @@
-//! SCCP v1 core: state access, block hooks, admission and the seven v1 instructions
+//! SCCP v1 core: state access, the block hook, admission and the seven v1 instructions
 //! (`specs/sccp.md` §4).
 //!
 //! The [`Execute`] implementations below delegate each v1 instruction to exactly one entry
@@ -7,41 +7,40 @@
 //! | Modules | Owner |
 //! |---|---|
 //! | [`init`], [`params`], [`admission`], [`fees`] | ws31 (inbound eligibility arms: ws41) |
-//! | [`hook`], [`generation`], [`committee_owner`], [`commitment`], [`prune`] | ws30 |
+//! | [`hook`], [`commitment`] | ws30 |
 //! | [`outbound`], [`escrow`], [`recipients`] | ws32 |
 //! | [`registry`], [`governance`], [`controls`], [`light_clients`] (Parliament half) | ws33 |
 //! | [`light_clients`] (advance half), [`inbound`], [`settle`], [`voids`], [`self_claim`] | ws41 |
-//! | [`read`] (views and proof bundles served by Torii) | ws35 |
+//! | [`read`] (views served by Torii) | ws35 |
+//! | [`parliament_iface`] (the one seam to Parliament-owned functions; stubs today) | WP-S5, WP-S9 |
 //!
-//! With SCCP absent (no `sccp_parameters`), every hook is a no-op and admission classifies no
+//! With SCCP absent (no `sccp_parameters`), the hook is a no-op and admission classifies no
 //! transaction as SCCP-exempt, so block production and queue behavior are unchanged.
 
 pub mod admission;
-pub mod anchor;
-pub mod anchor_owner;
+pub mod anchor_record;
 pub mod anchor_storage;
-mod finality;
 pub mod commitment;
-pub mod committee_owner;
-pub(crate) mod committee_snapshot;
 pub mod committee_storage;
 pub mod controls;
+pub(crate) mod eligibility;
 pub mod escrow;
 pub mod fees;
-pub(crate) mod generation;
-pub mod generation_error;
-mod generation_plan;
+pub mod generation_record;
+pub(super) mod generations;
 pub mod governance;
 pub mod height;
+pub mod hold;
 pub mod hook;
 pub mod inbound;
 pub mod init;
 pub mod leaves;
 pub mod light_clients;
-pub mod member_binding;
 pub mod outbound;
 pub mod params;
-pub mod prune;
+pub mod parliament_iface;
+pub(crate) mod pause_lifecycle;
+pub mod pause_record;
 pub mod read;
 pub mod recipients;
 pub mod registry;
@@ -51,8 +50,6 @@ pub mod store;
 pub mod voids;
 pub mod witness;
 
-#[cfg(test)]
-pub(crate) mod native_tests;
 #[cfg(test)]
 mod eligibility_tests;
 #[cfg(test)]
@@ -124,6 +121,7 @@ mod tests {
 
     #[test]
     fn every_v1_instruction_is_recognized_and_nothing_else_is() {
+        assert_eq!(SampleInstructions::all().len(), 7);
         for instruction in SampleInstructions::all() {
             assert!(is_sccp_instruction(&*instruction), "{instruction:?}");
         }

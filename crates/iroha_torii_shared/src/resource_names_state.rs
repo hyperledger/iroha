@@ -345,6 +345,6 @@ mod service_depth_tests {
         let mut expected = String::new();
         source.json_serialize(&mut expected);
         audit(&expected, |sink| source.json_serialize_to(sink));
-        assert!(std::ptr::eq(source.0[0], &keys[0]));
+        assert!(std::ptr::eq(source.0[0], &raw const keys[0]));
     }
 }

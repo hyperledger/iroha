@@ -579,6 +579,19 @@ fn pinned_history_of_an_earlier_build_replays_to_its_pinned_state() {
     let (state, prepared) = cold_replay(&identity, &disk, None);
     let prepared = prepared.unwrap_or_else(|error| panic!("{PINNED_REPLAY_RULE}: {error}"));
     assert_eq!(startup::applied_height(&state), height as u64);
+    {
+        // Read the original policy restored from the pinned signed genesis.
+        let view = state.view();
+        let parameters = view.world().parameters();
+        assert_eq!(
+            parameters.sumeragi().max_block_bytes.get(),
+            16 * 1024 * 1024
+        );
+        assert_eq!(
+            parameters.transaction().max_tx_bytes().get(),
+            10 * 1024 * 1024
+        );
+    }
     assert_eq!(
         world_root(&state),
         Ok(pinned.world_state_root.clone()),
@@ -702,6 +715,22 @@ fn capture_pinned_first_release_history() {
     let chain = chain(4, 200);
     let disks = stored_disks(&chain);
     let validators = start_all(&chain, &disks, true);
+    // Read the policies actually installed by the original signed genesis.
+    // The former 4 MiB block cap cannot contain the canonical 10 MiB transaction
+    // cap plus its block reserve; a new history uses the coherent current pair.
+    for validator in &validators {
+        let view = validator.state.view();
+        let parameters = view.world().parameters();
+        assert_eq!(
+            parameters.sumeragi().max_block_bytes.get(),
+            16 * 1024 * 1024
+        );
+        assert_eq!(
+            parameters.transaction().max_tx_bytes().get(),
+            10 * 1024 * 1024
+        );
+    }
+    println!("PINNED_FIRST_RELEASE_HISTORY_POLICY=max_block_bytes:16777216,max_tx_bytes:10485760");
     commit_work(&chain, &validators, "pinned history", 2);
     let height = 3_usize;
     assert_eq!(committed_heights(&validators), vec![height as u64; 4]);

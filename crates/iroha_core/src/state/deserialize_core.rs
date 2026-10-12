@@ -37,12 +37,12 @@ pub(crate) enum StateRestoreError {
     /// Original finite resources refused the complete native participant graph.
     #[error("snapshot native AMX admission deferred: {0}")]
     NativeAmx(#[source] crate::sumeragi::amx::NativeAmxAdmissionError),
-    /// Original finite resources refused immutable native SCCP generation ownership.
-    #[error("snapshot native SCCP admission deferred: {0}")]
-    SccpCommittee(#[source] crate::smartcontracts::isi::sccp::committee_owner::CommitteeOwnerError),
     /// Original resources refused canonical immutable evidence graph restoration.
     #[error("snapshot native evidence admission deferred: {0}")]
     Evidence(#[source] crate::sumeragi::evidence::record::EvidenceRecordRestoreError),
+    /// Original resources refused SCCP generation or anchor custody during restore.
+    #[error("snapshot SCCP custody admission failed: {0}")]
+    Sccp(#[from] sccp_snapshot_state::SccpRestoreError),
     /// The local VM image could not be constructed before restoring State.
     #[error("snapshot State VM initialization deferred: {0}")]
     VmInitialization(#[source] ivm::VMError),
@@ -578,7 +578,19 @@ mod state_snapshot_decode_error_tests {
         let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
         let world = World::try_with_execution_budget([], [], [], &budget).unwrap();
         let retained_bytes = budget.reserved_bytes();
-        budget.set_limit_bytes(0);
+        let undo_scope_bytes = iroha_allocation::OwnedAllocationScope::allocation_layout().size();
+        assert!(retained_bytes >= undo_scope_bytes);
+        crate::resource_coherence::validate_restored_policy(&world.view(), 0).unwrap();
+        // The original undo scope fits this policy, but World's retained owners
+        // occupy the entire pool. A zero limit would instead mean ExceedsLimit.
+        budget.set_limit_bytes(retained_bytes);
+        let iroha_allocation::AllocationRefusal::Capacity {
+            release: original_release,
+            ..
+        } = budget.try_reserve_bytes(undo_scope_bytes).unwrap_err()
+        else {
+            panic!("original World owners occupy the undo-scope capacity");
+        };
         let refused = validate_resource_policy_versions(&world, 0, &budget).unwrap_err();
         let StateRestoreError::Admission(StateAdmissionError::Storage(
             StateStorageAdmissionError::World(mv::storage::AdmittedStorageError::Allocation(
@@ -586,16 +598,17 @@ mod state_snapshot_decode_error_tests {
                     requested_bytes,
                     reserved_bytes,
                     limit_bytes,
-                    ..
+                    release,
                 },
             )),
         )) = refused
         else {
             panic!("expected original undo allocation capacity refusal: {refused:?}");
         };
-        assert!(requested_bytes > 0);
+        assert_eq!(requested_bytes, undo_scope_bytes);
         assert_eq!(reserved_bytes, retained_bytes);
-        assert_eq!(limit_bytes, 0);
+        assert_eq!(limit_bytes, retained_bytes);
+        assert_eq!(release, original_release);
         assert_eq!(budget.reserved_bytes(), retained_bytes);
         budget.set_limit_bytes(64 * 1024 * 1024);
         validate_resource_policy_versions(&world, 0, &budget).unwrap();
@@ -1007,7 +1020,7 @@ impl KuraSeed {
             &mut map,
             sccp_snapshot_state::SCCP_SNAPSHOT_MEMBER,
         )?
-        .restore(&mut world)?;
+        .restore(&mut world, &self.execution_budget)?;
         let canonical_runtime: Cell<SnapshotNexusRuntime> =
             take_required(&mut map, "nexus_runtime")?;
         let snapshot_nexus_runtime = canonical_runtime.view().get().clone();

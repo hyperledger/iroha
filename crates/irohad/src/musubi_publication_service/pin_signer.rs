@@ -294,6 +294,8 @@ impl MusubiPublicationPinTransactionSignerV1 {
             &view.zk.gas,
             draft.payload(),
             observation_time_ms,
+            iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                .map_err(|_| Error::Finality)?,
             next_height,
             Some(route.route.dataspace_id),
         )
@@ -372,6 +374,9 @@ impl MusubiPublicationPinTransactionSignerV1 {
             &view.zk.gas,
             draft.payload(),
             observed,
+            iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&view).map_err(
+                |error| eyre::eyre!("native control has invalid committed time: {error:?}"),
+            )?,
             next_height,
             Some(route.route.dataspace_id),
         )

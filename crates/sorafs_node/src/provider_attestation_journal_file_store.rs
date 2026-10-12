@@ -42,7 +42,6 @@ use crate::{
         MusubiProviderAttestationJournalStoreErrorV1,
         MusubiProviderAttestationJournalStoreSnapshotV1, MusubiProviderAttestationJournalStoreV1,
         musubi_provider_attestation_journal_checkpoint_revision_v1,
-        validate_musubi_provider_attestation_journal_checkpoint_bytes_v1,
         validate_musubi_provider_attestation_journal_checkpoint_metadata_v1,
     },
     provider_ingest_runtime::ProviderIngestFutureV1,
@@ -560,12 +559,13 @@ impl MusubiProviderAttestationJournalFileStoreV1 {
         &self,
         bytes: &[u8],
     ) -> Result<u64, MusubiProviderAttestationJournalStoreErrorV1> {
-        validate_musubi_provider_attestation_journal_checkpoint_bytes_v1(
+        validate_musubi_provider_attestation_journal_checkpoint_metadata_v1(
             bytes,
             self.policy,
             self.binding.network_id(),
             self.binding.provider_id(),
         )
+        .map(|(sequence, _)| sequence)
         .map_err(|_| MusubiProviderAttestationJournalStoreErrorV1::Rejected)
     }
     async fn load_local(

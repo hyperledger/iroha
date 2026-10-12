@@ -651,3 +651,59 @@ fn wrong_instance_never_enters_storage_or_acquisition() {
         .is_err()
     );
 }
+
+#[test]
+fn signing_refusal_retains_author_and_reports_local_fault_before_retry() {
+    use iroha_sumeragi::{
+        api::SigningKind,
+        crypto::SigningError,
+        types::{PublicKey, Signature},
+    };
+    struct RefusingSigner {
+        inner: Arc<dyn Signer>,
+        refused: Arc<AtomicBool>,
+    }
+    impl Signer for RefusingSigner {
+        fn public_key(&self) -> &PublicKey {
+            self.inner.public_key()
+        }
+        fn sign(&self, preimage: &[u8]) -> Result<Signature, SigningError> {
+            if self.refused.load(Ordering::SeqCst) {
+                return Err(SigningError::Refused);
+            }
+            self.inner.sign(preimage)
+        }
+    }
+    let mut f = Fixture::new();
+    let refused = Arc::new(AtomicBool::new(true));
+    f.signers[0] = Arc::new(RefusingSigner {
+        inner: f.signers[0].clone(),
+        refused: refused.clone(),
+    });
+    let mut w = f.worker();
+    let mut header = f.body.header().clone();
+    header.availability_digest = Hash32::ZERO;
+    let p = f.poll(
+        &mut w,
+        PayloadWork::Author {
+            req: 19,
+            config: f.source.config().clone(),
+            header,
+            payload: f.body.payload().clone(),
+        },
+    );
+    assert!(p.retry && p.refused && p.sends.is_empty());
+    assert!(matches!(
+        p.events.as_slice(),
+        [Event::SigningFailed {
+            kind: SigningKind::PayloadManifest,
+            error: SigningError::Refused,
+            ..
+        }]
+    ));
+    refused.store(false, Ordering::SeqCst);
+    let p = f.poll(&mut w, PayloadWork::Poll);
+    assert!(
+        matches!(p.events.as_slice(), [Event::PayloadAuthored { req: 19, body }] if body == &f.body)
+    );
+}

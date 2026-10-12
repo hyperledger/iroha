@@ -92,9 +92,8 @@ fn executed_identity_excludes_original_complete_certificate_only() {
         certificate.result_preimage(),
         crate::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     )
-    .unwrap()
-    .into_parts()
-    .1;
+    .unwrap();
+    let commitment = commitment.commitment();
     assert_eq!(commitment.execution.executed_block_wire_len, identity.0);
     assert_eq!(commitment.execution.executed_block_wire_hash, identity.1);
 }

@@ -56,7 +56,20 @@ pub(super) struct OtherDomains {
 pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     OtherDomains {
         usage: Use::Record,
-        reason: "Provider-backed phone-control policy and challenge identities, plus the provider credential signing preimage; each binds one supplied canonical record and does not hash State tables or establish the unfinished private relation or claim lifecycle",
+        reason: "SCCP fast-pause effect binds its network identity, external network and head; certificate identity binds the exact certificate content. These are record identities, not a commitment over the complete State",
+        literals: &[
+            r"iroha.sccp.fast_pause.certificate.id.v1",
+            r"iroha.sccp.fast_pause.effect.v1",
+        ],
+    },
+    OtherDomains {
+        usage: Use::Name,
+        reason: "Name of the native certified-result descriptor in the release wire identity. The descriptor binds the compiled header layout, body framing, hash recipe and bounds; this format name is not a hash domain or a commitment over current State data",
+        literals: &[r"iroha.sumeragi.certified_result.v1"],
+    },
+    OtherDomains {
+        usage: Use::Record,
+        reason: "Canonical hashes of one phone-control provider policy and one challenge, and the signing preimage of one provider credential. These bind supplied records; they establish no State provider-policy authority, challenge consumption or private phone-control relation",
         literals: &[
             r"iroha.ram_lfe.v1.phone_control.challenge",
             r"iroha.ram_lfe.v1.phone_control.credential",
@@ -64,13 +77,8 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
         ],
     },
     OtherDomains {
-        usage: Use::Name,
-        reason: "Release-identity name of the explicit native CertifiedResultV1 raw-X plus canonical-Norito-body codec descriptor; the format name labels the wire layout and is not an additional State root",
-        literals: &[r"iroha.sumeragi.certified_result.v1"],
-    },
-    OtherDomains {
         usage: Use::BlockContent,
-        reason: "BLAKE3 bindings of a transaction's proof-free ordered intent, each action statement and each proof carrier's proof-free public inputs; these hash the supplied canonical transaction records with a domain and length, not State tables or cells",
+        reason: "Digests of the normalized ordered transaction intent, one ordered action statement and one proof-free proof-carrier attachment. They bind transaction content and generated-proof exclusions, not State tables or cells",
         literals: &[
             r"iroha.transaction.action-statement-digest.v1",
             r"iroha.transaction.ordered-intent-digest.v1",

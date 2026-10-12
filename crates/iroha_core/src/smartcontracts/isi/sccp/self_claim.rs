@@ -2,7 +2,7 @@
 //!
 //! A recipient that holds no XOR claims alone and fee-exempt; the self-claim fee is deducted
 //! from the proceeds at release. [`eligible`] is the self-claim arm of the shared eligibility
-//! predicate ([`super::fees::exempt_class`]): a pure function of the committed parent World,
+//! predicate ([`super::fees::exempt_class`]): a pure function of the committed parent World and its original time,
 //! the authority and the instructions. A claim that is not eligible (a relayer, a third-party
 //! settle, an amount at or below the fee, a settle that cannot progress) is not refused: it
 //! pays the ordinary fee. Admission pre-verifies an eligible claim ([`preverify`]) and rejects
@@ -13,12 +13,10 @@
 //! the bundled advances applied; until then that shape pays the ordinary fee.
 
 use super::{
-    admission::{
-        SccpAdmissionKeysV1, SccpAdmissionRejectV1, SccpCommittedContext, SccpExemptClassV1,
-    },
+    admission::{SccpAdmissionKeysV1, SccpAdmissionRejectV1, SccpAdmissionView, SccpExemptClassV1},
     inbound::{bind_transfer_event, decode_inbound_payload, recipient_account},
     light_clients::{WorldLightClientView, admission_profiles},
-    settle, store,
+    store,
 };
 use crate::state::WorldReadOnly;
 use iroha_data_model::{
@@ -120,7 +118,7 @@ fn recipient_claims(payload: &SccpTransferPayloadV1, authority: &AccountId, fee:
 /// * the payload (decoded from the proof submission, or from the stored record of a settle)
 ///   names `authority` as its recipient and its amount exceeds `inbound_self_claim_fee`;
 /// * for a settle, the record is `Pending` and settlement can progress
-///   ([`settle::inbound_settlement_may_progress`]).
+///   ([`super::settle::inbound_settlement_may_progress`]).
 ///
 /// Nothing here verifies a proof; admission does that in [`preverify`].
 #[must_use]
@@ -128,9 +126,25 @@ pub fn eligible(
     world: &(impl WorldReadOnly + ?Sized),
     authority: &AccountId,
     instructions: &Executable,
+    committed_time_ms: Option<u64>,
 ) -> bool {
-    let Some(fee) = store::parameters::get(world)
-        .as_ref()
+    eligible_from(
+        &super::eligibility::Current(world),
+        authority,
+        instructions,
+        committed_time_ms,
+    )
+}
+
+/// Shared actual eligibility kernel for current and acquired original preimages.
+pub(super) fn eligible_from(
+    source: &(impl super::eligibility::EligibilityRead + ?Sized),
+    authority: &AccountId,
+    instructions: &Executable,
+    committed_time_ms: Option<u64>,
+) -> bool {
+    let Some(fee) = source
+        .parameters()
         .map(|params| params.inbound_self_claim_fee)
     else {
         return false;
@@ -141,18 +155,18 @@ pub fn eligible(
             decode_inbound_payload(submit.network, submit.revision, &submit.payload)
                 .is_ok_and(|payload| recipient_claims(&payload, authority, fee))
         }
-        Some(Claim::Settle(message_id)) => store::inbound_messages::get(world, &message_id)
-            .is_some_and(|record| {
-                record.status.is_pending()
-                    && SccpTransferPayloadV1::decode(&record.payload).is_ok_and(|payload| {
-                        recipient_claims(&payload, authority, fee)
-                            && settle::inbound_settlement_may_progress(
-                                world,
-                                record,
-                                payload.amount,
-                            )
-                    })
-            }),
+        Some(Claim::Settle(message_id)) => source.inbound(&message_id).is_some_and(|record| {
+            record.status.is_pending()
+                && SccpTransferPayloadV1::decode(&record.payload).is_ok_and(|payload| {
+                    recipient_claims(&payload, authority, fee)
+                        && super::eligibility::inbound_may_progress(
+                            source,
+                            record,
+                            payload.amount,
+                            committed_time_ms,
+                        )
+                })
+        }),
     }
 }
 
@@ -160,7 +174,7 @@ pub fn eligible(
 /// keys (one pending self-claim per authority and per message id).
 ///
 /// A settle needs a `Pending` record. A proof needs a revision that accepts proofs, a message
-/// that is not yet proven, a proof that verifies against the light client at `context`'
+/// that is not yet proven, a proof that verifies against the light client at `view`'s
 /// committed time under the profiles active at `next_block_height`, and an event that binds
 /// the payload.
 ///
@@ -169,7 +183,7 @@ pub fn eligible(
 /// Rejects a transaction that is not a self-claim or whose claim is invalid.
 pub fn preverify(
     world: &(impl WorldReadOnly + ?Sized),
-    context: &(impl SccpCommittedContext + ?Sized),
+    view: &(impl SccpAdmissionView + ?Sized),
     next_block_height: u64,
     authority: &AccountId,
     transaction: &SignedTransaction,
@@ -188,7 +202,7 @@ pub fn preverify(
     let payload = decode_inbound_payload(submit.network, submit.revision, &submit.payload)
         .map_err(|error| reject(error.to_string()))?;
     let message_id = payload
-        .message_id(context.taira_network_id().as_bytes())
+        .message_id(view.taira_network_id().as_bytes())
         .map_err(|error| reject(format!("payload: {error}")))?;
     if store::inbound_messages::contains(world, &message_id) {
         return Err(reject("the message is already proven"));
@@ -204,7 +218,7 @@ pub fn preverify(
         &WorldLightClientView(world),
         submit.network,
         &submit.proof,
-        context.committed_time_ms(),
+        view.committed_time_ms(),
     )
     .map_err(|error| reject(format!("proof: {error}")))?;
     bind_transfer_event(&verified, &deployment, &payload, &message_id)
@@ -246,7 +260,8 @@ mod tests {
         assert!(!eligible(
             &*view.world(),
             &authority(1),
-            sample_signed_transaction().instructions()
+            sample_signed_transaction().instructions(),
+            None
         ));
     }
 

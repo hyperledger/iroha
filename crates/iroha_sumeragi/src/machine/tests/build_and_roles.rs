@@ -29,7 +29,8 @@ fn empty_proposals_are_rejected_at_every_view() {
         p.proposal.header.payload_hash = preimage::payload_hash(&h.v.crypto, b"");
         p.proposal.sig = h
             .signer_of(&h.key_at(h.leader(view)))
-            .sign(&p.proposal.signing_preimage(&h.v.crypto));
+            .sign(&p.proposal.signing_preimage(&h.v.crypto))
+            .expect("fixture signing succeeds");
         let out = h.deliver(h.leader(view), WireMessage::Proposal(Box::new(p)));
         assert!(matches!(
             evidence(&out)[..],

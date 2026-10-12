@@ -107,6 +107,12 @@ fn register_with(
         network,
         revision: 1,
         deployment,
+        initial_committee: iroha_data_model::sccp::deployment::SccpCommitteePinV1 {
+            generation: 1,
+            committee_root: [0x44; 32],
+            start_height: 1,
+            until_ms: 1_801_209_600_000,
+        },
         max_wrapped_supply,
     })
 }
@@ -2137,9 +2143,34 @@ fn params_location(update: fn(&mut SccpParametersV1, u64)) -> U64Location {
     })
 }
 
+fn pin_location(
+    update: fn(&mut iroha_data_model::sccp::deployment::SccpCommitteePinV1, u64),
+) -> U64Location {
+    location(move |value| {
+        let SccpGovernanceActionV1::RegisterRoute(mut action) = register(ETH, evm([0x22; 20]))
+        else {
+            unreachable!()
+        };
+        update(&mut action.initial_committee, value);
+        SccpGovernanceActionV1::RegisterRoute(action)
+    })
+}
+
 /// Every location at which a proposal can carry a `u64`, besides `base_revisions`.
 fn u64_locations() -> Vec<(&'static str, U64Location)> {
     vec![
+        (
+            "initial_committee.generation",
+            pin_location(|p, v| p.generation = v),
+        ),
+        (
+            "initial_committee.start_height",
+            pin_location(|p, v| p.start_height = v),
+        ),
+        (
+            "initial_committee.until_ms",
+            pin_location(|p, v| p.until_ms = v),
+        ),
         ("ws_bound_ms", lc_location(|p, v| p.ws_bound_ms = v)),
         (
             "set_retention_ms",
@@ -2215,7 +2246,7 @@ fn u64_locations() -> Vec<(&'static str, U64Location)> {
 #[test]
 fn every_payload_u64_is_bounded_by_two_to_the_fifty_three() {
     let locations = u64_locations();
-    assert_eq!(locations.len(), 16);
+    assert_eq!(locations.len(), 19);
     for (field, build) in &locations {
         let at = proposal(vec![build(JSON_MAX)]);
         assert_eq!(at.first_json_u64_violation(), None, "{field} at 2^53 - 1");
@@ -2234,7 +2265,7 @@ fn every_payload_u64_is_bounded_by_two_to_the_fifty_three() {
         let maximum = proposal(vec![build(u64::MAX)]);
         assert!(maximum.first_json_u64_violation().is_some(), "{field}");
     }
-    // Actions without u64 fields never report a violation.
+    // Every unchanged fixture keeps each u64 inside the exact JSON range.
     for action in every_action() {
         assert_eq!(action.first_json_u64_violation(), None, "{action:?}");
     }

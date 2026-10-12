@@ -123,7 +123,7 @@ fn vote_pair(reader: &LaneProofRead, height: u64) -> Evidence {
             signer: 2,
             sig: Signature([0; SIGNATURE_LEN]),
         };
-        vote.sig = signer.sign(&vote.preimage());
+        vote.sig = signer.sign(&vote.preimage()).unwrap();
         vote
     };
     Evidence::VoteEquivocation(vote(71), vote(72))
@@ -214,12 +214,14 @@ fn anchored_chain_with_config(
                 signers: Bitmap::from_indices(4, [0, 1, 2]).unwrap(),
                 agg_sig: AggregateSignature([0; SIGNATURE_LEN]),
             };
-            qc.agg_sig = crypto.aggregate(
-                &signers[..3]
-                    .iter()
-                    .map(|signer| signer.sign(&qc.preimage()))
-                    .collect::<Vec<_>>(),
-            );
+            qc.agg_sig = crypto
+                .aggregate(
+                    &signers[..3]
+                        .iter()
+                        .map(|signer| signer.sign(&qc.preimage()).unwrap())
+                        .collect::<Vec<_>>(),
+                )
+                .unwrap();
             assert!(
                 iroha_sumeragi::crypto::Verifier::new(
                     &crypto,
@@ -432,7 +434,9 @@ fn proposal_pair(reader: &LaneProofRead) -> Evidence {
             parent_qc: None,
             sig: Signature([0; SIGNATURE_LEN]),
         };
-        proposal.sig = signer.sign(&proposal.signing_preimage(&reader.crypto));
+        proposal.sig = signer
+            .sign(&proposal.signing_preimage(&reader.crypto))
+            .unwrap();
         proposal
     };
     Evidence::ProposalEquivocation(Box::new(proposal(31)), Box::new(proposal(32)))
@@ -517,12 +521,15 @@ fn lane_proof_rejects_valid_same_height_certificate_on_an_unmerged_branch() {
         .unwrap_or_else(|_| panic!("other actual signed branch"));
     let mut qc = original.qc;
     qc.block_hash = authored.body.hash(&reader.crypto);
-    qc.agg_sig = reader.crypto.aggregate(
-        &signers[..3]
-            .iter()
-            .map(|signer| signer.sign(&qc.preimage()))
-            .collect::<Vec<_>>(),
-    );
+    qc.agg_sig = reader
+        .crypto
+        .aggregate(
+            &signers[..3]
+                .iter()
+                .map(|signer| signer.sign(&qc.preimage()).unwrap())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
     assert_ne!(qc.block_hash.0, expected.block_hash);
     assert!(
         iroha_sumeragi::crypto::Verifier::new(
@@ -1081,7 +1088,7 @@ fn reported_original_lane_equivocation(context: &LaneEvidenceContext) -> Evidenc
             signer: 2,
             sig: Signature([0; SIGNATURE_LEN]),
         };
-        vote.sig = signer.sign(&vote.preimage());
+        vote.sig = signer.sign(&vote.preimage()).unwrap();
         vote
     };
     let first = signed_vote(71);
@@ -1091,10 +1098,10 @@ fn reported_original_lane_equivocation(context: &LaneEvidenceContext) -> Evidenc
     bad_signature.sig.0[0] ^= 1;
     let mut foreign_epoch = second.clone();
     foreign_epoch.epoch.epoch += 1;
-    foreign_epoch.sig = signer.sign(&foreign_epoch.preimage());
+    foreign_epoch.sig = signer.sign(&foreign_epoch.preimage()).unwrap();
     let mut foreign_instance = second.clone();
     foreign_instance.instance.0[0] ^= 1;
-    foreign_instance.sig = signer.sign(&foreign_instance.preimage());
+    foreign_instance.sig = signer.sign(&foreign_instance.preimage()).unwrap();
     for invalid in [bad_signature, foreign_epoch, foreign_instance] {
         assert!(
             deliver(&mut kernel, &from, invalid).is_empty(),
@@ -1379,6 +1386,8 @@ fn funded_original_lane_slashing_scenario(complete_replacement: bool) {
             &view.zk().gas,
             draft.payload(),
             created_at_ms,
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                .expect("original committed fixture time"),
             chain.height() + 1,
             Some(iroha_model_base::topology::DataSpaceId::UNIVERSAL),
         )

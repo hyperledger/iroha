@@ -1966,8 +1966,8 @@ mod query_errors_handling {
             let error = transaction_details_http_failure(status, vec![content_type], body);
             if status == StatusCode::OK {
                 assert!(
-                    matches!(&error, QueryError::Sdk(crate::Error::CanonicalDecode { source, .. })
-                    if source.kind() == norito::core::DecodeAttemptErrorKind::Invalid)
+                    matches!(&error, QueryError::Sdk(crate::Error::CanonicalDecode(failure))
+                    if failure.source.kind() == norito::core::DecodeAttemptErrorKind::Invalid)
                 );
             } else {
                 assert!(matches!(error, QueryError::Other(_)));
@@ -2073,8 +2073,9 @@ mod query_errors_handling {
         .expect_err("trailing bytes must be rejected");
         assert!(matches!(
             &error,
-            QueryError::Sdk(crate::Error::CanonicalDecode { operation: "query.transaction_details", source })
-                if source.kind() == norito::core::DecodeAttemptErrorKind::Invalid
+            QueryError::Sdk(crate::Error::CanonicalDecode(failure))
+                if failure.operation == "query.transaction_details"
+                    && failure.source.kind() == norito::core::DecodeAttemptErrorKind::Invalid
         ));
 
         let client = compatible_client_with_conflicting_wire_headers();

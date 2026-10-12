@@ -99,6 +99,8 @@ fn paid_global_sign(
         &view.zk().gas,
         &signed,
         created_ms,
+        crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+            .expect("original committed fixture time"),
         chain.height() + 1,
         Some(DataSpaceId::UNIVERSAL),
     )

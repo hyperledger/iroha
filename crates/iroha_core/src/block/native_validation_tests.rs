@@ -154,6 +154,7 @@ impl NativeValidationFixture {
             self.chain.genesis_account(),
             self.cadence(),
             iroha_data_model::parameter::system::ConsensusMode::Permissioned,
+            self.chain.root_scope(),
             expansion,
             header,
             bytes,

@@ -216,6 +216,8 @@ fn paid(
         &view.zk().gas,
         draft.payload(),
         at,
+        crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+            .expect("original committed fixture time"),
         chain.height() + 1,
         Some(iroha_model_base::topology::DataSpaceId::UNIVERSAL),
     )

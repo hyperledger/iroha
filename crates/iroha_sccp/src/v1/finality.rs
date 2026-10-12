@@ -31,7 +31,7 @@ use core::fmt;
 
 pub use iroha_crypto::bls::consensus::DST_SIG;
 use iroha_crypto::bls::consensus::{
-    ConsensusDigest, key_validate, verify_fast_aggregate_committed,
+    ConsensusAggregateScratch, ConsensusDigest, key_validate, verify_fast_aggregate_committed,
 };
 pub use iroha_data_model::sumeragi_finality::{
     MAX_RESULT_PREIMAGE_BYTES, RESULT_TAG,
@@ -47,7 +47,7 @@ use sha2::{Digest as _, Sha256};
 use super::{
     committee::{
         IDENTITY_KEY, IDENTITY_SIGNATURE, KEY_LEN, MAX_COMMITTEE_SIZE, SIGNATURE_LEN,
-        aggregate_public_key, quorum, signer_indices, signer_point_sum,
+        aggregate_public_key, quorum, signer_point_sum,
     },
     destination_abi::DestinationError,
     hashes::keccak256,
@@ -446,20 +446,69 @@ pub fn verify_certificate(
     signature: &[u8; SIGNATURE_LEN],
     keys: &[[u8; KEY_LEN]],
 ) -> Result<VerifiedCertificateV1, CertificateError> {
+    verify_certificate_with(
+        instance,
+        qc_fixed,
+        x,
+        signature,
+        keys,
+        verify_fast_aggregate_committed,
+    )
+}
+
+/// Verify the identical certificate relation using the caller's original admitted pairing owner.
+///
+/// At most 31 compressed signer keys occupy fixed stack scratch. No signer-index or key Vec is
+/// allocated, and the pairing owner is reset by the same consensus verifier on every call.
+/// The caller retains its original admission through construction, verification and reuse.
+/// The keys still require authenticated committee authority, exactly as [`verify_certificate`].
+///
+/// # Errors
+/// The same checks, order and errors as [`verify_certificate`]. Admission failures happen in
+/// [`ConsensusAggregateScratch::new`] before this function and keep their caller-owned type.
+pub fn verify_certificate_with_scratch<O>(
+    instance: &[u8; 32],
+    qc_fixed: &[u8],
+    x: &[u8],
+    signature: &[u8; SIGNATURE_LEN],
+    keys: &[[u8; KEY_LEN]],
+    scratch: &mut ConsensusAggregateScratch<O>,
+) -> Result<VerifiedCertificateV1, CertificateError> {
+    verify_certificate_with(
+        instance,
+        qc_fixed,
+        x,
+        signature,
+        keys,
+        |keys, digest, signature| scratch.verify_fast_aggregate_committed(keys, digest, signature),
+    )
+}
+
+fn verify_certificate_with(
+    instance: &[u8; 32],
+    qc_fixed: &[u8],
+    x: &[u8],
+    signature: &[u8; SIGNATURE_LEN],
+    keys: &[[u8; KEY_LEN]],
+    verify: impl FnOnce(&[[u8; KEY_LEN]], &ConsensusDigest, &[u8; SIGNATURE_LEN]) -> bool,
+) -> Result<VerifiedCertificateV1, CertificateError> {
     let (header, qc, result, digest) =
         certified_message(instance, qc_fixed, x, signature, keys.len())?;
-    // Step 7, with `KeyValidate` on every signer key.
-    let signer_keys: Vec<[u8; KEY_LEN]> = signer_indices(qc.signers, keys.len())
-        .ok_or(CertificateError::SpareSignerBits)?
-        .into_iter()
-        .map(|index| keys[index])
-        .collect();
+    // Steps 1–6 established the finite committee and exact signer set before fixed scratch.
+    let mut signer_keys = [[0; KEY_LEN]; MAX_COMMITTEE_SIZE];
+    let mut count = 0;
+    for (index, key) in keys.iter().enumerate() {
+        if qc.signers & (1_u32 << index) != 0 {
+            signer_keys[count] = *key;
+            count += 1;
+        }
+    }
+    let signer_keys = &signer_keys[..count];
     if !signer_keys.iter().all(key_validate) {
         return Err(CertificateError::SignerKey);
     }
     aggregate_public_key(keys, qc.signers).ok_or(CertificateError::AggregateIdentity)?;
-    // Steps 8–9.
-    if !verify_fast_aggregate_committed(&signer_keys, &digest, signature) {
+    if !verify(signer_keys, &digest, signature) {
         return Err(CertificateError::Signature);
     }
     Ok(VerifiedCertificateV1 {
@@ -613,6 +662,7 @@ pub(super) mod vectors {
 
 #[cfg(test)]
 mod tests {
+    use crate::v1::committee::signer_indices;
     use iroha_crypto::{
         Algorithm, KeyPair, PrivateKey, Signature,
         bls::consensus::{aggregate, sign_preimage},
@@ -2002,6 +2052,64 @@ mod tests {
                 Err(CertificateError::Signature)
             );
         }
+    }
+
+    #[test]
+    fn admitted_certificate_verifier_reuses_original_owner_across_reference_verdicts() {
+        struct Owner<'a>(&'a std::cell::Cell<usize>);
+        impl Drop for Owner<'_> {
+            fn drop(&mut self) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+        let drops = std::cell::Cell::new(0);
+        let admitted = std::cell::Cell::new(0);
+        let mut scratch = ConsensusAggregateScratch::new(|bytes| {
+            assert_eq!(bytes, ConsensusAggregateScratch::<()>::backing_bytes());
+            admitted.set(admitted.get() + 1);
+            Ok::<_, ()>(Owner(&drops))
+        })
+        .unwrap();
+        let reference = finality();
+        let instance = instance_of(&reference);
+        for group in ["certificates", "negative_certificates", "certificates"] {
+            for row in rows(&reference, group) {
+                let wire = wire_of(row);
+                let label = text(row, "label");
+                let odd_keys = matches!(
+                    label,
+                    "signer_key_outside_g1"
+                        | "aggregate_key_identity"
+                        | "aggregate_key_identity_sigma_off_curve"
+                );
+                let keys = if odd_keys {
+                    pinned(&reference, row).1
+                } else {
+                    signing_keys(&reference, row)
+                };
+                let Ok(signature) = <[u8; SIGNATURE_LEN]>::try_from(&wire.signature[..]) else {
+                    continue;
+                };
+                let expected =
+                    verify_certificate(&instance, &wire.qc, &wire.header, &signature, &keys);
+                assert_eq!(
+                    verify_certificate_with_scratch(
+                        &instance,
+                        &wire.qc,
+                        &wire.header,
+                        &signature,
+                        &keys,
+                        &mut scratch
+                    ),
+                    expected,
+                    "{label}"
+                );
+                assert_eq!(admitted.get(), 1);
+                assert_eq!(drops.get(), 0);
+            }
+        }
+        drop(scratch);
+        assert_eq!(drops.get(), 1);
     }
 
     #[test]

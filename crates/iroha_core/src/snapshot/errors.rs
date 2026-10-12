@@ -28,10 +28,6 @@ pub enum TryReadError {
     StateBeaconSession(#[source] crate::beacon::GlobalThresholdBeaconSessionError),
     /// Local original-pool admission of the restored native participant failed: {0}
     StateNativeAmx(#[source] crate::sumeragi::amx::NativeAmxAdmissionError),
-    /// Local original-pool admission of restored SCCP committee custody failed: {0}
-    StateSccpCommittee(
-        #[source] crate::smartcontracts::isi::sccp::committee_owner::CommitteeOwnerError,
-    ),
     /// Signed snapshot payload is not the single canonical first-release JSON encoding
     NonCanonicalSnapshotPayload,
     /// Snapshot exceeds a configured typed decode or transient resource boundary: {0}
@@ -121,6 +117,8 @@ pub enum TryReadError {
     InvalidSnapshotBoundary(String),
     /// Original finite resources refused immutable native evidence restore: {0}
     StateEvidence(#[source] crate::sumeragi::evidence::record::EvidenceRecordRestoreError),
+    /// SCCP snapshot syntax or original resource refusal: {0}
+    StateSccp(#[source] crate::state::SccpRestoreError),
     /// Snapshot state is incompatible with runtime ZK configuration: {0}
     ZkConfigInstall(#[source] ZkConfigInstallError),
     /// Snapshot is in a non-consistent state. Snapshot has greater height (`{snapshot_height}`) than kura block store (`{kura_height}`)
@@ -185,12 +183,10 @@ impl From<crate::state::deserialize::StateRestoreError> for TryReadError {
             crate::state::deserialize::StateRestoreError::NativeAmx(error) => {
                 Self::StateNativeAmx(error)
             }
-            crate::state::deserialize::StateRestoreError::SccpCommittee(error) => {
-                Self::StateSccpCommittee(error)
-            }
             crate::state::deserialize::StateRestoreError::Evidence(error) => {
                 Self::StateEvidence(error)
             }
+            crate::state::deserialize::StateRestoreError::Sccp(error) => Self::StateSccp(error),
         }
     }
 }
@@ -354,25 +350,31 @@ mod evidence_restore_tests {
 }
 
 #[cfg(test)]
-mod sccp_committee_restore_tests {
+mod sccp_restore_tests {
+    //! Original pool identity survives the public snapshot read error boundary.
     use super::TryReadError;
-    use crate::{
-        smartcontracts::isi::sccp::committee_owner::CommitteeOwnerError,
-        state::deserialize::StateRestoreError,
-    };
+    use crate::state::{SccpRestoreError, deserialize::StateRestoreError};
+    use iroha_allocation::{AllocationBudget, AllocationRefusal};
 
     #[test]
-    fn committee_restore_refusal_keeps_original_pool_evidence() {
-        let pool = iroha_allocation::AllocationBudget::new(64);
-        let occupied = pool.try_reserve_bytes(64).unwrap();
-        let expected = pool.try_reserve_bytes(1).unwrap_err();
-        let error = TryReadError::from(StateRestoreError::SccpCommittee(
-            CommitteeOwnerError::Admission(expected.clone()),
-        ));
-        assert!(matches!(error, TryReadError::StateSccpCommittee(
-            CommitteeOwnerError::Admission(actual)) if actual == expected));
-        assert_eq!(pool.reserved_bytes(), 64);
-        drop(occupied);
-        assert_eq!(pool.reserved_bytes(), 0);
+    fn original_sccp_restore_refusal_survives_snapshot_read_boundary() {
+        let budget = AllocationBudget::new(64);
+        let owner = budget.try_reserve_bytes(64).unwrap();
+        let original = budget.try_reserve_bytes(8).unwrap_err();
+        let error = TryReadError::from(StateRestoreError::Sccp(SccpRestoreError::Admission(
+            original,
+        )));
+        let TryReadError::StateSccp(SccpRestoreError::Admission(actual)) = error else {
+            panic!("original resource refusal is not snapshot syntax or invalid protocol data");
+        };
+        assert!(matches!(actual, AllocationRefusal::Capacity { .. }));
+        assert_eq!(actual, budget.try_reserve_bytes(8).unwrap_err());
+        assert_eq!(budget.reserved_bytes(), 64);
+        drop(owner);
+        assert_eq!(budget.reserved_bytes(), 0);
+        let retry = budget
+            .try_reserve_bytes(8)
+            .expect("original pool released its owner");
+        assert_eq!(retry.remaining_bytes(), 8);
     }
 }

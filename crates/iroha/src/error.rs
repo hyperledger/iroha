@@ -28,6 +28,28 @@ pub enum TransportErrorKind {
     Other,
 }
 
+/// One operation's canonical decoder failure, preserving its original typed resource cause.
+#[derive(Debug, Error)]
+#[error("{operation} canonical response decoding failed: {source}")]
+pub struct CanonicalDecodeFailure {
+    /// Canonical operation whose response failed.
+    pub operation: &'static str,
+    /// Original canonical decoder failure, classified before its scopes unwind.
+    #[source]
+    pub source: norito::core::DecodeAttemptError,
+}
+
+/// One operation's native finality failure, preserving malformed input versus local refusal.
+#[derive(Debug, Error)]
+#[error("{operation} native finality decoding failed: {source}")]
+pub struct NativeFinalityDecodeFailure {
+    /// Canonical operation whose native source failed.
+    pub operation: &'static str,
+    /// Original native decoder failure with its complete typed source chain.
+    #[source]
+    pub source: iroha_data_model::sumeragi::finality::NativeFinalityDecodeError,
+}
+
 /// Canonical structured Rust SDK error family.
 ///
 /// Operations that have not yet migrated to this family remain an explicit
@@ -132,23 +154,11 @@ pub enum Error {
         details: String,
     },
     /// Canonical response decoding failed, preserving the original attempt and its scope.
-    #[error("{operation} canonical response decoding failed: {source}")]
-    CanonicalDecode {
-        /// Canonical operation whose response failed.
-        operation: &'static str,
-        /// Original canonical decoder failure, classified before its scopes unwind.
-        #[source]
-        source: norito::core::DecodeAttemptError,
-    },
+    #[error(transparent)]
+    CanonicalDecode(Box<CanonicalDecodeFailure>),
     /// A native finality frame is invalid or its original decoder resources are unavailable.
-    #[error("{operation} native finality decoding failed: {source}")]
-    NativeFinalityDecode {
-        /// Canonical operation whose native source failed.
-        operation: &'static str,
-        /// Original native decoder failure; malformed input and local refusal remain distinct.
-        #[source]
-        source: iroha_data_model::sumeragi::finality::NativeFinalityDecodeError,
-    },
+    #[error(transparent)]
+    NativeFinalityDecode(Box<NativeFinalityDecodeFailure>),
     /// A WebSocket peer violated the canonical stream protocol.
     #[error("{operation} stream protocol failed: {details}")]
     StreamProtocol {
@@ -594,6 +604,79 @@ pub fn retry_after(headers: &http::HeaderMap) -> Option<std::time::Duration> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn decoder_errors_stay_compact_and_retain_original_resource_sources() {
+        use std::error::Error as _;
+
+        use iroha_data_model::sumeragi::finality::NativeFinalityDecodeError;
+        use norito::core::{DecodeAttemptError, DecodeAttemptErrorKind};
+
+        for native in [false, true] {
+            let original = norito::core::with_decode_limits_scope(
+                norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+                || {
+                    norito::core::classify_decode_attempt(|| {
+                        norito::core::reserve_decode_allocation(1)
+                    })
+                },
+            )
+            .unwrap_err();
+            let Some(norito::Error::ScopedDecodeResource(expected)) = original
+                .source()
+                .and_then(|cause| cause.downcast_ref::<norito::Error>())
+            else {
+                panic!("original refusal must retain its enclosing scope");
+            };
+            let expected = expected.clone();
+            let (error, expected_display) = if native {
+                let source = NativeFinalityDecodeError::from(original);
+                let display = format!("native.decode native finality decoding failed: {source}");
+                (
+                    super::Error::NativeFinalityDecode(Box::new(
+                        super::NativeFinalityDecodeFailure {
+                            operation: "native.decode",
+                            source,
+                        },
+                    )),
+                    display,
+                )
+            } else {
+                let display =
+                    format!("canonical.decode canonical response decoding failed: {original}");
+                (
+                    super::Error::CanonicalDecode(Box::new(super::CanonicalDecodeFailure {
+                        operation: "canonical.decode",
+                        source: original,
+                    })),
+                    display,
+                )
+            };
+            assert!(std::mem::size_of_val(&error) < 128);
+            assert_eq!(error.to_string(), expected_display);
+            let direct_source = error.source().expect("original decoder source");
+            assert!(if native {
+                direct_source.is::<NativeFinalityDecodeError>()
+            } else {
+                direct_source.is::<DecodeAttemptError>()
+            });
+            let query = crate::query::QueryError::from(error);
+            assert!(std::mem::size_of_val(&query) < 128);
+            let report = eyre::Report::new(query).wrap_err("enclosing query context");
+            let retained = report
+                .chain()
+                .find_map(|cause| cause.downcast_ref::<DecodeAttemptError>())
+                .expect("boxed causes must expose the original typed decoder failure");
+            assert_eq!(retained.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+            let Some(norito::Error::ScopedDecodeResource(actual)) = retained
+                .source()
+                .and_then(|cause| cause.downcast_ref::<norito::Error>())
+            else {
+                panic!("boxed cause must retain its original enclosing scope");
+            };
+            assert_eq!(actual, &expected);
+        }
+    }
+
     #[test]
     fn retry_after_preserves_only_unambiguous_delta_seconds() {
         use http::{HeaderMap, HeaderValue, header::RETRY_AFTER};

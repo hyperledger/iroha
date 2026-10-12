@@ -1851,7 +1851,7 @@
    "gates": "The remaining Nexus consensus-policy preimage fields: lane, dataspace and routing identities, staking policy, fee schedule, lease and endorsement timing, settlement relation identity and windows, governance modules, fusion and autoscale policy, DA attester sampling and the preimage version.",
    "decided_by": "Committed State (the Nexus runtime catalog and lane policy already are; these values follow them).",
    "attribution": "read",
-   "open_reason": "The committed-parameter mechanism exists (zk_validity_policy_v1). This family still reaches validation through the State copy installed from node configuration at startup; moving it needs its own typed committed parameter, the staged-genesis and deployment generators that author it, and regenerated deployment configurations. Native SCCP L1 additionally consumes the original pinned Nexus staking projection at init/governance/startup; these reads do not close the broader family migration or authenticate unpinned restore inputs.",
+   "open_reason": "The committed-parameter mechanism exists (zk_validity_policy_v1). This family still reaches validation through the State copy installed from node configuration at startup; moving it needs its own typed committed parameter, the staged-genesis and deployment generators that author it, and regenerated deployment configurations. Native SCCP L1 additionally consumes the original pinned Nexus staking projection at parameter checking/genesis/startup (governance delegates to init::check_parameters); these reads do not close the broader family migration or authenticate unpinned restore inputs.",
    "sites": [
     ["crates/iroha_core/src/block.rs", "node_policy_read", "da.*", 1],
     ["crates/iroha_core/src/block/post_execution_tail.rs", "node_policy_read", "fees.settlement_mode", 1],
@@ -1865,8 +1865,8 @@
     ["crates/iroha_core/src/smartcontracts/isi/domain.rs", "node_policy_read", "staking.slash_sink_account_id", 1],
     ["crates/iroha_core/src/smartcontracts/isi/domain.rs", "node_policy_read", "staking.stake_asset_id", 1],
     ["crates/iroha_core/src/smartcontracts/isi/domain.rs", "node_policy_read", "staking.stake_escrow_account_id", 1],
-    ["crates/iroha_core/src/smartcontracts/isi/sccp/governance.rs", "node_policy_read", "staking.*", 1],
-    ["crates/iroha_core/src/smartcontracts/isi/sccp/init.rs", "node_policy_read", "staking.*", 1],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/init.rs", "node_policy_read", "staking.max_slash_bps", 1],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/init.rs", "node_policy_read", "staking.unbonding_delay.*", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/settle.rs", "node_policy_read", "fees.fee_sink_account_id", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sns.rs", "node_policy_read", "endorsement.quorum", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sns.rs", "node_policy_read", "fees.fee_asset_id", 1],
@@ -3627,29 +3627,35 @@
    "gates": "SCCP proofs: code that names an activation or a lifecycle state.",
    "decided_by": "Outside the ZK delivery plan; recorded for visibility only.",
    "attribution": "path_rule",
-   "note": "SCCP bridge proofs and their governed routes are not a product of the ZK delivery plan. Their proof-admission limits are part of the committed ZK validity policy (entry cfg.zk.validity_policy); route activation and deadlines here are committed bridge State.",
+   "note": "SCCP bridge proofs and their governed routes are not a product of the ZK delivery plan. Their proof-admission limits are part of the committed ZK validity policy (entry cfg.zk.validity_policy); route activation and deadlines here are committed bridge State. Individually read migrated rows also cover original registration heights, borrowed eligibility/hold predicates, expiry cleanup, and the persisted Parliament suspension-deadline table through capture and restore. Table presence and expiry cleanup do not supply the unfinished pause-panel, selective-lift or forgery/quarantine authority.",
    "sites": [
     ["crates/iroha_cli/src/sccp/governance.rs", "activation", "lifecycle", 6],
     ["crates/iroha_cli/src/sccp/mod.rs", "activation", "activation", 7],
-    ["crates/iroha_core/src/smartcontracts/isi/sccp/committee_owner.rs", "activation", "activation", 4],
-    ["crates/iroha_core/src/smartcontracts/isi/sccp/committee_owner.rs", "activation", "lifecycle", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/controls.rs", "activation", "activation", 3],
-    ["crates/iroha_core/src/smartcontracts/isi/sccp/generation.rs", "activation", "lifecycle", 1],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/eligibility.rs", "activation", "activation", 2],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/generation_record.rs", "activation", "activation", 5],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/generations.rs", "activation", "activation", 7],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/governance.rs", "activation", "activation", 37],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/hold.rs", "activation", "activation", 8],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/inbound.rs", "activation", "activation", 3],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/light_clients.rs", "activation", "activation", 15],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/mod.rs", "activation", "lifecycle", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/outbound.rs", "activation", "activation", 3],
-    ["crates/iroha_core/src/smartcontracts/isi/sccp/prune.rs", "activation", "activation", 3],
-    ["crates/iroha_core/src/smartcontracts/isi/sccp/prune.rs", "activation", "lifecycle", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/read.rs", "activation", "activation", 2],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/registry.rs", "activation", "activation", 20],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/self_claim.rs", "activation", "activation", 3],
-    ["crates/iroha_core/src/smartcontracts/isi/sccp/settle.rs", "activation", "activation", 14],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/settle.rs", "activation", "activation", 10],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/store.rs", "activation", "activation", 4],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/store.rs", "unavailable", "suspended", 2],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/voids.rs", "activation", "activation", 3],
+    ["crates/iroha_core/src/state.rs", "unavailable", "suspended", 9],
+    ["crates/iroha_core/src/state/authority_registry/complete/table_capture.rs", "unavailable", "suspended", 3],
+    ["crates/iroha_core/src/state/authority_registry/world.rs", "unavailable", "suspended", 2],
+    ["crates/iroha_core/src/state/deserialize_world.rs", "unavailable", "suspended", 1],
     ["crates/iroha_core/src/state/sccp_snapshot_state.rs", "activation", "activation", 2],
-    ["crates/iroha_data_model/src/sccp/committee.rs", "activation", "activation", 2],
+    ["crates/iroha_core/src/state/sccp_snapshot_state.rs", "unavailable", "suspended", 7],
     ["crates/iroha_data_model/src/sccp/events.rs", "activation", "activation", 6],
+    ["crates/iroha_data_model/src/sccp/generation.rs", "activation", "activation", 2],
     ["crates/iroha_data_model/src/sccp/governance.rs", "activation", "activation", 19],
     ["crates/iroha_data_model/src/sccp/light_client.rs", "activation", "activation", 2],
     ["crates/iroha_data_model/src/sccp/registry.rs", "activation", "activation", 11]
@@ -3665,18 +3671,18 @@
    "gates": "SCCP proofs: a timeout, deadline or millisecond budget on the proof path.",
    "decided_by": "Outside the ZK delivery plan; recorded for visibility only.",
    "attribution": "path_rule",
-   "note": "SCCP bridge proofs and their governed routes are not a product of the ZK delivery plan. Their proof-admission limits are part of the committed ZK validity policy (entry cfg.zk.validity_policy); route activation and deadlines here are committed bridge State.",
+   "note": "SCCP bridge proofs and their governed routes are not a product of the ZK delivery plan. Their proof-admission limits are part of the committed ZK validity policy (entry cfg.zk.validity_policy); route activation and deadlines here are committed bridge State. The generation record and read/committee projections carry immutable trust deadlines; read/message checks the payload deadline against the stored message and returns that same value. These are committed coordinates, not Instant-based request timeouts.",
    "sites": [
-    ["crates/iroha_core/src/smartcontracts/isi/sccp/committee_owner.rs", "time_budget", "deadline", 2],
-    ["crates/iroha_core/src/smartcontracts/isi/sccp/generation.rs", "time_budget", "deadline", 2],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/generation_record.rs", "time_budget", "deadline", 5],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/generations.rs", "time_budget", "deadline", 4],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/inbound.rs", "time_budget", "deadline", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/outbound.rs", "time_budget", "deadline", 8],
-    ["crates/iroha_core/src/smartcontracts/isi/sccp/prune_plan.rs", "time_budget", "deadline", 1],
-    ["crates/iroha_core/src/smartcontracts/isi/sccp/read.rs", "time_budget", "deadline", 5],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/read.rs", "time_budget", "deadline", 2],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/read/committee.rs", "time_budget", "deadline", 3],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/read/message.rs", "time_budget", "deadline", 4],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/read/views.rs", "time_budget", "deadline", 4],
-    ["crates/iroha_data_model/src/sccp/committee.rs", "time_budget", "deadline", 4],
     ["crates/iroha_data_model/src/sccp/events.rs", "time_budget", "deadline", 2],
-    ["crates/iroha_data_model/src/sccp/finality.rs", "time_budget", "deadline", 3],
+    ["crates/iroha_data_model/src/sccp/generation.rs", "time_budget", "deadline", 2],
     ["crates/iroha_data_model/src/sccp/outbound.rs", "time_budget", "deadline", 1]
    ]
   },
@@ -5185,22 +5191,38 @@
    "kind": "readiness_qualification",
    "status": "out_of_plan",
    "owner": null,
-   "path": "crates/iroha_core/src/smartcontracts/isi/sccp/read.rs",
-   "symbol": "pub fn control_proof(",
+   "path": "crates/iroha_torii/src/sccp.rs",
+   "symbol": "fn proof_unavailable() -> Response {",
    "gates": "SCCP native source custody, compiled light-client profile availability, pending settlement reasons and explicitly incomplete destination operations.",
    "decided_by": "Outside the ZK delivery plan; native SCCP source and operation requirements remain independently enforced.",
    "attribution": "read",
-   "note": "These sites are not a completion claim: control_proof always refuses until the native control-record owner is integrated; rotation reads refuse absent archive custody; RegisterRoute has no native committee pin/launch prerequisites yet. Light-client profile absence arms VerifierArtifactsUnavailable during execution instead of selecting a local validity result; fee-sink absence remains a deterministic pending reason. Pruning refuses or retains records when the original forgery/progress source is unavailable. Admission/read errors and local allocation refusals do not authenticate finality.",
+   "note": "These sites are not a completion claim: control_proof_from_native and message_proof_from_native now assemble native-backed bundles, but known HTTP proof requests still return 503 until request-funded original receipt acquisition and endpoint integration are complete; rotation reads still refuse absent archive custody. RegisterRoute still refuses incomplete committee/deployment and Parliament/reconciliation prerequisites. Light-client profile absence arms VerifierArtifactsUnavailable during execution; fee-sink absence remains a deterministic pending reason. Generation/anchor retirement still awaits actual Pending forgery State, rather than an invented empty set. Generation and anchor local resource failures remain Deferred separately from deterministic Degraded SCCP state. Admission/read errors, structural decoding and local allocation refusals do not authenticate finality.",
    "sites": [
     ["crates/iroha_cli/src/sccp/mod.rs", "unavailable", "unavailable", 1],
-    ["crates/iroha_core/src/smartcontracts/isi/sccp/governance.rs", "unavailable", "unavailable", 2],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/generations.rs", "unavailable", "local_resource", 1],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/hook.rs", "unavailable", "local_resource", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/light_clients.rs", "unavailable", "unavailable", 14],
-    ["crates/iroha_core/src/smartcontracts/isi/sccp/prune.rs", "unavailable", "unavailable", 1],
-    ["crates/iroha_core/src/smartcontracts/isi/sccp/prune_plan.rs", "unavailable", "unavailable", 6],
-    ["crates/iroha_core/src/smartcontracts/isi/sccp/read.rs", "unavailable", "unavailable", 34],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/settle.rs", "unavailable", "unavailable", 2],
     ["crates/iroha_data_model/src/sccp/inbound.rs", "unavailable", "unavailable", 1],
-    ["crates/iroha_torii/src/sccp.rs", "unavailable", "unavailable", 2]
+    ["crates/iroha_torii/src/sccp.rs", "unavailable", "unavailable", 5]
+   ],
+   "anchors": [
+    {
+     "path": "crates/iroha_core/src/smartcontracts/isi/sccp/read/control.rs",
+     "contains": "pub fn control_proof_from_native("
+    },
+    {
+     "path": "crates/iroha_core/src/smartcontracts/isi/sccp/read/message.rs",
+     "contains": "pub fn message_proof_from_native("
+    },
+    {
+     "path": "crates/iroha_torii/src/sccp.rs",
+     "contains": "fn proof_unavailable() -> Response {\n    error(\n        StatusCode::SERVICE_UNAVAILABLE,"
+    },
+    {
+     "path": "crates/iroha_core/src/smartcontracts/isi/sccp/hook.rs",
+     "contains": "generation/anchor-root retirement requires the real Pending SCCP forgery"
+    }
    ]
   },
   {
@@ -5209,13 +5231,25 @@
    "status": "out_of_plan",
    "owner": null,
    "path": "crates/iroha_core/src/smartcontracts/isi/sccp/governance.rs",
-   "symbol": "fn route_registration_readiness()",
+   "symbol": "fn register_route(register:",
    "gates": "SCCP RegisterRoute requires native committee authority and completed Parliament/reconciliation prerequisites.",
    "decided_by": "Outside the ZK delivery plan; actual canonical authority and launch relations must be implemented before registration.",
    "attribution": "read",
-   "note": "The current helper unconditionally returns NativeAuthorityUnavailable. It is a genuine incomplete operation, not a harmless name or evidence that deleting the retired roster implemented route registration; existing updates and settlement must preserve their committed checks.",
-   "sites": [
-    ["crates/iroha_core/src/smartcontracts/isi/sccp/governance.rs", "qualification", "readiness", 9]
+   "note": "RegisterRoute remains fail-closed: parliament_binding_ballot_available returns false, and register_route still returns an error for incomplete authenticated committee pin and deployment checks even after that condition. Parliament attempt latency remains None, and reconciliation/launch integration is unfinished. The retired route_registration_readiness helper and its detector names disappeared, but the missing relations did not become implemented. Existing updates and settlement must preserve their committed checks.",
+   "sites": [],
+   "anchors": [
+    {
+     "path": "crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs",
+     "contains": "pub const fn parliament_binding_ballot_available() -> bool {\n    false\n}"
+    },
+    {
+     "path": "crates/iroha_core/src/smartcontracts/isi/sccp/governance.rs",
+     "contains": "if !parliament_iface::parliament_binding_ballot_available() {"
+    },
+    {
+     "path": "crates/iroha_core/src/smartcontracts/isi/sccp/governance.rs",
+     "contains": "authenticated committee pin and deployment checks are incomplete"
+    }
    ]
   },
   {
@@ -5262,9 +5296,9 @@
    "gates": "Local portable-proof destination construction stops after its caller deadline.",
    "decided_by": "CertifiedChain and the independent verifier establish finality from original committed material; a destination grants no authority.",
    "attribution": "read",
-   "note": "OwnedProof::new checks the caller deadline between charged original-pool copies. Cursor/interval consumers propagate Deadline or allocation failure rather than constructing a certificate or consensus-invalid result; timeout does not change the original block or verification relation.",
+   "note": "OwnedProof::new and resumable ProofPreparation check the caller deadline between charged original-pool operations; retries retain partial construction and check the original block, member slice and allocation pool. Cursor/interval consumers propagate Deadline or allocation failure rather than constructing a certificate or consensus-invalid result; timeout does not change the original block or verification relation.",
    "sites": [
-    ["crates/iroha_core/src/sumeragi/finality/proof_destination.rs", "time_budget", "deadline", 9],
+    ["crates/iroha_core/src/sumeragi/finality/proof_destination.rs", "time_budget", "deadline", 13],
     ["crates/iroha_core/src/sumeragi/finality/proof_destination.rs", "wall_clock", "instant", 1]
    ]
   },
@@ -5939,7 +5973,7 @@
  },
  "summary": {
   "entries": 217,
-  "sites": 1457,
+  "sites": 1460,
   "by_status": {"done": 10, "local_resource": 22, "not_a_gate": 94, "open": 56, "out_of_plan": 20, "unsupported": 15},
   "by_owner": {"-": 114, "A.3": 2, "B.2": 2, "C.2": 1, "C.5": 6, "C.6": 4, "F.4": 26, "M.2": 6, "P.11": 1, "P.12": 2, "P.13": 2, "P.14": 4, "P.15": 3, "P.16": 1, "P.17": 1, "P.18": 1, "P.19": 1, "P.20": 3, "P.5": 16, "P.8": 3, "P.9": 3, "R.12": 3, "S.1": 1, "S.3": 1, "S.4": 2, "S.5": 2, "X.4": 6}
  }

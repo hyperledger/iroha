@@ -92,6 +92,21 @@ impl SealedExecutionOutputs {
 }
 
 impl StateBlock<'_> {
+    /// Return the original header after rejoining the exact completed output owner.
+    /// No current World view can replace or recompute this retained fixed-size value.
+    pub(crate) fn sealed_sccp_finality_header(
+        &self,
+        block: &SignedBlock,
+    ) -> Result<iroha_data_model::sumeragi_finality::certified_result::SccpFinalityHeaderV1, String>
+    {
+        self.verify_execution_output_seal(block)?;
+        let Some(ExecutionOutputPlanState::Sealed(sealed)) = self.execution_output_plan.as_ref()
+        else {
+            return Err("SCCP header requires the original completed output seal".into());
+        };
+        Ok(sealed.sccp_finality_header)
+    }
+
     /// Bind the recorder's actual complete witness before extraction. A second
     /// capture cannot replace the first witness owned by this execution.
     pub(in crate::state) fn bind_execution_output_witness(

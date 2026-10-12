@@ -18,7 +18,18 @@ impl Core {
         let Some(me) = self.signer() else {
             return;
         };
-        if w < self.view || self.timeout_view.is_some_and(|t| t >= w) {
+        let reserved = self
+            .safety
+            .as_ref()
+            .and_then(|r| r.timeout.as_ref())
+            .filter(|timeout| timeout.view == w)
+            .cloned();
+        let retry = reserved.is_some() && self.mine.timeout.as_ref().is_none_or(|t| t.view != w);
+        if w < self.view
+            || self
+                .timeout_view
+                .is_some_and(|t| t > w || (t == w && !retry))
+        {
             return;
         }
         if w > self.view {
@@ -30,7 +41,9 @@ impl Core {
             self.pm.failed_with_proposal = true;
         }
         self.timeout_view = Some(w);
-        let carried = (self.high_pqc.clone()).filter(|_| !cfg!(sumeragi_mutation = "MS8"));
+        let carried = reserved
+            .map_or_else(|| self.high_pqc.clone(), |t| t.high_pqc)
+            .filter(|_| !cfg!(sumeragi_mutation = "MS8"));
         #[cfg(not(sumeragi_mutation = "MS26"))]
         if let Some(record) = self.safety.as_mut() {
             record.timeout = Some(RecordedTimeout {
@@ -50,14 +63,20 @@ impl Core {
 
     /// Sign `TimeoutVote(h, w, high_pqc)` (also used to rebuild a recorded timeout, R4).
     pub(super) fn build_timeout(
-        &self,
+        &mut self,
         me: super::Me,
         w: u64,
         high_pqc: Option<crate::message::Qc>,
     ) -> Option<TimeoutVote> {
         let hq = high_pqc.as_ref().map(|qc| qc.view);
         let msg = preimage::tmo_preimage(&self.instance, &self.cfg.epoch.id, self.height, w, hq);
-        let sig = self.sign(me, &msg)?;
+        let sig = self.sign(
+            me.slot,
+            crate::api::SigningKind::Timeout,
+            self.height,
+            w,
+            &msg,
+        )?;
         Some(TimeoutVote {
             instance: self.instance,
             epoch: self.cfg.epoch.id,
@@ -134,23 +153,9 @@ impl Core {
             _ => return,
         }
         let h0 = self.height;
-        if self.high_tc.as_ref().is_none_or(|tc| tc.view < view) {
-            let same: Vec<&TimeoutVote> = self
-                .timeouts
-                .iter()
-                .flatten()
-                .filter(|t| t.view == view)
-                .collect();
-            if same.len() >= self.cfg.committee.q()
-                && let Ok(tc) = form_tc(&*self.crypto, self.n(), &same)
-            {
-                let digest = tc.digest(&*self.crypto);
-                self.cert_cache.insert(digest);
-                self.on_verified_tc(tc, false);
-                if !self.same_height(h0) {
-                    return;
-                }
-            }
+        self.try_form_tc(view);
+        if !self.same_height(h0) {
+            return;
         }
         let mut views: Vec<u64> = self.timeouts.iter().flatten().map(|t| t.view).collect();
         views.sort_unstable_by(|a, b| b.cmp(a));
@@ -160,6 +165,36 @@ impl Core {
             && self.timeout_view.is_none_or(|t| t < w_star)
         {
             self.sign_timeout(w_star);
+        }
+    }
+
+    /// Form or retry a timeout certificate from retained verified votes, without repooling.
+    pub(super) fn try_form_tc(&mut self, view: u64) {
+        if self.high_tc.as_ref().is_none_or(|tc| tc.view < view) {
+            let same: Vec<&TimeoutVote> = self
+                .timeouts
+                .iter()
+                .flatten()
+                .filter(|t| t.view == view)
+                .collect();
+            if same.len() >= self.cfg.committee.q() {
+                match form_tc(&*self.crypto, self.n(), &same) {
+                    Ok(tc) => {
+                        let digest = tc.digest(&*self.crypto);
+                        self.cert_cache.insert(digest);
+                        self.on_verified_tc(tc, false);
+                    }
+                    Err(crate::crypto::FormError::AggregationFailed(error)) => {
+                        self.local_fault(crate::api::LocalFault::AggregationFailed {
+                            kind: crate::api::CertificateKind::Timeout,
+                            height: self.height,
+                            view,
+                            error,
+                        });
+                    }
+                    Err(_) => {}
+                }
+            }
         }
     }
 

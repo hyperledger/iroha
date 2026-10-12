@@ -279,18 +279,7 @@ fn global_source_graph_error(
         GraphError::Allocator { .. } => ExecutionAttemptError::Deferred(
             ivm::error::ExecutionDeferral::AllocationUnavailable.into(),
         ),
-        GraphError::Codec(resource) => {
-            // Graph admission already validated the original opaque attempt. These exact
-            // fields retain that classification after its scope retires; a new active
-            // scope must never decide whether the original refusal was local.
-            let reason = match resource {
-                norito::core::DecodeResourceError::AllocationFailed { .. } => {
-                    ivm::error::ExecutionDeferral::AllocationUnavailable
-                }
-                _ => ivm::error::ExecutionDeferral::ActiveMemoryCapacity,
-            };
-            ExecutionAttemptError::Deferred(reason.into())
-        }
+        GraphError::Codec(original) => ExecutionAttemptError::Deferred(original.into()),
         invalid_graph => invalid(invalid_graph.to_string()).into(),
     }
 }
@@ -307,6 +296,7 @@ mod graph_refusal_tests {
             || norito::core::classify_decode_attempt(|| norito::core::reserve_decode_allocation(1)),
         )
         .unwrap_err();
+        let expected = original.local_refusal().unwrap();
         let graph = GraphError::from(AmxError::Resource(original));
         let mapped = global_source_graph_error(graph);
         let ExecutionAttemptError::Deferred(local) = mapped else {
@@ -317,6 +307,10 @@ mod graph_refusal_tests {
             ivm::error::ExecutionDeferral::ActiveMemoryCapacity
         );
         assert!(local.allocation_refusal().is_none());
+        assert_eq!(local.decode_refusal(), Some(&expected));
+        let vm_error = local.into_vm_error();
+        let same = crate::execution_attempt::ExecutionDeferred::from_vm_error(&vm_error).unwrap();
+        assert_eq!(same.decode_refusal(), Some(&expected));
         assert!(matches!(
             global_source_graph_error(GraphError::Invalid("completed".into())),
             ExecutionAttemptError::Rejected(_)
@@ -886,7 +880,7 @@ impl Execute for RelayGlobalAmxHandoffV1 {
             ));
         }
         let boundary = verified
-            .commitment
+            .commitment()
             .schedule
             .boundary
             .as_ref()

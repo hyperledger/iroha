@@ -95,7 +95,7 @@ impl SumeragiCommitCertificateV1 {
         .map_err(FinalityReadError::from)
     }
 
-    fn originals(&self) -> Result<(CoreHeader, Qc, ExecutionResultCommitment), FinalityReadError> {
+    fn originals(&self) -> Result<(CoreHeader, Qc, CertifiedResultV1), FinalityReadError> {
         let header = self.header()?;
         let qc = norito::decode_canonical_for_admission(
             &self.commit_qc,
@@ -106,9 +106,7 @@ impl SumeragiCommitCertificateV1 {
         // certificate has no original Iroha block timestamp for C5; the native quorum binds X.
         let commitment =
             CertifiedResultV1::decode(&self.result_preimage, CertifiedResultScope::TairaGlobal)
-                .map_err(FinalityReadError::from)?
-                .into_parts()
-                .1;
+                .map_err(FinalityReadError::from)?;
         Ok((header, qc, commitment))
     }
 
@@ -156,14 +154,14 @@ pub struct VerifiedSumeragiCommitV1 {
     network: NetworkId,
     chain: String,
     core_hash: Hash32,
-    commitment: ExecutionResultCommitment,
+    certified_result: CertifiedResultV1,
 }
 
 impl VerifiedSumeragiCommitV1 {
     /// Original certified execution height.
     #[must_use]
     pub const fn height(&self) -> u64 {
-        self.commitment.height
+        self.certified_result.commitment().height
     }
 
     /// Native consensus block identity authenticated by the BLS certificate.
@@ -175,13 +173,19 @@ impl VerifiedSumeragiCommitV1 {
     /// Certified execution, including its original counted event commitment.
     #[must_use]
     pub const fn execution(&self) -> &ExecutionCommitment {
-        &self.commitment.execution
+        &self.certified_result.commitment().execution
     }
 
     /// Complete certified schedule and execution result.
     #[must_use]
     pub const fn commitment(&self) -> &ExecutionResultCommitment {
-        &self.commitment
+        self.certified_result.commitment()
+    }
+
+    /// Original finality header and body authenticated under the selected global root.
+    #[must_use]
+    pub const fn certified_result(&self) -> &CertifiedResultV1 {
+        &self.certified_result
     }
 
     /// Match the independently selected global network and chain.
@@ -310,7 +314,8 @@ impl SumeragiCommitVerifierV1 {
         &mut self,
         proof: &SumeragiCommitCertificateV1,
     ) -> Result<VerifiedSumeragiCommitV1, FinalityReadError> {
-        let (header, qc, commitment) = proof.originals()?;
+        let (header, qc, certified_result) = proof.originals()?;
+        let commitment = certified_result.commitment();
         let offered = &commitment.schedule.current;
         let selected = self
             .epochs
@@ -364,7 +369,7 @@ impl SumeragiCommitVerifierV1 {
             network: self.network,
             chain: self.chain.clone(),
             core_hash,
-            commitment,
+            certified_result,
         })
     }
 }

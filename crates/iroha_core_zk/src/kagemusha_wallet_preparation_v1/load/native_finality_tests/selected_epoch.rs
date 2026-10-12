@@ -2,7 +2,7 @@
 
 use super::*;
 use iroha_data_model::sumeragi_finality::{
-    CertifiedResultScope, CertifiedResultV1, SumeragiCommitCheckpointV1, result_of_preimage,
+    CertifiedResultV1, SumeragiCommitCheckpointV1, result_of_preimage,
 };
 
 fn successor_epoch_source() -> (NativeLoad, SumeragiCommitCheckpointV1) {
@@ -56,16 +56,15 @@ fn successor_epoch_source() -> (NativeLoad, SumeragiCommitCheckpointV1) {
     .unwrap();
     // Retain the genuine H4 header/epoch/schedule and sign a synthetic event result with
     // the actual fixture quorum. This is native BLS gate evidence, not World execution.
-    let (finality_header, mut result) = CertifiedResultV1::decode(
-        &certificate.result_preimage,
-        CertifiedResultScope::TairaGlobal,
-    )
-    .unwrap()
-    .into_parts();
+    let (original_x, mut result) =
+        CertifiedResultV1::decode(&certificate.result_preimage, fixture.root_scope().into())
+            .unwrap()
+            .into_parts();
     result.execution.event_commitment = events.commitment();
     result.validate().unwrap();
     certificate.result_preimage =
-        CertifiedResultV1::from_parts_unvalidated(finality_header, result)
+        CertifiedResultV1::new(original_x, result, fixture.root_scope().into())
+            .unwrap()
             .preimage()
             .unwrap();
     let mut qc: Qc = norito::decode_canonical(&certificate.commit_qc).unwrap();

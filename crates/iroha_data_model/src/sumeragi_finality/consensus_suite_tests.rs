@@ -17,7 +17,11 @@ fn proof_crypto_uses_consensus_suite_and_preserves_pop_admission() {
         .unwrap();
     let native = Signature(consensus::sign_preimage(pair.private_key(), &preimage).unwrap());
     assert!(crypto.verify(key, &preimage, &native));
-    assert!(crypto.verify_aggregate(&[key], &preimage, &crypto.aggregate(&[native.clone()])));
+    assert!(crypto.verify_aggregate(
+        &[key],
+        &preimage,
+        &crypto.aggregate(&[native.clone()]).unwrap()
+    ));
     assert!(
         !iroha_crypto::Signature::from_bytes(&native.0)
             .verify(pair.public_key(), &preimage)
@@ -29,7 +33,7 @@ fn proof_crypto_uses_consensus_suite_and_preserves_pop_admission() {
     assert!(generic.verify(pair.public_key(), &preimage).is_ok());
     let old = Signature(generic.payload().try_into().unwrap());
     assert!(!crypto.verify(key, &preimage, &old));
-    assert!(!crypto.verify_aggregate(&[key], &preimage, &crypto.aggregate(&[old])));
+    assert!(!crypto.verify_aggregate(&[key], &preimage, &crypto.aggregate(&[old]).unwrap()));
 
     // The generic attestation context remains outside the consensus allowlist.
     let mut unlisted = preimage.clone();
@@ -39,7 +43,7 @@ fn proof_crypto_uses_consensus_suite_and_preserves_pop_admission() {
     assert!(generic.verify(pair.public_key(), &unlisted).is_ok());
     let generic = Signature(generic.payload().try_into().unwrap());
     assert!(!crypto.verify(key, &unlisted, &generic));
-    assert!(!crypto.verify_aggregate(&[key], &unlisted, &crypto.aggregate(&[generic])));
+    assert!(!crypto.verify_aggregate(&[key], &unlisted, &crypto.aggregate(&[generic]).unwrap()));
 
     // Single-key verification remains a cryptographic relation; the caller owns authority.
     // Aggregates still require the committee's original validated PoPs.
@@ -52,7 +56,7 @@ fn proof_crypto_uses_consensus_suite_and_preserves_pop_admission() {
     assert!(!crypto.verify_aggregate(
         &[&external_key],
         &preimage,
-        &crypto.aggregate(&[external_sig])
+        &crypto.aggregate(&[external_sig]).unwrap()
     ));
     let mut no_pop = fixture.validators.clone();
     no_pop[0].proof_of_possession[0] ^= 1;
@@ -82,7 +86,7 @@ fn proof_crypto_multi_message_aggregate_binds_each_allowlisted_digest() {
             Signature(consensus::sign_preimage(pair.private_key(), preimage).unwrap())
         })
         .collect();
-    let aggregate = crypto.aggregate(&shares);
+    let aggregate = crypto.aggregate(&shares).unwrap();
     let groups = [
         (vec![keys[0]], first.clone()),
         (vec![keys[1]], second.clone()),
@@ -96,5 +100,5 @@ fn proof_crypto_multi_message_aggregate_binds_each_allowlisted_digest() {
     unlisted[1].1[b"sumeragi/sig".len()] = 0x06;
     assert!(!crypto.verify_aggregate_multi(&unlisted, &aggregate));
     assert!(!crypto.verify_aggregate_multi(&[], &aggregate));
-    assert!(!crypto.verify_aggregate_multi(&groups, &crypto.aggregate(&[])));
+    assert!(crypto.aggregate(&[]).is_err());
 }

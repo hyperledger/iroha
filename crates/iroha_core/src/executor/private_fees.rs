@@ -285,6 +285,8 @@ mod tests {
             &crate::gas::DEFAULT_ZK_GAS,
             transaction.payload(),
             0,
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                .expect("original committed fixture time"),
             2,
             Some(ds),
         )
@@ -477,6 +479,8 @@ mod tests {
             &crate::gas::DEFAULT_ZK_GAS,
             transaction.payload(),
             0,
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                .expect("original committed fixture time"),
             2,
             Some(ds),
         )

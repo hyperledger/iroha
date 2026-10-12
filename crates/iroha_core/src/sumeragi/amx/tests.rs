@@ -95,6 +95,7 @@ impl Dataspace {
                 .iter()
                 .map(|write| (write.key.as_slice(), write.value.as_slice())),
             record.clone(),
+            self.chain.root_scope().into(),
         )
         .unwrap()
     }
@@ -360,12 +361,15 @@ fn amx_refusal_projection_uses_original_provenance_after_scope_retirement() {
     let error =
         norito::with_decode_limits_scope(refused_decode_limits(), || super::decode_anchor(&bytes))
             .unwrap_err();
-    let fields = super::classified_decode_refusal(&error).expect("captured local origin");
+    let owner = super::classified_decode_refusal(&error).expect("captured local origin");
     assert!(
-        matches!(fields, norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit: 0 } if attempted > 0)
+        matches!(owner.resource_error(), norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit: 0 } if attempted > 0)
     );
     norito::with_decode_limits_scope(refused_decode_limits(), || {
-        assert_eq!(super::classified_decode_refusal(&error), Some(fields));
+        assert_eq!(
+            super::classified_decode_refusal(&error),
+            Some(owner.clone())
+        );
         let super::AmxError::Resource(original) = &error else {
             unreachable!()
         };
@@ -376,7 +380,38 @@ fn amx_refusal_projection_uses_original_provenance_after_scope_retirement() {
     assert_eq!(bytes, original_bytes);
     assert!(super::decode_anchor(&bytes).is_ok());
     let projected: super::NativeAmxAdmissionError = error.into();
-    assert_eq!(projected, super::NativeAmxAdmissionError::Codec(fields));
+    assert_eq!(projected, super::NativeAmxAdmissionError::Codec(owner));
+}
+
+#[test]
+fn amx_caught_error_keeps_same_decoder_owner_through_transaction_and_block() {
+    use crate::state::{StateStorageAdmissionError, storage_transactions::TransactionsBlockError};
+    let bytes = Dataspace::new(DS1).register().anchor;
+    let error =
+        norito::with_decode_limits_scope(refused_decode_limits(), || super::decode_anchor(&bytes))
+            .unwrap_err();
+    let original = super::classified_decode_refusal(&error).unwrap();
+    let expected = StateStorageAdmissionError::AmxDecode(original.clone());
+    let state = blank_state();
+    let mut block = state.block(header(1));
+    let before = block.world.sumeragi_amx.get().clone();
+    let mut transaction = block.transaction();
+    norito::with_decode_limits_scope(refused_decode_limits(), || {
+        let _caught = super::amx_error(error, &mut transaction);
+        assert_eq!(
+            transaction.require_storage_admission(),
+            Err(expected.clone())
+        );
+    });
+    assert!(expected.release_wait().is_none());
+    transaction.apply();
+    assert_eq!(block.require_storage_admission(), Err(expected.clone()));
+    assert_eq!(block.world.sumeragi_amx.get(), &before);
+    assert!(matches!(
+        block.commit_world_overlay_for_testing(),
+        Err(TransactionsBlockError::LocalStateStorage(error)) if error == expected
+    ));
+    assert!(super::decode_anchor(&bytes).is_ok());
 }
 
 #[test]
@@ -425,10 +460,7 @@ fn amx_anchor_decode_refusal_cannot_publish_even_when_instruction_error_is_caugh
         resource.kind(),
         norito::core::DecodeAttemptErrorKind::EnclosingLimit
     );
-    let local = StateStorageAdmissionError::AmxDecode(
-        resource.into_error().decode_resource_error().unwrap(),
-    );
-    assert!(local.release_wait().is_none());
+    let independent_owner = resource.into_local_refusal().unwrap();
     let state = blank_state();
     let mut block = state.block(header(1));
     let before = block.world.sumeragi_amx.get().clone();
@@ -438,7 +470,19 @@ fn amx_anchor_decode_refusal_cannot_publish_even_when_instruction_error_is_caugh
     })
     .unwrap_err();
     assert!(error.to_string().contains("resource refusal"));
-    assert_eq!(transaction.require_storage_admission(), Err(local.clone()));
+    let local = transaction.require_storage_admission().unwrap_err();
+    let StateStorageAdmissionError::AmxDecode(actual_owner) = &local else {
+        panic!("instruction lost original decoder owner: {local:?}");
+    };
+    assert_eq!(
+        actual_owner.resource_error(),
+        independent_owner.resource_error()
+    );
+    assert_ne!(
+        actual_owner, &independent_owner,
+        "equal counters from separate attempts are distinct owners"
+    );
+    assert!(local.release_wait().is_none());
     // Catching the inner instruction error cannot grant a successful apply or publication.
     transaction.apply();
     assert_eq!(block.require_storage_admission(), Err(local.clone()));
@@ -637,7 +681,10 @@ fn amx_deadline_record_refusal_keeps_original_pending_state_and_typed_retry() {
             super::write(record)
         })
         .expect_err("unfinished witness output cannot prune the original source");
-    assert_eq!(super::classified_decode_refusal(&error), Some(expected));
+    assert_eq!(
+        super::classified_decode_refusal(&error).map(|owner| owner.resource_error()),
+        Some(expected)
+    );
     assert_eq!(block.world.sumeragi_amx.get(), &seeded);
     assert_eq!(
         block.world.sumeragi_amx.get().transactions.as_ptr(),

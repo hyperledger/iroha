@@ -2,79 +2,25 @@
 
 use super::*;
 use iroha_allocation::AllocationBudget;
-use iroha_crypto::{Algorithm, Hash, HashOf, KeyPair};
-use iroha_data_model::{
-    NetworkId,
-    block::BlockHeader,
-    parameter::system::ConsensusMode,
-    sccp::{
-        committee::{SccpGenerationCauseV1, SccpGenerationEndV1, SccpGenerationStartV1},
-        params::SccpParametersV1,
-    },
-    sumeragi::epoch::{
-        ValidatorCommitteeMemberV1, ValidatorEpochAuthorizationV1, ValidatorEpochContextV1,
-        ValidatorGenerationV1,
-    },
-};
-use iroha_model_base::peer::PeerId;
+use iroha_data_model::sccp::generation::SccpGenerationEndV1;
+use std::ops::Deref;
 
-fn original(pool: &AllocationBudget) -> RetainedSccpCommitteeGeneration {
-    let mut keys = (1..=4)
-        .map(|seed| KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal))
-        .collect::<Vec<_>>();
-    keys.sort_by_key(|key| PeerId::new(key.public_key().clone()));
-    let committee = keys
-        .iter()
-        .map(|key| ValidatorCommitteeMemberV1 {
-            validator: PeerId::new(key.public_key().clone()),
-            proof_of_possession: iroha_crypto::bls_normal_pop_prove(key.private_key()).unwrap(),
-        })
-        .collect::<Vec<_>>();
-    let network_id = NetworkId::from_genesis_hash(HashOf::<BlockHeader>::from_untyped_unchecked(
-        Hash::new(b"native table custody"),
-    ));
-    let generation = ValidatorGenerationV1::from_committee(network_id, 0, &committee);
-    let epoch = ValidatorEpochContextV1 {
-        version: 1,
-        network_id,
-        mode: ConsensusMode::Npos,
-        authorization: ValidatorEpochAuthorizationV1::genesis(&generation, 10).unwrap(),
-        committee,
-        leader_seed: [1; 32],
-        da_layout: iroha_sumeragi::availability::recommended_data_availability_layout(),
-    };
-    RetainedSccpCommitteeGeneration::admit_new(
-        SccpGenerationStartV1 {
-            generation: 1,
-            cause: SccpGenerationCauseV1::Genesis,
-            height: 1,
-            timestamp_ms: 100,
-            liability_clock: 100,
-        },
-        &SccpParametersV1::taira_default(),
-        &epoch,
-        &[None; 4],
-        pool,
-    )
-    .unwrap()
+fn original(pool: &AllocationBudget) -> RetainedSccpGeneration {
+    RetainedSccpGeneration::admit(&super::super::test_support::sample_generation(1), pool).unwrap()
 }
 
 #[test]
 fn actual_table_shares_original_current_undo_and_abandons_refused_child() {
     let pool = AllocationBudget::new(1 << 20);
     let original = original(&pool);
-    let ended = original
-        .with_lifecycle(
-            Some(SccpGenerationEndV1 {
-                end_height: 10,
-                end_timestamp_ms: 200,
-                next_committee_root: original.committee_root,
-                successor_validity_ms: original.validity_ms,
-            }),
-            None,
-            &pool,
-        )
-        .unwrap();
+    let mut ended = original.clone();
+    ended.end = Some(SccpGenerationEndV1 {
+        end_height: 10,
+        end_timestamp_ms: 2_000,
+        next_committee_root: original.committee_root,
+        successor_validity_ms: original.validity_ms,
+    });
+    let retained_bytes = pool.reserved_bytes();
     let table = CommitteeStorage::try_new_admitted(pool.clone()).unwrap();
     table
         .try_with_admitted_block(|block| {
@@ -85,8 +31,8 @@ fn actual_table_shares_original_current_undo_and_abandons_refused_child() {
         })
         .unwrap();
     assert!(std::ptr::eq(
-        table.view().get(&1).unwrap().record(),
-        original.record()
+        table.view().get(&1).unwrap().deref(),
+        original.deref()
     ));
     table
         .try_with_admitted_block(|block| {
@@ -100,8 +46,8 @@ fn actual_table_shares_original_current_undo_and_abandons_refused_child() {
         .unwrap();
     let snapshot = table.snapshot();
     assert!(std::ptr::eq(
-        snapshot.current().get(&1).unwrap().record(),
-        ended.record()
+        snapshot.current().get(&1).unwrap().deref(),
+        ended.deref()
     ));
     assert!(std::ptr::eq(
         snapshot
@@ -110,8 +56,8 @@ fn actual_table_shares_original_current_undo_and_abandons_refused_child() {
             .unwrap()
             .as_ref()
             .unwrap()
-            .record(),
-        original.record()
+            .deref(),
+        original.deref()
     ));
     drop(snapshot);
     let before = pool.reserved_bytes();
@@ -136,8 +82,8 @@ fn actual_table_shares_original_current_undo_and_abandons_refused_child() {
     assert!(table.view().get(&2).is_none());
     let snapshot = table.snapshot();
     assert!(std::ptr::eq(
-        snapshot.current().get(&1).unwrap().record(),
-        ended.record()
+        snapshot.current().get(&1).unwrap().deref(),
+        ended.deref()
     ));
     assert!(std::ptr::eq(
         snapshot
@@ -146,15 +92,12 @@ fn actual_table_shares_original_current_undo_and_abandons_refused_child() {
             .unwrap()
             .as_ref()
             .unwrap()
-            .record(),
-        original.record()
+            .deref(),
+        original.deref()
     ));
     drop(snapshot);
     drop(table);
-    assert_eq!(
-        pool.reserved_bytes(),
-        original.allocation_bytes().unwrap() + ended.allocation_bytes().unwrap()
-    );
+    assert_eq!(pool.reserved_bytes(), retained_bytes);
     drop((original, ended));
     assert_eq!(pool.reserved_bytes(), 0);
 }

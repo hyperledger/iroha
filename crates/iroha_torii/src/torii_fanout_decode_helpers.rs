@@ -1184,7 +1184,6 @@ fn try_acquire_new_query_fanout_memory(
 /// listener already bounds its raw HTTP head; the separate waiter count bounds
 /// how many of those heads remain here. No signed-query ingress permit or decoded
 /// request is pinned while waiting for the complete fanout working set.
-#[cfg(feature = "app_api")]
 async fn acquire_app_routed_read_http_memory(
     app: &SharedAppState,
     accepts_body: bool,

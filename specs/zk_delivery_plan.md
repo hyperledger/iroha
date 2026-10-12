@@ -137,6 +137,9 @@ inventory: ordinary effects and AXT, RaceV1/classed RaceV1, all IVM chips, gener
 semantic verification, SoraCloud key/BFV checks, X509 MAIN/CA, private notes,
 PQ-MASP, settlement, ZK-ACE and ZK-AMS qPCS if that PCS uses FASTPQ. Distinct Halo2,
 Bulletproofs, lattice PCS and Spartan/Nova families retain their mathematical roles.
+VOLE-in-the-head is a further distinct mathematical family with exactly one reusable
+owner crate, `crates/iroha_zkp_vole`. It is experimental and unqualified, and only the
+Parliament ballot relations use it.
 
 Shared checked derivations include work-security, FRI and commitment error, including
 missing fold/rate checks. Algebraic error sums do not establish Fiat–Shamir or hiding.

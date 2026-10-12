@@ -51,7 +51,7 @@ impl KuraBlockStore {
         if result_of_preimage(certificate.result_preimage()) != Some(qc.result) {
             return Err(invalid("staged result preimage differs from the certified result").into());
         }
-        super::execution::validate(executed)?;
+        super::execution::validate(executed, self.root_scope)?;
         if !matches_payload(executed, body.payload().as_slice())? {
             return Err(invalid("staged proposal differs from the original signed payload").into());
         }

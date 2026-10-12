@@ -28,7 +28,7 @@ use iroha_data_model::{
         epoch::{ValidatorEpochBoundaryV1, ValidatorEpochContextV1},
         finality::NativeFinalityArtifact,
     },
-    sumeragi_finality::{CertifiedResultScope, CertifiedResultV1, SccpFinalityHeaderV1},
+    sumeragi_finality::{CertifiedResultScope, CertifiedResultV1},
     transaction::signed::TransactionResult,
 };
 use iroha_model_base::peer::PeerId;
@@ -195,7 +195,8 @@ fn certify(keys: &[KeyPair], header: &BlockHeader, bytes: &[u8]) -> iroha_sumera
             };
             vote.sig = KeyPairSigner::new(&keys[index as usize])
                 .unwrap()
-                .sign(&vote.preimage());
+                .sign(&vote.preimage())
+                .unwrap();
             vote
         })
         .collect::<Vec<_>>();
@@ -258,11 +259,20 @@ fn evidence_fixture() -> ValidatorCommitteeProvisioningEvidenceV1 {
         .unwrap(),
     )
     .unwrap();
-    let initial = CertifiedResultV1::new(
-        SccpFinalityHeaderV1::inactive(*network.as_bytes(), 1, genesis.header().creation_time_ms)
-            .unwrap(),
+    let initial_x = iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+        *network.as_bytes(),
+        1,
+        u64::try_from(genesis.header().creation_time().as_millis()).unwrap(),
+    )
+    .unwrap();
+    let initial = iroha_data_model::sumeragi_finality::CertifiedResultV1::new(
+        initial_x,
         initial,
-        CertifiedResultScope::TairaGlobal,
+        iroha_genesis::signed_genesis_consensus_metadata(&genesis)
+            .unwrap()
+            .sumeragi_context
+            .root_scope
+            .into(),
     )
     .unwrap();
     let mut parent_result = result_of_preimage(&initial.preimage().unwrap()).unwrap();
@@ -445,15 +455,20 @@ fn evidence_fixture() -> ValidatorCommitteeProvisioningEvidenceV1 {
             .unwrap(),
         )
         .unwrap();
-        let result = CertifiedResultV1::new(
-            SccpFinalityHeaderV1::inactive(
-                *network.as_bytes(),
-                height,
-                block.header().creation_time_ms,
-            )
-            .unwrap(),
+        let x = iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+            *network.as_bytes(),
+            height,
+            u64::try_from(block.header().creation_time().as_millis()).unwrap(),
+        )
+        .unwrap();
+        let result = iroha_data_model::sumeragi_finality::CertifiedResultV1::new(
+            x,
             result,
-            CertifiedResultScope::TairaGlobal,
+            iroha_genesis::signed_genesis_consensus_metadata(&history[0])
+                .unwrap()
+                .sumeragi_context
+                .root_scope
+                .into(),
         )
         .unwrap();
         let preimage = result.preimage().unwrap();

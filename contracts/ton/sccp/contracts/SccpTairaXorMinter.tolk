@@ -17,9 +17,6 @@
 // undoes its effect, or is recorded in `retries` for a permissionless
 // `sccp_retry` (§5.3.4). External-out events are sent with bounce on action
 // failure, so a failed event aborts and bounces the whole step.
-// TODO: WP-TON (map step T7): the Acton suites under `tests/unit` still
-// drive the retired attestation minter. Port them to the test support of
-// `sccp-test-helpers.tolk` so that every handler here has a test.
 
 import "@stdlib/gas-payments"
 import "@stdlib/strings"

@@ -60,7 +60,7 @@ impl Kagemusha<'_> {
     /// Retrieve one bounded epoch-boundary certificate before the receipt's height.
     ///
     /// Select `boundary_height` from the last independently authenticated epoch authority.
-    /// The response is DATA: verify its incumbent CommitQC before accepting its successor
+    /// The response is DATA: verify its incumbent `CommitQC` before accepting its successor
     /// committee or selecting another boundary. Never import a peer-supplied checkpoint.
     ///
     /// # Errors

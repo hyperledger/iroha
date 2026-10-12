@@ -248,6 +248,9 @@ impl AuthenticatedBootstrap {
             proof_clients,
             peer_clients,
             deadline,
+            self.verifier.root_scope().map_err(|_| {
+                crate::verify::http::HttpFinalityError::Invalid("authenticated checkpoint scope")
+            })?,
         )
     }
 

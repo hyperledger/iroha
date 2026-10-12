@@ -151,11 +151,14 @@ mod tests {
 
     fn control_record(leaf: [u8; 32], index: u32) -> SccpControlRecordV1 {
         SccpControlRecordV1 {
-            paused: true,
+            track: 1,
+            parliament_paused: true,
+            fast_pause_until_ms: 0,
             height: 5,
             commitment_index: index,
             leaf,
-            proposal_id: [9; 32],
+            certificate_id: [9; 32],
+            effect_hash: [5; 32],
         }
     }
 

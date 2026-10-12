@@ -59,6 +59,15 @@ fn execute_action_role_sample(
 
 /// Every privacy map is empty, no account was added and no action budget is charged.
 fn assert_no_privacy_state(transaction: &StateTransaction<'_, '_>, case: &str) {
+    assert_no_privacy_state_with_account_count(transaction, case, 1);
+}
+
+/// No privacy write, account registration or budget charge changes the original fixture.
+fn assert_no_privacy_state_with_account_count(
+    transaction: &StateTransaction<'_, '_>,
+    case: &str,
+    original_accounts: usize,
+) {
     assert_eq!(privacy_map_counts(transaction), (0, 0, 0, 0), "{case}");
     assert_eq!(
         transaction.world.privacy_nullifiers.iter().count(),
@@ -70,7 +79,11 @@ fn assert_no_privacy_state(transaction: &StateTransaction<'_, '_>, case: &str) {
         0,
         "{case}"
     );
-    assert_eq!(transaction.world.accounts.iter().count(), 1, "{case}");
+    assert_eq!(
+        transaction.world.accounts.iter().count(),
+        original_accounts,
+        "{case}"
+    );
     assert_eq!(
         transaction.privacy_budget_for_testing(),
         (0, 0, 0, 0),
@@ -211,22 +224,37 @@ fn every_role_enters_its_own_branch_of_the_single_handler() {
 #[test]
 fn typed_handler_and_registry_dispatch_are_one_entry_for_every_role() {
     let samples = action_role_samples();
-    let state = action_role_sample_state(&samples);
+    // The boxed route reads execution authority before entering the privacy handler.
+    // Use the original signed genesis, while keeping Exact12 qualification absent.
+    let state = activation_execution_state();
+    let original_accounts = state.view().world.accounts.iter().count();
     for sample in &samples {
         let instruction = SubmitPrivacyProofV1::new(sample.envelope.clone());
-        let mut block = state.block(test_header());
+        let mut block = state.block(activation_execution_header(&state));
         let mut transaction = block.transaction();
+        assert!(
+            crate::executor::root_scope::execution_root_scope(&mut transaction).is_ok(),
+            "both instruction routes start from the original authenticated execution root"
+        );
         bind_submit_privacy_instruction(&mut transaction, &instruction);
         let typed = instruction
             .clone()
             .execute(&ALICE_ID, &mut transaction)
-            .expect_err("no qualification record is registered on a blank State");
-        assert_no_privacy_state(&transaction, sample.role.canonical_label());
+            .expect_err("State without Exact12 qualification");
+        assert_no_privacy_state_with_account_count(
+            &transaction,
+            sample.role.canonical_label(),
+            original_accounts,
+        );
         bind_submit_privacy_instruction(&mut transaction, &instruction);
         let boxed = InstructionBox::from(instruction)
             .execute(&ALICE_ID, &mut transaction)
             .expect_err("the registry reaches the same handler");
-        assert_no_privacy_state(&transaction, sample.role.canonical_label());
+        assert_no_privacy_state_with_account_count(
+            &transaction,
+            sample.role.canonical_label(),
+            original_accounts,
+        );
         assert_eq!(
             format!("{typed:?}"),
             format!("{boxed:?}"),

@@ -1008,6 +1008,8 @@ fn committed_fees_use_one_predecessor_for_quotes_execution_and_effects() {
             &view.zk().gas,
             draft.payload(),
             view.query_ledger_time_ms(),
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                .expect("original committed fixture clock"),
             chain.height() + 1,
             None,
         )

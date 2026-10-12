@@ -28,7 +28,7 @@ use iroha_data_model::{
 };
 use norito::codec::{Decode, Encode};
 
-use super::SccpHistoryProofV1;
+use super::SccpBlockRefV1;
 
 /// Largest `GET /v1/sccp/messages/recent` page (§6).
 pub const MAX_RECENT_MESSAGES: usize = 50;
@@ -43,8 +43,8 @@ pub const MAX_CONTROLS_PAGE: usize = 64;
 
 /// Payload of [`SccpOutboundStateV1::Recorded`].
 ///
-/// The availability flag reports the caller's durable committed-height cut (§6).
-/// It is not a finality proof; consumers verify the separately served certificate.
+/// TODO: Torii work package (TT-A1): add `provable` once the request-funded native proof
+/// producer can serve a certificate covering the record height (§6).
 #[derive(
     Debug,
     Clone,
@@ -65,8 +65,6 @@ pub const MAX_CONTROLS_PAGE: usize = 64;
 pub struct SccpRecordedStateV1 {
     /// Destination-time mint deadline.
     pub deadline_ms: u64,
-    /// Whether the record height is covered by the explicit durable committed-height cut.
-    pub provable: bool,
 }
 
 /// Wallet-facing state of an outbound record (§6, §7.1 step 4, §7.3).
@@ -318,7 +316,7 @@ pub struct SccpRecentMessagesV1 {
 pub struct SccpControlViewV1 {
     /// Control nonce (`≥ 1`, strictly increasing per revision).
     pub control_nonce: u64,
-    /// The stored record (pause state, height, commitment index, leaf, enacting proposal).
+    /// The stored combined pause state, certificate cause and committed leaf location.
     pub record: SccpControlRecordV1,
 }
 
@@ -628,7 +626,7 @@ pub struct SccpHistoryPathViewV1 {
     /// `history_root(S)`.
     pub history_root: [u8; 32],
     /// The block, its history leaf index and the path.
-    pub proof: SccpHistoryProofV1,
+    pub proof: SccpBlockRefV1,
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -687,7 +685,7 @@ pub struct SccpReadLimitsV1 {
     /// `GET /v1/sccp/controls/{network}/{revision}`.
     pub controls_page: u32,
     /// `GET /v1/sccp/committees/rotations`.
-    pub rotation_steps: u32,
+    pub rotations_page: u32,
 }
 
 impl SccpReadLimitsV1 {
@@ -699,7 +697,7 @@ impl SccpReadLimitsV1 {
             recent_messages: 50,
             outbound_page: 256,
             controls_page: 64,
-            rotation_steps: 16,
+            rotations_page: 16,
         }
     }
 }
@@ -820,10 +818,7 @@ mod tests {
 
     fn states() -> Vec<SccpOutboundStateV1> {
         vec![
-            SccpOutboundStateV1::Recorded(SccpRecordedStateV1 {
-                deadline_ms: 99,
-                provable: false,
-            }),
+            SccpOutboundStateV1::Recorded(SccpRecordedStateV1 { deadline_ms: 99 }),
             SccpOutboundStateV1::Voided(SccpVoidStatusV1 {
                 kind: SccpVoidKindV1::Frozen,
                 proven_at_height: 30,
@@ -894,11 +889,11 @@ mod tests {
         assert_eq!(u32::try_from(MAX_OUTBOUND_PAGE), Ok(limits.outbound_page));
         assert_eq!(u32::try_from(MAX_CONTROLS_PAGE), Ok(limits.controls_page));
         assert_eq!(
-            u32::try_from(super::super::MAX_ROTATION_STEPS),
-            Ok(limits.rotation_steps)
+            usize::try_from(limits.rotations_page),
+            Ok(crate::v1::destination::MAX_CERTIFICATES_PER_CALL)
         );
         let json = norito::json::to_value(&limits).expect("JSON");
-        assert_eq!(json.get("rotation_steps"), Some(&Value::from(16_u32)));
+        assert!(json.get("rotation_steps").is_none());
         assert_eq!(json.as_object().expect("object").len(), 4);
     }
 
@@ -938,15 +933,9 @@ mod tests {
 
     #[test]
     fn views_roundtrip_in_every_codec() {
-        for provable in [false, true] {
-            let recorded = SccpRecordedStateV1 {
-                deadline_ms: 99,
-                provable,
-            };
-            roundtrip(&recorded);
-            assert_closed(&recorded, "provable");
-            assert_closed(&recorded, "deadline_ms");
-        }
+        let recorded = SccpRecordedStateV1 { deadline_ms: 99 };
+        roundtrip(&recorded);
+        assert_closed(&recorded, "deadline_ms");
         for state in states() {
             roundtrip(&state);
             roundtrip(&SccpMessageStatusV1::Outbound(outbound(state)));
@@ -974,11 +963,14 @@ mod tests {
             controls: vec![SccpControlViewV1 {
                 control_nonce: 2,
                 record: SccpControlRecordV1 {
-                    paused: true,
+                    track: 1,
+                    parliament_paused: true,
+                    fast_pause_until_ms: 0,
                     height: 12,
                     commitment_index: 0,
                     leaf: [1; 32],
-                    proposal_id: [2; 32],
+                    certificate_id: [2; 32],
+                    effect_hash: [5; 32],
                 },
             }],
             next_after_nonce: None,
@@ -994,12 +986,12 @@ mod tests {
         roundtrip(&SccpHistoryPathViewV1 {
             history_size: 3,
             history_root: [4; 32],
-            proof: SccpHistoryProofV1 {
+            proof: SccpBlockRefV1 {
                 height: 10,
                 sccp_root: [5; 32],
                 message_count: 1,
-                leaf_index: 0,
-                path: vec![[6; 32]],
+                history_index: 0,
+                history_path: vec![[6; 32]],
             },
         });
         for phase in [
@@ -1046,11 +1038,14 @@ mod tests {
         let control = SccpControlViewV1 {
             control_nonce: 2,
             record: SccpControlRecordV1 {
-                paused: true,
+                track: 1,
+                parliament_paused: true,
+                fast_pause_until_ms: 0,
                 height: 12,
                 commitment_index: 0,
                 leaf: [1; 32],
-                proposal_id: [2; 32],
+                certificate_id: [2; 32],
+                effect_hash: [5; 32],
             },
         };
         assert_closed(&control, "record");

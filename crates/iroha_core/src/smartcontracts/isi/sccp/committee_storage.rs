@@ -4,7 +4,7 @@
 //! shares already admitted payload graphs; it never allocates replacement keys,
 //! member identities or generation records while a map is copied.
 
-use super::committee_owner::RetainedSccpCommitteeGeneration;
+use super::generation_record::RetainedSccpGeneration;
 use concread::bptree::{
     AllocationDemand, ClonePlanning, NodeCloning, NodeFunding, PlanningError, Prepaid,
 };
@@ -45,8 +45,8 @@ macro_rules! retained_copy {
         }
     };
 }
-retained_copy!(RetainedSccpCommitteeGeneration);
-retained_copy!(Option<RetainedSccpCommitteeGeneration>);
+retained_copy!(RetainedSccpGeneration);
+retained_copy!(Option<RetainedSccpGeneration>);
 
 impl AdmittedStoragePolicy for CommitteeStoragePolicy {
     fn from_admission(admission: AllocationReservation) -> Self {
@@ -60,8 +60,7 @@ impl AdmittedStoragePolicy for CommitteeStoragePolicy {
 /// Native current/undo map mode; no untracked generation-table variant exists.
 pub type CommitteeStorageMode = Prepaid<CommitteeStoragePolicy>;
 /// Original current and exact undo maps of structurally validated generation claims.
-pub type CommitteeStorage =
-    mv::storage::Storage<u64, RetainedSccpCommitteeGeneration, CommitteeStorageMode>;
+pub type CommitteeStorage = mv::storage::Storage<u64, RetainedSccpGeneration, CommitteeStorageMode>;
 
 #[cfg(test)]
 #[path = "committee_storage/tests.rs"]

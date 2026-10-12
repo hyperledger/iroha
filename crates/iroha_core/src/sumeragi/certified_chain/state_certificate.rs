@@ -446,7 +446,13 @@ mod allocation_tests {
         let occupied = budget.try_reserve_bytes(occupied_bytes).unwrap();
         let expected: ExecutionDeferred = budget.try_reserve_bytes(slot_bytes).unwrap_err().into();
         let mut validation = EpochValidationScope::new();
-        let refused = AdmittedCommittedBlock::read(block.clone(), 3, &mut validation, &budget);
+        let refused = AdmittedCommittedBlock::read(
+            block.clone(),
+            3,
+            chain.root_scope(),
+            &mut validation,
+            &budget,
+        );
         let Err(ExecutionAttemptError::Deferred(actual)) = refused else {
             panic!("the exact original receipt slot must refuse before decoding")
         };
@@ -457,8 +463,14 @@ mod allocation_tests {
         ));
         drop(occupied);
         assert_eq!(budget.reserved_bytes(), baseline);
-        let receipt = AdmittedCommittedBlock::read(block.clone(), 3, &mut validation, &budget)
-            .expect("retry uses the original source and released original pool");
+        let receipt = AdmittedCommittedBlock::read(
+            block.clone(),
+            3,
+            chain.root_scope(),
+            &mut validation,
+            &budget,
+        )
+        .expect("retry uses the original source and released original pool");
         assert!(receipt.belongs_to(&budget));
         assert_eq!(receipt.slot_bytes(), slot_bytes);
         assert_eq!(
@@ -515,7 +527,13 @@ mod allocation_tests {
             panic!("the unchanged original pool has temporary capacity occupied")
         };
         let mut validation = EpochValidationScope::new();
-        let refused = AdmittedCommittedBlock::read(block.clone(), 3, &mut validation, &budget);
+        let refused = AdmittedCommittedBlock::read(
+            block.clone(),
+            3,
+            chain.root_scope(),
+            &mut validation,
+            &budget,
+        );
         let Err(ExecutionAttemptError::Deferred(actual)) = refused else {
             panic!("the complete result slot must refuse before its decoder starts")
         };
@@ -542,8 +560,14 @@ mod allocation_tests {
         );
         drop(occupied);
         assert_eq!(budget.reserved_bytes(), baseline);
-        let receipt =
-            AdmittedCommittedBlock::read(block.clone(), 3, &mut validation, &budget).unwrap();
+        let receipt = AdmittedCommittedBlock::read(
+            block.clone(),
+            3,
+            chain.root_scope(),
+            &mut validation,
+            &budget,
+        )
+        .unwrap();
         assert!(receipt.belongs_to(&budget));
         assert_eq!(budget.reserved_bytes(), baseline + receipt_bytes);
         assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
@@ -1105,3 +1129,6 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
         }))
     }
 }
+
+#[cfg(test)]
+mod authority_regressions;

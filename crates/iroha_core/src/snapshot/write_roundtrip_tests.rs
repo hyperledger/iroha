@@ -1339,7 +1339,7 @@ async fn signed_snapshot_roundtrip_preserves_every_sccp_map() {
         crate::smartcontracts::isi::sccp::test_support::populate_every_sccp_map(
             &mut block,
             seed,
-            state.world.sccp_committee_generations.allocation_budget(),
+            &state.ivm_execution_budget(),
         );
         block.commit();
     }
@@ -1384,27 +1384,10 @@ async fn signed_snapshot_roundtrip_preserves_every_sccp_map() {
     use crate::state::WorldReadOnly as _;
     use mv::storage::StorageReadOnly as _;
     let world = restored.world.view();
-    assert_eq!(world.sccp_committee_generations().len(), 2);
-    assert_eq!(world.sccp_committee_current(), 2);
-    assert_eq!(world.sccp_liability_clock(), 48_000);
-    assert_eq!(world.sccp_degraded_run(), 1);
-    assert!(
-        world
-            .sccp_committee_generations()
-            .get(&1)
-            .unwrap()
-            .end
-            .is_some()
-    );
-    assert!(
-        world
-            .sccp_committee_generations()
-            .get(&2)
-            .unwrap()
-            .end
-            .is_none()
-    );
+    assert_eq!(world.sccp_block_commitments().len(), 2);
+    assert_eq!(world.sccp_history_leaves().len(), 2);
     assert_eq!(world.sccp_block_leaves().len(), 2);
+    assert_eq!(*world.sccp_reset_nonce(), Some([3; 32]));
     assert!(world.sccp_parameters().is_some());
 }
 #[tokio::test]

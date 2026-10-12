@@ -845,6 +845,7 @@ def test_contextual_cuda_pins_both_exact_dependency_members() -> None:
         ("iroha", ("default",)),
         ("iroha_data_model", ("default", "application-model")),
         ("iroha_torii", ("default", "node-api")),
+        ("norito", ("default", "node-codec", "base-codec")),
     ],
 )
 def test_unit_mutation_testing_is_empty_explicit_and_excluded_from_defaults(
@@ -858,6 +859,12 @@ def test_unit_mutation_testing_is_empty_explicit_and_excluded_from_defaults(
     assert "mutation-testing" not in FEATURE_HYGIENE.CONTEXTUAL_SHIPPING_FEATURES[package]
     assert "mutation-testing" not in FEATURE_HYGIENE.local_default_feature_closure(
         FEATURE_HYGIENE.cargo_visible_features(document)
+    )
+    changed = copy.deepcopy(document)
+    del changed["features"]["mutation-testing"]
+    assert any(
+        "missing feature aggregate `mutation-testing`" in error
+        for error in _guarded_errors(package, changed)
     )
     changed = copy.deepcopy(document)
     changed["features"]["mutation-testing"] = ["iroha_core/mutation-testing"]
@@ -874,7 +881,9 @@ def test_unit_mutation_testing_is_empty_explicit_and_excluded_from_defaults(
         ), aggregate
 
 
-@pytest.mark.parametrize("package", ["norito", "irohad_lib", "iroha", "iroha_data_model", "iroha_torii"])
+@pytest.mark.parametrize(
+    "package", ["irohad_lib", "iroha", "iroha_data_model", "iroha_torii", "norito"]
+)
 def test_unit_mutation_dependency_is_nonshipping_even_through_an_alias(
     tmp_path: Path, package: str,
 ) -> None:

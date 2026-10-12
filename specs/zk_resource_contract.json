@@ -17991,15 +17991,6 @@
             "exprs": {
               "MAX_LEAVES_PER_BLOCK": "SCCP_MESSAGES_MAX_PER_BLOCK_V1"
             }
-          },
-          {
-            "path": "crates/iroha_core/src/smartcontracts/isi/sccp/prune.rs",
-            "symbols": [
-              "MAX_LIGHT_CLIENT_DELETIONS_PER_BLOCK"
-            ],
-            "exprs": {
-              "MAX_LIGHT_CLIENT_DELETIONS_PER_BLOCK": "1_024"
-            }
           }
         ]
       },
@@ -21971,15 +21962,17 @@
         ]
       },
       {
-        "reason": "SCCP product shape bounds: the length of a Taira account payload and the exclusive amount bound of a TON endpoint (2^96). These bound product values; the source-proof ceiling is separately listed as proof.sccp_source_proof_max_bytes. Retired attester roster bounds have been removed.",
+        "reason": "SCCP product record shapes: canonical Taira account bytes, the transfer/control leaf count derived from the canonical SCCP message limit, and the encoded SCCP payload size. These are product-specific shapes inside the separately listed transaction/frame and source-proof ceilings, not generic proof admission limits. This census does not certify SCCP validation or custody.",
         "path": "crates/iroha_sccp/src/v1/constants.rs",
         "symbols": [
           "MAX_TAIRA_ACCOUNT_BYTES",
-          "TON_AMOUNT_BOUND"
+          "MAX_BLOCK_LEAVES",
+          "MAX_PAYLOAD_BYTES"
         ],
         "exprs": {
           "MAX_TAIRA_ACCOUNT_BYTES": "1024",
-          "TON_AMOUNT_BOUND": "1 << 96"
+          "MAX_BLOCK_LEAVES": "SCCP_MESSAGES_MAX_PER_BLOCK_V1",
+          "MAX_PAYLOAD_BYTES": "4096"
         }
       },
       {
@@ -23517,7 +23510,7 @@
         "reason": "SCCP history read-cache geometry: cache subtrees from level 5 (32 leaves), hashing smaller intervals directly. This changes local read work granularity, not the authenticated root or generic admission.",
         "files": [
           {
-            "path": "crates/iroha_core/src/smartcontracts/isi/sccp/read/history.rs",
+            "path": "crates/iroha_core/src/smartcontracts/isi/sccp/read/history/funded.rs",
             "symbols": [
               "MIN_LEVEL",
               "CHUNK"
@@ -23675,15 +23668,6 @@
         "reason": "Native SCCP fixed accumulator geometry: a completed anchor chunk contains exactly 4096 parent records and the history accumulator has at most 2^32 leaves. The open-chunk owner retains at most that one chunk in the original finite allocation pool; these are product geometry bounds, not a configurable transaction/proof ceiling or a substitute for allocation admission.",
         "files": [
           {
-            "path": "crates/iroha_core/src/smartcontracts/isi/sccp/anchor_owner.rs",
-            "symbols": [
-              "MAX_OPEN_ANCHORS"
-            ],
-            "exprs": {
-              "MAX_OPEN_ANCHORS": "4_096"
-            }
-          },
-          {
             "path": "crates/iroha_sccp/src/v1/constants.rs",
             "symbols": [
               "MAX_HISTORY_SIZE"
@@ -23691,49 +23675,68 @@
             "exprs": {
               "MAX_HISTORY_SIZE": "1 << 32"
             }
-          },
-          {
-            "path": "crates/iroha_sccp/src/v1/evidence.rs",
-            "symbols": [
-              "SCCP_ANCHOR_CHUNK"
-            ],
-            "exprs": {
-              "SCCP_ANCHOR_CHUNK": "4096"
-            }
           }
         ]
       },
       {
-        "reason": "Native SCCP post-execution maintenance work counts under specs/sccp.md sections 4.8 and 4.11: at most eight generation and completed-anchor deletions and the first 64 ended, uncleared generations visited by L5. They share the product-maintenance classification of the separately pinned light-client deletion budget. Generation/anchor deletion remains deferred until original forgery custody is implemented; the selectors alone grant no deletion authority.",
-        "files": [
-          {
-            "path": "crates/iroha_core/src/smartcontracts/isi/sccp/prune_plan.rs",
-            "symbols": [
-              "MAX_GENERATION_DELETIONS",
-              "MAX_ANCHOR_DELETIONS",
-              "MAX_CLEARANCE_VISITS"
-            ],
-            "exprs": {
-              "MAX_GENERATION_DELETIONS": "8",
-              "MAX_ANCHOR_DELETIONS": "8",
-              "MAX_CLEARANCE_VISITS": "64"
-            }
-          }
-        ]
+        "path": "crates/iroha_data_model/src/sccp/fast_pause.rs",
+        "reason": "SCCP emergency-pause record geometry: at most nine primary, nine backup and nine reserve citizens. This record-shape bound grants no panel authority and does not replace the generic transaction/proof ceilings; authenticated producer and lifecycle integration remain separate work.",
+        "symbols": [
+          "SCCP_PAUSE_PANEL_MAX_DRAWN_V1"
+        ],
+        "exprs": {
+          "SCCP_PAUSE_PANEL_MAX_DRAWN_V1": "27"
+        }
       },
       {
-        "reason": "Native SCCP rotation read page size: at most sixteen handoffs per API response. Larger requests are refused and can be paged; this bounds local serving work and does not decide block validity.",
-        "files": [
-          {
-            "path": "crates/iroha_sccp/src/api.rs",
-            "symbols": [
-              "MAX_ROTATION_STEPS"
-            ],
-            "exprs": {
-              "MAX_ROTATION_STEPS": "16"
-            }
-          }
-        ]
+        "path": "crates/iroha_data_model/src/sccp/generation.rs",
+        "reason": "Canonical SCCP accumulator geometry: one immutable complete anchor chunk contains exactly4096 parent records and has a fixed12-level witness. This is a product shape, not a configurable proof ceiling or substitute for original-pool admission.",
+        "symbols": [
+          "SCCP_ANCHOR_CHUNK_SIZE_V1"
+        ],
+        "exprs": {
+          "SCCP_ANCHOR_CHUNK_SIZE_V1": "4_096"
+        }
+      },
+      {
+        "path": "crates/iroha_data_model/src/sccp/generation.rs",
+        "reason": "SCCP liability-clock slack after a chain halt, in milliseconds. This consensus time-window rule is not a byte, count or work ceiling; its validity and authenticated clock semantics are owned by the SCCP protocol.",
+        "symbols": [
+          "SCCP_LC_SLACK_MS_V1"
+        ],
+        "exprs": {
+          "SCCP_LC_SLACK_MS_V1": "3_600_000"
+        }
+      },
+      {
+        "path": "crates/iroha_core/src/smartcontracts/isi/sccp/hook.rs",
+        "reason": "Deterministic SCCP post-execution light-client deletion count: at most1024 records are removed under the product protocol. The hook mutates committed State; this is not local scheduling or a deferral rule. The limit bounds deletions, not all visited records or total scanning work. It replaces the retired prune-module owner and grants no generation/anchor retirement authority, which remains unfinished.",
+        "symbols": [
+          "MAX_PRUNE_DELETIONS_PER_BLOCK"
+        ],
+        "exprs": {
+          "MAX_PRUNE_DELETIONS_PER_BLOCK": "1_024"
+        }
+      },
+      {
+        "path": "crates/iroha_sccp/src/v1/committee.rs",
+        "reason": "Minimum committee geometry of the single Sumeragi protocol: 3f+1 with1<=f<=10 requires at least4 validators. This is a protocol shape requirement, not a transaction/proof resource ceiling.",
+        "symbols": [
+          "MIN_COMMITTEE_SIZE"
+        ],
+        "exprs": {
+          "MIN_COMMITTEE_SIZE": "4"
+        }
+      },
+      {
+        "path": "crates/iroha_config/src/parameters/defaults.rs",
+        "reason": "Node-local authenticated snapshot read-buffer payload default (1GiB). It limits restoration/serving resources, not transaction or block validity; current strict startup still owns certified replay separately. This census classification does not qualify accelerated restoration.",
+        "symbols": [
+          "MAX_PAYLOAD_BYTES"
+        ],
+        "exprs": {
+          "MAX_PAYLOAD_BYTES": "nonzero!(1_073_741_824_usize)"
+        }
       }
     ],
     "literals": {
@@ -25297,9 +25300,9 @@
               }
             },
             {
-              "path": "crates/iroha_core/src/smartcontracts/isi/sccp/read/history.rs",
+              "path": "crates/iroha_core/src/smartcontracts/isi/sccp/read/history/funded.rs",
               "sites": {
-                "((position + 2) << level).min(size)": 1
+                "((position + 2) << level).min(self.size)": 1
               }
             },
             {
@@ -25912,8 +25915,7 @@
             {
               "path": "crates/iroha_core/src/sumeragi/finality/cursor.rs",
               "sites": {
-                "maximum_steps.get() > 64": 1,
-                "view.chain_id().as_str().len() > 1024": 1
+                "maximum_steps.get() > 64": 1
               }
             },
             {
@@ -26540,6 +26542,29 @@
               "sites": {
                 ".min(u32::MAX as usize) .min(usize::try_from(limits.max_streamed_value_bytes / 2).unwrap_or(usize::MAX))": 1,
                 "root < end / 2": 1
+              }
+            }
+          ]
+        },
+        {
+          "reason": "SCCP emergency-pause panel record geometry: a minimum ten citizens and between twice and three times the configured valid panel seats. These exact record-shape checks confer no authentication or authority and do not replace generic transaction/proof ceilings.",
+          "files": [
+            {
+              "path": "crates/iroha_data_model/src/sccp/fast_pause.rs",
+              "sites": {
+                "self.drawn.len() >= 10": 1,
+                "(2 * k..=3 * k).contains(&self.drawn.len())": 1
+              }
+            }
+          ]
+        },
+        {
+          "reason": "Deterministic SCCP post-execution destination clearance visits at most the first64 pending generations in canonical order and may change committed State/events. This product-maintenance count (L5) is not local scheduling and does not bound inner route/revision work. It is separate from generic transaction/proof admission ceilings and confers no authority for unfinished generation/anchor deletion.",
+          "files": [
+            {
+              "path": "crates/iroha_core/src/smartcontracts/isi/sccp/generations.rs",
+              "sites": {
+                ".map(|(id, ())| *id) .take(64)": 1
               }
             }
           ]

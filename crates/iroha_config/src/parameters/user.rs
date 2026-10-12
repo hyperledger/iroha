@@ -14003,6 +14003,9 @@ pub struct Torii {
     /// Maximum complete working set for one query, independent of aggregate capacity.
     #[config(default = "defaults::torii::QUERY_FANOUT_MAX_WORKING_SET_BYTES")]
     pub query_fanout_max_working_set_bytes: Bytes,
+    /// Bytes retained by this node's authenticated SCCP history-node cache.
+    #[config(default = "defaults::torii::SCCP_HISTORY_CACHE_MAX_BYTES")]
+    pub sccp_history_cache_max_bytes: Bytes,
     /// Absolute deadline for reading one admitted App API routed-read body.
     #[config(default = "app_routed_read_config::default_body_timeout()")]
     pub app_api_routed_read_body_read_timeout_ms: DurationMs,
@@ -14378,6 +14381,10 @@ impl core::fmt::Debug for Torii {
             .field(
                 "query_fanout_max_working_set_bytes",
                 &self.query_fanout_max_working_set_bytes,
+            )
+            .field(
+                "sccp_history_cache_max_bytes",
+                &self.sccp_history_cache_max_bytes,
             )
             .field("require_api_token", &self.require_api_token)
             .field("api_tokens", &self.api_tokens)
@@ -15379,6 +15386,19 @@ impl Torii {
                 "torii.query_fanout_max_working_set_bytes must be greater than zero",
             );
         }
+        let sccp_history_cache_max_bytes = self.sccp_history_cache_max_bytes.get();
+        if sccp_history_cache_max_bytes == 0 {
+            emit_torii_config_error(
+                emitter,
+                "torii.sccp_history_cache_max_bytes must be greater than zero",
+            );
+        }
+        if usize::try_from(sccp_history_cache_max_bytes).is_err() {
+            emit_torii_config_error(
+                emitter,
+                "torii.sccp_history_cache_max_bytes must fit the platform address space",
+            );
+        }
         app_routed_read_config::validate(&self, emitter);
         if usize::try_from(max_content_len).is_err() {
             emit_torii_config_error(
@@ -15475,6 +15495,7 @@ impl Torii {
             query_heavy_max_inflight: self.query_heavy_max_inflight,
             query_fanout_max_retained_bytes: self.query_fanout_max_retained_bytes,
             query_fanout_max_working_set_bytes: self.query_fanout_max_working_set_bytes,
+            sccp_history_cache_max_bytes: self.sccp_history_cache_max_bytes,
             app_api_routed_read_body_read_timeout,
             query_queue_timeout: self.query_queue_timeout_ms.get(),
             tx_rate_per_authority_per_sec: self

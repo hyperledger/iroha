@@ -20,7 +20,9 @@ pub struct NativeExecutionTip(NativeExecutionTipRecord);
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, norito::json::JsonSerialize, norito::json::JsonDeserialize,
 )]
+#[norito(deny_unknown_fields)]
 pub(crate) struct NativeExecutionTipRecord {
+    pub(crate) root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
     pub(crate) height: u64,
     pub(crate) creation_time_ms: u64,
     pub(crate) iroha_hash: HashOf<BlockHeader>,
@@ -35,6 +37,12 @@ impl norito::json::JsonSerialize for NativeExecutionTip {
 }
 
 impl NativeExecutionTip {
+    /// Immutable root scope inherited from the original authenticated execution owner.
+    #[must_use]
+    pub const fn root_scope(self) -> iroha_data_model::block::consensus::SumeragiRootScope {
+        self.0.root_scope
+    }
+
     /// One-based original executed height.
     #[must_use]
     pub const fn height(self) -> u64 {
@@ -64,6 +72,7 @@ impl NativeExecutionTip {
 
 /// Complete fixed current/undo snapshot projection, still unauthenticated.
 #[derive(norito::json::JsonSerialize, norito::json::JsonDeserialize)]
+#[norito(deny_unknown_fields)]
 pub(crate) struct NativeExecutionTipSnapshot {
     revert: Option<NativeExecutionTipUndo>,
     blocks: Option<NativeExecutionTipRecord>,
@@ -245,6 +254,7 @@ fn checkpoint_of(
 }
 fn record(block: &CommittedBlock) -> NativeExecutionTipRecord {
     NativeExecutionTipRecord {
+        root_scope: block.root_scope(),
         height: block.height(),
         creation_time_ms: u64::try_from(block.block().header().creation_time().as_millis())
             .expect("block creation time is a u64 millisecond value"),
@@ -297,7 +307,8 @@ impl StateBlock<'_> {
                     && certificate.consensus_header().is_empty()
                     && certificate.commit_qc().is_empty() => {}
             (Some(previous), Some((parent_hash, parent_result)))
-                if previous.height().checked_add(1) == Some(next.height)
+                if previous.root_scope() == next.root_scope
+                    && previous.height().checked_add(1) == Some(next.height)
                     && usize::try_from(previous.height()).ok() == Some(self.block_hashes.len())
                     && self.block_hashes.last().copied() == Some(previous.iroha_hash())
                     && iroha.header().prev_block_hash() == Some(previous.iroha_hash())

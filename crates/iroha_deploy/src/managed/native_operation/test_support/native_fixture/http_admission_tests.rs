@@ -16,6 +16,11 @@ fn http_finality_batch_preserves_cumulative_native_decode_admission_and_retry() 
 
 #[inline(never)]
 fn check_http_admission(native: &NativeFixture, authority: &ServiceAuthority) {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    authority
+        .source(native.chain.height(), deadline)
+        .expect("original signed genesis supplies the native HTTP root scope");
+    assert!(authority.source(0, deadline).is_err());
     let selected = native
         .validators
         .iter()
@@ -29,6 +34,7 @@ fn check_http_admission(native: &NativeFixture, authority: &ServiceAuthority) {
         clients.iter().map(|(_, client)| client.clone()).collect(),
         clients,
         Instant::now() + Duration::from_secs(60),
+        native.chain.root_scope(),
     )
     .unwrap();
 
@@ -37,7 +43,10 @@ fn check_http_admission(native: &NativeFixture, authority: &ServiceAuthority) {
     let warm = source.latest_attestations(&selected, &ORIGINAL_CHALLENGE);
     for (peer, result) in selected.iter().zip(warm) {
         let actual = result.unwrap();
-        actual.attestation().verify().unwrap();
+        actual
+            .attestation()
+            .verify(native.chain.root_scope().into())
+            .unwrap();
         assert_eq!(&actual.attestation().body.node_id, peer);
         assert_eq!(actual.attestation().body.challenge, ORIGINAL_CHALLENGE);
         assert_eq!(
@@ -114,7 +123,10 @@ fn check_http_admission(native: &NativeFixture, authority: &ServiceAuthority) {
         .zip(source.latest_attestations(&selected, &RETRY_CHALLENGE))
     {
         let actual = result.unwrap();
-        actual.attestation().verify().unwrap();
+        actual
+            .attestation()
+            .verify(native.chain.root_scope().into())
+            .unwrap();
         assert_eq!(&actual.attestation().body.node_id, peer);
         assert_eq!(actual.attestation().body.challenge, RETRY_CHALLENGE);
     }
@@ -165,8 +177,14 @@ impl AttestationHttp {
                 .latest_attestation(peer, &ORIGINAL_CHALLENGE)
                 .unwrap();
             let retry = native.latest_attestation(peer, &RETRY_CHALLENGE).unwrap();
-            original.attestation().verify().unwrap();
-            retry.attestation().verify().unwrap();
+            original
+                .attestation()
+                .verify(native.chain.root_scope().into())
+                .unwrap();
+            retry
+                .attestation()
+                .verify(native.chain.root_scope().into())
+                .unwrap();
             let bodies = [
                 norito::encode_canonical(original.attestation()).unwrap(),
                 norito::encode_canonical(retry.attestation()).unwrap(),

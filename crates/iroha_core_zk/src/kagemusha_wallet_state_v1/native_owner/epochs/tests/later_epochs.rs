@@ -3,7 +3,7 @@
 
 use super::*;
 use iroha_data_model::sumeragi_finality::{
-    CertifiedResultScope, CertifiedResultV1, NativeLaneStateProof, ScheduledConfig, ScheduledSlot,
+    CertifiedResultV1, NativeLaneStateProof, SccpFinalityHeaderV1, ScheduledConfig, ScheduledSlot,
     core_epoch, result_of_preimage,
 };
 use iroha_sumeragi::{
@@ -27,8 +27,8 @@ fn second_boundary(
         current.authorization.authorization_id().unwrap();
     next.leader_seed = [2; 32];
     next.validate_successor(current).unwrap();
-    let (finality_header, mut result) =
-        CertifiedResultV1::decode(&first.result_preimage, CertifiedResultScope::TairaGlobal)
+    let (original_x, mut result) =
+        CertifiedResultV1::decode(&first.result_preimage, native.root_scope().into())
             .unwrap()
             .into_parts();
     result.height = height;
@@ -57,15 +57,17 @@ fn second_boundary(
     let mut header: BlockHeader = norito::decode_canonical(&first.consensus_header).unwrap();
     header.height = height;
     header.epoch = core_epoch(current).unwrap().id;
-    let mut fields = finality_header.fields();
-    fields.height = height;
-    let finality_header =
-        iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::from_fields(&fields).unwrap();
-    let result_preimage =
-        CertifiedResultV1::new(finality_header, result, CertifiedResultScope::TairaGlobal)
-            .unwrap()
-            .preimage()
-            .unwrap();
+    // This synthetic boundary has no SCCP initialization; retain the fixture timestamp.
+    let original_x = SccpFinalityHeaderV1::inactive(
+        *native.network_id().as_bytes(),
+        height,
+        original_x.timestamp_ms(),
+    )
+    .unwrap();
+    let result_preimage = CertifiedResultV1::new(original_x, result, native.root_scope().into())
+        .unwrap()
+        .preimage()
+        .unwrap();
     let mut qc: Qc = norito::decode_canonical(&first.commit_qc).unwrap();
     qc.height = height;
     qc.epoch = header.epoch;

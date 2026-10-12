@@ -198,7 +198,7 @@ fn complete_query_frames_match_current_canonical_fixtures() {
 
     let (source, digest, family_count) = (
         include_str!("../../tests/fixtures/query_generic_full_identity_frames.json"),
-        "fd10dd777565d2e3cfc05c8a1e6b8da7852139432255e290378709d66d7861d6",
+        "bf8197e2150df19e9f62fb4a7e41294a1f8b80b5fdc42c2e24a33d66f459c63a",
         23,
     );
     assert_eq!(hex::encode(Sha256::digest(source.as_bytes())), digest);

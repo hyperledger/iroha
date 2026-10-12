@@ -1,7 +1,8 @@
-//! Fee exemption of SCCP keeper advances and recipient self-claims (`specs/sccp.md` §4.19).
+//! Fee exemption of SCCP transactions (`specs/sccp.md` §4.19). Owner: ws41 (keeper advances,
+//! recipient self-claims).
 //!
 //! [`exempt_class`] is the single eligibility predicate: a pure function of the committed
-//! parent World (the state the next block executes on), the authority and the signed payload.
+//! parent World and its original committed time, the authority and the signed payload.
 //! Admission pre-verification ([`super::admission::classify`]), fee quoting, the per-block
 //! exempt cap ([`super::admission::exempt_class_of_entrypoint`]) and execution
 //! ([`exempt_on_success`], [`exempt_class_in_block`]) all call it, so a transaction is quoted,
@@ -14,7 +15,7 @@
 
 use super::{
     admission::{self, SccpExemptClassV1},
-    light_clients, params, self_claim,
+    light_clients, self_claim,
 };
 use crate::state::{StateTransaction, WorldReadOnly};
 use iroha_data_model::{
@@ -51,18 +52,34 @@ fn single<T: 'static>(payload: &TransactionPayload) -> Option<&T> {
 pub fn exempt_class(
     world: &(impl WorldReadOnly + ?Sized),
     payload: &TransactionPayload,
+    committed_time_ms: Option<u64>,
 ) -> Option<SccpExemptClassV1> {
-    if !params::exists(world) {
+    exempt_class_from(
+        &super::eligibility::Current(world),
+        payload,
+        committed_time_ms,
+    )
+}
+
+/// Classify using the exact borrowed current or acquired pre-block facts.
+pub(crate) fn exempt_class_from(
+    source: &(impl super::eligibility::EligibilityRead + ?Sized),
+    payload: &TransactionPayload,
+    committed_time_ms: Option<u64>,
+) -> Option<SccpExemptClassV1> {
+    if source.parameters().is_none() {
         return None;
     }
     let class = admission::exempt_shape(payload)?;
-    let authority = &payload.authority;
     let eligible = match class {
         SccpExemptClassV1::KeeperAdvance { .. } => single::<AdvanceSccpLightClientV1>(payload)
             .is_some_and(light_clients::keeper_advance_eligible),
-        SccpExemptClassV1::SelfClaim => {
-            self_claim::eligible(world, authority, &payload.instructions)
-        }
+        SccpExemptClassV1::SelfClaim => self_claim::eligible_from(
+            source,
+            &payload.authority,
+            &payload.instructions,
+            committed_time_ms,
+        ),
     };
     eligible.then_some(class)
 }
@@ -73,37 +90,68 @@ pub fn exempt_class(
 pub fn exempt_on_success(
     world: &(impl WorldReadOnly + ?Sized),
     payload: &TransactionPayload,
+    committed_time_ms: Option<u64>,
 ) -> bool {
-    exempt_class(world, payload).is_some()
+    exempt_class(world, payload, committed_time_ms).is_some()
 }
 
 /// Return the [`exempt_class`] of `payload` executing in `state_transaction`, judged against
 /// the committed parent World of the executing block rather than the block's own writes, so
 /// execution, the per-block cap and admission agree.
-#[must_use]
+/// # Errors
+/// Returns the original committed-time source mismatch before exemption is granted.
 pub fn exempt_class_in_block(
     state_transaction: &StateTransaction<'_, '_>,
     payload: &TransactionPayload,
-) -> Option<SccpExemptClassV1> {
-    // An unshaped payload is never eligible; skip pinning the parent view for it.
-    admission::exempt_shape(payload)?;
-    exempt_class(&state_transaction.sccp_parent_world_view(), payload)
+) -> Result<Option<SccpExemptClassV1>, super::hold::SccpCommittedTimeError> {
+    // An unshaped payload is never eligible and needs no parent eligibility facts.
+    if admission::exempt_shape(payload).is_none() {
+        return Ok(None);
+    }
+    let committed_time_ms = super::hold::committed_time_ms(state_transaction)?;
+    Ok(exempt_class_from(
+        &super::eligibility::TransactionParent(&state_transaction.world),
+        payload,
+        committed_time_ms,
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::smartcontracts::isi::sccp::store;
-    use crate::smartcontracts::isi::sccp::test_support::{
-        SampleInstructions, blank_state, header, sample_signed_transaction,
+    use crate::smartcontracts::isi::sccp::{
+        store,
+        test_support::{
+            SampleInstructions, authority, blank_state, header, sample_signed_transaction,
+        },
     };
-    use iroha_data_model::bridge::SccpNetworkV1;
-    use iroha_data_model::sccp::params::SccpParametersV1;
+    use iroha_data_model::{bridge::SccpNetworkV1, sccp::params::SccpParametersV1};
+    use iroha_sccp::light_client::{
+        ethereum::{EthereumHeaderSegmentV1, EthereumLcAdvanceV1},
+        proof::{SccpLcAdvanceV1, SccpLcSegmentV1},
+    };
+
+    const NETWORK: SccpNetworkV1 = SccpNetworkV1::EthereumMainnet;
 
     fn with_instructions(instructions: Vec<InstructionBox>) -> TransactionPayload {
         let mut payload = sample_signed_transaction().payload().clone();
         payload.instructions = Executable::Instructions(instructions.into());
         payload
+    }
+
+    fn frame(advance: &SccpLcAdvanceV1) -> AdvanceSccpLightClientV1 {
+        AdvanceSccpLightClientV1 {
+            network: NETWORK,
+            expected_state_hash: None,
+            advance: advance.to_bytes().expect("bounded advance"),
+        }
+    }
+
+    /// A decodable Ethereum advance that proves nothing: eligible from any authority.
+    fn eligible_advance() -> AdvanceSccpLightClientV1 {
+        frame(&SccpLcAdvanceV1::Ethereum(EthereumLcAdvanceV1 {
+            updates: Vec::new(),
+        }))
     }
 
     #[test]
@@ -112,12 +160,11 @@ mod tests {
         let view = state.world_view();
         assert!(!exempt_on_success(
             &view,
-            sample_signed_transaction().payload()
+            sample_signed_transaction().payload(),
+            None
         ));
-        let advance = with_instructions(vec![
-            SampleInstructions::eligible_advance(SccpNetworkV1::EthereumMainnet).into(),
-        ]);
-        assert_eq!(exempt_class(&view, &advance), None);
+        let advance = with_instructions(vec![eligible_advance().into()]);
+        assert_eq!(exempt_class(&view, &advance, None), None);
     }
 
     #[test]
@@ -128,46 +175,16 @@ mod tests {
         store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
         let ordinary = sample_signed_transaction();
         assert_eq!(admission::exempt_shape(ordinary.payload()), None);
-        assert!(!exempt_on_success(&*stx.world, ordinary.payload()));
+        assert!(!exempt_on_success(&*stx.world, ordinary.payload(), None));
         let record = with_instructions(vec![SampleInstructions::record().into()]);
-        assert!(!exempt_on_success(&*stx.world, &record));
+        assert!(!exempt_on_success(&*stx.world, &record, None));
         assert!(single::<AdvanceSccpLightClientV1>(&record).is_none());
     }
 
     #[test]
-    fn malformed_advance_and_unrelated_paid_operations_never_become_exempt() {
-        let state = blank_state();
-        let mut block = state.block(header(2));
-        let mut stx = block.transaction();
-        store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
-        for instruction in [
-            SampleInstructions::advance().into(),
-            SampleInstructions::record().into(),
-            SampleInstructions::equivocation().into(),
-        ] {
-            let payload = with_instructions(vec![instruction]);
-            assert_eq!(exempt_class(&*stx.world, &payload), None);
-            assert!(!exempt_on_success(&*stx.world, &payload));
-        }
-    }
-
-    #[test]
     fn keeper_advances_are_exempt_from_any_authority_with_sccp_only() {
-        use crate::smartcontracts::isi::sccp::test_support::authority;
-        use iroha_sccp::light_client::{
-            ethereum::{EthereumHeaderSegmentV1, EthereumLcAdvanceV1},
-            proof::{SccpLcAdvanceV1, SccpLcSegmentV1},
-        };
-        let network = iroha_data_model::bridge::SccpNetworkV1::EthereumMainnet;
-        let frame = |advance: SccpLcAdvanceV1| AdvanceSccpLightClientV1 {
-            network,
-            expected_state_hash: None,
-            advance: advance.to_bytes().expect("bounded advance"),
-        };
-        let advance = frame(SccpLcAdvanceV1::Ethereum(EthereumLcAdvanceV1 {
-            updates: Vec::new(),
-        }));
-        let backfill = frame(SccpLcAdvanceV1::Backfill {
+        let advance = eligible_advance();
+        let backfill = frame(&SccpLcAdvanceV1::Backfill {
             segment: SccpLcSegmentV1::Ethereum(EthereumHeaderSegmentV1 {
                 headers: Vec::new(),
             }),
@@ -176,25 +193,26 @@ mod tests {
         let mut block = state.block(header(2));
         let mut stx = block.transaction();
         let payload = with_instructions(vec![advance.clone().into()]);
-        assert!(!exempt_on_success(&*stx.world, &payload), "no SCCP");
+        assert!(!exempt_on_success(&*stx.world, &payload, None), "no SCCP");
         store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
-        let class = Some(SccpExemptClassV1::KeeperAdvance { network });
-        assert_eq!(exempt_class(&*stx.world, &payload), class);
+        let class = Some(SccpExemptClassV1::KeeperAdvance { network: NETWORK });
+        assert_eq!(exempt_class(&*stx.world, &payload, None), class);
         // No account of the test World is registered: the authority does not matter.
         for seed in [1, 2] {
             let mut other = payload.clone();
             other.authority = authority(seed);
-            assert_eq!(exempt_class(&*stx.world, &other), class);
+            assert_eq!(exempt_class(&*stx.world, &other, None), class);
         }
         assert_eq!(
-            exempt_class(&*stx.world, &with_instructions(vec![backfill.into()])),
+            exempt_class(&*stx.world, &with_instructions(vec![backfill.into()]), None),
             None,
             "a Backfill pays the ordinary fee"
         );
         assert_eq!(
             exempt_class(
                 &*stx.world,
-                &with_instructions(vec![advance.clone().into(), advance.into()])
+                &with_instructions(vec![advance.clone().into(), advance.into()]),
+                None
             ),
             None,
             "only a single advance has the keeper-advance shape"
@@ -202,16 +220,30 @@ mod tests {
     }
 
     #[test]
-    fn canonical_keeper_advance_is_exempt_with_sccp_only() {
+    fn the_exempt_classes_are_keeper_advance_and_self_claim() {
         let state = blank_state();
         let mut block = state.block(header(2));
         let mut stx = block.transaction();
-        let payload = with_instructions(vec![
-            SampleInstructions::eligible_advance(SccpNetworkV1::EthereumMainnet).into(),
-        ]);
-        assert!(!exempt_on_success(&*stx.world, &payload), "no SCCP");
         store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
-        assert!(exempt_on_success(&*stx.world, &payload));
+        // A self-claim shape whose claim does not exist is not eligible: it pays.
+        let settle = with_instructions(vec![SampleInstructions::settle().into()]);
+        assert_eq!(
+            admission::exempt_shape(&settle),
+            Some(SccpExemptClassV1::SelfClaim)
+        );
+        assert_eq!(exempt_class(&*stx.world, &settle, None), None);
+        // No other SCCP instruction has an exempt shape.
+        for instruction in [
+            InstructionBox::from(SampleInstructions::initialize()),
+            SampleInstructions::record().into(),
+            SampleInstructions::void().into(),
+            SampleInstructions::equivocation().into(),
+        ] {
+            assert_eq!(
+                exempt_class(&*stx.world, &with_instructions(vec![instruction]), None),
+                None
+            );
+        }
     }
 
     #[test]
@@ -219,21 +251,20 @@ mod tests {
         let state = blank_state();
         let mut block = state.block(header(2));
         let mut stx = block.transaction();
-        let payload = with_instructions(vec![
-            SampleInstructions::eligible_advance(SccpNetworkV1::EthereumMainnet).into(),
-        ]);
+        let payload = with_instructions(vec![eligible_advance().into()]);
         store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
         assert!(
-            exempt_on_success(&*stx.world, &payload),
+            exempt_on_success(&*stx.world, &payload, None),
             "eligible against the block's own writes"
         );
         assert_eq!(
-            exempt_class_in_block(&stx, &payload),
+            exempt_class_in_block(&stx, &payload).expect("original parent source"),
             None,
             "the parent World has no SCCP, so execution does not exempt it"
         );
         assert_eq!(
-            exempt_class_in_block(&stx, sample_signed_transaction().payload()),
+            exempt_class_in_block(&stx, sample_signed_transaction().payload())
+                .expect("original parent source"),
             None
         );
     }

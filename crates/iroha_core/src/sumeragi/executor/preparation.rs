@@ -2,7 +2,6 @@
 
 use super::{BlockValidationError, PublicationDeferral, PublicationError};
 use crate::execution_attempt::ExecutionDeferred;
-use crate::smartcontracts::isi::sccp::anchor::SccpAnchorLocalError;
 use iroha_allocation::{ChargedBufferError, PrepaidSharedError};
 use iroha_data_model::block::{CertificateAdmissionError, SharedBlockAdmissionError};
 use ivm::error::ExecutionDeferral;
@@ -67,6 +66,62 @@ pub(super) fn certificate_failure(error: &CertificateAdmissionError) -> Publicat
     }
 }
 
+/// Preserve the resource owner across the actual producer/driver boundary.
+/// Diagnostic side fields are not consumed by the driver's retry gate.
+pub(super) fn producer_deferral(original: PublicationDeferral) -> PublicationError {
+    let classified = match original {
+        PublicationDeferral::Execution(original) => {
+            validation_failure(&BlockValidationError::ExecutionDeferred(original))
+                .expect("execution refusal has an explicit validation classification")
+        }
+        other => PublicationError::Deferred(other),
+    };
+    if cfg!(all(test, sumeragi_core_mutation = "HC247"))
+        && let PublicationError::Deferred(original) = classified
+    {
+        PublicationError::Retryable(original.to_string())
+    } else {
+        classified
+    }
+}
+
+/// Reuse the validation classifier for the same original assembly refusal.
+/// Permanent custody failures remain recovery errors, and non-resource failures remain local.
+pub(super) fn payload_failure(error: &super::payload::PayloadError) -> Option<PublicationError> {
+    use super::payload::PayloadError;
+    use crate::state::StateAdmissionError;
+    let classified = match error {
+        PayloadError::SignatureCustodyInvariant(reason) => {
+            return Some(PublicationError::RecoveryRequired(reason.clone()));
+        }
+        PayloadError::RoutingDeferred(original) | PayloadError::DecodeResource(original) => {
+            PublicationError::Deferred(original.clone().into())
+        }
+        PayloadError::StakingPreparation(original) => {
+            validation_failure(&BlockValidationError::EvidencePreparation(original.clone()))?
+        }
+        PayloadError::StakingAdmission(original) => {
+            let original = match original {
+                StateAdmissionError::Storage(error) => {
+                    BlockValidationError::StateStorageAdmission(error.clone())
+                }
+                StateAdmissionError::History(error) => {
+                    BlockValidationError::BlockHashAdmission(error.clone())
+                }
+                StateAdmissionError::Membership(error) => {
+                    BlockValidationError::MembershipAdmission(error.clone())
+                }
+            };
+            validation_failure(&original)?
+        }
+        _ => return None,
+    };
+    Some(match classified {
+        PublicationError::Deferred(original) => producer_deferral(original),
+        other => other,
+    })
+}
+
 #[cfg(test)]
 mod tests;
 
@@ -97,7 +152,6 @@ pub(super) fn witness_failure(
 /// never authorizes reuse. An impossible pool demand has no release source and may
 /// require local policy changes. Malformed custody and poisoned owners require recovery.
 pub(super) fn validation_failure(error: &BlockValidationError) -> Option<PublicationError> {
-    use crate::smartcontracts::isi::sccp::generation_error::SccpGenerationLocalError;
     use crate::state::{
         BlockHashAdmissionError, EvidencePreparationError, MembershipAdmissionError,
         StateStorageAdmissionError, StateViewError,
@@ -143,9 +197,7 @@ pub(super) fn validation_failure(error: &BlockValidationError) -> Option<Publica
             )
             | StateStorageAdmissionError::NativeAmx(
                 super::super::amx::NativeAmxAdmissionError::Invalid(_),
-            )
-            | StateStorageAdmissionError::SccpGeneration(SccpGenerationLocalError::Invariant(_))
-            | StateStorageAdmissionError::SccpAnchor(SccpAnchorLocalError::Invariant(_)) => {
+            ) => {
                 return Some(PublicationError::RecoveryRequired(original.to_string()));
             }
             StateStorageAdmissionError::World(
@@ -160,14 +212,6 @@ pub(super) fn validation_failure(error: &BlockValidationError) -> Option<Publica
                 | super::super::amx::NativeAmxAdmissionError::Codec(_),
             )
             | StateStorageAdmissionError::AmxDecode(_)
-            | StateStorageAdmissionError::SccpGeneration(
-                SccpGenerationLocalError::Admission(_)
-                | SccpGenerationLocalError::Allocator { .. }
-                | SccpGenerationLocalError::DecodeResource(_),
-            )
-            | StateStorageAdmissionError::SccpAnchor(
-                SccpAnchorLocalError::Admission(_) | SccpAnchorLocalError::Allocator { .. },
-            )
             | StateStorageAdmissionError::RootScopeDecode(_) => {
                 PublicationDeferral::StateStorage(original.clone())
             }

@@ -311,7 +311,7 @@ impl ExecutionResultCommitment {
     pub fn preimage(&self) -> Result<Vec<u8>, CommitmentError> {
         let len = norito::canonical_frame_len(self)
             .map_err(|error| CommitmentError::Encoding(error.to_string()))?;
-        if len > MAX_RESULT_PREIMAGE_BYTES {
+        if len > super::MAX_RESULT_BODY_BYTES {
             return Err(CommitmentError::PreimageLength(len));
         }
         norito::encode_canonical(self).map_err(|error| CommitmentError::Encoding(error.to_string()))
@@ -350,7 +350,7 @@ impl ExecutionResultCommitment {
         validation: &mut EpochValidationScope,
         finish: impl FnOnce(Self) -> Output,
     ) -> Result<Output, CommitmentError> {
-        if preimage.len() > MAX_RESULT_PREIMAGE_BYTES {
+        if preimage.len() > super::MAX_RESULT_BODY_BYTES {
             return Err(CommitmentError::PreimageLength(preimage.len()));
         }
         // The compact wire retains complete current/boundary/preparation credentials once;
@@ -366,7 +366,7 @@ impl ExecutionResultCommitment {
             preimage,
             norito::DecodeLimits::new(
                 96,
-                MAX_RESULT_PREIMAGE_BYTES,
+                super::MAX_RESULT_BODY_BYTES,
                 canonical.max_total_elements(),
                 canonical.max_total_allocated_bytes(),
                 32,
@@ -480,7 +480,13 @@ mod execution_validation_tests {
     #[test]
     fn complete_native_result_decode_rejects_invalid_execution_geometry() {
         let fixture = super::super::tests::Fixture::new();
-        let mut commitment = fixture.second.decode_checked().unwrap().commitment;
+        let mut commitment = fixture
+            .second
+            .decode_checked(crate::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+            .unwrap()
+            .certified_result
+            .into_parts()
+            .1;
         commitment.execution.executed_block_wire_len = 0;
         assert!(commitment.validate().is_err());
         let frame = norito::encode_canonical(&commitment).unwrap();

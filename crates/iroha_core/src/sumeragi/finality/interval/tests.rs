@@ -167,19 +167,80 @@ fn check_first_target_order(chain: &CertifiedTestChain) {
         view.kura(),
     );
     let owner = CanonicalHistoryReadBudget::new(view.execution_budget(), context());
+    // Preserve the genuine current fixed header and corrupt only its Norito body.
+    // A one-byte whole preimage is an earlier ResultMismatch, not a body decode error.
+    let mut malformed = chain
+        .committed(4)
+        .block()
+        .commit_certificate()
+        .unwrap()
+        .result_preimage()
+        .to_vec();
+    malformed.push(0);
+    assert!(crate::sumeragi::commitment::result_of_preimage(&malformed).is_some());
+    chain.corrupt_local_quorum_for_test(2, Signers::BelowQuorum);
+    chain
+        .kura()
+        .corrupt_commit_result_for_testing(std::num::NonZeroUsize::new(4).unwrap(), malformed)
+        .unwrap();
+    let expected = super::super::build_proof(&view, 4).unwrap_err();
+    assert!(matches!(
+        &expected,
+        ProofError::Chain(ChainReadError::Malformed { height: 4, .. })
+    ));
+    let (actual, counts) = relation_counts::measure(|| {
+        build_proof_interval(&source, &owner, &limits(4, 4), &AtomicBool::new(false))
+    });
+    assert_eq!(counts.frames, [1, 4]);
+    assert!(counts.qcs.is_empty());
+    assert!(
+        matches!(
+            &actual,
+            Err(NativeFinalityProofIntervalError::Proof(ProofError::Chain(
+                ChainReadError::Malformed { height: 4, .. }
+            )))
+        ),
+        "original malformed target must precede the bad gap: actual={:?}, expected={expected:?}",
+        actual.as_ref().err()
+    );
+    assert_eq!(actual.err().unwrap().to_string(), expected.to_string());
+}
+
+#[test]
+fn finite_interval_keeps_invalid_target_result_header_before_bad_gap_order() {
+    with_chain(check_first_target_header_order);
+}
+#[inline(never)]
+fn check_first_target_header_order(chain: &CertifiedTestChain) {
+    let view = chain.state().view();
+    let source = NativeFinalityProofSource::new(
+        view.chain_id(),
+        view.network_id(),
+        view.block_hashes(),
+        view.kura(),
+    );
+    let owner = CanonicalHistoryReadBudget::new(view.execution_budget(), context());
     chain.corrupt_local_quorum_for_test(2, Signers::BelowQuorum);
     chain
         .kura()
         .corrupt_commit_result_for_testing(std::num::NonZeroUsize::new(4).unwrap(), vec![0])
         .unwrap();
     let expected = super::super::build_proof(&view, 4).unwrap_err();
-    let actual = build_proof_interval(&source, &owner, &limits(4, 4), &AtomicBool::new(false));
+    assert!(matches!(
+        &expected,
+        ProofError::Chain(ChainReadError::ResultMismatch { height: 4 })
+    ));
+    let (actual, counts) = relation_counts::measure(|| {
+        build_proof_interval(&source, &owner, &limits(4, 4), &AtomicBool::new(false))
+    });
     assert!(matches!(
         &actual,
         Err(NativeFinalityProofIntervalError::Proof(ProofError::Chain(
-            ChainReadError::Malformed { height: 4, .. }
+            ChainReadError::ResultMismatch { height: 4 }
         )))
     ));
+    assert_eq!(counts.frames, [1, 4]);
+    assert!(counts.qcs.is_empty());
     assert_eq!(actual.err().unwrap().to_string(), expected.to_string());
 }
 

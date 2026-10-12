@@ -25,6 +25,7 @@ use iroha_data_model::{
     sumeragi_finality::CertifiedResultV1,
     sumeragi_lanes::SumeragiLaneState,
 };
+
 use std::{
     fs::File,
     io::{self, Read, Seek, Write},

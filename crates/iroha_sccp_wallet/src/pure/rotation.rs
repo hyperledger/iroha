@@ -1,562 +1,317 @@
-//! Roster rotation chain verification (spec §4.3.3, §5.1.5, §7.1 steps 2 and 5, §7.4).
+//! Native committee catch-up through authenticated checkpoint certificates (§5.1.2, §7.1).
 //!
-//! A destination that lags behind Taira replays every generation handoff in order through
-//! `rotateRosters` (up to 16 rotations per call). Before paying for those calls the wallet walks
-//! the chain served by `GET /v1/sccp/rosters/rotations` against a simulated copy of the
-//! destination's roster light client and checks every bound the contract enforces for each
-//! step:
-//!
-//! 1. the statement's invariants and its EIP-712 digest under the Taira `NetworkId`;
-//! 2. the statement is signed by the destination's **current** roster, which is unexpired at
-//!    `now_ms`, and the supplied current roster hashes to that digest;
-//! 3. at least `t` valid signatures of the current roster;
-//! 4. `nextRosterDigest ≠ 0` equals the recomputed digest of the next roster (with the `n`,
-//!    `t` and ordering checks), `next.generation = generation + 1`,
-//!    `next.validFromMs = A.timestampMs`, and the validity bounds of §5.1.5 step 3;
-//! 5. the state transition of step 4: the old roster becomes the previous one with
-//!    `prevValidUntilMs = min(validUntilMs, now_ms + 24 h)`.
-//!
-//! The result is the verified list of `RotationV1` arguments (signatures trimmed to exactly
-//! `t`), split into `rotateRosters` batches, and the destination state after all of them. A
-//! chain that stops before the target generation is refused, naming the first unattested
-//! handoff when Torii reports one (§4.3.3). [`check_roster_horizon`] is the §7.1 step 2 guard
-//! against recording a transfer whose destination roster would expire before it can be minted.
-//!
-//! All rotations of one plan are checked at the same `now_ms`; a plan of more than 16 rotations
-//! spans several transactions, which the caller submits in order and re-verifies if their
-//! block times move past a validity bound.
+//! Every step is verified against the current destination root before it may install the
+//! announced successor. The scalar committee machine owns Live, V1–V3 and deadline rules;
+//! TON successor keys remain bound to the signed next root. A plan never silently submits a
+//! latch or a rotation that would leave the destination frozen.
 
+use super::bundle::{BundleError, DestinationContextV1, certificate_wire, committee_error};
 use core::fmt;
-
 use iroha_sccp::{
-    api::{SccpRotationChainV1, SccpRotationStepV1},
+    api::SccpRotationV1,
     v1::{
-        constants::MAX_ROTATIONS_PER_CALL,
-        evm_abi::RotationV1,
-        roster::{RosterStateV1, RotationError},
+        committee::{CheckpointOutcomeV1, CommitteeStateV1, ViolationV1, successor_keys_match},
+        destination::{
+            CertificateAuthorityV1, DestinationFlavor, MAX_CERTIFICATES_PER_CALL,
+            TairaCertificateV1,
+        },
+        destination_abi::DestinationError,
     },
 };
+use std::collections::BTreeMap;
 
-use super::bundle::{BundleError, verify_signed};
-
-/// Why a rotation chain cannot bring the destination to the target generation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Why a requested catch-up cannot safely be submitted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RotationChainError {
-    /// Step `index` fails the statement, roster or signature checks.
+    /// A candidate certificate or successor failed verification.
     Step {
-        /// Zero-based step index.
+        /// Zero-based candidate index.
         index: usize,
-        /// The failed check.
+        /// Concrete failed check.
         error: BundleError,
     },
-    /// Step `index` breaks a §5.1.5 rotation bound.
-    Rotation {
-        /// Zero-based step index.
+    /// A certificate would latch the destination; ordinary wallet catch-up must stop.
+    Latch {
+        /// Zero-based candidate index.
         index: usize,
-        /// The violated bound.
-        error: RotationError,
+        /// The authenticated violation, suitable for explicit evidence handling.
+        violation: ViolationV1,
     },
-    /// Step `index` is not a rotation statement (`nextRosterDigest = 0`).
-    NotARotation {
-        /// Zero-based step index.
+    /// A verified successor is already expired at destination time.
+    Frozen {
+        /// Zero-based candidate index.
         index: usize,
     },
-    /// The chain ends before the target generation at a handoff Taira has not attested yet.
-    UnattestedHandoff {
-        /// Rotation height of the unattested handoff.
-        height: u64,
-        /// Generation the chain reaches.
-        reached: u64,
-        /// Generation the caller needs.
-        target: u64,
-    },
-    /// The chain ends before the target generation.
+    /// The ordered chain did not reach the requested generation.
     ChainTooShort {
-        /// Generation the chain reaches.
+        /// Last generation reached.
         reached: u64,
-        /// Generation the caller needs.
+        /// Requested generation.
         target: u64,
     },
 }
-
 impl fmt::Display for RotationChainError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Step { index, error } => write!(formatter, "rotation step {index}: {error}"),
-            Self::Rotation { index, error } => {
-                write!(formatter, "rotation step {index}: {error}")
-            }
-            Self::NotARotation { index } => {
-                write!(
-                    formatter,
-                    "rotation step {index} is not a rotation statement"
-                )
-            }
-            Self::UnattestedHandoff {
-                height,
-                reached,
-                target,
-            } => write!(
-                formatter,
-                "the handoff at height {height} is not attested yet; the chain reaches generation \
-                 {reached} of {target}"
+            Self::Step { index, error } => write!(f, "checkpoint step {index}: {error}"),
+            Self::Latch { index, violation } => write!(
+                f,
+                "checkpoint step {index} requires a latch: {:?}",
+                violation.reason
             ),
+            Self::Frozen { index } => {
+                write!(f, "checkpoint step {index} installs an expired successor")
+            }
             Self::ChainTooShort { reached, target } => write!(
-                formatter,
-                "the rotation chain reaches generation {reached}, not {target}"
+                f,
+                "committee chain reaches generation {reached}, not {target}"
             ),
         }
     }
 }
-
 impl std::error::Error for RotationChainError {}
 
-/// A verified sequence of rotations and the destination state after them.
+/// One verified current certificate and, when required, the original announced TON keys.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedRotationV1 {
+    certificate: TairaCertificateV1,
+    next_keys: Option<Vec<[u8; 48]>>,
+}
+impl VerifiedRotationV1 {
+    /// Certificate exactly as verified, borrowed for the current destination encoder.
+    #[must_use]
+    pub const fn certificate(&self) -> &TairaCertificateV1 {
+        &self.certificate
+    }
+    /// TON keys only for a key-changing rotation; a heartbeat retains the stored keys.
+    #[must_use]
+    pub fn next_keys(&self) -> Option<&[[u8; 48]]> {
+        self.next_keys.as_deref()
+    }
+}
+/// An immutable ordered catch-up plan and its verified resulting scalar state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RotationPlanV1 {
-    /// Verified `RotationV1` arguments in application order.
-    pub rotations: Vec<RotationV1>,
-    /// The destination roster state after every rotation is applied.
-    pub final_state: RosterStateV1,
+    steps: Vec<VerifiedRotationV1>,
+    initial_state: CommitteeStateV1,
+    final_state: CommitteeStateV1,
+    minimum_until_ms: u64,
 }
-
 impl RotationPlanV1 {
-    /// Whether nothing needs to be rotated.
+    /// Whether the destination already meets the requested generation.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.rotations.is_empty()
+        self.steps.is_empty()
     }
-
-    /// The rotations grouped into `rotateRosters` calls of at most 16, in order.
-    pub fn batches(&self) -> impl Iterator<Item = &[RotationV1]> {
-        self.rotations.chunks(MAX_ROTATIONS_PER_CALL)
+    /// Current certificates in verified application order.
+    #[must_use]
+    pub fn steps(&self) -> &[VerifiedRotationV1] {
+        &self.steps
+    }
+    /// EVM batches of at most sixteen; TON submits each certificate as a checkpoint message.
+    pub fn batches(&self) -> impl Iterator<Item = &[VerifiedRotationV1]> {
+        self.steps.chunks(MAX_CERTIFICATES_PER_CALL)
+    }
+    /// Scalar committee state after every planned checkpoint.
+    #[must_use]
+    pub const fn final_state(&self) -> &CommitteeStateV1 {
+        &self.final_state
+    }
+    /// Earliest trust deadline among the destination's original and every successor generation.
+    #[must_use]
+    pub const fn minimum_until_ms(&self) -> u64 {
+        self.minimum_until_ms
     }
 }
 
-/// Verify one step against `state` and advance `state` on success.
-fn apply_step(
-    index: usize,
-    step: &SccpRotationStepV1,
-    state: &mut RosterStateV1,
-    taira_network_id: &[u8; 32],
-    now_ms: u64,
-) -> Result<RotationV1, RotationChainError> {
-    let step_error = |error: BundleError| RotationChainError::Step { index, error };
-    let rotation_error = |error: RotationError| RotationChainError::Rotation { index, error };
-    step.check_shape()
-        .map_err(|error| step_error(BundleError::Shape(error)))?;
-    if step.statement.next_roster_digest == [0; 32] {
-        return Err(RotationChainError::NotARotation { index });
+fn record_checkpoint(
+    checkpoints: &mut BTreeMap<u64, [u8; 32]>,
+    flavor: DestinationFlavor,
+    height: u64,
+    id: [u8; 32],
+) {
+    if checkpoints.contains_key(&height) {
+        return;
     }
-    // The statement must name the destination's current, unexpired roster before any
-    // signature is recovered (§5.1.5 step 1).
-    if step.statement.roster_digest != state.digest || now_ms > state.valid_until_ms {
-        return Err(rotation_error(RotationError::RosterNotAccepted));
+    if let Some(slots) = flavor.checkpoint_slots()
+        && checkpoints.len() >= slots
+    {
+        if checkpoints
+            .first_key_value()
+            .is_none_or(|(lowest, _)| height <= *lowest)
+        {
+            return;
+        }
+        checkpoints.pop_first();
     }
-    let signed = verify_signed(
-        &step.statement,
-        &step.digest,
-        &step.current_roster,
-        &step.signatures,
-        taira_network_id,
-    )
-    .map_err(step_error)?;
-    let next = step
-        .next_roster
-        .to_roster()
-        .map_err(|_| rotation_error(RotationError::BadNextRoster))?;
-    let next_digest = state
-        .check_rotation(
-            &signed.attestation,
-            &signed.roster,
-            &next,
-            taira_network_id,
-            now_ms,
-        )
-        .map_err(rotation_error)?;
-    if next_digest != step.next_roster.digest {
-        return Err(step_error(BundleError::RosterDigestMismatch));
-    }
-    state.apply_rotation(next_digest, &next, now_ms);
-    Ok(RotationV1 {
-        attestation: signed.attestation,
-        current: signed.roster,
-        signatures: signed.signatures,
-        next,
-    })
+    checkpoints.insert(height, id);
 }
 
-/// Verify `steps` from the destination `state` up to `target_generation` at `now_ms`.
-///
-/// Steps past the target are ignored; a destination already at or past the target yields an
-/// empty plan (an attestation of the previous generation is accepted within its grace).
+/// Verify ordered current rotation records up to the required generation.
+/// Candidates beyond the requested target are not used. All checked steps use the actual
+/// selected destination clock; callers re-observe and re-verify after each submitted batch.
 ///
 /// # Errors
-///
-/// Returns the first failing [`RotationChainError`]; a chain that stops before the target is
-/// [`RotationChainError::UnattestedHandoff`] when `first_unattested_handoff` is known, else
-/// [`RotationChainError::ChainTooShort`].
+/// Returns a concrete certificate, committee, successor, latch, expiry or missing-step error.
 pub fn verify_rotation_steps(
-    steps: &[SccpRotationStepV1],
-    first_unattested_handoff: Option<u64>,
-    state: &RosterStateV1,
+    steps: &[SccpRotationV1],
+    context: &DestinationContextV1<'_>,
     target_generation: u64,
-    taira_network_id: &[u8; 32],
-    now_ms: u64,
 ) -> Result<RotationPlanV1, RotationChainError> {
-    let mut current = *state;
-    let mut rotations = Vec::new();
+    let mut current = context.committee_state;
+    let mut keys = context.ton_keys.map(<[[u8; 48]]>::to_vec);
+    let mut checkpoints = context.checkpoints.clone();
+    let mut verified_steps = Vec::new();
+    let mut minimum_until_ms = current.until_ms;
+    current
+        .require_live(context.now_ms)
+        .map_err(|e| RotationChainError::Step {
+            index: 0,
+            error: committee_error(e).into(),
+        })?;
     for (index, step) in steps.iter().enumerate() {
         if current.generation >= target_generation {
             break;
         }
-        rotations.push(apply_step(
-            index,
-            step,
-            &mut current,
-            taira_network_id,
-            now_ms,
-        )?);
+        let failed = |error: BundleError| RotationChainError::Step { index, error };
+        step.certificate
+            .check_shape()
+            .map_err(|e| failed(e.into()))?;
+        let wire = certificate_wire(&step.certificate).map_err(failed)?;
+        let authority = CertificateAuthorityV1::new(
+            context.flavor,
+            &context.taira_network_id,
+            &context.consensus_instance,
+            &current,
+            keys.as_deref(),
+        )
+        .map_err(|e| failed(e.into()))?;
+        let checked = authority
+            .verify(&wire, |height| checkpoints.get(&height).copied())
+            .map_err(|e| failed(e.into()))?;
+        let needs_keys = current.successor_needs_keys(&checked.header);
+        let outcome = current
+            .apply_checkpoint(
+                &checked.header,
+                checkpoints.get(&checked.header.height()),
+                context.now_ms,
+            )
+            .map_err(|e| failed(committee_error(e).into()))?;
+        match outcome {
+            CheckpointOutcomeV1::Latched(violation) => {
+                return Err(RotationChainError::Latch { index, violation });
+            }
+            CheckpointOutcomeV1::Applied { live: false, .. } => {
+                return Err(RotationChainError::Frozen { index });
+            }
+            CheckpointOutcomeV1::Applied { .. } => {}
+        }
+        step.check_shape().map_err(|e| failed(e.into()))?;
+        // V1–V3 run before TON's key-change check, as the destination specifies.
+        let next_keys = if context.flavor == DestinationFlavor::Ton && needs_keys {
+            if !successor_keys_match(&step.next_committee, &checked.header.next_committee_root()) {
+                return Err(failed(DestinationError::BadCommittee.into()));
+            }
+            keys = Some(step.next_committee.clone());
+            Some(step.next_committee.clone())
+        } else {
+            None
+        };
+        record_checkpoint(
+            &mut checkpoints,
+            context.flavor,
+            checked.header.height(),
+            checked.checkpoint_id,
+        );
+        minimum_until_ms = minimum_until_ms.min(current.until_ms);
+        verified_steps.push(VerifiedRotationV1 {
+            certificate: wire,
+            next_keys,
+        });
     }
     if current.generation < target_generation {
-        let reached = current.generation;
-        return Err(first_unattested_handoff.map_or(
-            RotationChainError::ChainTooShort {
-                reached,
-                target: target_generation,
-            },
-            |height| RotationChainError::UnattestedHandoff {
-                height,
-                reached,
-                target: target_generation,
-            },
-        ));
+        return Err(RotationChainError::ChainTooShort {
+            reached: current.generation,
+            target: target_generation,
+        });
     }
     Ok(RotationPlanV1 {
-        rotations,
+        steps: verified_steps,
+        initial_state: context.committee_state,
         final_state: current,
+        minimum_until_ms,
     })
 }
 
-/// [`verify_rotation_steps`] over one `GET /v1/sccp/rosters/rotations` page.
-///
-/// # Errors
-///
-/// See [`verify_rotation_steps`].
-pub fn verify_rotation_chain(
-    chain: &SccpRotationChainV1,
-    state: &RosterStateV1,
-    target_generation: u64,
-    taira_network_id: &[u8; 32],
-    now_ms: u64,
-) -> Result<RotationPlanV1, RotationChainError> {
-    verify_rotation_steps(
-        &chain.steps,
-        chain.first_unattested_handoff,
-        state,
-        target_generation,
-        taira_network_id,
-        now_ms,
-    )
-}
-
-/// Why a transfer must not be recorded for a destination (§7.1 step 2).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum RosterHorizonError {
-    /// The destination's current roster has already expired: it is frozen for minting.
+/// A destination cannot safely accept a new transfer for the requested time horizon.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommitteeHorizonError {
+    /// The plan was verified against a different destination committee observation.
+    ContextChanged,
+    /// The requested TTL and margin extend beyond the representable time range.
+    HorizonOverflow,
+    /// The actual destination is already expired or latched.
     Frozen,
-    /// The current roster expires within `outbound_ttl_ms + roster_max_age_ms` and no rotation
-    /// to a later generation is available.
+    /// A required generation expires before the requested deadline plus margin.
     ExpiresTooSoon {
-        /// The destination's `validUntilMs`.
-        valid_until_ms: u64,
-        /// The latest acceptable expiry without a rotation.
+        /// Earliest deadline on the actual verified chain.
+        until_ms: u64,
+        /// Required destination deadline.
         required_until_ms: u64,
     },
 }
-
-impl fmt::Display for RosterHorizonError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl fmt::Display for CommitteeHorizonError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Frozen => formatter.write_str("the destination roster has expired"),
+            Self::ContextChanged => {
+                f.write_str("committee state changed since catch-up verification")
+            }
+            Self::HorizonOverflow => {
+                f.write_str("requested committee trust horizon exceeds the timestamp range")
+            }
+            Self::Frozen => f.write_str("destination committee is frozen"),
             Self::ExpiresTooSoon {
-                valid_until_ms,
+                until_ms,
                 required_until_ms,
             } => write!(
-                formatter,
-                "the destination roster expires at {valid_until_ms} ms, before {required_until_ms} \
-                 ms, and no rotation is available"
+                f,
+                "committee trust expires at {until_ms} ms before the required {required_until_ms} ms"
             ),
         }
     }
 }
-
-impl std::error::Error for RosterHorizonError {}
-
-/// §7.1 step 2: refuse a new transfer when the destination's current roster is expired, or
-/// expires within `outbound_ttl_ms + roster_max_age_ms` while no verified rotation to a later
-/// generation is available.
+impl std::error::Error for CommitteeHorizonError {}
+/// Check both the actual destination and all generations in a verified catch-up plan.
+/// A mere claim that a rotation is available never bypasses the deadline requirement.
 ///
 /// # Errors
-///
-/// Returns the violated [`RosterHorizonError`].
-pub fn check_roster_horizon(
-    state: &RosterStateV1,
+/// Refuses a changed context, a frozen or short-lived committee, and an unrepresentable
+/// requested interval. An overflowing TTL or margin is never silently shortened.
+pub fn check_committee_horizon(
+    state: &CommitteeStateV1,
+    plan: &RotationPlanV1,
     now_ms: u64,
     outbound_ttl_ms: u64,
-    roster_max_age_ms: u64,
-    rotation_available: bool,
-) -> Result<(), RosterHorizonError> {
-    if now_ms > state.valid_until_ms {
-        return Err(RosterHorizonError::Frozen);
+    margin_ms: u64,
+) -> Result<(), CommitteeHorizonError> {
+    if *state != plan.initial_state {
+        return Err(CommitteeHorizonError::ContextChanged);
+    }
+    if !state.is_live(now_ms) {
+        return Err(CommitteeHorizonError::Frozen);
     }
     let required_until_ms = now_ms
-        .saturating_add(outbound_ttl_ms)
-        .saturating_add(roster_max_age_ms);
-    if state.valid_until_ms < required_until_ms && !rotation_available {
-        return Err(RosterHorizonError::ExpiresTooSoon {
-            valid_until_ms: state.valid_until_ms,
+        .checked_add(outbound_ttl_ms)
+        .and_then(|until| until.checked_add(margin_ms))
+        .ok_or(CommitteeHorizonError::HorizonOverflow)?;
+    let until_ms = state.until_ms.min(plan.minimum_until_ms);
+    if until_ms < required_until_ms {
+        return Err(CommitteeHorizonError::ExpiresTooSoon {
+            until_ms,
             required_until_ms,
         });
     }
     Ok(())
 }
-
 #[cfg(test)]
-mod tests {
-    use iroha_data_model::sccp::attestation::SccpAttestationStatementV1;
-    use iroha_sccp::{
-        api::{SccpRosterViewV1, SccpSignatureSetV1},
-        v1::{
-            eip712::AttestationFieldsV1,
-            hashes::keccak256,
-            roster::RosterV1,
-            signature::{SignatureSetV1, address_of_secret, sign_digest},
-        },
-    };
-
-    use super::*;
-
-    const TAIRA: [u8; 32] = [0x11; 32];
-    const T0: u64 = 1_800_000_000_000;
-    const DAY: u64 = 86_400_000;
-
-    fn secret(index: u8) -> [u8; 32] {
-        keccak256(&[b"SCCP/WALLET/ROTATION/TEST", &[index]])
-    }
-
-    fn roster(generation: u64, valid_from_ms: u64) -> RosterV1 {
-        let mut members: Vec<[u8; 20]> = (0..4)
-            .map(|index| address_of_secret(&secret(index)).expect("secret"))
-            .collect();
-        members.sort_unstable();
-        RosterV1 {
-            generation,
-            valid_from_ms,
-            valid_until_ms: valid_from_ms + 14 * DAY,
-            members,
-        }
-    }
-
-    fn step(current: &RosterV1, next: &RosterV1, height: u64) -> SccpRotationStepV1 {
-        let statement = SccpAttestationStatementV1 {
-            height,
-            epoch: 1,
-            timestamp_ms: next.valid_from_ms,
-            block_hash: [0xab; 32],
-            sccp_root: [0; 32],
-            message_count: 0,
-            history_root: [0; 32],
-            history_size: 0,
-            roster_digest: current.digest(&TAIRA).expect("digest"),
-            next_roster_digest: next.digest(&TAIRA).expect("digest"),
-        };
-        let digest = AttestationFieldsV1::from(statement).digest(&TAIRA);
-        let entries: Vec<(usize, [u8; 65])> = (0..3)
-            .map(|key| {
-                let address = address_of_secret(&secret(key)).expect("secret");
-                let index = current
-                    .members
-                    .iter()
-                    .position(|member| *member == address)
-                    .expect("member");
-                (index, sign_digest(&secret(key), &digest).expect("sign"))
-            })
-            .collect();
-        let set = SignatureSetV1::from_signers(current.n(), &entries).expect("set");
-        SccpRotationStepV1 {
-            statement,
-            digest,
-            signatures: SccpSignatureSetV1::try_from(&set).expect("view"),
-            current_roster: SccpRosterViewV1::from_roster(current, &TAIRA).expect("view"),
-            next_roster: SccpRosterViewV1::from_roster(next, &TAIRA).expect("view"),
-        }
-    }
-
-    fn chain(generations: u64) -> (Vec<SccpRotationStepV1>, RosterStateV1) {
-        let first = roster(1, T0);
-        let state = RosterStateV1::initial(&first, &TAIRA, T0).expect("state");
-        let mut current = first;
-        let mut steps = Vec::new();
-        for offset in 1..=generations {
-            let next = roster(current.generation + 1, T0 + offset * 1_000);
-            steps.push(step(&current, &next, 100 + offset));
-            current = next;
-        }
-        (steps, state)
-    }
-
-    #[test]
-    fn a_long_chain_verifies_and_splits_into_batches_of_16() {
-        let (steps, state) = chain(17);
-        let now = T0 + 60_000;
-        let plan = verify_rotation_steps(&steps, None, &state, 18, &TAIRA, now).expect("plan");
-        assert_eq!(plan.rotations.len(), 17);
-        assert_eq!(plan.final_state.generation, 18);
-        // The last outgoing roster keeps the 24 h grace from `now`, not its own expiry.
-        assert_eq!(plan.final_state.prev_valid_until_ms, now + DAY);
-        let batches: Vec<usize> = plan.batches().map(<[RotationV1]>::len).collect();
-        assert_eq!(batches, vec![16, 1]);
-        assert!(plan.rotations.iter().all(|r| r.signatures.popcount() == 3));
-        assert!(!plan.is_empty());
-    }
-
-    #[test]
-    fn the_chain_stops_at_the_target_and_reports_breaks() {
-        let (steps, state) = chain(3);
-        let now = T0 + 60_000;
-        let plan = verify_rotation_steps(&steps, None, &state, 2, &TAIRA, now).expect("plan");
-        assert_eq!(plan.rotations.len(), 1);
-        let empty = verify_rotation_steps(&steps, None, &state, 1, &TAIRA, now).expect("empty");
-        assert!(empty.is_empty());
-        assert_eq!(empty.final_state, state);
-        assert_eq!(
-            verify_rotation_steps(&steps, Some(777), &state, 6, &TAIRA, now),
-            Err(RotationChainError::UnattestedHandoff {
-                height: 777,
-                reached: 4,
-                target: 6
-            })
-        );
-        assert_eq!(
-            verify_rotation_steps(&steps[..1], None, &state, 3, &TAIRA, now),
-            Err(RotationChainError::ChainTooShort {
-                reached: 2,
-                target: 3
-            })
-        );
-        let page = SccpRotationChainV1 {
-            steps,
-            first_unattested_handoff: None,
-        };
-        assert_eq!(
-            verify_rotation_chain(&page, &state, 4, &TAIRA, now)
-                .expect("page")
-                .final_state
-                .generation,
-            4
-        );
-    }
-
-    #[test]
-    fn rotation_bounds_are_enforced() {
-        let (steps, state) = chain(2);
-        let now = T0 + 60_000;
-        // Out of order: the second step first.
-        assert_eq!(
-            verify_rotation_steps(&steps[1..], None, &state, 3, &TAIRA, now),
-            Err(RotationChainError::Rotation {
-                index: 0,
-                error: RotationError::RosterNotAccepted
-            })
-        );
-        // Expired current roster.
-        assert_eq!(
-            verify_rotation_steps(&steps, None, &state, 3, &TAIRA, T0 + 14 * DAY + 1),
-            Err(RotationChainError::Rotation {
-                index: 0,
-                error: RotationError::RosterNotAccepted
-            })
-        );
-        // A generation gap.
-        let first = roster(1, T0);
-        let skip = step(&first, &roster(3, T0 + 1_000), 101);
-        assert_eq!(
-            verify_rotation_steps(&[skip], None, &state, 3, &TAIRA, now),
-            Err(RotationChainError::Rotation {
-                index: 0,
-                error: RotationError::GenerationNotSequential
-            })
-        );
-        // Validity beyond MAX_ROSTER_VALIDITY_MS.
-        let mut long = roster(2, T0 + 1_000);
-        long.valid_until_ms = long.valid_from_ms + 31 * DAY;
-        assert_eq!(
-            verify_rotation_steps(&[step(&first, &long, 101)], None, &state, 2, &TAIRA, now),
-            Err(RotationChainError::Rotation {
-                index: 0,
-                error: RotationError::BadValidity
-            })
-        );
-        // A statement without a successor.
-        let mut plain = steps[0].clone();
-        plain.statement.next_roster_digest = [0; 32];
-        assert_eq!(
-            verify_rotation_steps(&[plain], None, &state, 2, &TAIRA, now),
-            Err(RotationChainError::NotARotation { index: 0 })
-        );
-        // A tampered signature.
-        let mut forged = steps[0].clone();
-        forged.signatures.signatures[0][10] ^= 1;
-        assert!(matches!(
-            verify_rotation_steps(&[forged], None, &state, 2, &TAIRA, now),
-            Err(RotationChainError::Step {
-                index: 0,
-                error: BundleError::Signatures(_)
-            })
-        ));
-        // A next roster whose claimed digest differs.
-        let mut claimed = steps[0].clone();
-        claimed.next_roster.digest[0] ^= 1;
-        assert_eq!(
-            verify_rotation_steps(&[claimed], None, &state, 2, &TAIRA, now),
-            Err(RotationChainError::Step {
-                index: 0,
-                error: BundleError::RosterDigestMismatch
-            })
-        );
-    }
-
-    #[test]
-    fn roster_horizon_guard() {
-        let state = RosterStateV1 {
-            digest: [1; 32],
-            generation: 5,
-            valid_until_ms: 1_000,
-            prev_digest: [0; 32],
-            prev_valid_until_ms: 0,
-        };
-        assert_eq!(check_roster_horizon(&state, 100, 400, 500, false), Ok(()));
-        assert_eq!(
-            check_roster_horizon(&state, 101, 400, 500, false),
-            Err(RosterHorizonError::ExpiresTooSoon {
-                valid_until_ms: 1_000,
-                required_until_ms: 1_001
-            })
-        );
-        assert_eq!(check_roster_horizon(&state, 101, 400, 500, true), Ok(()));
-        assert_eq!(
-            check_roster_horizon(&state, 1_001, 0, 0, true),
-            Err(RosterHorizonError::Frozen)
-        );
-        assert!(RosterHorizonError::Frozen.to_string().contains("expired"));
-        assert!(
-            RotationChainError::ChainTooShort {
-                reached: 1,
-                target: 2
-            }
-            .to_string()
-            .contains("generation 1")
-        );
-    }
-}
+mod tests;

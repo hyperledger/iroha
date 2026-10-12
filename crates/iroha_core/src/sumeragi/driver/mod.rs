@@ -898,7 +898,10 @@ impl Crypto for CryptoRef {
     fn verify(&self, pk: &PublicKey, msg: &[u8], sig: &Signature) -> bool {
         self.0.verify(pk, msg, sig)
     }
-    fn aggregate(&self, sigs: &[Signature]) -> AggregateSignature {
+    fn aggregate(
+        &self,
+        sigs: &[Signature],
+    ) -> Result<AggregateSignature, iroha_sumeragi::crypto::AggregationError> {
         self.0.aggregate(sigs)
     }
     fn verify_aggregate(&self, pks: &[&PublicKey], msg: &[u8], agg: &AggregateSignature) -> bool {

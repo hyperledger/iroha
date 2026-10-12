@@ -107,6 +107,12 @@ fn route(state: &State, next_outbound_nonce: u64) -> SccpRouteV1 {
             address: [0x33; 20],
             runtime_code_hash: [0x34; 32],
         }),
+        iroha_data_model::sccp::deployment::SccpCommitteePinV1 {
+            generation: 1,
+            committee_root: [0x44; 32],
+            start_height: 1,
+            until_ms: 1_801_209_600_000,
+        },
         1_000_000,
         1,
     );
@@ -205,11 +211,14 @@ fn seeded() -> (State, [u8; 32], [u8; 32], u64) {
                 transaction,
                 (ETH, 1, nonce),
                 SccpControlRecordV1 {
-                    paused: nonce == 1,
+                    track: 1,
+                    parliament_paused: nonce == 1,
+                    fast_pause_until_ms: 0,
                     height,
                     commitment_index: 1,
                     leaf: [9; 32],
-                    proposal_id: [8; 32],
+                    certificate_id: [8; 32],
+                    effect_hash: [5; 32],
                 },
             )
             .expect("control");
@@ -289,20 +298,20 @@ fn numbers_and_directions_parse_with_defaults() {
 }
 
 #[test]
-fn certificate_choices_default_to_record() {
+fn proof_heights_default_to_record() {
     assert_eq!(
-        parse_choice(&CertificateQuery::default()).ok(),
-        Some(SccpCertificateChoiceV1::Record)
+        parse_choice(&ProofQuery::default()).ok(),
+        Some(SccpProofHeightV1::Record)
     );
     assert_eq!(
-        parse_choice(&CertificateQuery {
+        parse_choice(&ProofQuery {
             at: Some("latest".into())
         })
         .ok(),
-        Some(SccpCertificateChoiceV1::Latest)
+        Some(SccpProofHeightV1::Latest)
     );
     assert!(
-        parse_choice(&CertificateQuery {
+        parse_choice(&ProofQuery {
             at: Some("soon".into())
         })
         .is_err()
@@ -313,11 +322,6 @@ fn certificate_choices_default_to_record() {
 fn read_errors_map_to_http_statuses() {
     for (failure, status) in [
         (SccpReadError::NotFound("x".into()), StatusCode::NOT_FOUND),
-        (
-            SccpReadError::Unavailable("x".into()),
-            StatusCode::SERVICE_UNAVAILABLE,
-        ),
-        (SccpReadError::RotationPruned("x".into()), StatusCode::GONE),
         (SccpReadError::Pruned("x".into()), StatusCode::GONE),
         (SccpReadError::Invalid("x".into()), StatusCode::BAD_REQUEST),
     ] {
@@ -399,8 +403,8 @@ async fn message_route_serves_the_status_union() {
     let first: SccpMessageStatusV1 = decode(first).await;
     assert!(matches!(
         first.outbound().map(|view| view.state),
-        Some(SccpOutboundStateV1::Recorded(record))
-            if record.deadline_ms == 9_000 && !record.provable
+        Some(SccpOutboundStateV1::Recorded(recorded))
+            if recorded.deadline_ms == 9_000
     ));
     let recorded: SccpMessageStatusV1 = decode(message_response(
         &view,
@@ -411,7 +415,7 @@ async fn message_route_serves_the_status_union() {
     .await;
     assert!(matches!(
         recorded.outbound().map(|view| view.state),
-        Some(SccpOutboundStateV1::Recorded(state)) if state.deadline_ms == 9_001 && !state.provable
+        Some(SccpOutboundStateV1::Recorded(state)) if state.deadline_ms == 9_001
     ));
     // A refunded record is final: it carries an ETag and revalidates to 304.
     let final_state = message_response(&view, &hex::encode(refunded), Some(&accept), &headers);
@@ -551,7 +555,7 @@ async fn recent_route_pages_both_directions() {
 }
 
 #[tokio::test]
-async fn controls_route_reports_stored_commands() {
+async fn controls_route_reports_native_control_records() {
     let (state, ..) = seeded();
     let view = state.view();
     let accept = norito_accept();
@@ -565,7 +569,11 @@ async fn controls_route_reports_stored_commands() {
     .await;
     assert_eq!(page.next_control_nonce, 2);
     assert_eq!(page.controls.len(), 2);
-    assert!(page.controls[0].record.paused);
+    assert_eq!(page.controls[0].control_nonce, 1);
+    assert_eq!(page.controls[1].control_nonce, 2);
+    assert_eq!(page.controls[0].record.height, 10);
+    assert_eq!(page.controls[1].record.height, 11);
+    assert!(page.controls[0].record.parliament_paused);
     let after: SccpControlPageV1 = decode(controls_response(
         &view,
         "ethereum-mainnet",
@@ -644,12 +652,18 @@ async fn history_route_serves_logarithmic_paths_with_validators() {
     let view = state.view();
     let accept = norito_accept();
     let headers = HeaderMap::new();
+    let cache_budget = iroha_allocation::AllocationBudget::new(1 << 20);
+    let mut cache = read::SccpHistoryNodeCache::new();
+    let (_, owner) = history_owner();
     let current: SccpHistoryPathViewV1 = decode(history_response(
         &view,
         10,
         &HistoryQuery::default(),
         Some(&accept),
         &headers,
+        &mut cache,
+        &cache_budget,
+        &owner,
     ))
     .await;
     assert_eq!(current.history_size, 3);
@@ -658,9 +672,9 @@ async fn history_route_serves_logarithmic_paths_with_validators() {
         commitment::history_root_and_size(view.world()),
         "the served root is the stored accumulator root"
     );
-    assert_eq!(current.proof.leaf_index, 0);
+    assert_eq!(current.proof.history_index, 0);
     assert_eq!(
-        current.proof.path.len(),
+        current.proof.history_path.len(),
         2,
         "promote-odd path of leaf 0 of 3"
     );
@@ -672,6 +686,9 @@ async fn history_route_serves_logarithmic_paths_with_validators() {
         },
         Some(&accept),
         &headers,
+        &mut cache,
+        &cache_budget,
+        &owner,
     );
     let etag = sized.headers()[header::ETAG].clone();
     let older: SccpHistoryPathViewV1 = decode(sized).await;
@@ -687,6 +704,9 @@ async fn history_route_serves_logarithmic_paths_with_validators() {
             },
             Some(&accept),
             &conditional,
+            &mut cache,
+            &cache_budget,
+            &owner,
         )
         .status(),
         StatusCode::NOT_MODIFIED
@@ -700,6 +720,9 @@ async fn history_route_serves_logarithmic_paths_with_validators() {
             },
             Some(&accept),
             &headers,
+            &mut cache,
+            &cache_budget,
+            &owner,
         ))
         .await,
         (StatusCode::BAD_REQUEST, "sccp_invalid_query".to_owned())
@@ -711,6 +734,9 @@ async fn history_route_serves_logarithmic_paths_with_validators() {
             &HistoryQuery::default(),
             Some(&accept),
             &headers,
+            &mut cache,
+            &cache_budget,
+            &owner,
         ))
         .await,
         (StatusCode::NOT_FOUND, "sccp_not_found".to_owned())
@@ -727,7 +753,7 @@ async fn proof_and_governance_routes_report_missing_records() {
         error_code(message_proof_response(
             &view,
             &"99".repeat(32),
-            &CertificateQuery::default(),
+            &ProofQuery::default(),
             Some(&accept),
             &headers,
         ))
@@ -738,7 +764,7 @@ async fn proof_and_governance_routes_report_missing_records() {
         error_code(control_proof_response(
             &view,
             ("ethereum-mainnet", 1, 9),
-            &CertificateQuery::default(),
+            &ProofQuery::default(),
             Some(&accept),
             &headers,
         ))
@@ -831,14 +857,10 @@ async fn numeric_query_values_reach_the_handlers_as_text() {
         .await
         .expect("history query");
     assert_eq!(history.size.as_deref(), Some("16"));
-    let certificate: CertificateQuery = extract_query("/v1/sccp/messages/00/proof?at=42")
+    let proof: ProofQuery = extract_query("/v1/sccp/messages/00/proof?at=42")
         .await
-        .expect("certificate query");
-    assert_eq!(certificate.at.as_deref(), Some("42"));
-    let rotation: RotationQuery = extract_query("/v1/sccp/rotations?after_generation=3&limit=4")
-        .await
-        .expect("rotation query");
-    assert_eq!(rotation.after_generation.as_deref(), Some("3"));
+        .expect("proof query");
+    assert_eq!(proof.at.as_deref(), Some("42"));
     assert_eq!(
         extract_query::<OutboundQuery>(
             "/v1/sccp/outbound/ethereum-mainnet/1?from_nonce=1&from_nonce=2"
@@ -851,58 +873,444 @@ async fn numeric_query_values_reach_the_handlers_as_text() {
 }
 
 #[tokio::test]
-async fn native_query_and_unavailable_errors_are_explicit() {
-    assert!(
-        extract_query::<CertificateQuery>("/v1/sccp/messages/00/proof?attestation=own")
-            .await
-            .is_err()
-    );
-    for value in ["own", "0", "-1", "garbage"] {
+async fn proof_queries_reject_retired_unknown_and_duplicate_selectors() {
+    for query in [
+        "attestation=own",
+        "attestation=42",
+        "at=record&attestation=latest",
+        "at=record&unknown=1",
+        "at=record&at=latest",
+    ] {
+        assert_eq!(
+            extract_query::<ProofQuery>(&format!("/v1/sccp/messages/00/proof?{query}"))
+                .await
+                .expect_err("proof selectors are strict"),
+            StatusCode::BAD_REQUEST,
+            "{query}"
+        );
+    }
+    for value in ["own", "0", "+1", "-1", " 1", "1 ", "18446744073709551616"] {
         assert!(
-            parse_choice(&CertificateQuery {
+            parse_choice(&ProofQuery {
                 at: Some(value.into())
             })
-            .is_err()
+            .is_err(),
+            "{value}"
         );
     }
     assert_eq!(
-        error_code(read_error(&SccpReadError::Unavailable(
-            "original carrier unavailable".into()
-        )))
-        .await,
-        (StatusCode::SERVICE_UNAVAILABLE, "sccp_unavailable".into())
+        parse_choice(&ProofQuery {
+            at: Some("42".into())
+        })
+        .ok(),
+        Some(SccpProofHeightV1::At(42))
     );
-    assert_eq!(
-        error_code(read_error(&SccpReadError::RotationPruned(
-            "generation1".into()
-        )))
-        .await,
-        (StatusCode::GONE, "sccp_rotation_pruned".into())
-    );
-    let paths: Vec<_> = iroha_torii_shared::route_catalog::sccp::ROUTES
-        .iter()
-        .map(|route| route.path())
-        .collect();
-    for native in [
-        "/v1/sccp/finality/{height}",
-        "/v1/sccp/finality/latest",
-        "/v1/sccp/committees/current",
-        "/v1/sccp/committees/{generation}",
-        "/v1/sccp/committees/rotations",
-    ] {
-        assert!(paths.contains(&native));
+}
+
+#[tokio::test]
+async fn proof_routes_refuse_known_uncertified_records_without_cache_authority() {
+    // These committed World records have no native certificate. They exercise the current
+    // explicit unavailability and cannot manufacture a successful proof response.
+    let (state, ..) = seeded();
+    let view = state.view();
+    let mut headers = HeaderMap::new();
+    headers.insert(header::IF_NONE_MATCH, HeaderValue::from_static("*"));
+    for accept in [json_accept(), norito_accept()] {
+        for at in [None, Some("record"), Some("latest"), Some("10")] {
+            let query = ProofQuery {
+                at: at.map(str::to_owned),
+            };
+            let message =
+                message_proof_response(&view, &"01".repeat(32), &query, Some(&accept), &headers);
+            let control = control_proof_response(
+                &view,
+                ("ethereum-mainnet", 1, 1),
+                &query,
+                Some(&accept),
+                &headers,
+            );
+            for response in [message, control] {
+                assert!(!response.headers().contains_key(header::ETAG));
+                assert!(!response.headers().contains_key(header::CACHE_CONTROL));
+                assert_eq!(
+                    error_code(response).await,
+                    (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "sccp_proof_unavailable".into()
+                    )
+                );
+            }
+        }
+        let missing = message_proof_response(
+            &view,
+            &"99".repeat(32),
+            &ProofQuery::default(),
+            Some(&accept),
+            &headers,
+        );
+        let missing_control = control_proof_response(
+            &view,
+            ("ethereum-mainnet", 1, 99),
+            &ProofQuery::default(),
+            Some(&accept),
+            &headers,
+        );
+        for response in [missing, missing_control] {
+            assert!(!response.headers().contains_key(header::ETAG));
+            assert_eq!(
+                error_code(response).await,
+                (StatusCode::NOT_FOUND, "sccp_not_found".into())
+            );
+        }
     }
-    assert!(paths.iter().all(|path| !path.contains("/rosters/")
-        && !path.contains("/attestations/")
-        && !path.contains("bridge-keys")));
-    let state = blank_state();
+}
+
+#[tokio::test]
+async fn proof_routes_reject_malformed_queries_before_unavailable_record_lookup() {
+    let (state, ..) = seeded();
+    let view = state.view();
+    let headers = HeaderMap::new();
+    for at in ["own", "0", "+1", "-1", " 1", "1 ", "18446744073709551616"] {
+        let query = ProofQuery {
+            at: Some(at.into()),
+        };
+        for response in [
+            message_proof_response(&view, &"01".repeat(32), &query, None, &headers),
+            control_proof_response(&view, ("ethereum-mainnet", 1, 1), &query, None, &headers),
+        ] {
+            assert_eq!(
+                error_code(response).await,
+                (StatusCode::BAD_REQUEST, "sccp_invalid_query".into())
+            );
+        }
+    }
     assert_eq!(
-        error_code(generation_response(
-            state.view().world(),
-            1,
-            Some(&json_accept())
+        error_code(message_proof_response(
+            &view,
+            "01",
+            &ProofQuery::default(),
+            None,
+            &headers
         ))
         .await,
-        (StatusCode::NOT_FOUND, "sccp_not_found".into())
+        (StatusCode::BAD_REQUEST, "sccp_invalid_query".into())
+    );
+    assert_eq!(
+        error_code(control_proof_response(
+            &view,
+            ("unknown-network", 1, 1),
+            &ProofQuery::default(),
+            None,
+            &headers
+        ))
+        .await,
+        (StatusCode::BAD_REQUEST, "sccp_invalid_query".into())
+    );
+}
+
+#[tokio::test]
+async fn committee_routes_report_current_records_and_reject_zero_or_absent_generation() {
+    use iroha_core::sumeragi::test_chain::{CertifiedTestChain, TestChainConfig};
+    use iroha_data_model::{
+        isi::sccp::InitializeSccpV1,
+        parameter::{
+            Parameter,
+            system::{SumeragiConsensusMode, SumeragiNposParameters},
+        },
+        sccp::params::SccpParametersV1,
+    };
+    use iroha_sccp::api::SccpGenerationV1;
+    let state = blank_state();
+    assert_eq!(
+        committee_response(&state.view(), None, None).status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        committee_response(&state.view(), Some(0), None).status(),
+        StatusCode::BAD_REQUEST
+    );
+    // Core owns generation admission: obtain the retained record by executing the
+    // public initializer against its original signed NPoS genesis context.
+    let parameters = SccpParametersV1::taira_default();
+    let mut config = TestChainConfig::new(World::new(), 1_000);
+    config.consensus_mode = SumeragiConsensusMode::Npos;
+    config.genesis_parameters.push(Parameter::Custom(
+        SumeragiNposParameters::default().into_custom_parameter(),
+    ));
+    config.genesis_block_cadence_ms = NonZeroU64::new(1_000).unwrap();
+    let mut nexus = iroha_config::parameters::actual::Nexus::default();
+    nexus.staking.unbonding_delay = std::time::Duration::from_millis(
+        parameters.committee_validity_ms + parameters.forgery_evidence_grace_ms,
+    );
+    nexus.staking.max_slash_bps = 10_000;
+    config.nexus = Some(nexus);
+    config.genesis_instructions.push(
+        InitializeSccpV1 {
+            parameters,
+            reset_nonce: [0x5a; 32],
+        }
+        .into(),
+    );
+    let chain = CertifiedTestChain::start(config).expect("initialize genuine SCCP genesis");
+    let state = chain.state();
+    let mut keys = chain
+        .validators()
+        .iter()
+        .map(|(peer, _)| {
+            peer.public_key()
+                .try_to_bytes()
+                .unwrap()
+                .1
+                .try_into()
+                .unwrap()
+        })
+        .collect::<Vec<[u8; 48]>>();
+    keys.sort();
+    let view = state.view();
+    let record = store::committee_generations::get(view.world(), &1).unwrap();
+    let liability_clock = record.liable_until_lc + 1;
+    let mut block = state.block(BlockHeader::new(
+        NonZeroU64::new(30).unwrap(),
+        None,
+        None,
+        30_000,
+        0,
+    ));
+    let mut stx = block.transaction();
+    store::liability_clock::set(&mut stx, liability_clock);
+    let current: SccpGenerationV1 =
+        decode(committee_response(&stx, None, Some(&norito_accept()))).await;
+    let explicit: SccpGenerationV1 = norito::json::from_slice(
+        &body(committee_response(&stx, Some(1), Some(&json_accept()))).await,
+    )
+    .unwrap();
+    assert_eq!(current, explicit);
+    assert_eq!(current.keys, keys);
+    assert_eq!(
+        current.committee_root,
+        iroha_sccp::v1::committee::committee_root(&keys).unwrap()
+    );
+    assert!(current.liable, "the current generation remains liable");
+    assert_eq!(
+        committee_response(&stx, Some(2), None).status(),
+        StatusCode::NOT_FOUND
+    );
+    let capabilities = read::capabilities(&stx);
+    assert_eq!(
+        capabilities.current_generation.unwrap().deadline_ms,
+        chain.genesis().header().creation_time_ms + parameters.committee_validity_ms
+    );
+    assert_eq!(capabilities.liability_clock, liability_clock);
+}
+
+#[tokio::test]
+async fn rotations_require_bounded_query_and_native_archive_without_cache_authority() {
+    let state = blank_state();
+    for (after, limit) in [("0", "16"), ("1", "0"), ("1", "17"), ("no", "1")] {
+        let query = RotationsQuery {
+            after_generation: Some(after.into()),
+            limit: Some(limit.into()),
+        };
+        assert_eq!(
+            rotations_response(&state.view(), &query).status(),
+            StatusCode::BAD_REQUEST
+        );
+    }
+    let query = RotationsQuery {
+        after_generation: Some("1".into()),
+        limit: Some("16".into()),
+    };
+    let response = rotations_response(&state.view(), &query);
+    assert!(response.headers().get(header::ETAG).is_none());
+    assert_eq!(
+        error_code(response).await,
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "sccp_rotation_unavailable".into()
+        )
+    );
+}
+
+fn history_owner() -> (
+    std::sync::Arc<tokio::sync::Semaphore>,
+    crate::history_producer::HistoryProducerOwner,
+) {
+    let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(1));
+    let reservation = crate::QueryFanoutMemoryReservation::from_admitted_fanout(
+        semaphore.clone().try_acquire_owned().unwrap(),
+        crate::QueryFanoutMemoryEnvelope::for_body_admission(48_000_000).unwrap(),
+        1,
+    )
+    .unwrap();
+    let owner =
+        crate::history_producer::HistoryProducerOwner::from_reservation(&reservation).unwrap();
+    (semaphore, owner)
+}
+
+#[tokio::test]
+async fn history_response_bytes_keep_query_custody_after_body_and_path_retire() {
+    use http_body_util::BodyExt as _;
+    let (state, ..) = seeded();
+    let cache_budget = iroha_allocation::AllocationBudget::new(1 << 20);
+    let mut cache = read::SccpHistoryNodeCache::new();
+    for accept in [norito_accept(), json_accept()] {
+        let (semaphore, owner) = history_owner();
+        let response = history_response(
+            &state.view(),
+            10,
+            &HistoryQuery {
+                size: Some("3".into()),
+            },
+            Some(&accept),
+            &HeaderMap::new(),
+            &mut cache,
+            &cache_budget,
+            &owner,
+        );
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(response.headers().contains_key(header::ETAG));
+        assert_eq!(
+            owner.cold_frames().reserved_bytes(),
+            0,
+            "the projected path has retired after encoding"
+        );
+        let mut body = response.into_body();
+        drop(owner);
+        let bytes = body.frame().await.unwrap().unwrap().into_data().unwrap();
+        let final_slice = bytes.slice(..);
+        drop(body);
+        drop(bytes);
+        assert_eq!(
+            semaphore.available_permits(),
+            0,
+            "extracted last reader still owns the admission"
+        );
+        assert!(!final_slice.is_empty());
+        drop(final_slice);
+        assert_eq!(semaphore.available_permits(), 1);
+    }
+}
+
+#[test]
+fn history_query_refuses_retired_or_unknown_fields() {
+    assert!(norito::json::from_str::<HistoryQuery>(r#"{"size":"3","attestation":"own"}"#).is_err());
+    let valid = norito::json::from_str::<HistoryQuery>(r#"{"size":"3"}"#).unwrap();
+    assert_eq!(valid.size.as_deref(), Some("3"));
+}
+
+#[tokio::test]
+async fn app_history_cache_is_local_reused_and_survives_query_refusal() {
+    use std::sync::Arc;
+    let mut app = crate::mk_app_state_for_tests();
+    let second_app = crate::mk_app_state_for_tests();
+    Arc::get_mut(&mut app).unwrap().sccp_history_budget =
+        iroha_allocation::AllocationBudget::new(128);
+    let cloned = Arc::clone(&app);
+    assert!(
+        app.sccp_history_budget
+            .same_pool(&cloned.sccp_history_budget)
+    );
+    assert!(
+        !app.sccp_history_budget
+            .same_pool(&second_app.sccp_history_budget)
+    );
+    seed(&app.state, |transaction| {
+        for height in 1..=64 {
+            record_outbound(
+                transaction,
+                height - 1,
+                height,
+                SccpOutboundStatusV1::Recorded,
+            );
+        }
+    });
+    let original_view = app.state.view();
+    let (first_query, owner) = history_owner();
+    let original = {
+        let mut cache = app.sccp_history.lock().unwrap();
+        history_response(
+            &original_view,
+            1,
+            &HistoryQuery::default(),
+            Some(&norito_accept()),
+            &HeaderMap::new(),
+            &mut cache,
+            &app.sccp_history_budget,
+            &owner,
+        )
+    };
+    assert_eq!(original.status(), StatusCode::OK);
+    drop(owner);
+    let first: SccpHistoryPathViewV1 = decode(original).await;
+    assert_eq!(first_query.available_permits(), 1);
+    assert_eq!(app.sccp_history_budget.reserved_bytes(), 128);
+    // A new actual query owner reuses the application backing, never the old query pool.
+    let (warm_query, warm_owner) = history_owner();
+    let warm = {
+        let mut cache = cloned.sccp_history.lock().unwrap();
+        history_response(
+            &original_view,
+            1,
+            &HistoryQuery::default(),
+            Some(&norito_accept()),
+            &HeaderMap::new(),
+            &mut cache,
+            &cloned.sccp_history_budget,
+            &warm_owner,
+        )
+    };
+    drop(warm_owner);
+    let warm: SccpHistoryPathViewV1 = decode(warm).await;
+    assert_eq!(warm, first);
+    assert_eq!(warm_query.available_permits(), 1);
+    assert_eq!(app.sccp_history_budget.reserved_bytes(), 128);
+    assert_eq!(second_app.sccp_history_budget.reserved_bytes(), 0);
+    seed(&app.state, |transaction| {
+        for height in 65..=128 {
+            record_outbound(
+                transaction,
+                height - 1,
+                height,
+                SccpOutboundStatusV1::Recorded,
+            );
+        }
+    });
+    let (refused_query, refused_owner) = history_owner();
+    let refused = {
+        let mut cache = app.sccp_history.lock().unwrap();
+        history_response(
+            &app.state.view(),
+            1,
+            &HistoryQuery::default(),
+            Some(&norito_accept()),
+            &HeaderMap::new(),
+            &mut cache,
+            &app.sccp_history_budget,
+            &refused_owner,
+        )
+    };
+    assert_eq!(refused.status(), StatusCode::TOO_MANY_REQUESTS);
+    drop(refused_owner);
+    drop(refused);
+    assert_eq!(refused_query.available_permits(), 1);
+    assert_eq!(app.sccp_history_budget.reserved_bytes(), 128);
+    let (_, retry_owner) = history_owner();
+    let old = {
+        let mut cache = app.sccp_history.lock().unwrap();
+        history_response(
+            &original_view,
+            1,
+            &HistoryQuery::default(),
+            Some(&norito_accept()),
+            &HeaderMap::new(),
+            &mut cache,
+            &app.sccp_history_budget,
+            &retry_owner,
+        )
+    };
+    let old: SccpHistoryPathViewV1 = decode(old).await;
+    assert_eq!(
+        old, first,
+        "refusal preserves the original view and published path"
     );
 }

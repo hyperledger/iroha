@@ -1157,14 +1157,22 @@ fn initial_genesis_authority_can_bootstrap_fee_sponsor_lifecycle() {
             .iter()
             .map(|key| crate::PeerId::new(key.public_key().clone())),
     );
-    let (valid, mut original) = crate::block::ValidBlock::validate_signed_genesis(
-        prepared.genesis.block().clone(),
-        &topology,
-        &BOB_ID,
-        &iroha_primitives::time::TimeSource::new_system(),
-        &prepared.state,
-        iroha_data_model::parameter::system::ConsensusMode::Permissioned,
-    )
+    let (valid, mut original) = {
+        let selected_genesis = prepared.genesis.block().clone();
+        let selected_scope = crate::sumeragi::epoch::authenticated_genesis(&selected_genesis)
+            .expect("signed fixture root scope")
+            .into_parts()
+            .1;
+        crate::block::ValidBlock::validate_signed_genesis(
+            selected_genesis,
+            &topology,
+            &BOB_ID,
+            &iroha_primitives::time::TimeSource::new_system(),
+            &prepared.state,
+            iroha_data_model::parameter::system::ConsensusMode::Permissioned,
+            selected_scope,
+        )
+    }
     .unpack(|_| {})
     .unwrap_or_else(|(_, error)| panic!("original sponsor genesis executes: {error}"));
     assert!(valid.as_ref().output_results().all(|result| result.is_ok()));
@@ -1391,6 +1399,8 @@ fn prospective_fee_sponsor_enrollment_funds_only_exact_self_bootstrap() {
             &crate::gas::DEFAULT_ZK_GAS,
             &payload,
             0,
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(&stx)
+                .expect("original committed fixture time"),
             146,
             None,
         );
@@ -1408,6 +1418,8 @@ fn prospective_fee_sponsor_enrollment_funds_only_exact_self_bootstrap() {
                 &crate::gas::DEFAULT_ZK_GAS,
                 &payload,
                 0,
+                crate::smartcontracts::isi::sccp::hold::committed_time_ms(&stx)
+                    .expect("original committed fixture time"),
                 146,
                 None,
             )

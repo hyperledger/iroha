@@ -42,7 +42,7 @@ pub(crate) use epoch_graph::NativeExecutionInputs;
 pub use epoch_graph::{
     ConsensusSchedule, ScheduleOutcome, ScheduledConfig, ScheduledSlot, core_epoch,
 };
-pub(crate) use execution::{SccpGenesisSource, ScheduleStep};
+pub(crate) use execution::ScheduleStep;
 pub use retained::RetainedConsensusSchedule;
 
 /// The peer of a core consensus key (inverse of [`consensus_key`]).

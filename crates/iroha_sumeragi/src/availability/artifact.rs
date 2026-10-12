@@ -401,7 +401,13 @@ mod tests {
         header.availability_digest = content_digest(&keys.crypto, &bytes);
         let bh = header.hash(&keys.crypto);
         let (preimage, used) = statement(header, bh, None);
-        bytes.extend_from_slice(&keys.signer(header.proposer).sign(&preimage[..used]).0);
+        bytes.extend_from_slice(
+            &keys
+                .signer(header.proposer)
+                .sign(&preimage[..used])
+                .expect("fixture signing succeeds")
+                .0,
+        );
         for (index, hash) in hashes.iter().enumerate() {
             let row = if let Some((selected, declared_index, declared_length)) = wrong_row
                 && selected == index
@@ -415,7 +421,13 @@ mod tests {
                 )
             };
             let (preimage, used) = statement(header, bh, Some(row));
-            bytes.extend_from_slice(&keys.signer(header.proposer).sign(&preimage[..used]).0);
+            bytes.extend_from_slice(
+                &keys
+                    .signer(header.proposer)
+                    .sign(&preimage[..used])
+                    .expect("fixture signing succeeds")
+                    .0,
+            );
         }
         admit(bytes, budget)
     }
@@ -936,7 +948,7 @@ mod tests {
         fn public_key(&self) -> &crate::types::PublicKey {
             self.inner.public_key()
         }
-        fn sign(&self, bytes: &[u8]) -> Signature {
+        fn sign(&self, bytes: &[u8]) -> Result<Signature, crate::crypto::SigningError> {
             self.calls
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             self.inner.sign(bytes)
@@ -1011,6 +1023,77 @@ mod tests {
         assert_eq!(output.body.payload().as_slice().as_ptr(), pointer);
         assert_eq!(output.body.availability(), &f.frame);
     }
+    struct RefuseOnceSigner<'a> {
+        inner: &'a dyn Signer,
+        refuse_at: usize,
+        attempts: std::sync::Mutex<Vec<Vec<u8>>>,
+    }
+    impl Signer for RefuseOnceSigner<'_> {
+        fn public_key(&self) -> &crate::types::PublicKey {
+            self.inner.public_key()
+        }
+        fn sign(&self, bytes: &[u8]) -> Result<Signature, crate::crypto::SigningError> {
+            let mut attempts = self.attempts.lock().unwrap();
+            let position = attempts.len();
+            attempts.push(bytes.to_vec());
+            if position == self.refuse_at {
+                Err(crate::crypto::SigningError::Refused)
+            } else {
+                self.inner.sign(bytes)
+            }
+        }
+    }
+
+    fn author_signing_refusal(refuse_at: usize, kind: crate::api::SigningKind) {
+        let f = Fixture::new();
+        let signer = RefuseOnceSigner {
+            inner: f.keys.signer(f.header.proposer),
+            refuse_at,
+            attempts: std::sync::Mutex::new(Vec::new()),
+        };
+        let payload = original_payload(&f);
+        let pointer = payload.as_slice().as_ptr();
+        let request = PayloadAuthoring::new(f.header.clone(), payload);
+        let (request, error) =
+            match request.complete(INSTANCE, &f.config, &f.budget, &f.keys.crypto, &signer) {
+                Ok(_) => panic!("a refused signature cannot publish a completed body"),
+                Err(retained) => retained,
+            };
+        assert!(
+            matches!(error, AuthoringError::SigningFailed { kind: actual, height, view, error: crate::crypto::SigningError::Refused }
+            if actual == kind && height == f.header.height && view == f.header.origin_view)
+        );
+        assert_eq!(signer.attempts.lock().unwrap().len(), refuse_at + 1);
+        let output = request
+            .complete(INSTANCE, &f.config, &f.budget, &f.keys.crypto, &signer)
+            .unwrap_or_else(|(_, error)| {
+                panic!("retry original retained signing request: {error:?}")
+            });
+        let attempts = signer.attempts.lock().unwrap();
+        assert_eq!(
+            attempts[refuse_at],
+            attempts[refuse_at + 1],
+            "retry the identical preimage"
+        );
+        assert_eq!(
+            attempts.len(),
+            f.encoded.shape().chunk_count() + 2,
+            "retain every completed signature"
+        );
+        assert_eq!(output.body.availability(), &f.frame);
+        assert_eq!(output.body.payload().as_slice().as_ptr(), pointer);
+    }
+
+    #[test]
+    fn det_signing_refusal_manifest_retains_original_request() {
+        author_signing_refusal(0, crate::api::SigningKind::PayloadManifest);
+    }
+
+    #[test]
+    fn det_signing_refusal_row_retains_completed_signatures() {
+        author_signing_refusal(2, crate::api::SigningKind::PayloadRow);
+    }
+
     #[test]
     fn author_worker_refuses_foreign_pool_wrong_key_and_mismatched_source() {
         let f = Fixture::new();

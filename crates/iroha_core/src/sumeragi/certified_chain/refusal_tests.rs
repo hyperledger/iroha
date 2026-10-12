@@ -76,9 +76,9 @@ fn original_result_frame_refusal_is_local_and_same_bytes_retry() {
             .unwrap(),
     );
     let wire = frame.encode_wire().unwrap();
-    let original = read_frame(Clone::clone(&frame), 1).unwrap();
+    let original = read_frame(Clone::clone(&frame), 1, chain.root_scope()).unwrap();
     let error: ExecutionAttemptError<ChainReadError> =
-        no_decode_allocation(|| read_frame(Clone::clone(&frame), 1))
+        no_decode_allocation(|| read_frame(Clone::clone(&frame), 1, chain.root_scope()))
             .unwrap_err()
             .into();
     let ExecutionAttemptError::Deferred(local) = error else {
@@ -90,7 +90,7 @@ fn original_result_frame_refusal_is_local_and_same_bytes_retry() {
     );
     assert!(local.allocation_refusal().is_none());
     assert_eq!(frame.encode_wire().unwrap(), wire);
-    let retry = read_frame(Clone::clone(&frame), 1).unwrap();
+    let retry = read_frame(Clone::clone(&frame), 1, chain.root_scope()).unwrap();
     assert_eq!(retry.result(), original.result());
     assert_eq!(retry.core_hash(), original.core_hash());
     assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
@@ -169,13 +169,15 @@ fn malformed_original_result_frame_is_a_completed_rejection() {
             ),
         )),
     );
-    let error: ExecutionAttemptError<ChainReadError> = read_frame(changed, 1).unwrap_err().into();
+    let error: ExecutionAttemptError<ChainReadError> = read_frame(changed, 1, chain.root_scope())
+        .unwrap_err()
+        .into();
     assert!(matches!(
         error,
         ExecutionAttemptError::Rejected(ChainReadError::Malformed { height: 1, .. })
     ));
     assert!(
-        read_frame(original, 1).is_ok(),
+        read_frame(original, 1, chain.root_scope()).is_ok(),
         "original signed frame remains valid"
     );
 }

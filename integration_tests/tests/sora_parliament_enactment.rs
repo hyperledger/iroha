@@ -357,10 +357,14 @@ pub(crate) async fn enact(
         Some(sortition_pulse_height),
     );
     assert_eq!(
-        exact_block(&client, sortition_pulse.finalized_chain_anchor.height,)
-            .await?
-            .header()
-            .hash(),
+        exact_block(
+            &client,
+            sortition_pulse.finalized_chain_anchor.height,
+            &network
+        )
+        .await?
+        .header()
+        .hash(),
         sortition_pulse.finalized_chain_anchor.block_hash,
     );
     let (expected_anchor, expected_context) = finality::certified_pulse_context(
@@ -922,7 +926,7 @@ pub(crate) async fn enact(
     );
     let mut release_pulses = Vec::with_capacity(network.peers().len());
     for peer in network.peers() {
-        release_pulses.push(pulse_at(&peer.client(), release_height).await?);
+        release_pulses.push(pulse_at(&peer.client(), release_height, &network).await?);
     }
     assert!(release_pulses.windows(2).all(|pair| pair[0] == pair[1]));
     let release_pulse = release_pulses[0].clone();
@@ -939,10 +943,14 @@ pub(crate) async fn enact(
         Some(release_height),
     );
     assert_eq!(
-        exact_block(&client, release_pulse.finalized_chain_anchor.height)
-            .await?
-            .header()
-            .hash(),
+        exact_block(
+            &client,
+            release_pulse.finalized_chain_anchor.height,
+            &network
+        )
+        .await?
+        .header()
+        .hash(),
         release_pulse.finalized_chain_anchor.block_hash,
     );
     let (expected_anchor, expected_context) =

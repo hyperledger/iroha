@@ -6,7 +6,7 @@ use iroha::{
     client::GenesisFinalityReadiness,
     crypto::{Hash, HashOf, PublicKey},
     data_model::{
-        block::BlockHeader,
+        block::{BlockHeader, consensus::SumeragiRootScope},
         id::NetworkId,
         sumeragi_finality::{FinalityValidator, SumeragiFinalityVerifier},
     },
@@ -78,19 +78,17 @@ fn parse_challenge(value: &str) -> Result<[u8; 32]> {
     Ok(challenge)
 }
 
-fn genesis_execution_hash(block: &iroha::data_model::block::SignedBlock) -> Result<String> {
-    use iroha::data_model::sumeragi_finality::{
-        CertifiedResultScope, CertifiedResultV1, result_of_preimage,
-    };
+fn genesis_execution_hash(
+    block: &iroha::data_model::block::SignedBlock,
+    root_scope: SumeragiRootScope,
+) -> Result<String> {
+    use iroha::data_model::sumeragi_finality::{CertifiedResultV1, result_of_preimage};
     let certificate = block
         .commit_certificate()
         .ok_or_else(|| eyre::eyre!("verified genesis certificate missing"))?;
     // The readiness client already authenticated this genesis and its scope. Recheck the
     // complete structural carrier and C5 before rendering its exact signed result hash.
-    let certified = CertifiedResultV1::decode(
-        certificate.result_preimage(),
-        CertifiedResultScope::TairaGlobal,
-    )?;
+    let certified = CertifiedResultV1::decode(certificate.result_preimage(), root_scope.into())?;
     certified.check_block(
         block.header().height().get(),
         block.header().creation_time_ms,
@@ -106,6 +104,7 @@ fn report(
     args: &Args,
     network_id: NetworkId,
     instance: [u8; 32],
+    root_scope: SumeragiRootScope,
     outcome: GenesisFinalityReadiness,
 ) -> Result<Report> {
     let (state, reason, attestation_norito_base64, genesis_execution_hash) = match outcome {
@@ -113,7 +112,7 @@ fn report(
             let block = iroha::data_model::block::decode_framed_signed_block(
                 &attestation.body.finality_proof.block_wire,
             )?;
-            let execution_hash = genesis_execution_hash(&block)?;
+            let execution_hash = genesis_execution_hash(&block, root_scope)?;
             let bytes = norito::to_bytes(attestation.as_ref())?;
             ensure!(
                 bytes.len() <= MAX_ATTESTATION_BYTES,
@@ -225,7 +224,13 @@ pub(super) fn run(context: &mut impl RunContext, args: Args) -> Result<()> {
         client.poll_sumeragi_genesis_readiness(challenge, &node_id, &verifier, deadline)?;
     write_report(
         context,
-        &report(&args, network_id, verifier.instance().0, outcome)?,
+        &report(
+            &args,
+            network_id,
+            verifier.instance().0,
+            verifier.root_scope(),
+            outcome,
+        )?,
     )
 }
 
@@ -275,19 +280,18 @@ mod tests {
         use iroha_data_model::{
             block::{CommitCertificate, decode_framed_signed_block},
             sumeragi_finality::{
-                CertifiedResultError, CertifiedResultScope, CertifiedResultV1,
-                SccpFinalityHeaderV1, certified_result::X_LEN,
-                test_fixtures::NativeFinalityFixture,
+                CertifiedResultError, CertifiedResultV1, SccpFinalityHeaderV1,
+                certified_result::X_LEN, test_fixtures::NativeFinalityFixture,
             },
         };
         let fixture = NativeFinalityFixture::new();
         let mut block = decode_framed_signed_block(&fixture.genesis_proof().block_wire).unwrap();
         let original = block.commit_certificate().unwrap().clone();
         let certified =
-            CertifiedResultV1::decode(original.result_preimage(), CertifiedResultScope::NonGlobal)
+            CertifiedResultV1::decode(original.result_preimage(), fixture.root_scope().into())
                 .unwrap();
         assert_eq!(
-            genesis_execution_hash(&block).unwrap(),
+            genesis_execution_hash(&block, fixture.root_scope()).unwrap(),
             hex::encode(certified.result().unwrap().0)
         );
         for bytes in [
@@ -300,7 +304,7 @@ mod tests {
                 bytes,
                 Vec::new(),
             )));
-            assert!(genesis_execution_hash(&block).is_err());
+            assert!(genesis_execution_hash(&block, fixture.root_scope()).is_err());
         }
         let (header, body) = certified.into_parts();
         let wrong_time = SccpFinalityHeaderV1::inactive(
@@ -310,7 +314,7 @@ mod tests {
         )
         .unwrap();
         let changed =
-            CertifiedResultV1::new(wrong_time, body, CertifiedResultScope::NonGlobal).unwrap();
+            CertifiedResultV1::new(wrong_time, body, fixture.root_scope().into()).unwrap();
         block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
             Vec::new(),
             Vec::new(),
@@ -318,13 +322,13 @@ mod tests {
             Vec::new(),
         )));
         assert!(matches!(
-            genesis_execution_hash(&block)
+            genesis_execution_hash(&block, fixture.root_scope())
                 .unwrap_err()
                 .downcast_ref::<CertifiedResultError>(),
             Some(CertifiedResultError::BlockMismatch)
         ));
         block.set_commit_certificate(None);
-        assert!(genesis_execution_hash(&block).is_err());
+        assert!(genesis_execution_hash(&block, fixture.root_scope()).is_err());
     }
     #[test]
     fn cli_requires_finite_timeout_and_all_independent_anchors() {
@@ -377,6 +381,7 @@ mod tests {
                 &args,
                 network,
                 [7; 32],
+                SumeragiRootScope::Global,
                 GenesisFinalityReadiness::NotReady(reason),
             )
             .unwrap();
@@ -398,6 +403,7 @@ mod tests {
             &args,
             network,
             [7; 32],
+            SumeragiRootScope::Global,
             GenesisFinalityReadiness::NotReady(Reason::GenesisUncommitted),
         )
         .unwrap();
@@ -414,6 +420,7 @@ mod tests {
             &args,
             network,
             [7; 32],
+            SumeragiRootScope::Global,
             GenesisFinalityReadiness::NotReady(Reason::GenesisUncommitted),
         )
         .unwrap();

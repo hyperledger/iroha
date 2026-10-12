@@ -2105,6 +2105,8 @@ fn native_ingress_with_registered_route_peers_and_chain_for_test(
             &view.zk().gas,
             draft.payload(),
             1_002,
+            iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                .expect("original native quote time"),
             3,
             Some(DataSpaceId::UNIVERSAL),
         )
@@ -2214,6 +2216,8 @@ fn advance_registered_route_fixture_for_test(
                 &view.zk().gas,
                 draft.payload(),
                 created_ms,
+                iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                    .expect("original native quote time"),
                 height,
                 Some(DataSpaceId::UNIVERSAL),
             )
@@ -2341,6 +2345,8 @@ fn executed_history_test_fixture(
             &view.zk().gas,
             draft.payload(),
             creation_time,
+            iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                .expect("original native quote time"),
             2,
             Some(DataSpaceId::UNIVERSAL),
         )
@@ -4077,7 +4083,14 @@ async fn ledger_state_endpoints_return_exact_native_finality_in_json_and_norito(
     let (app, _) = native_ledger_state_app(iroha_core::sumeragi::test_chain::Signers::Quorum);
     let expected_proof = iroha_core::sumeragi::finality::build_proof(&app.state.view(), 2).unwrap();
     let expected_root = expected_proof
-        .decode_checked()
+        .decode_checked(
+            app.state
+                .view()
+                .native_execution_tip()
+                .unwrap()
+                .root_scope()
+                .into(),
+        )
         .unwrap()
         .execution()
         .post_state_root;
@@ -4205,7 +4218,14 @@ async fn state_proof_http_roundtrip_supports_json_and_norito() {
     let (app, _) = native_ledger_state_app(iroha_core::sumeragi::test_chain::Signers::Quorum);
     let expected_proof = iroha_core::sumeragi::finality::build_proof(&app.state.view(), 2).unwrap();
     let expected_root = expected_proof
-        .decode_checked()
+        .decode_checked(
+            app.state
+                .view()
+                .native_execution_tip()
+                .unwrap()
+                .root_scope()
+                .into(),
+        )
         .unwrap()
         .execution()
         .post_state_root;

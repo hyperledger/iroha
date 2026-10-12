@@ -79,7 +79,15 @@ pub struct AmxVerifiedBlock {
     /// Certified result `R`.
     pub result: [u8; 32],
     /// The verified preimage of `R`.
-    pub commitment: ExecutionResultCommitment,
+    pub certified_result: CertifiedResultV1,
+}
+
+impl AmxVerifiedBlock {
+    /// Borrow the original certified execution body.
+    #[must_use]
+    pub const fn commitment(&self) -> &ExecutionResultCommitment {
+        self.certified_result.commitment()
+    }
 }
 
 /// What a handoff proof did to a tracker.
@@ -223,10 +231,9 @@ impl AmxForeignInstanceV1 {
         )?;
         // AMX tracks both the global coordinator and foreign roots. Preserve the original
         // registered scope; the offered X cannot select or widen that authority.
-        let commitment = CertifiedResultV1::decode(&block.result_preimage, self.result_scope)
-            .map_err(super::certified_result_error)?
-            .into_parts()
-            .1;
+        let certified_result = CertifiedResultV1::decode(&block.result_preimage, self.result_scope)
+            .map_err(super::certified_result_error)?;
+        let commitment = certified_result.commitment();
         need(
             commitment.height == header.height && commitment.schedule.current == *context,
             "the result preimage names another height or epoch context",
@@ -237,7 +244,7 @@ impl AmxForeignInstanceV1 {
             epoch: header.epoch.epoch,
             block_hash: block_hash.0,
             result,
-            commitment,
+            certified_result,
         })
     }
 
@@ -250,7 +257,7 @@ impl AmxForeignInstanceV1 {
         let root = proof.claimed_root()?;
         let verified = self.verify_block(&proof.block)?;
         need(
-            root == verified.commitment.execution.ordinary_writes_root,
+            root == verified.commitment().execution.ordinary_writes_root,
             "the record is not in the block's write set",
         )?;
         Ok(verified)
@@ -276,7 +283,7 @@ impl AmxForeignInstanceV1 {
             "a handoff is the last block of its epoch",
         )?;
         let boundary = verified
-            .commitment
+            .commitment()
             .schedule
             .boundary
             .as_ref()

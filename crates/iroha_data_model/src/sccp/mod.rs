@@ -19,12 +19,12 @@
 
 pub mod bounded_bytes;
 pub mod commitment;
-pub mod committee;
 pub mod control;
 pub mod deployment;
 pub mod escrow;
 pub mod events;
-pub mod finality;
+pub mod fast_pause;
+pub mod generation;
 pub mod governance;
 pub mod inbound;
 pub mod light_client;

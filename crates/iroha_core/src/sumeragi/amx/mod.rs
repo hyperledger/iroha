@@ -85,17 +85,18 @@ fn amx_error(error: AmxError, transaction: &mut StateTransaction<'_, '_>) -> Err
     Error::InvariantViolation(format!("AMX: {error}").into())
 }
 
-/// Project exact refusal fields only after the original decoder captured local provenance.
-/// The sticky State owner retains this completed classification and never reclassifies the
-/// numbers against a different budget. No allocation-pool release is manufactured here.
+/// Retain the original captured decoder owner after its scope retires.
+/// Sticky State and native graph custody keep its opaque scope identity; copied
+/// diagnostic numbers never replace the cause or create a pool release source.
 pub(crate) fn classified_decode_refusal(
     error: &AmxError,
-) -> Option<norito::core::DecodeResourceError> {
+) -> Option<norito::core::DecodeLocalRefusal> {
     let AmxError::Resource(original) = error else {
         return None;
     };
-    crate::execution_attempt::canonical_decode_deferral(original)?;
-    original.error().decode_resource_error()
+    crate::execution_attempt::canonical_decode_deferral(original)?
+        .decode_refusal()
+        .cloned()
 }
 
 /// Record `record` as a World write of the executing block.

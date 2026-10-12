@@ -4302,6 +4302,32 @@
      "note": "Accelerator capability flag name."
     }
    }
+  },
+  "vole-in-the-head": {
+   "description": "State-free FAEST v3.0-derived VOLE-in-the-head backend, owned only by crates/iroha_zkp_vole. Experimental and unqualified; distinct from Halo2, Bulletproofs, lattice PCS and Spartan/Nova, with no Core integration or binding protocol effect.",
+   "uses": {
+    "keccak": {
+     "class": "proof-internal",
+     "note": "hash.rs uses keccak::f1600 as the SHAKE sponge permutation; this is not a Keccak-256 identity digest or an implemented application constraint relation."
+    },
+    "shake": {
+     "class": "proof-internal",
+     "note": "hash.rs owns SHAKE128 at lambda=128 and SHAKE256 at lambda=192/256, including the H0-H5 random oracles and bare Xof. BAVC commitments, H2 Fiat-Shamir challenges and H3 proof randomness use this owner with caller-chosen namespace prefixes and oracle suffix bytes. CRT table-digest labels and independent component/conformance tests also name SHAKE. Component conformance does not qualify a proof profile."
+    }
+   }
+  },
+  "parliament-ballot": {
+   "description": "Candidate Parliament registration and vote relations over the distinct VOLE-in-the-head backend, owned by crates/iroha_parliament_ballot_proof. Experimental and unqualified; current relation modules are TODO scaffolding, PROFILE_QUALIFIED is false, and no Core ballot or governance decision uses this crate.",
+   "uses": {
+    "keccak": {
+     "class": "label-only",
+     "note": "keccak_relation.rs documents planned Keccak-f[1600] constraints over VOLE-committed bits; its implementation is still TODO."
+    },
+    "shake": {
+     "class": "label-only",
+     "note": "keccak_relation.rs documents planned SHAKE256 evaluations inside candidate relations. No application relation or selected/qualified semantic profile is established by this label."
+    }
+   }
   }
  },
  "scan": {
@@ -4310,7 +4336,7 @@
   "exclude_files": ["scripts/check_zk_primitive_workloads.py", "scripts/tests/check_zk_primitive_workloads_test.py", "scripts/zk_blake3_reference.py", "scripts/zk_bn254_poseidon_reference.py", "scripts/zk_pq_kat_reference.py"],
   "exclude_reason": "The checker, its reference modules and its tests name every primitive as data. They are still scanned for pinned commitment values and commitment types.",
   "scope": {
-   "file_granularity_prefixes": ["crates/fastpq_isi/", "crates/fastpq_prover/", "crates/iroha_zkp_halo2/", "crates/iroha_zkp_poseidon/", "crates/kaigi_zk/", "crates/zk_ace_prover/", "crates/iroha_fhe/", "crates/soranet_pq/", "crates/iroha_core_privacy/", "crates/iroha_core_zk/", "crates/iroha_crypto/", "crates/iroha_plonk/", "crates/iroha_plonk_gadgets/", "crates/iroha_plonk_oracle/", "crates/iroha_pasta/", "crates/ivm/", "crates/ivm_abi/", "crates/iroha_core/src/smartcontracts/ivm/"],
+   "file_granularity_prefixes": ["crates/fastpq_isi/", "crates/fastpq_prover/", "crates/iroha_zkp_halo2/", "crates/iroha_zkp_poseidon/", "crates/iroha_zkp_vole/", "crates/iroha_parliament_ballot_proof/", "crates/kaigi_zk/", "crates/zk_ace_prover/", "crates/iroha_fhe/", "crates/soranet_pq/", "crates/iroha_core_privacy/", "crates/iroha_core_zk/", "crates/iroha_crypto/", "crates/iroha_plonk/", "crates/iroha_plonk_gadgets/", "crates/iroha_plonk_oracle/", "crates/iroha_pasta/", "crates/ivm/", "crates/ivm_abi/", "crates/iroha_core/src/smartcontracts/ivm/"],
    "file_granularity_path_roots": ["crates/", "IrohaSwift/", "kotlin/", "java/", "javascript/", "python/", "csharp/", "integration_tests/"],
    "file_granularity_path_pattern": "privacy|confidential|kaigi|zk|fastpq|ram_?lfe|fhe|mkhe|x509|axt|nullifier|spent|shield|halo2|poseidon|stark|vega|orchard|masp|pgc|verange|jindo|lantern|fcmp|soracloud|bfv|bgv|keyed_commitment|authority_registry|execution_proofs|contract_state_proof",
    "tree_unit_overrides": [
@@ -4341,6 +4367,14 @@
    {
     "pattern": "kagemusha",
     "consumer": "kagemusha"
+   },
+   {
+    "pattern": "^crates/iroha_zkp_vole/",
+    "consumer": "vole-in-the-head"
+   },
+   {
+    "pattern": "^crates/iroha_parliament_ballot_proof/",
+    "consumer": "parliament-ballot"
    },
    {
     "pattern": "^crates/soranet_pq/",
@@ -5431,6 +5465,8 @@
    "crates/iroha_p2p/src/peer.rs": ["argon2", "iroha-hash", "pedersen", "poseidon"],
    "crates/iroha_p2p/src/peer_tests.rs": ["pedersen", "poseidon"],
    "crates/iroha_p2p/tests/integration/p2p_consensus_caps.rs": ["pedersen", "poseidon"],
+   "crates/iroha_parliament_ballot_proof/src/keccak_relation.rs": ["keccak", "shake"],
+   "crates/iroha_parliament_ballot_proof/src/lib.rs": ["keccak"],
    "crates/iroha_pasta/src/curve/hash_to_curve.rs": ["blake2b"],
    "crates/iroha_pasta/src/curve/mod.rs": ["poseidon"],
    "crates/iroha_pasta/src/lib.rs": ["poseidon"],
@@ -5781,6 +5817,18 @@
    "crates/iroha_zkp_poseidon/src/poseidon/bn254_v1.rs": ["poseidon", "sha2-256"],
    "crates/iroha_zkp_poseidon/src/poseidon/bn254_v1_reference_vectors_tests.rs": ["poseidon"],
    "crates/iroha_zkp_poseidon/src/poseidon/bn254_v1_tests.rs": ["poseidon"],
+   "crates/iroha_zkp_vole/src/bavc.rs": ["shake"],
+   "crates/iroha_zkp_vole/src/crt.rs": ["shake"],
+   "crates/iroha_zkp_vole/src/crt/generated.rs": ["shake"],
+   "crates/iroha_zkp_vole/src/hash.rs": ["keccak", "shake"],
+   "crates/iroha_zkp_vole/src/randomness.rs": ["shake"],
+   "crates/iroha_zkp_vole/src/transcript.rs": ["shake"],
+   "crates/iroha_zkp_vole/tests/common/mod.rs": ["shake"],
+   "crates/iroha_zkp_vole/tests/conformance_bavc.rs": ["shake"],
+   "crates/iroha_zkp_vole/tests/conformance_crt.rs": ["shake"],
+   "crates/iroha_zkp_vole/tests/conformance_hash.rs": ["shake"],
+   "crates/iroha_zkp_vole/tests/namespace_layout.rs": ["shake"],
+   "crates/iroha_zkp_vole/tests/proof_generic.rs": ["shake"],
    "crates/irohad/src/main.rs": ["blake2b", "blake3", "iroha-hash", "pedersen", "poseidon", "sha2-256", "sm3"],
    "crates/irohad/src/main/runtime_budget_and_config_tests.rs": ["blake3", "poseidon"],
    "crates/irohad/src/soracloud_runtime.rs": ["blake2b", "blake3", "iroha-hash", "sha3"],
@@ -6209,7 +6257,7 @@
    "crates/iroha_cli#other": ["blake2b", "blake3", "hkdf", "iroha-hash", "keccak", "scrypt", "sha1", "sha2-256", "sha3", "sm3"],
    "crates/iroha_config#other": ["argon2", "blake2b", "blake3", "iroha-hash", "scrypt", "sha2-256", "sm3"],
    "crates/iroha_contract_deploy#other": ["iroha-hash"],
-   "crates/iroha_core#other": ["blake2b", "blake3", "hkdf", "iroha-hash", "keccak", "lthash", "sha2-256", "sha3"],
+   "crates/iroha_core#other": ["blake2b", "blake3", "hkdf", "iroha-hash", "lthash", "sha2-256", "sha3"],
    "crates/iroha_core_timed_ovn#other": ["iroha-hash", "sha2-256"],
    "crates/iroha_data_model#other": ["blake2b", "blake3", "hkdf", "hmac", "iroha-hash", "keccak", "lthash", "sha2-256", "sha3", "sm3"],
    "crates/iroha_deploy#other": ["blake3", "iroha-hash", "scrypt", "sha2-256"],

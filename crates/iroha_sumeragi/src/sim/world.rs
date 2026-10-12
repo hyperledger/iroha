@@ -2727,6 +2727,14 @@ fn describe_event(event: &Event) -> String {
         Event::ManifestRejected { manifest } => {
             format!("ManifestRejected h{}", manifest.header.height)
         }
+        Event::SigningFailed {
+            kind,
+            height,
+            view,
+            error,
+        } => {
+            format!("SigningFailed {kind:?} h{height} v{view} {error}")
+        }
         Event::PayloadReady { req } => format!("PayloadReady req{req}"),
         Event::Executed { req, outcome, .. } => format!("Executed req{req} {outcome:?}"),
         Event::BodyAvailable { block } => format!("BodyAvailable h{}", block.header().height),

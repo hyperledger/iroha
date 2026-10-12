@@ -1,9 +1,9 @@
 //! L1 checks both actual snapshot cuts and preserves original local admission refusal.
 
 use super::*;
-use crate::smartcontracts::isi::sccp::{committee_owner::RetainedSccpCommitteeGeneration, params};
+use crate::smartcontracts::isi::sccp::{generation_record::RetainedSccpGeneration, params};
 use iroha_config::parameters::actual::Nexus;
-use std::time::Duration;
+use std::{ops::Deref, time::Duration};
 
 fn policy() -> Nexus {
     let parameters = iroha_data_model::sccp::params::SccpParametersV1::taira_default();
@@ -43,11 +43,11 @@ fn undo_only_retained_liability_is_checked_against_its_complete_original_cut() {
         .view()
         .get(&1)
         .unwrap()
-        .record()
+        .deref()
         .clone();
     original.grace_ms += 1;
     original.liable_until_lc += 1;
-    let original = RetainedSccpCommitteeGeneration::admit_claim(&original, &budget).unwrap();
+    let original = RetainedSccpGeneration::admit(&original, &budget).unwrap();
     {
         let mut block = world.block();
         block

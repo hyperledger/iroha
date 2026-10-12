@@ -311,7 +311,7 @@ pub fn build_chain(
             .collect();
         for (index, signer) in members.into_iter().take(committee.q()) {
             indices.push(index);
-            sigs.push(signer.sign(&msg));
+            sigs.push(signer.sign(&msg).expect("fixture signing succeeds"));
         }
         assert_eq!(
             indices.len(),

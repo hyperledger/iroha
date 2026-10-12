@@ -198,16 +198,15 @@ fn bad_quorum_parent_and_result_are_rejected_without_partial_progress() {
     changed.certificate.consensus_header = norito::encode_canonical(&header).unwrap();
     assert!(state.apply(&changed).is_err());
     let mut changed = anchor.clone();
-    let (finality_header, mut result) = CertifiedResultV1::decode(
+    let (original_x, mut result) = CertifiedResultV1::decode(
         &changed.certificate.result_preimage,
-        CertifiedResultScope::NonGlobal,
+        crate::sumeragi_finality::CertifiedResultScope::NonGlobal,
     )
     .unwrap()
     .into_parts();
     result.execution.world_state_root = Hash::new(b"unrelated state");
     changed.certificate.result_preimage =
-        CertifiedResultV1::new(finality_header, result, CertifiedResultScope::NonGlobal)
-            .unwrap()
+        CertifiedResultV1::from_parts_unvalidated(original_x, result)
             .preimage()
             .unwrap();
     assert!(state.apply(&changed).is_err());

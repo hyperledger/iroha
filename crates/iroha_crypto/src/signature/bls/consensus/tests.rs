@@ -1543,3 +1543,55 @@ mod fixture {
             .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
     }
 }
+
+#[test]
+fn single_verifier_matches_vectors_and_rejects_malformed_points_without_allocations() {
+    for key_index in 0..3 {
+        let key = bytes::<48>(PUBLIC_KEYS[key_index]);
+        let wrong_key = bytes::<48>(PUBLIC_KEYS[(key_index + 1) % 3]);
+        let admitted = admitted_key(key_index);
+        for message in 0..3 {
+            let digest = standard_digest(message);
+            let signature = bytes::<96>(SIGNATURES[key_index][message]);
+            assert!(without_allocations(|| verify_public_key(
+                &key, &digest, &signature
+            )));
+            assert!(without_allocations(|| verify(
+                &admitted, &digest, &signature
+            )));
+            assert!(!without_allocations(|| verify_public_key(
+                &key,
+                &standard_digest((message + 1) % 3),
+                &signature
+            )));
+            assert!(!without_allocations(|| verify_public_key(
+                &wrong_key, &digest, &signature
+            )));
+            for (_, bad) in rejected_public_keys() {
+                assert!(!without_allocations(|| verify_public_key(
+                    &bad, &digest, &signature
+                )));
+            }
+            for (_, bad) in rejected_signatures() {
+                assert!(!without_allocations(|| verify_public_key(
+                    &key, &digest, &bad
+                )));
+                assert!(!without_allocations(|| verify(&admitted, &digest, &bad)));
+            }
+        }
+    }
+    for context in ConsensusContext::ALL {
+        let preimage = sample_preimage(context);
+        let digest = ConsensusDigest::from_preimage(&preimage).unwrap();
+        let signature = sign(&private_key(0), &digest).unwrap();
+        let key = bytes::<48>(PUBLIC_KEYS[0]);
+        assert!(without_allocations(|| verify_public_key(
+            &key, &digest, &signature
+        )));
+        let generic = crate::Signature::try_new(&private_key(0), &preimage).unwrap();
+        let generic = generic.payload().try_into().unwrap();
+        assert!(!without_allocations(|| verify_public_key(
+            &key, &digest, &generic
+        )));
+    }
+}

@@ -3066,7 +3066,7 @@ seiyaku DebugResult { permission Admin;
             transaction::executable::{ContractArgumentRecord, ContractInvocation},
         };
         use iroha_core::{
-            smartcontracts::code,
+            smartcontracts::{Execute as _, code},
             state::World,
             sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
         };
@@ -3088,10 +3088,6 @@ seiyaku DebugResult { permission Admin;
         let mut permissions = Permissions::new();
         assert!(permissions.insert(Permission::new(
             "CanManageSmartContractCode".to_owned(),
-            iroha_primitives::json::Json::new(()),
-        )));
-        assert!(permissions.insert(Permission::new(
-            "Admin".to_owned(),
             iroha_primitives::json::Json::new(()),
         )));
         world
@@ -3204,6 +3200,15 @@ seiyaku DebugResult { permission Admin;
                 transaction,
             )
             .expect("activate contract instance");
+            Grant::account_permission(
+                iroha::executor_data_model::permission::smart_contract::CanUseContractPermission {
+                    contract: contract_address.clone(),
+                    permission: "Admin".parse().expect("declared contract permission"),
+                },
+                authority.clone(),
+            )
+            .execute(&authority, transaction)
+            .expect("grant this instance's exact declared permission");
         });
         let state = chain.state();
         let tx = TransactionBuilder::new(
@@ -3228,7 +3233,8 @@ seiyaku DebugResult { permission Admin;
             Some(overlay.instruction_count() as u64)
         );
         let expected_queue_json =
-            norito::json::to_value(&overlay.instruction_slice().to_vec()).expect("serialize queue");
+            norito::json::to_value(&overlay.instructions().collect::<Vec<_>>())
+                .expect("serialize queue");
         assert_eq!(
             output.get("queued_instructions"),
             Some(&expected_queue_json)

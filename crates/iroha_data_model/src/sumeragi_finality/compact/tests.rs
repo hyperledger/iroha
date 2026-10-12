@@ -187,7 +187,7 @@ fn only_incumbent_boundary_certificate_installs_successor() {
     assert_eq!(reader.verify(&successor).unwrap().height(), 4);
 
     let mut changed = successor.clone();
-    let (finality_header, mut result) =
+    let (original_x, mut result) =
         CertifiedResultV1::decode(&changed.result_preimage, CertifiedResultScope::TairaGlobal)
             .unwrap()
             .into_parts();
@@ -198,11 +198,9 @@ fn only_incumbent_boundary_certificate_installs_successor() {
     if let ScheduledSlot::Ready(slot) = &mut result.schedule.after_next {
         slot.epoch = result.schedule.current.clone();
     }
-    changed.result_preimage =
-        CertifiedResultV1::new(finality_header, result, CertifiedResultScope::TairaGlobal)
-            .unwrap()
-            .preimage()
-            .unwrap();
+    changed.result_preimage = CertifiedResultV1::from_parts_unvalidated(original_x, result)
+        .preimage()
+        .unwrap();
     assert!(reader.verify(&changed).is_err());
 
     // Existing fully verified native checkpoints already convey successor authority.

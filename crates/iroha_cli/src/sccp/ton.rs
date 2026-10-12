@@ -5,24 +5,30 @@
 //! internal messages from the user's deployed `v5r1` wallet, signed with an owner-only Ed25519
 //! key file.
 
-use eyre::{Result, eyre};
+use eyre::{Result, ensure, eyre};
 use iroha_sccp::{
-    api::{SccpMessageProofBundleV1, SccpRotationChainV1},
-    v1::{proof::DestinationV1, roster::RosterStateV1},
+    api::{SccpMessageProofBundleV1, SccpRotationV1},
+    v1::{
+        committee::{CommitteeStateV1, committee_root, is_valid_committee_size},
+        destination::DestinationFlavor,
+        proof::DestinationV1,
+        ton_cell::Cell,
+    },
 };
 use iroha_sccp_rpc::{
     FailoverPolicy,
     ton::{AccountId, BlockIdExt, LiteClient, LiteClientConfig, LiteServerSet},
 };
 use iroha_sccp_wallet::pure::{
-    bundle::{BundlePurposeV1, DestinationContextV1, verify_message_bundle},
-    rotation::verify_rotation_chain,
+    bundle::{BundlePurposeV1, CertificateUseV1, DestinationContextV1, verify_message_bundle},
+    rotation::verify_rotation_steps,
     ton::{
         SEND_MODE_PAY_FEES_SEPARATELY_IGNORE_ERRORS, TonAccountV1, TonWalletKeyV1, TvmIntV1,
-        WALLET_V5R1_MAINNET_ID, finalize_body, get_method_id, internal_message, parse_int_stack,
-        quote_with_margin, rotate_body, stack_of_ints, wallet_v5_transfer,
+        TvmStackValueV1, WALLET_V5R1_MAINNET_ID, checkpoint_body, finalize_body, get_method_id,
+        internal_message, parse_stack, quote_with_margin, stack_of_ints, wallet_v5_transfer,
     },
 };
+use std::collections::BTreeMap;
 
 /// Lifetime of a wallet external message (seconds).
 const EXTERNAL_LIFETIME_S: u32 = 120;
@@ -59,32 +65,62 @@ fn last_block(lite: &LiteClient) -> Result<BlockIdExt> {
         .last)
 }
 
-/// Run get method `method` of `account` with integer `args` at the last block.
+/// Run a current result stack at one explicitly selected masterchain block.
+fn run_stack_at(
+    lite: &LiteClient,
+    at: BlockIdExt,
+    account: &TonAccountV1,
+    method: &str,
+    args: &[i64],
+) -> Result<Vec<TvmStackValueV1>> {
+    let result = lite
+        .run_smc_method(
+            4,
+            at,
+            AccountId {
+                workchain: 0,
+                address: *account,
+            },
+            get_method_id(method),
+            stack_of_ints(args).map_err(|e| eyre!("{method} arguments: {e}"))?,
+        )
+        .map_err(|e| eyre!("runSmcMethod {method}: {e}"))?;
+    ensure!(
+        result.exit_code == 0 || result.exit_code == 1,
+        "{method} exited with code {}",
+        result.exit_code
+    );
+    parse_stack(
+        &result
+            .result
+            .ok_or_else(|| eyre!("{method} returned no stack"))?,
+    )
+    .map_err(|e| eyre!("{method} result: {e}"))
+}
+fn integer_stack(values: Vec<TvmStackValueV1>) -> Result<Vec<Option<TvmIntV1>>> {
+    values
+        .into_iter()
+        .map(|value| match value {
+            TvmStackValueV1::Null => Ok(None),
+            TvmStackValueV1::Integer(value) => Ok(Some(value)),
+            TvmStackValueV1::Cell(_) => Err(eyre!("expected an integer result, received a cell")),
+        })
+        .collect()
+}
+/// Run an existing integer-only wallet/quote get method at the latest block.
 fn run_method(
     lite: &LiteClient,
     account: &TonAccountV1,
     method: &str,
     args: &[i64],
 ) -> Result<Vec<Option<TvmIntV1>>> {
-    let result = lite
-        .run_smc_method(
-            4,
-            last_block(lite)?,
-            AccountId {
-                workchain: 0,
-                address: *account,
-            },
-            get_method_id(method),
-            stack_of_ints(args).map_err(|error| eyre!("{method} arguments: {error}"))?,
-        )
-        .map_err(|error| eyre!("runSmcMethod {method}: {error}"))?;
-    if result.exit_code != 0 && result.exit_code != 1 {
-        return Err(eyre!("{method} exited with code {}", result.exit_code));
-    }
-    let stack = result
-        .result
-        .ok_or_else(|| eyre!("{method} returned no stack"))?;
-    parse_int_stack(&stack).map_err(|error| eyre!("{method} result: {error}"))
+    integer_stack(run_stack_at(
+        lite,
+        last_block(lite)?,
+        account,
+        method,
+        args,
+    )?)
 }
 
 fn int_at(values: &[Option<TvmIntV1>], index: usize, what: &str) -> Result<TvmIntV1> {
@@ -153,8 +189,10 @@ impl TonWallet {
             &self.key,
         )
         .map_err(|error| eyre!("wallet message: {error}"))?;
+        let hash = iroha_sccp::ton_boc_single_root_hash_v1(&boc)
+            .ok_or_else(|| eyre!("wallet message has no canonical single root"))?;
         let status = lite
-            .send_message(boc.clone())
+            .send_message(boc)
             .map_err(|error| eyre!("sendMessage: {error}"))?;
         if status.status != 1 {
             return Err(eyre!(
@@ -162,7 +200,7 @@ impl TonWallet {
                 status.status
             ));
         }
-        Ok(iroha_sccp::ton_boc_single_root_hash_v1(&boc).unwrap_or_default())
+        Ok(hash)
     }
 }
 
@@ -192,26 +230,34 @@ impl TonDestination {
         &self.lite
     }
 
-    /// The minter's roster state from `get_sccp_state` (§5.3.6).
-    pub(super) fn roster_state(&self) -> Result<RosterStateV1> {
-        let values = run_method(&self.lite, &self.minter, "get_sccp_state", &[])?;
-        let u256 = |index, what| {
-            int_at(&values, index, what)?
-                .to_u256()
-                .ok_or_else(|| eyre!("`{what}` is not a 256-bit value"))
-        };
-        let u64_at = |index, what| {
-            int_at(&values, index, what)?
-                .to_u64()
-                .ok_or_else(|| eyre!("`{what}` is not a u64"))
-        };
-        Ok(RosterStateV1 {
-            digest: u256(5, "digest")?,
-            generation: u64_at(6, "generation")?,
-            valid_until_ms: u64_at(7, "validUntilMs")?,
-            prev_digest: u256(8, "prevDigest")?,
-            prev_valid_until_ms: u64_at(9, "prevValidUntilMs")?,
-        })
+    fn observe(&self) -> Result<Observation> {
+        let at = last_block(&self.lite)?;
+        let state = integer_stack(run_stack_at(
+            &self.lite,
+            at,
+            &self.minter,
+            "get_sccp_state",
+            &[],
+        )?)?;
+        let committee = run_stack_at(&self.lite, at, &self.minter, "get_sccp_committee", &[])?;
+        let checkpoints = integer_stack(run_stack_at(
+            &self.lite,
+            at,
+            &self.minter,
+            "get_sccp_checkpoints",
+            &[],
+        )?)?;
+        parse_observation(
+            self.destination.route_revision,
+            &state,
+            committee,
+            &checkpoints,
+            self.now_ms()?,
+        )
+    }
+    /// The actual stored committee and equivocation latch at one minter observation.
+    pub(super) fn committee_state(&self) -> Result<CommitteeStateV1> {
+        Ok(self.observe()?.committee)
     }
 
     /// Get method `method` of the minter returning one value in nanotons (a required-value
@@ -235,73 +281,239 @@ impl TonDestination {
         ) * 1_000)
     }
 
-    /// Verify `bundle` for this deployment and send `sccp_finalize` from `wallet` with the
-    /// minter's `finalize_required_value` plus a margin.
+    /// Verify the actual current source and send a finalization from the selected wallet.
     pub(super) fn finalize(
         &self,
         bundle: &SccpMessageProofBundleV1,
-        taira_network_id: [u8; 32],
+        network: [u8; 32],
+        instance: [u8; 32],
         wallet: &TonWallet,
     ) -> Result<[u8; 32]> {
-        let context = DestinationContextV1 {
-            taira_network_id,
-            destination: self.destination,
-            roster_state: self.roster_state()?,
-            now_ms: self.now_ms()?,
+        let observed = self.observe()?;
+        ensure!(
+            observed.network == network && observed.instance == instance,
+            "Taira and minter identities differ"
+        );
+        ensure!(!observed.paused, "the destination is paused");
+        let source = if observed
+            .checkpoints
+            .contains_key(&bundle.certificate.height)
+        {
+            CertificateUseV1::Checkpoint
+        } else {
+            CertificateUseV1::Inline
         };
-        let verified = verify_message_bundle(bundle, &context, BundlePurposeV1::Finalize).map_err(
-            |error| eyre!("the proof bundle does not verify for this deployment: {error}"),
-        )?;
-        let nonce = i64::try_from(verified.nonce()).map_err(|_| eyre!("nonce overflows"))?;
+        let verified = verify_message_bundle(
+            bundle,
+            &observed.context(self.destination),
+            BundlePurposeV1::Finalize,
+            source,
+        )
+        .map_err(|e| eyre!("proof bundle: {e}"))?;
+        let nonce =
+            i64::try_from(verified.nonce()).map_err(|_| eyre!("nonce overflows quote argument"))?;
         let value = self.quoted_value("finalize_required_value", &[nonce])?;
         let body = finalize_body(&verified, verified.nonce(), wallet.address())
-            .map_err(|error| eyre!("finalize message: {error}"))?;
+            .map_err(|e| eyre!("finalize: {e}"))?;
         let message = internal_message(&self.minter, value, true, body, None)
-            .map_err(|error| eyre!("internal message: {error}"))?;
+            .map_err(|e| eyre!("internal message: {e}"))?;
         wallet.send(
             &self.lite,
             &[(message, SEND_MODE_PAY_FEES_SEPARATELY_IGNORE_ERRORS)],
         )
     }
-
-    /// Verify `chain` from the minter's roster to `target_generation` and send one
-    /// `sccp_rotate` per rotation from `wallet`, in order and in one wallet message, each with
-    /// the minter's `rotate_required_value` plus a margin. Returns the sent message hashes
-    /// (none when the minter's roster is current).
+    /// Verify a genuine checkpoint chain and send its current TON checkpoint messages in order.
     pub(super) fn rotate(
         &self,
-        chain: &SccpRotationChainV1,
-        target_generation: u64,
-        taira_network_id: [u8; 32],
+        steps: &[SccpRotationV1],
+        target: u64,
+        network: [u8; 32],
+        instance: [u8; 32],
         wallet: &TonWallet,
     ) -> Result<Vec<[u8; 32]>> {
-        let plan = verify_rotation_chain(
-            chain,
-            &self.roster_state()?,
-            target_generation,
-            &taira_network_id,
-            self.now_ms()?,
-        )
-        .map_err(|error| eyre!("the rotation chain does not verify: {error}"))?;
-        if plan.rotations.is_empty() {
+        let observed = self.observe()?;
+        ensure!(
+            observed.network == network && observed.instance == instance,
+            "Taira and minter identities differ"
+        );
+        let plan = verify_rotation_steps(steps, &observed.context(self.destination), target)
+            .map_err(|e| eyre!("committee checkpoint chain: {e}"))?;
+        if plan.is_empty() {
             return Ok(Vec::new());
         }
-        // A rotation never raises the quote: it tops the minter up to its floor.
-        let value = self.quoted_value("rotate_required_value", &[])?;
+        let value = self.quoted_value("checkpoint_required_value", &[])?;
         let messages = plan
-            .rotations
+            .steps()
             .iter()
-            .map(|rotation| {
-                let body = rotate_body(rotation, rotation.attestation.height, wallet.address())
-                    .map_err(|error| eyre!("rotate message: {error}"))?;
-                let message = internal_message(&self.minter, value, true, body, None)
-                    .map_err(|error| eyre!("internal message: {error}"))?;
-                Ok((message, SEND_MODE_PAY_FEES_SEPARATELY_IGNORE_ERRORS))
+            .map(|step| {
+                let body = checkpoint_body(
+                    step,
+                    iroha_sccp::v1::finality::SccpFinalityHeaderV1::parse(
+                        &step.certificate().header,
+                    )
+                    .map_err(|e| eyre!("verified header: {e}"))?
+                    .height(),
+                    wallet.address(),
+                )
+                .map_err(|e| eyre!("checkpoint message: {e}"))?;
+                Ok((
+                    internal_message(&self.minter, value, true, body, None)
+                        .map_err(|e| eyre!("internal message: {e}"))?,
+                    SEND_MODE_PAY_FEES_SEPARATELY_IGNORE_ERRORS,
+                ))
             })
             .collect::<Result<Vec<_>>>()?;
-        // One wallet message (one seqno); the minter receives the rotations in order.
         Ok(vec![wallet.send(&self.lite, &messages)?])
     }
+}
+
+struct Observation {
+    network: [u8; 32],
+    instance: [u8; 32],
+    committee: CommitteeStateV1,
+    keys: Vec<[u8; 48]>,
+    checkpoints: BTreeMap<u64, [u8; 32]>,
+    paused: bool,
+    now_ms: u64,
+}
+impl Observation {
+    fn context(&self, destination: DestinationV1) -> DestinationContextV1<'_> {
+        DestinationContextV1 {
+            taira_network_id: self.network,
+            consensus_instance: self.instance,
+            destination,
+            flavor: DestinationFlavor::Ton,
+            committee_state: self.committee,
+            ton_keys: Some(&self.keys),
+            checkpoints: &self.checkpoints,
+            now_ms: self.now_ms,
+        }
+    }
+}
+fn bool_at(values: &[Option<TvmIntV1>], index: usize) -> Result<bool> {
+    let value = int_at(values, index, "bool")?;
+    if value.0 == [0; 33] {
+        Ok(false)
+    } else if value.0 == [0xff; 33] {
+        Ok(true)
+    } else {
+        Err(eyre!("noncanonical TVM boolean"))
+    }
+}
+fn keys_from_chunks(root: &Cell, n: usize) -> Result<Vec<[u8; 48]>> {
+    ensure!(is_valid_committee_size(n), "invalid native committee size");
+    let mut keys = Vec::with_capacity(n);
+    let mut node = root;
+    loop {
+        let count = (n - keys.len()).min(2);
+        let bytes = count * 48;
+        let more = keys.len() + count < n;
+        ensure!(
+            node.bit_len() == bytes * 8 + 1 && node.refs().len() == usize::from(more),
+            "noncanonical key chunk shape"
+        );
+        ensure!(
+            (node.data()[bytes] & 0x80 != 0) == more,
+            "noncanonical key chunk continuation"
+        );
+        for key in node.data()[..bytes].chunks_exact(48) {
+            keys.push(key.try_into().expect("fixed key"));
+        }
+        if !more {
+            return Ok(keys);
+        }
+        node = node.refs()[0]
+            .cell()
+            .ok_or_else(|| eyre!("opaque key chunk"))?;
+    }
+}
+fn parse_observation(
+    revision: u32,
+    state: &[Option<TvmIntV1>],
+    mut committee: Vec<TvmStackValueV1>,
+    checkpoints: &[Option<TvmIntV1>],
+    now_ms: u64,
+) -> Result<Observation> {
+    ensure!(
+        state.len() == 24 && committee.len() == 7 && checkpoints.len() == 7,
+        "current minter result arity differs"
+    );
+    let u64_at = |values: &[Option<TvmIntV1>], i| {
+        int_at(values, i, "uint64")?
+            .to_u64()
+            .ok_or_else(|| eyre!("invalid uint64 field"))
+    };
+    let word_at = |values: &[Option<TvmIntV1>], i| {
+        int_at(values, i, "uint256")?
+            .to_u256()
+            .ok_or_else(|| eyre!("invalid uint256 field"))
+    };
+    ensure!(bool_at(state, 0)?, "minter is uninitialized");
+    ensure!(
+        u64_at(state, 4)? == u64::from(revision),
+        "minter revision differs from selected registry record"
+    );
+    let current = CommitteeStateV1 {
+        root: word_at(state, 9)?,
+        until_ms: u64_at(state, 10)?,
+        start: u64_at(state, 11)?,
+        high: u64_at(state, 12)?,
+        generation: u64_at(state, 13)?,
+        equivocated: bool_at(state, 1)?,
+    };
+    let TvmStackValueV1::Cell(keys) = committee.pop().expect("checked arity") else {
+        return Err(eyre!("committee key result is not a cell"));
+    };
+    let fields = integer_stack(committee)?;
+    ensure!(
+        word_at(&fields, 0)? == current.root
+            && u64_at(&fields, 1)? == current.until_ms
+            && u64_at(&fields, 2)? == current.start
+            && u64_at(&fields, 3)? == current.high
+            && u64_at(&fields, 4)? == current.generation,
+        "committee and minter observations differ"
+    );
+    let keys = keys_from_chunks(&keys, usize::try_from(u64_at(&fields, 5)?)?)?;
+    ensure!(
+        committee_root(&keys) == Some(current.root),
+        "stored canonical keys differ from current root"
+    );
+    let count = usize::try_from(u64_at(checkpoints, 0)?)?;
+    ensure!(count <= 3, "too many TON checkpoints");
+    let mut stored = BTreeMap::new();
+    let mut previous = 0;
+    for index in 0..3 {
+        let height = u64_at(checkpoints, 1 + 2 * index)?;
+        let id = word_at(checkpoints, 2 + 2 * index)?;
+        if index < count {
+            ensure!(
+                height > previous && id != [0; 32],
+                "invalid or reordered checkpoint slot"
+            );
+            stored.insert(height, id);
+            previous = height;
+        } else {
+            ensure!(
+                height == 0 && id == [0; 32],
+                "unused checkpoint slot is nonzero"
+            );
+        }
+    }
+    let network = word_at(state, 2)?;
+    let instance = word_at(state, 3)?;
+    ensure!(
+        network != [0; 32] && instance != [0; 32],
+        "zero minter identity"
+    );
+    Ok(Observation {
+        network,
+        instance,
+        committee: current,
+        keys,
+        checkpoints: stored,
+        paused: bool_at(state, 18)?,
+        now_ms,
+    })
 }
 
 #[cfg(test)]
@@ -317,5 +529,140 @@ mod tests {
         assert!(parse_account("-1:00").is_err());
         assert!(parse_account("0:zz").is_err());
         assert!(connect("not-a-server").is_err());
+    }
+    fn uint(value: u64) -> TvmIntV1 {
+        let mut bytes = [0; 33];
+        bytes[25..].copy_from_slice(&value.to_be_bytes());
+        TvmIntV1(bytes)
+    }
+    fn word(value: [u8; 32]) -> TvmIntV1 {
+        let mut bytes = [0; 33];
+        bytes[1..].copy_from_slice(&value);
+        TvmIntV1(bytes)
+    }
+    fn fixture() -> (
+        Vec<Option<TvmIntV1>>,
+        Vec<TvmStackValueV1>,
+        Vec<Option<TvmIntV1>>,
+        Vec<[u8; 48]>,
+    ) {
+        use iroha_crypto::{Algorithm, KeyPair};
+        let mut keys: Vec<[u8; 48]> = (1..=4)
+            .map(|seed| {
+                KeyPair::try_from_seed(vec![seed; 32], Algorithm::BlsNormal)
+                    .unwrap()
+                    .public_key()
+                    .to_bytes()
+                    .1
+                    .try_into()
+                    .unwrap()
+            })
+            .collect();
+        keys.sort();
+        let root = committee_root(&keys).unwrap();
+        let mut state = vec![Some(uint(0)); 24];
+        state[0] = Some(TvmIntV1([0xff; 33]));
+        state[1] = Some(TvmIntV1([0xff; 33]));
+        state[2] = Some(word([1; 32]));
+        state[3] = Some(word([2; 32]));
+        state[4] = Some(uint(3));
+        state[9] = Some(word(root));
+        state[10] = Some(uint(1000));
+        state[11] = Some(uint(1));
+        state[12] = Some(uint(7));
+        state[13] = Some(uint(2));
+        state[18] = Some(TvmIntV1([0xff; 33]));
+        let mut committee = [word(root), uint(1000), uint(1), uint(7), uint(2), uint(4)]
+            .into_iter()
+            .map(TvmStackValueV1::Integer)
+            .collect::<Vec<_>>();
+        committee.push(TvmStackValueV1::Cell(
+            iroha_sccp::v1::ton_cell::key_chunks(&keys).unwrap(),
+        ));
+        let checkpoints = vec![
+            Some(uint(2)),
+            Some(uint(3)),
+            Some(word([3; 32])),
+            Some(uint(7)),
+            Some(word([7; 32])),
+            Some(uint(0)),
+            Some(word([0; 32])),
+        ];
+        (state, committee, checkpoints, keys)
+    }
+    #[test]
+    fn native_minter_observation_retains_current_keys_latch_and_checkpoint_slots() {
+        let (state, committee, checkpoints, keys) = fixture();
+        let observed = parse_observation(3, &state, committee, &checkpoints, 100).unwrap();
+        assert_eq!(observed.network, [1; 32]);
+        assert_eq!(observed.instance, [2; 32]);
+        assert_eq!(observed.keys, keys);
+        assert_eq!(observed.committee.root, committee_root(&keys).unwrap());
+        assert!(observed.committee.equivocated);
+        assert!(observed.paused);
+        assert_eq!(
+            observed.checkpoints,
+            BTreeMap::from([(3, [3; 32]), (7, [7; 32])])
+        );
+        assert_eq!(observed.now_ms, 100);
+    }
+    #[test]
+    fn native_minter_observation_rejects_mixed_schema_keys_and_checkpoint_slots() {
+        let (state, committee, checkpoints, _) = fixture();
+        for case in 0..9 {
+            let mut state = state.clone();
+            let mut committee = committee.clone();
+            let mut checkpoints = checkpoints.clone();
+            match case {
+                0 => {
+                    state.pop();
+                }
+                1 => state[0] = Some(uint(1)),
+                2 => state[4] = Some(uint(4)),
+                3 => committee[4] = TvmStackValueV1::Integer(uint(3)),
+                4 => committee[5] = TvmStackValueV1::Integer(uint(5)),
+                5 => committee[6] = TvmStackValueV1::Null,
+                6 => checkpoints[3] = Some(uint(3)),
+                7 => checkpoints[6] = Some(word([8; 32])),
+                _ => state[2] = Some(word([0; 32])),
+            }
+            assert!(
+                parse_observation(3, &state, committee, &checkpoints, 100).is_err(),
+                "case {case}"
+            );
+        }
+    }
+    #[test]
+    fn key_chunks_and_integer_projection_reject_wrong_physical_shapes() {
+        use iroha_sccp::v1::ton_cell::{CellBuilder, CellRef, key_chunks};
+        let (_, _, _, keys) = fixture();
+        let root = key_chunks(&keys).unwrap();
+        assert_eq!(keys_from_chunks(&root, 4).unwrap(), keys);
+        assert!(keys_from_chunks(&root, 31).is_err());
+        assert!(keys_from_chunks(&root, 0).is_err());
+        let mut opaque = CellBuilder::new();
+        opaque
+            .store_bytes(&keys[..2].concat())
+            .unwrap()
+            .store_bit(true)
+            .unwrap()
+            .store_ref(CellRef::opaque(
+                *root.refs()[0].hash(),
+                root.refs()[0].depth(),
+            ))
+            .unwrap();
+        assert!(keys_from_chunks(&opaque.build(), 4).is_err());
+        let mut trailing = CellBuilder::new();
+        trailing.store_bytes(root.data()).unwrap();
+        assert!(keys_from_chunks(&trailing.build(), 4).is_err());
+        assert!(integer_stack(vec![TvmStackValueV1::Cell(root)]).is_err());
+        assert_eq!(
+            integer_stack(vec![
+                TvmStackValueV1::Null,
+                TvmStackValueV1::Integer(uint(7))
+            ])
+            .unwrap(),
+            vec![None, Some(uint(7))]
+        );
     }
 }

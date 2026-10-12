@@ -241,6 +241,17 @@ pub enum Event {
         /// Opaque authenticated original-pool body; no raw substitute is accepted.
         body: AvailableBody,
     },
+    /// The original-author worker could not sign; only local telemetry is emitted.
+    SigningFailed {
+        /// Kind of attempted signed availability message.
+        kind: SigningKind,
+        /// Message height.
+        height: u64,
+        /// Message origin view.
+        view: u64,
+        /// Local backend refusal.
+        error: crate::crypto::SigningError,
+    },
     /// Exact answer to application control requested after selecting nonempty work.
     ControlWitnessBuilt {
         /// Fresh build request id.
@@ -472,10 +483,13 @@ pub enum Action {
 /// Why an instance halts (§12.5). Nothing else halts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HaltReason {
-    /// R1: the local safety record is corrupt or belongs to another instance or key.
+    /// R1: the local safety envelope is corrupt, has another suite/result-contract identity,
+    /// or belongs to another instance or key.
     SafetyRecordCorrupt,
     /// The safety record or a committed body contradicts the block store (local storage
-    /// corruption): R5, the record's parent `CommitQC` does not verify; §7.4 step 4 (E2), the
+    /// corruption): a retained or nested certificate fails current-suite verification under
+    /// its authenticated height committee; R5, the parent `CommitQC` does not verify;
+    /// §7.4 step 4 (E2), the
     /// record of some key at `tip.height + 1` has a `parent_commit_qc` that is not a valid
     /// `CommitQC` of the block-store tip (or one is present at `g + 1` or absent above it);
     /// §6.9 rule 6, a committed body does not extend the committed parent.
@@ -500,9 +514,61 @@ pub enum HaltReason {
     DriverAnomaly,
 }
 
+/// Signed protocol message whose local signing attempt was refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SigningKind {
+    /// Proposal envelope.
+    Proposal,
+    /// Prepare vote.
+    Prepare,
+    /// Commit vote.
+    Commit,
+    /// Timeout vote.
+    Timeout,
+    /// Restart-probe echo.
+    Echo,
+    /// RS16 payload manifest.
+    PayloadManifest,
+    /// RS16 payload row.
+    PayloadRow,
+}
+
+/// Certificate whose local aggregation attempt was refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CertificateKind {
+    /// Prepare quorum certificate.
+    Prepare,
+    /// Commit quorum certificate.
+    Commit,
+    /// Timeout certificate.
+    Timeout,
+}
+
 /// Local faults (telemetry only; never evidence, never a halt).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LocalFault {
+    /// A local signing operation failed; no signed artifact was produced.
+    SigningFailed {
+        /// Kind of attempted message.
+        kind: SigningKind,
+        /// Message height.
+        height: u64,
+        /// Message view (current local view for an echo).
+        view: u64,
+        /// Local backend refusal.
+        error: crate::crypto::SigningError,
+    },
+    /// Local aggregation failed; verified input votes remain in custody.
+    AggregationFailed {
+        /// Kind of attempted certificate.
+        kind: CertificateKind,
+        /// Certificate height.
+        height: u64,
+        /// Certificate view.
+        view: u64,
+        /// Local backend refusal.
+        error: crate::crypto::AggregationError,
+    },
     /// Local execution disagrees with a certified result (§4.2).
     ExecutionMismatch {
         /// Height.

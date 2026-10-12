@@ -77,7 +77,7 @@ pub(crate) enum ScheduleStep {
     Requested {
         /// Original complete context, guards and same-pool nested allocations.
         captured: CapturedExecution,
-        /// Exact root scope captured from the original signed genesis or committed root policy.
+        /// Original root scope authenticated before transaction effects, retained on retry.
         root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
         /// Fixed-width transported proof authenticated against that same original cut.
         pulse: epoch_beacon::VerifiedEpochPulse,
@@ -101,24 +101,32 @@ impl fmt::Debug for ScheduleStep {
     }
 }
 impl ScheduleStep {
-    /// Borrow the original signed-genesis context while that pristine request is executing.
-    /// A decoded World schedule or a finished/ordinary successor cannot create this token.
-    pub(crate) fn sccp_genesis_source(&self) -> Option<SccpGenesisSource<'_>> {
-        let Self::Requested {
-            captured,
-            root_scope,
-            ..
-        } = self
-        else {
-            return None;
-        };
-        let original = &captured.inputs().schedule;
-        (original.height == 1).then_some(SccpGenesisSource {
-            epoch: &original.current,
-            root_scope: *root_scope,
-        })
+    /// Borrow the scope authenticated for this exact uncompleted native execution.
+    /// An absent or completed request cannot grant block-start lifecycle authority.
+    pub(crate) fn original_root_scope(
+        &self,
+    ) -> Option<iroha_data_model::block::consensus::SumeragiRootScope> {
+        match self {
+            Self::Requested { root_scope, .. } => Some(*root_scope),
+            Self::Off | Self::Done(_) => None,
+        }
     }
-
+    /// Borrow the original signed genesis authority before any transaction effects.
+    /// The completed or absent lifecycle cannot grant initialization authority.
+    pub(crate) fn original_genesis_context(
+        &self,
+    ) -> Option<&iroha_data_model::sumeragi::epoch::ValidatorEpochContextV1> {
+        match self {
+            Self::Requested {
+                captured,
+                root_scope: iroha_data_model::block::consensus::SumeragiRootScope::Global,
+                ..
+            } if captured.inputs().schedule.height == 1 => {
+                Some(&captured.inputs().schedule.current)
+            }
+            _ => None,
+        }
+    }
     pub(crate) fn frozen_boundary(&self) -> Option<&FrozenEpochBoundary> {
         match self {
             Self::Requested {
@@ -129,30 +137,6 @@ impl ScheduleStep {
         }
     }
 }
-
-/// Borrowed original signed-genesis authority, retained by the pristine schedule capture.
-/// Private construction prevents a decoded epoch or mutable registration from substituting it.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct SccpGenesisSource<'a> {
-    epoch: &'a iroha_data_model::sumeragi::epoch::ValidatorEpochContextV1,
-    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
-}
-
-impl SccpGenesisSource<'_> {
-    /// Exact scope of the same authenticated original signed genesis.
-    pub(crate) fn root_scope(&self) -> iroha_data_model::block::consensus::SumeragiRootScope {
-        self.root_scope
-    }
-
-    /// Original ordered keys, PoPs and authorization; no mutable lookup or copy occurs.
-    pub(crate) fn epoch(&self) -> &iroha_data_model::sumeragi::epoch::ValidatorEpochContextV1 {
-        self.epoch
-    }
-}
-
-#[cfg(test)]
-#[path = "execution/sccp_source_tests.rs"]
-mod sccp_source_tests;
 
 /// Authenticate a successor's original native context at one committed State cut.
 /// Reused before event attribution and by the pristine writer before schedule effects.
@@ -393,8 +377,8 @@ impl StateBlock<'_> {
         }
         self.sumeragi_schedule = ScheduleStep::Requested {
             captured,
-            root_scope,
             pulse,
+            root_scope,
         };
         Ok(())
     }
@@ -407,8 +391,8 @@ impl StateBlock<'_> {
         let step = std::mem::take(&mut self.sumeragi_schedule);
         let ScheduleStep::Requested {
             captured,
-            root_scope,
             pulse,
+            root_scope,
         } = step
         else {
             self.sumeragi_schedule = step;
@@ -443,8 +427,8 @@ impl StateBlock<'_> {
             Err(error) => {
                 self.sumeragi_schedule = ScheduleStep::Requested {
                     captured,
-                    root_scope,
                     pulse,
+                    root_scope,
                 };
                 Err(error)
             }

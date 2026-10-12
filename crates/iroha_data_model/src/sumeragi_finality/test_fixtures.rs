@@ -24,7 +24,7 @@ use iroha_allocation::{AllocationBudget, ChargedBuffer};
 use iroha_crypto::{KeyPair, bls_normal_pop_prove};
 use iroha_sumeragi::{
     availability::{PayloadAuthoring, PayloadBytes},
-    crypto::Signer,
+    crypto::{Signer, SigningError},
     types::{Bitmap, ChainParams},
 };
 use std::{num::NonZeroU64, time::Duration};
@@ -54,8 +54,10 @@ impl Signer for FixtureSigner<'_> {
     fn public_key(&self) -> &CoreKey {
         &self.public
     }
-    fn sign(&self, preimage: &[u8]) -> Signature {
-        Signature(consensus::sign_preimage(self.key.private_key(), preimage).unwrap())
+    fn sign(&self, preimage: &[u8]) -> Result<Signature, SigningError> {
+        iroha_crypto::bls::consensus::sign_preimage(self.key.private_key(), preimage)
+            .map(Signature)
+            .map_err(|_| SigningError::Refused)
     }
 }
 
@@ -339,7 +341,8 @@ impl NativeFinalityFixture {
             .unwrap();
         let mut block = genesis.clone();
         Self::install_network_results(&mut block, vec![Ok(Vec::new())]);
-        let result = inactive_result_for_block(&block, Self::result(&block, &epoch));
+        let result =
+            Self::certified_result(&block, Self::result(&block, &epoch), root_scope.into());
         block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
             vec![],
             vec![],
@@ -364,6 +367,28 @@ impl NativeFinalityFixture {
             verifier,
             chain_id: chain_id.into(),
         }
+    }
+
+    /// Scope retained by the independently selected signed-genesis verifier.
+    #[must_use]
+    pub const fn root_scope(&self) -> crate::block::consensus::SumeragiRootScope {
+        self.verifier.root_scope()
+    }
+
+    // Synthetic execution fixtures have no SCCP initialization. Their inactive X still binds
+    // the actual block time/height and exact result network; genuine QCs sign the full result.
+    fn certified_result(
+        block: &SignedBlock,
+        body: ExecutionResultCommitment,
+        scope: CertifiedResultScope,
+    ) -> CertifiedResultV1 {
+        let header = SccpFinalityHeaderV1::inactive(
+            *body.schedule.current.network_id.as_bytes(),
+            block.header().height().get(),
+            u64::try_from(block.header().creation_time().as_millis()).unwrap(),
+        )
+        .unwrap();
+        CertifiedResultV1::new(header, body, scope).unwrap()
     }
 
     /// Exact genesis-derived network identity selected by this fixture.
@@ -554,13 +579,13 @@ impl NativeFinalityFixture {
         mut block: SignedBlock,
         result: &ExecutionResultCommitment,
     ) -> SumeragiFinalityProof {
-        let result = inactive_result_for_block(&block, result.clone());
         assert_eq!(block.header().height().get(), self.tip.height() + 1);
         assert_eq!(
             block.header().prev_block_hash(),
             Some(self.tip.block_header.hash())
         );
         assert!(block.commit_certificate().is_none());
+        let result = Self::certified_result(&block, result.clone(), self.root_scope().into());
         let parent = self.verifier.verify_retained_decision(&self.tip).unwrap();
         let (crypto, committee) = ProofCrypto::new(&self.validators).unwrap();
         let ScheduledSlot::Ready(scheduled) = &parent.commitment().schedule.next else {
@@ -702,11 +727,19 @@ mod tests {
     fn authored_availability_binds_actual_proposer_payload_header_and_schedule() {
         use iroha_sumeragi::availability::verify_availability;
         let fixture = NativeFinalityFixture::new();
-        let certified = fixture.latest().decode_checked().unwrap();
+        let certified = fixture
+            .latest()
+            .decode_checked(fixture.root_scope().into())
+            .unwrap();
         let header = certified.header.clone().unwrap();
         let config = ScheduledConfig {
             height: header.height,
-            epoch: certified.commitment.schedule.current,
+            epoch: certified
+                .certified_result
+                .commitment()
+                .schedule
+                .current
+                .clone(),
             params: ChainParamsRecord::from_core(&ChainParams::default()),
         }
         .height_config()
@@ -768,7 +801,7 @@ mod tests {
             .encode_wire()
             .unwrap();
         let proof = fixture.certify(block);
-        let certified = proof.decode_checked().unwrap();
+        let certified = proof.decode_checked(fixture.root_scope().into()).unwrap();
         assert_eq!(
             certified
                 .block

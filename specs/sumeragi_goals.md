@@ -66,7 +66,7 @@ evidence, and implementation coverage alone does not close its network or releas
 All six gates remain open. H6 uses the reset runbook's deployment authority and runtime-only
 signing inputs; local build or component results cannot stand in for live qualification.
 
-### Current validation contract (2026-10-09)
+### Current validation contract (2026-10-12)
 
 Validate the current implementation and its surviving requirements. Generic
 consensus attestation, its flag/attachments and its dedicated mutations are
@@ -78,6 +78,15 @@ mint-finality, Halo2 State curve-policy and generic-attestation controls are not
 prerequisites. Supported Native PIPA-R and STARK admission, key/envelope binding,
 refusal, deduplication and retry remain required, alongside the remaining safety,
 custody and liveness controls.
+
+SCCP migration controls use the native committee/certificate API and current
+fixtures; retired roster and EIP-712 fixtures are not gates. Proof consumers bind
+the requested message or every control coordinate and explicit certificate height
+through both async and blocking callers. TON input controls measure physical
+allocation before advertised-count admission and exercise import and serialization
+without recursive graph traversal, preserving canonical bytes and native bounds.
+Current library/CLI passes do not qualify native proof publication or the rotation
+archive while those owners remain incomplete.
 
 Native AMX reader changes must pass the paid startup, certified restart and debit-
 bypass regression under the default stack limit, together with the complete affected

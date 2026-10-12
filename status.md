@@ -18,7 +18,7 @@ hold detailed acceptance criteria. Routine repair receipts belong in PRs and CI.
 | Rust client | Immutable account contexts, owned async transport, explicit blocking capabilities and typed fee quoting are implemented. | Remaining capability/consumer migration, unified errors and network cancellation/finality/authorization coverage. |
 | Kotlin/JVM | Kotlin owns the SDK, HTTP/SSE/WebSocket, attestation tools and JNI API; Java consumers exercise that API. Host coverage includes native/confidential operations. Android Keystore alias existence is decided only by keystore2 `getKey` (API 31+); a Keystore error is never read as absence. | Remaining Java/publication retirement, signed packages, CUDA hardware and Android/device qualification. |
 | Other SDKs | Shared prepared-operation, signing, account and native checkpoint contracts are being migrated across Swift, JavaScript, Python and C#. | Same-source native artifacts, complete fixtures/consumers and release OS/architecture matrices. |
-| Torii collection queries | Seventeen collections and eleven explorer feeds share the [query contract](specs/torii/collection_queries.md) across Rust, Kotlin/Java, Swift, JavaScript, Python, C#, CLI and MCP. Identity-ordered reads seek and stream; authenticated history checkpoints bound deep reads. Global-state collections execute once per read for exact totals and aggregates. History and explorer feeds explicitly reject unsupported controls. Signed query selectors have one feature-independent layout; client network context is explicit. [Contract activity and native events](specs/torii/collection_queries.md#contract-activity-and-native-events) have separate sources: activity projects committed top-level `ContractCall`s and consensus-bound metadata; event rows expose successful execution outputs’ authenticated emissions with immutable definitions and `provenance: emitted`. | Current-candidate live multi-dataspace paging and full SDK/native delivery qualification remain open. The genuine ABI-25 Swift framework, full native Swift package suites, ordinary SwiftPM Release consumers and checked-in iOS demo simulator suite pass; physical-device and signed public-release qualification remain separate. JS and Python native suites require matching authenticated artifacts. See the [completion goals](specs/torii/query_completion_goals.md). |
+| Torii collection queries | Seventeen collections and eleven explorer feeds share the [query contract](specs/torii/collection_queries.md) across Rust, Kotlin/Java, Swift, JavaScript, Python, C#, CLI and MCP. Identity-ordered reads seek and stream; authenticated history checkpoints bound deep reads. Global-state collections execute once per read for exact totals and aggregates. History and explorer feeds explicitly reject unsupported controls. Signed query selectors have one feature-independent layout; client network context is explicit. [Contract activity and native events](specs/torii/collection_queries.md#contract-activity-and-native-events) have separate sources: activity projects committed top-level `ContractCall`s and consensus-bound metadata; event rows expose successful execution outputs’ authenticated emissions with immutable definitions and `provenance: emitted`. | Current-candidate live multi-dataspace paging and full SDK/native delivery qualification remain open. Current ABI-29 Swift framework, complete native SDK suites, SwiftPM Release consumers and iOS demo simulator checks require matching rebuilt artifacts; physical-device and signed public-release qualification remain separate. See the [completion goals](specs/torii/query_completion_goals.md). |
 | Norito | Declared identities own canonical frames; payload serialization/reconstruction and explicit JSON key contracts are integrated. | Consumer/feature closure, fallible allocation ownership, physical model extraction and workspace lint/runtime coverage. |
 | IVM/Kotodama | IVM is the sole VM with ABI V1 and program header 1.1; header 1.0 is rejected. Compiler separation and state-free proof owners reduce normal dependency graphs. Source bundles support declaration includes and explicit module exports; authenticated error-message catalogs preserve nominal schemas. FASTPQ Metal uses one embedded-bundle admission owner; runtime source/path loading is removed. Ordinary Linux/Windows daemon dependencies include driver-loaded IVM CUDA; genuine bundle absence permits CPU build/startup, and supplied unapproved material is rejected. Original-pool idle-runtime rows and scoped committed/frozen account-rekey, trigger-contract and all four trigger-action captures are integrated; fresh compilation and runtime validation remain pending. | [Syntax and developer-experience completion](specs/kotodama_devex_goals.md): compiler/tooling integration, scoped authority, atomic call semantics, interfaces, emitted events and lifecycle behavior pass matching component/API regressions; examples and owned artifacts are regenerated and checked. Installed native SDK and whole-node qualification remain open. Lifecycle/custody closure, complete State/Kura publication, native execution proofs, anchored private invocation/AXT, coherent SDK regeneration and hardware validation. FASTPQ has no approved Metal bundle. IVM CUDA approval is `None`; genuine signed ten-family artifacts, driverless runtime checks and physical qualification remain open. |
 | ZK delivery plan | The [plan](specs/zk_delivery_plan.md) and its [task graph](specs/zk_delivery_graph.json) own the ZK, privacy, authenticated-State and FHE work. Landed as source-checked contracts and inventories: plan and graph checks; the zk-X509 presentation interval with shared vectors; the FASTPQ `air` interface with the shared-backend inventory; the IVM proof-coverage inventory; the first-release history and cutover contract with regenerated native pinned history and declared ABI, State-layout and execution-root cutovers (ABI V1 hash golden and carriers regenerated); the FHE ownership inventory; the RAM-LFE V1 contract with a cleartext reference; the State table and root inventory with the keyed-commitment contract (`specs/sumeragi.md` §16); the unified resource contract; the operation and admission-route inventory; the primitive and workload audit; and the runtime-validity census. The ZK validity limits and windows (45 bounds) and the pipeline execution limits (15) are committed chain policy (`zk_validity_policy_v1`, `pipeline_validity_policy_v1`), and verification gas uses the schedule frozen in each block. Shared crates: `iroha_fhe` (exact RNS, NTT, basis-conversion and rounding arithmetic, and the RNS-BGV starting candidate `iroha_fhe::bgv` with independent vectors and a tape-level cost model) and `iroha_measurement` (phase and resource records, with `scripts/zk_resource_harness.py`). Four development-only State-commitment candidates are measured natively and in-circuit (`specs/state_commitment_candidates.json`). | Complete operation deliveries remain open; the RAM-LFE V1 types and BGV candidate do not yet provide a production encrypted-execution path. No BGV profile is qualified: recorded lattice estimates leave affine and refresh below 128 bits under ADPS16, and no candidate holds the maximum V1 class shape under instruction-by-instruction lowering; proved normalizing lowering with one fixed public schedule per class profile remains mandatory. No State-commitment candidate is selected, and the certified State root is still the World-only accumulator (inventory defects G1-D1 to G1-D11). The primitive audit leaves BN254 Poseidon and post-quantum findings open (F.5). Runtime validity is moved only in part (F.4): the `[nexus]` bounds (10) and the governance, crypto-algorithm, oracle-fraud, content, settlement-router, pipeline gas-identity and execution-policy digest families still read node configuration; the native PIPA-R, STARK and confidential switches remain; Cargo features (`zk-stark`, fault injection, test-network hooks) and activation, qualification, lifecycle and manifest gates still decide validity. The selected 16 MiB payload and canonical privacy budgets now accommodate measured structural maximum-proof carriers within the unchanged 10 MiB signed-transaction cap. Complete-invocation and restore policy checks are implemented. Native finality readers and consensus signing use the dedicated consensus suite, and focused Core consumers compile. The canonical decoder no longer overflows the default stack in the original AMX/attestation reproductions. Staged genesis now retains its original execution pool; private-root retained-artifact binding, concurrent snapshot-retry validation and downstream consumer qualification remain open. Gossip profile/shaping reconciliation, actual maximum native proofs and whole-network commit/restart/replay remain open. AVX2 on a physical x86-64 CPU, Metal/CUDA parity, Linux `RLIMIT_AS` enforcement, a complete X509 proof under the harness and four-validator evidence are unexecuted. |
@@ -27,6 +27,16 @@ hold detailed acceptance criteria. Routine repair receipts belong in PRs and CI.
 | Petal Stream | `iroha_petal` implements the [Petal Stream](specs/petal_stream.md) animated optical transport (`天` orientation field, katakana, tile polarity and ring dots as three Reed–Solomon lanes under a rateless fountain) with decoder, renderer, camera simulator and `iroha offline petal`. A gain-free tile read keeps lanes `P` and `K` alive under over-exposure, veiling light and shadows. Swift, Kotlin/JVM, JavaScript, Python and C# ports reproduce the shared fixtures and decode the golden captures to the recorded lanes. Three corner blossoms suffice (a thumb, glare or frame edge may hide the fourth) and sessions track the pose between frames (about 4× cheaper per frame). Simulated reads complete a 10,000-byte KAGEMUSHA message in 11.5 s (45 s from lanes `P` and `D` alone). | All evidence is simulated: physical-camera reads on the governed Android/iOS device matrix, lane `K` at 480p or soft focus, and the public guides in `iroha-docs`. |
 
 ## Immediate blockers
+
+SCCP uses native finality, current committee generations and the 199-byte control
+leaf. Message and control projections share native receipt, block and history
+verification. Control enactment binds the exact governance certificate and effect
+to both pause fields; pause records are included in current and undo State capture.
+Current-candidate validation of these changes remains pending. Torii proof queries
+return explicit unavailability for known records until request-funded native
+acquisition, source joining and response custody are complete. Fast-pause production,
+casting-open provenance and the shared lifecycle pass remain open. Daemon, Push,
+full client and network qualification remain pending.
 
 The Nexus proposal/status repairs and original invocation binding are preserved.
 The paid Nexus workload exposed an AMX retry defect: a completed State visibility
@@ -393,15 +403,30 @@ passes.
 
 - **Parliament:** binding juries move to [anonymous on-chain ballots](specs/parliament_private_ballot_design.md):
   public votes and tally, voter-to-ballot linkage hidden by a PQ membership and
-  nullifier proof, and no ballot custodian. The construction is selected but its
-  proof profile is unqualified and the ballot is not implemented. Binding-governance
-  mainnet launch is no-go until qualification. The
-  [profile evaluation](specs/parliament_ballot_proof_profile.md) selects no
-  profile: no candidate family has an applicable published argument for
-  authorization, unforgeability, joint zero knowledge or registration in the
-  quantum random-oracle model, nothing is implemented or measured for the
-  ballot relation, and selection waits on the owner decisions it lists, so
-  schemas and integration have not started. The epoch-seated fast pause
+  nullifier proof, and no ballot custodian. No proof profile is selected,
+  nothing is qualified and the ballot is not implemented in Core.
+  Binding-governance mainnet launch is no-go. The
+  [profile record](specs/parliament_ballot_proof_profile.md) states the
+  construction under development: a two-SHAKE proof of selection from the
+  sealed credential list, whose bytes are published at seal, with a
+  registration authorization value, in a VOLE-in-the-head backend derived
+  from FAEST v3.0. The standalone experimental backend
+  (`crates/iroha_zkp_vole`) reproduces the official FAEST v3.0.2 component
+  vectors for its parameters, fields, PRG, hash oracles and universal hashes.
+  Its vector commitment, VOLE layer, constraint check and plain-FAEST
+  signatures are incomplete, the ballot relations
+  (`crates/iroha_parliament_ballot_proof`) are a skeleton, nothing is wired
+  in and no measurement exists. Selection is blocked: the arguments for
+  section 5 gates 1, 2, 5 and 8 have missing steps and no complete
+  concrete-security ledger or attack-cost assessment exists. The
+  second-opinion review recalibrated the security contract to a complete
+  proven bound below 1/2 at 2^64 quantum queries plus an independently
+  assessed attack cost of at least 2^128 gates. That weakens the earlier
+  2^128-query floor, awaits restatement in the owner's qualification record,
+  and is not shown to be met. Until selection only standalone
+  implementation, measurement and proof work proceeds; schemas, Core
+  integration and timed-OVN retirement have not started. The epoch-seated
+  fast pause
   panel is specified, not implemented. Availability isolation (ballot design
   section 9) is implemented in `iroha_core` and `irohad`: no Parliament state
   creates pulse demand, vetoes a pulse or block, or gates startup; a sortition
@@ -415,9 +440,11 @@ passes.
   cannot run, and the committee-rotation corridor has not run. Open: the proof
   profile, schemas and ballot; retirement of timed-OVN, whose ballot now opens
   only when a native pulse sits at exactly its release height, so its four
-  hidden-ballot corridors are ignored; the owner decision on binding the
-  attempt id into the draw seed; and the SCCP hold rule, which must account for
-  a sortition wait that is unbounded in wall time on an idle chain. The
+  hidden-ballot corridors are ignored; and the governance-clock requirements of
+  ballot design section 9 (bounded progress to the native slot, casting-clock
+  due work, a finite qualified attempt latency for the SCCP hold rule), which
+  are specified, not implemented. The draw seed stays attempt-independent by
+  design. The
   state-table inventory generator fails at `45f112b1cc` on unrelated domains,
   so the Parliament rows of `specs/state_table_inventory.json` were aligned by
   hand.

@@ -33,7 +33,7 @@ pub enum GraphError {
     Admission(#[from] AllocationRefusal),
     /// The inherited codec scope refused canonical validation before a candidate existed.
     #[error("native AMX codec validation refused: {0}")]
-    Codec(norito::core::DecodeResourceError),
+    Codec(#[source] norito::core::DecodeLocalRefusal),
     /// The allocator refused an exact already admitted allocation.
     #[error("native AMX allocator refused {bytes} prepaid bytes")]
     Allocator {
@@ -53,20 +53,9 @@ impl From<iroha_data_model::sumeragi_amx::AmxError> for GraphError {
     }
 }
 fn codec_clone_error(error: norito::core::DecodeAttemptError) -> GraphError {
-    match error.kind() {
-        norito::core::DecodeAttemptErrorKind::Allocator => GraphError::Allocator {
-            bytes: match error.error().decode_resource_error() {
-                Some(norito::core::DecodeResourceError::AllocationFailed { bytes }) => {
-                    usize::try_from(bytes).unwrap_or(usize::MAX)
-                }
-                _ => return GraphError::Invalid(error.to_string()),
-            },
-        },
-        norito::core::DecodeAttemptErrorKind::EnclosingLimit => error
-            .error()
-            .decode_resource_error()
-            .map_or_else(|| GraphError::Invalid(error.to_string()), GraphError::Codec),
-        norito::core::DecodeAttemptErrorKind::Invalid => GraphError::Invalid(error.to_string()),
+    match error.into_local_refusal() {
+        Ok(original) => GraphError::Codec(original),
+        Err(invalid) => GraphError::Invalid(invalid.to_string()),
     }
 }
 fn quantity_clone_error(error: iroha_primitives::bigint::BigIntAdmissionCloneError) -> GraphError {
@@ -94,8 +83,11 @@ mod codec_refusal_tests {
             norito::core::classify_decode_attempt(|| norito::core::reserve_decode_allocation(9))
         })
         .unwrap_err();
-        let expected = original.error().decode_resource_error().unwrap();
-        assert_eq!(codec_clone_error(original), GraphError::Codec(expected));
+        let expected = original.local_refusal().unwrap();
+        let mapped = codec_clone_error(original);
+        norito::with_decode_limits_scope(limit(), || {
+            assert_eq!(mapped, GraphError::Codec(expected.clone()));
+        });
         let intrinsic = norito::with_decode_limits_scope(limit(), || {
             norito::core::classify_decode_attempt(|| {
                 norito::with_decode_limits_scope(limit(), || {
@@ -112,10 +104,9 @@ mod codec_refusal_tests {
             Err::<(), _>(norito::Error::AllocationFailed { bytes: 57 })
         })
         .unwrap_err();
-        assert_eq!(
-            codec_clone_error(allocator),
-            GraphError::Allocator { bytes: 57 }
-        );
+        let owner = allocator.local_refusal().unwrap();
+        assert_eq!(owner.allocation_bytes(), Some(57));
+        assert_eq!(codec_clone_error(allocator), GraphError::Codec(owner));
     }
 }
 impl From<ChargedBufferError> for GraphError {

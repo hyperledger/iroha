@@ -89,14 +89,22 @@ fn signed_genesis_execution<'state>(
     genesis: SignedBlock,
     topology: &Topology,
 ) -> (ValidBlock, Box<StateBlock<'state>>) {
-    ValidBlock::validate_signed_genesis(
-        genesis,
-        topology,
-        &SAMPLE_GENESIS_ACCOUNT_ID,
-        &TimeSource::new_system(),
-        state,
-        ConsensusMode::Permissioned,
-    )
+    {
+        let selected_genesis = genesis;
+        let selected_scope = crate::sumeragi::epoch::authenticated_genesis(&selected_genesis)
+            .expect("signed fixture root scope")
+            .into_parts()
+            .1;
+        ValidBlock::validate_signed_genesis(
+            selected_genesis,
+            topology,
+            &SAMPLE_GENESIS_ACCOUNT_ID,
+            &TimeSource::new_system(),
+            state,
+            ConsensusMode::Permissioned,
+            selected_scope,
+        )
+    }
     .unpack(|_| {})
     .unwrap_or_else(|(failed, error)| {
         panic!(

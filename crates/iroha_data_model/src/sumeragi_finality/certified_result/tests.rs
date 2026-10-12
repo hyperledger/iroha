@@ -7,7 +7,7 @@
 
 use std::{collections::BTreeSet, path::PathBuf};
 
-use iroha_crypto::{HashOf, KeyPair};
+use iroha_crypto::{HashOf, KeyPair, keccak256};
 use iroha_model_base::peer::PeerId;
 use iroha_sumeragi::types::ChainParams;
 use norito::json::Value;
@@ -1882,4 +1882,23 @@ fn certified_result_check_block_enforces_c5() {
             );
         }
     }
+}
+
+#[test]
+fn certified_result_scope_maps_the_selected_signed_root_kind() {
+    use crate::block::consensus::SumeragiRootScope;
+    assert_eq!(
+        CertifiedResultScope::from(SumeragiRootScope::Global),
+        CertifiedResultScope::TairaGlobal
+    );
+    let scope = SumeragiRootScope::Dataspace {
+        parent_network_id: crate::NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
+            Hash::new(b"scope parent"),
+        )),
+        dataspace_id: iroha_model_base::topology::DataSpaceId::new(19),
+    };
+    assert_eq!(
+        CertifiedResultScope::from(scope),
+        CertifiedResultScope::NonGlobal
+    );
 }

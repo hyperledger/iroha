@@ -12,16 +12,155 @@
 //! invariants of the stored records are enforced by the SCCP instructions and hooks that write
 //! them (ws30–ws33, ws41).
 
-use super::deserialize::StateRestoreError;
 use super::*;
 use crate::smartcontracts::isi::sccp::{
-    committee_owner::CommitteeOwnerError, committee_storage::CommitteeStoragePolicy, store,
+    anchor_record::{AnchorRecordError, RetainedSccpAnchors},
+    generation_record::{GenerationRecordError, RetainedSccpGeneration},
+    pause_record::{
+        PauseRecordError, RetainedSccpFastPause, RetainedSccpFastPauseRound, RetainedSccpPausePanel,
+    },
+    store,
 };
+use iroha_allocation::{AllocationBudget, AllocationRefusal, AllocationReservation};
+
+/// Snapshot syntax and original resource refusal remain distinct through the State reader.
+#[derive(Debug, thiserror::Error)]
+pub enum SccpRestoreError {
+    /// Malformed canonical current or predecessor data.
+    #[error(transparent)]
+    Json(#[from] json::Error),
+    /// The original enclosing map or Cell allocation refused restoration.
+    #[error(transparent)]
+    Storage(#[from] mv::storage::AdmittedStorageError),
+    /// The complete current/undo graph was refused before any partial owner was created.
+    #[error("snapshot SCCP original graph admission refused: {0}")]
+    Admission(#[from] AllocationRefusal),
+    /// Generation graph admission refused; original allocation identity is retained.
+    #[error("sccp_committee_generations: {0}")]
+    Generation(#[from] GenerationRecordError),
+    /// Open-anchor graph admission refused; original allocation identity is retained.
+    #[error("sccp_anchor_open: {0}")]
+    Anchors(#[from] AnchorRecordError),
+    /// Pause, panel or endorsement graph failed without discarding its original refusal.
+    #[error("SCCP pause State: {0}")]
+    Pause(#[from] PauseRecordError),
+}
+
+/// Admit complete current and predecessor graphs into their original prepaid maps.
+fn admit_generations(
+    decoded: &Storage<u64, SccpCommitteeGenerationV1>,
+    budget: &AllocationBudget,
+    reservation: &mut AllocationReservation,
+) -> Result<CommitteeStorage, SccpRestoreError> {
+    let snapshot = decoded.snapshot();
+    CommitteeStorage::try_restore_admitted(budget.clone(), |current, undo| {
+        for (key, value) in snapshot.current().iter() {
+            current(
+                *key,
+                RetainedSccpGeneration::admit_prepaid(value, budget, reservation)?,
+            )?;
+        }
+        for (key, value) in snapshot.revert_map().iter() {
+            undo(
+                *key,
+                value
+                    .as_ref()
+                    .map(|value| RetainedSccpGeneration::admit_prepaid(value, budget, reservation))
+                    .transpose()?,
+            )?;
+        }
+        Ok::<(), SccpRestoreError>(())
+    })
+    .map_err(|error| match error {
+        mv::storage::AdmittedBlockError::Admission(original) => original.into(),
+        mv::storage::AdmittedBlockError::Callback(original) => original,
+    })
+}
+
+/// Preserve both exact MV cuts in original-pool immutable anchor map nodes.
+fn admit_anchor_chunks(
+    decoded: &Storage<u64, [u8; 32]>,
+    budget: &AllocationBudget,
+) -> Result<AnchorStorage, SccpRestoreError> {
+    let snapshot = decoded.snapshot();
+    AnchorStorage::try_restore_admitted(budget.clone(), |current, undo| {
+        for (key, value) in snapshot.current().iter() {
+            current(*key, *value)?;
+        }
+        for (key, value) in snapshot.revert_map().iter() {
+            undo(*key, *value)?;
+        }
+        Ok::<(), SccpRestoreError>(())
+    })
+    .map_err(|error| match error {
+        mv::storage::AdmittedBlockError::Admission(original) => original.into(),
+        mv::storage::AdmittedBlockError::Callback(original) => original,
+    })
+}
+
+/// Admit the original scalar current/undo Cell owners before publishing any field.
+fn admit_scalar<T: mv::Value>(
+    decoded: Cell<T>,
+    budget: &AllocationBudget,
+) -> Result<Cell<T, iroha_allocation::AllocationCharge>, SccpRestoreError> {
+    mv::cell::CellInitialization::try_reserve(budget)
+        .map(|owner| {
+            owner.initialize(
+                decoded.view().get().clone(),
+                decoded.predecessor_view().get().clone(),
+            )
+        })
+        .map_err(|error| scalar_cell_custody::admission_error(error).into())
+}
+
+/// Rebuild the destination-work index from the canonical current and exact undo records.
+/// This index carries no independent authority and never requires a historical scan per block.
+fn destination_pending_index(generations: &CommitteeStorage) -> Storage<u64, ()> {
+    let snapshot = generations.snapshot();
+    let pending =
+        |record: &RetainedSccpGeneration| record.end.is_some() && record.dest_cleared_lc.is_none();
+    let current = snapshot
+        .current()
+        .iter()
+        .filter_map(|(id, record)| pending(record).then_some((*id, ())))
+        .collect();
+    let undo = snapshot
+        .revert_map()
+        .iter()
+        .map(|(id, record)| {
+            (
+                *id,
+                record.as_ref().filter(|record| pending(record)).map(|_| ()),
+            )
+        })
+        .collect();
+    Storage::from_snapshot_parts(current, undo)
+}
+
+/// Preserve exact predecessor presence while admitting both actual anchor allocations.
+fn admit_anchors(
+    decoded: &Cell<Vec<SccpAnchorV1>>,
+    budget: &AllocationBudget,
+    reservation: &mut AllocationReservation,
+) -> Result<Cell<RetainedSccpAnchors, iroha_allocation::AllocationCharge>, SccpRestoreError> {
+    let current = RetainedSccpAnchors::admit_prepaid(decoded.view().get(), budget, reservation)?;
+    let undo = decoded
+        .predecessor_view()
+        .get()
+        .as_ref()
+        .map(|value| RetainedSccpAnchors::admit_prepaid(value, budget, reservation))
+        .transpose()?;
+    mv::cell::CellInitialization::try_reserve(budget)
+        .map(|owner| owner.initialize(current, undo))
+        .map_err(|error| scalar_cell_custody::admission_error(error).into())
+}
 use iroha_data_model::{
     bridge::SccpNetworkV1,
     sccp::{
         commitment::{SccpBlockCommitmentV1, SccpHistoryStateV1},
         control::{SccpControlRecordV1, SccpLeafRefV1},
+        fast_pause::{SccpFastPauseRoundV1, SccpFastPauseV1, SccpPanelRoleV1, SccpPausePanelV1},
+        generation::{SCCP_ANCHOR_CHUNK_SIZE_V1, SccpAnchorV1, SccpCommitteeGenerationV1},
         governance::SccpGovernanceSubjectV1,
         inbound::SccpInboundRecordV1,
         light_client::{
@@ -34,21 +173,141 @@ use iroha_data_model::{
 };
 use norito::json::JsonSerialize as _;
 
+/// Admit all current and exact predecessor pause records from the same aggregate credit.
+/// TODO: fund the enclosing decoded map and MV map-node allocations at their owners.
+fn admit_pause_map<K: mv::Key, V: mv::Value, R: mv::Value>(
+    decoded: &Storage<K, V>,
+    budget: &AllocationBudget,
+    reservation: &mut AllocationReservation,
+    admit: impl Fn(&V, &AllocationBudget, &mut AllocationReservation) -> Result<R, PauseRecordError>,
+) -> Result<Storage<K, R>, SccpRestoreError> {
+    let snapshot = decoded.snapshot();
+    let mut current = BTreeMap::new();
+    let mut undo = BTreeMap::new();
+    for (key, value) in snapshot.current().iter() {
+        current.insert(key.clone(), admit(value, budget, reservation)?);
+    }
+    for (key, value) in snapshot.revert_map().iter() {
+        undo.insert(
+            key.clone(),
+            value
+                .as_ref()
+                .map(|value| admit(value, budget, reservation))
+                .transpose()?,
+        );
+    }
+    Ok(Storage::from_snapshot_parts(current, undo))
+}
+
+/// Preserve absent predecessors separately from a predecessor whose panel is absent.
+fn admit_panel(
+    decoded: &Cell<Option<SccpPausePanelV1>>,
+    budget: &AllocationBudget,
+    reservation: &mut AllocationReservation,
+) -> Result<Cell<Option<RetainedSccpPausePanel>>, SccpRestoreError> {
+    let mut admit = |value: &Option<SccpPausePanelV1>| {
+        value
+            .as_ref()
+            .map(|panel| RetainedSccpPausePanel::admit_prepaid(panel, budget, reservation))
+            .transpose()
+    };
+    let current = admit(decoded.view().get())?;
+    let undo = decoded
+        .predecessor_view()
+        .get()
+        .as_ref()
+        .map(admit)
+        .transpose()?;
+    Ok(Cell::from_values_charged(
+        current,
+        undo,
+        mv::cell::CellAllocationCharges::new(
+            concread::ebrcell::Untracked,
+            concread::ebrcell::Untracked,
+        ),
+    ))
+}
+
+/// Enumerate current and exact undo payloads; deleted undo entries carry no graph.
+fn pause_map_demand<K: mv::Key, V: mv::Value>(
+    decoded: &Storage<K, V>,
+    demand: impl Fn(&V) -> Result<usize, PauseRecordError>,
+    add: &mut impl FnMut(usize) -> Result<(), AllocationRefusal>,
+) -> Result<(), SccpRestoreError> {
+    let snapshot = decoded.snapshot();
+    for (_, value) in snapshot.current().iter() {
+        add(demand(value)?)?;
+    }
+    for (_, value) in snapshot.revert_map().iter() {
+        if let Some(value) = value {
+            add(demand(value)?)?;
+        }
+    }
+    Ok(())
+}
+
+/// Compute all actual retained data/control allocations before requesting any credit.
+fn snapshot_graph_demand(
+    generations: &Storage<u64, SccpCommitteeGenerationV1>,
+    anchors: &Cell<Vec<SccpAnchorV1>>,
+    fast_pauses: &Storage<SccpNetworkV1, SccpFastPauseV1>,
+    rounds: &Storage<(SccpNetworkV1, SccpPanelRoleV1), SccpFastPauseRoundV1>,
+    panel: &Cell<Option<SccpPausePanelV1>>,
+) -> Result<usize, SccpRestoreError> {
+    let mut bytes = 0usize;
+    let mut add = |size: usize| -> Result<(), AllocationRefusal> {
+        bytes = bytes
+            .checked_add(size)
+            .ok_or(AllocationRefusal::DemandOverflow)?;
+        Ok(())
+    };
+    let generations = generations.snapshot();
+    for (_, row) in generations.current().iter() {
+        add(RetainedSccpGeneration::admission_demand(row)?)?;
+    }
+    for (_, row) in generations.revert_map().iter() {
+        if let Some(row) = row {
+            add(RetainedSccpGeneration::admission_demand(row)?)?;
+        }
+    }
+    add(RetainedSccpAnchors::admission_demand(anchors.view().get())?)?;
+    if let Some(prior) = anchors.predecessor_view().get() {
+        add(RetainedSccpAnchors::admission_demand(prior)?)?;
+    }
+    pause_map_demand(
+        fast_pauses,
+        RetainedSccpFastPause::admission_demand,
+        &mut add,
+    )?;
+    pause_map_demand(
+        rounds,
+        RetainedSccpFastPauseRound::admission_demand,
+        &mut add,
+    )?;
+    if let Some(panel) = panel.view().get() {
+        add(RetainedSccpPausePanel::admission_demand(panel)?)?;
+    }
+    if let Some(Some(panel)) = panel.predecessor_view().get() {
+        add(RetainedSccpPausePanel::admission_demand(panel)?)?;
+    }
+    Ok(bytes)
+}
+
 /// Name of the State snapshot member that carries this envelope.
 pub(crate) const SCCP_SNAPSHOT_MEMBER: &str = "sccp";
 
 /// Required SCCP wire fields; every store includes both current and exact undo maps.
+/// Unknown fields are rejected, including fields of the retired attestation transport.
 #[derive(JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
 pub(crate) struct SnapshotSccpState {
     pub(super) sccp_parameters: Cell<Option<SccpParametersV1>>,
     pub(super) sccp_reset_nonce: Cell<Option<[u8; 32]>>,
     pub(super) sccp_committee_generations: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_committee_current: SnapshotScalar<u64>,
-    pub(super) sccp_liability_clock: SnapshotScalar<u64>,
-    pub(super) sccp_degraded_run: SnapshotScalar<u32>,
-    pub(super) sccp_anchor_open:
-        SnapshotScalar<Vec<iroha_data_model::sccp::committee::SccpAnchorV1>>,
+    pub(super) sccp_committee_current: Cell<u64>,
+    pub(super) sccp_liability_clock: Cell<u64>,
+    pub(super) sccp_degraded_run: Cell<u32>,
+    pub(super) sccp_anchor_open: Cell<Vec<SccpAnchorV1>>,
     pub(super) sccp_anchor_chunks: snapshot_storage::SnapshotStorage,
     pub(super) sccp_block_leaves: snapshot_storage::SnapshotStorage,
     pub(super) sccp_block_commitments: snapshot_storage::SnapshotStorage,
@@ -57,6 +316,10 @@ pub(crate) struct SnapshotSccpState {
     pub(super) sccp_outbound_messages: snapshot_storage::SnapshotStorage,
     pub(super) sccp_outbound_by_nonce: snapshot_storage::SnapshotStorage,
     pub(super) sccp_control_messages: snapshot_storage::SnapshotStorage,
+    pub(super) sccp_fast_pauses: snapshot_storage::SnapshotStorage,
+    pub(super) sccp_fast_pause_suspended_until_ms: snapshot_storage::SnapshotStorage,
+    pub(super) sccp_fast_pause_rounds: snapshot_storage::SnapshotStorage,
+    pub(super) sccp_pause_panel: Cell<Option<SccpPausePanelV1>>,
     pub(super) sccp_routes: snapshot_storage::SnapshotStorage,
     pub(super) sccp_destination_words: snapshot_storage::SnapshotStorage,
     pub(super) sccp_governance_revisions: snapshot_storage::SnapshotStorage,
@@ -67,29 +330,6 @@ pub(crate) struct SnapshotSccpState {
     pub(super) sccp_light_client_checkpoints: snapshot_storage::SnapshotStorage,
     pub(super) sccp_light_client_stride_index: snapshot_storage::SnapshotStorage,
     pub(super) sccp_light_client_profiles: snapshot_storage::SnapshotStorage,
-}
-
-/// Inline claims matching the sole MV Cell wire layout, without allocating Cell owners.
-#[derive(JsonSerialize, JsonDeserialize)]
-#[norito(deny_unknown_fields)]
-pub(super) struct SnapshotScalar<T> {
-    revert: Option<SnapshotScalarUndo<T>>,
-    blocks: T,
-}
-#[derive(JsonSerialize, JsonDeserialize)]
-#[norito(deny_unknown_fields)]
-struct SnapshotScalarUndo<T> {
-    value: T,
-}
-impl<T: mv::Value> SnapshotScalar<T> {
-    fn restore(
-        self,
-        budget: &iroha_allocation::AllocationBudget,
-    ) -> Result<Cell<T, iroha_allocation::AllocationCharge>, StateRestoreError> {
-        mv::cell::CellInitialization::try_reserve(budget)
-            .map(|owner| owner.initialize(self.blocks, self.revert.map(|undo| undo.value)))
-            .map_err(|error| scalar_cell_custody::admission_error(error).into())
-    }
 }
 
 /// Append the key of one envelope member, preceded by a comma after the first member.
@@ -131,6 +371,10 @@ macro_rules! serialize_sccp_fields {
             store sccp_outbound_messages,
             store sccp_outbound_by_nonce,
             store sccp_control_messages,
+            store sccp_fast_pauses,
+            store sccp_fast_pause_suspended_until_ms,
+            store sccp_fast_pause_rounds,
+            cell sccp_pause_panel,
             store sccp_routes,
             store sccp_destination_words,
             store sccp_governance_revisions,
@@ -224,126 +468,21 @@ fn valid_history(history: &SccpHistoryStateV1) -> Result<(), String> {
     }
 }
 
+fn valid_anchor_open(anchors: &[SccpAnchorV1]) -> Result<(), String> {
+    if anchors.len() < SCCP_ANCHOR_CHUNK_SIZE_V1 {
+        Ok(())
+    } else {
+        Err("a completed anchor chunk must be closed, not retained in the open cell".to_owned())
+    }
+}
+
 impl SnapshotSccpState {
     /// Decode and validate every current/predecessor envelope before publishing any field.
-    pub(super) fn restore(self, world: &mut World) -> Result<(), StateRestoreError> {
-        let budget = world.sccp_committee_generations.allocation_budget().clone();
-        let committee_generations = self.sccp_committee_generations.decode_admitted::<
-            u64, iroha_data_model::sccp::committee::SccpCommitteeGenerationV1,
-            RetainedSccpCommitteeGeneration, CommitteeStoragePolicy,
-        >("sccp_committee_generations", budget.clone(), |key, value| *key == value.generation,
-          |claim| RetainedSccpCommitteeGeneration::admit_claim(&claim, &budget).map_err(|error| {
-              match error {
-                  CommitteeOwnerError::Invalid(error) => invalid("sccp_committee_generations", error.to_string()).into(),
-                  CommitteeOwnerError::DecodeResource(original) => crate::execution_attempt::norito_decode_attempt_error(
-                      original, |error| invalid("sccp_committee_generations", error.to_string())).into(),
-                  local => StateRestoreError::SccpCommittee(local),
-              }
-          }))?;
-        let admit_open = |claims: Vec<iroha_data_model::sccp::committee::SccpAnchorV1>| {
-            if claims.len() >= iroha_sccp::v1::evidence::SCCP_ANCHOR_CHUNK as usize {
-                return Err(StateRestoreError::from(invalid(
-                    "sccp_anchor_open",
-                    "completed chunk must be cleared",
-                )));
-            }
-            RetainedSccpAnchorOpen::admit_claim(&claims, &budget).map_err(|error| {
-                StateRestoreError::Admission(StateAdmissionError::Storage(
-                    StateStorageAdmissionError::SccpAnchor(
-                        crate::smartcontracts::isi::sccp::anchor::SccpAnchorLocalError::from_owner(
-                            error,
-                        ),
-                    ),
-                ))
-            })
-        };
-        let anchor_open = SnapshotScalar {
-            blocks: admit_open(self.sccp_anchor_open.blocks)?,
-            revert: self
-                .sccp_anchor_open
-                .revert
-                .map(|undo| admit_open(undo.value).map(|value| SnapshotScalarUndo { value }))
-                .transpose()?,
-        }
-        .restore(&budget)?;
-        let anchor_chunks = self.sccp_anchor_chunks.decode_admitted::<u64, [u8; 32], [u8; 32],
-            crate::smartcontracts::isi::sccp::anchor_storage::AnchorStoragePolicy>(
-            "sccp_anchor_chunks", budget.clone(),
-            |key, _| key.checked_add(1).and_then(|end| end.checked_mul(iroha_sccp::v1::evidence::SCCP_ANCHOR_CHUNK)).is_some(),
-            Ok)?;
-        // Empty SCCP has no anchors at either original MV cut. Claims never authenticate R.
-        {
-            let params_now = self.sccp_parameters.view();
-            let params_undo = self.sccp_parameters.predecessor_view();
-            let open_now = anchor_open.view();
-            let open_undo = anchor_open.predecessor_view();
-            let chunks = anchor_chunks.snapshot();
-            let previous_parameters = params_undo.get().as_ref().unwrap_or(params_now.get());
-            let previous_open = open_undo.get().as_ref().unwrap_or(open_now.get());
-            let previous_chunks = chunks
-                .current()
-                .iter()
-                .any(|(key, _)| chunks.revert_map().get(key).is_none())
-                || chunks.revert_map().iter().any(|(_, value)| value.is_some());
-            if (params_now.get().is_none()
-                && (!open_now.get().anchors().is_empty()
-                    || chunks.current().iter().next().is_some()))
-                || (previous_parameters.is_none()
-                    && (!previous_open.anchors().is_empty() || previous_chunks))
-            {
-                return Err(invalid("sccp_anchor_open", "absent SCCP has anchors").into());
-            }
-        }
-        let committee_current = self.sccp_committee_current.restore(&budget)?;
-        let liability_clock = self.sccp_liability_clock.restore(&budget)?;
-        let degraded_run = self.sccp_degraded_run.restore(&budget)?;
-        {
-            use crate::smartcontracts::isi::sccp::committee_snapshot::validate_cut;
-            let rows = committee_generations.snapshot();
-            validate_cut(
-                self.sccp_parameters.view().get().is_some(),
-                *committee_current.view().get(),
-                *liability_clock.view().get(),
-                *degraded_run.view().get(),
-                rows.current()
-                    .iter()
-                    .map(|(key, owner)| (key, owner.record())),
-            )
-            .map_err(|reason| invalid("sccp_committee_generations", reason))?;
-            let params_view = self.sccp_parameters.view();
-            let params_undo = self.sccp_parameters.predecessor_view();
-            let previous_params = params_undo.get().as_ref().unwrap_or(params_view.get());
-            let previous_current = committee_current
-                .predecessor_view()
-                .get()
-                .unwrap_or(*committee_current.view().get());
-            let previous_lc = liability_clock
-                .predecessor_view()
-                .get()
-                .unwrap_or(*liability_clock.view().get());
-            let previous_degraded = degraded_run
-                .predecessor_view()
-                .get()
-                .unwrap_or(*degraded_run.view().get());
-            // Overlay exact undo preimages on untouched current rows; allocate no shadow map.
-            let undo = rows.revert_map();
-            let previous =
-                rows.current()
-                    .iter()
-                    .filter(|(key, _)| undo.get(key).is_none())
-                    .map(|(key, owner)| (key, owner.record()))
-                    .chain(undo.iter().filter_map(|(key, owner)| {
-                        owner.as_ref().map(|owner| (key, owner.record()))
-                    }));
-            validate_cut(
-                previous_params.is_some(),
-                previous_current,
-                previous_lc,
-                previous_degraded,
-                previous,
-            )
-            .map_err(|reason| invalid("sccp_committee_generations.undo", reason))?;
-        }
+    pub(super) fn restore(
+        self,
+        world: &mut World,
+        budget: &AllocationBudget,
+    ) -> Result<(), SccpRestoreError> {
         validate_cell(&self.sccp_parameters, "sccp_parameters", valid_parameters)?;
         validate_cell(
             &self.sccp_reset_nonce,
@@ -351,6 +490,25 @@ impl SnapshotSccpState {
             valid_reset_nonce,
         )?;
         validate_cell(&self.sccp_history, "sccp_history", valid_history)?;
+        validate_cell(&self.sccp_anchor_open, "sccp_anchor_open", |value| {
+            valid_anchor_open(value)
+        })?;
+        validate_cell(&self.sccp_pause_panel, "sccp_pause_panel", |value| {
+            if value.as_ref().is_none_or(SccpPausePanelV1::has_valid_shape) {
+                Ok(())
+            } else {
+                Err("invalid panel structure".to_owned())
+            }
+        })?;
+        let committee_generations = self
+            .sccp_committee_generations
+            .decode::<u64, SccpCommitteeGenerationV1>(
+                "sccp_committee_generations",
+                |key, value| *key == value.generation && value.is_well_formed(),
+            )?;
+        let anchor_chunks = self
+            .sccp_anchor_chunks
+            .decode::<u64, [u8; 32]>("sccp_anchor_chunks", store::anchor_chunks::valid_entry)?;
         let block_leaves = self.sccp_block_leaves.decode::<(u64, u32), SccpLeafRefV1>(
             "sccp_block_leaves",
             store::block_leaves::valid_entry,
@@ -377,6 +535,23 @@ impl SnapshotSccpState {
             .decode::<(SccpNetworkV1, u32, u64), SccpControlRecordV1>(
                 "sccp_control_messages",
                 store::control_messages::valid_entry,
+            )?;
+        let fast_pauses = self
+            .sccp_fast_pauses
+            .decode::<SccpNetworkV1, SccpFastPauseV1>("sccp_fast_pauses", |key, value| {
+                key.is_external() && value.has_valid_shape()
+            })?;
+        let suspended = self
+            .sccp_fast_pause_suspended_until_ms
+            .decode::<SccpNetworkV1, u64>(
+                "sccp_fast_pause_suspended_until_ms",
+                store::fast_pause_suspended_until_ms::valid_entry,
+            )?;
+        let rounds = self
+            .sccp_fast_pause_rounds
+            .decode::<(SccpNetworkV1, SccpPanelRoleV1), SccpFastPauseRoundV1>(
+                "sccp_fast_pause_rounds",
+                |key, value| key.0.is_external() && value.has_valid_shape(),
             )?;
         let routes = self
             .sccp_routes
@@ -423,6 +598,38 @@ impl SnapshotSccpState {
                 "sccp_light_client_profiles",
                 store::light_client_profiles::valid_entry,
             )?;
+        // Every structural check and graph admission precedes the first World publication.
+        let bytes = snapshot_graph_demand(
+            &committee_generations,
+            &self.sccp_anchor_open,
+            &fast_pauses,
+            &rounds,
+            &self.sccp_pause_panel,
+        )?;
+        let mut reservation = budget.try_reserve_bytes(bytes)?;
+        let committee_generations =
+            admit_generations(&committee_generations, budget, &mut reservation)?;
+        let anchor_open = admit_anchors(&self.sccp_anchor_open, budget, &mut reservation)?;
+        let fast_pauses = admit_pause_map(
+            &fast_pauses,
+            budget,
+            &mut reservation,
+            RetainedSccpFastPause::admit_prepaid,
+        )?;
+        let rounds = admit_pause_map(
+            &rounds,
+            budget,
+            &mut reservation,
+            RetainedSccpFastPauseRound::admit_prepaid,
+        )?;
+        let panel = admit_panel(&self.sccp_pause_panel, budget, &mut reservation)?;
+        debug_assert_eq!(reservation.remaining_bytes(), 0);
+        let destination_pending_generations = destination_pending_index(&committee_generations);
+        let anchor_chunks = admit_anchor_chunks(&anchor_chunks, budget)?;
+        let committee_current = admit_scalar(self.sccp_committee_current, budget)?;
+        let liability_clock = admit_scalar(self.sccp_liability_clock, budget)?;
+        let degraded_run = admit_scalar(self.sccp_degraded_run, budget)?;
+        world.sccp_destination_pending_generations = destination_pending_generations;
         world.sccp_parameters = self.sccp_parameters;
         world.sccp_reset_nonce = self.sccp_reset_nonce;
         world.sccp_committee_generations = committee_generations;
@@ -438,6 +645,10 @@ impl SnapshotSccpState {
         world.sccp_outbound_messages = outbound_messages;
         world.sccp_outbound_by_nonce = outbound_by_nonce;
         world.sccp_control_messages = control_messages;
+        world.sccp_fast_pauses = fast_pauses;
+        world.sccp_fast_pause_suspended_until_ms = suspended;
+        world.sccp_fast_pause_rounds = rounds;
+        world.sccp_pause_panel = panel;
         world.sccp_routes = routes;
         world.sccp_destination_words = destination_words;
         world.sccp_governance_revisions = governance_revisions;

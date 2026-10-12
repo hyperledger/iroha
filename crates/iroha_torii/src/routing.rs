@@ -3507,16 +3507,27 @@ fn quote_app_api_transaction_builder(
             "failed to quote {context} transaction fees: multi-route execution is unsupported"
         )));
     };
+    let quote_view = state.query_view();
+    let sccp_committed_time_ms = iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&quote_view).map_err(|error| {
+        Error::Query(iroha_data_model::ValidationFail::InternalError(format!(
+            "fee quote has invalid committed time: {error:?}"
+        )))
+    })?;
+    let observation_time_ms = sccp_committed_time_ms.unwrap_or(0);
+    let next_block_height = u64::try_from(quote_view.height())
+        .ok()
+        .and_then(|height| height.checked_add(1))
+        .ok_or_else(|| conversion_error("fee quote committed height overflow".to_owned()))?;
     let quote = {
-        let view = state.view();
         iroha_core::executor::quote_nexus_fee_admission_draft(
-            view.world(),
-            view.nexus(),
-            view.pipeline(),
-            &view.zk().gas,
+            quote_view.world(),
+            quote_view.nexus(),
+            quote_view.pipeline(),
+            &quote_view.zk().gas,
             &payload,
-            view.query_ledger_time_ms(),
-            u64::try_from(view.height()).unwrap_or(u64::MAX).saturating_add(1),
+            observation_time_ms,
+            sccp_committed_time_ms,
+            next_block_height,
             Some(route.route.dataspace_id),
         )
     }
@@ -3531,6 +3542,7 @@ fn quote_app_api_transaction_builder(
             error.code()
         )),
     })?;
+    drop(quote_view);
     if !payload
         .fee_payment
         .has_same_payer_and_gas_bound(&quote.recommended_intent)
@@ -54712,7 +54724,7 @@ fn transaction_detail_at_height(
     };
     let block = HistoryReadBudget::new().read(state, nonzero_height)?;
     let block_ref = block.as_ref();
-    for (entrypoint_index, entrypoint_hash, tx, result) in
+    for (entrypoint_index, entrypoint_hash, tx, _) in
         external_signed_transaction_results(block_ref)
     {
         if !visibility.allows_external_entrypoint(block_ref, entrypoint_index) {
@@ -54738,7 +54750,7 @@ fn instruction_detail_at_height(
     };
     let block = HistoryReadBudget::new().read(state, nonzero_height)?;
     let block_ref = block.as_ref();
-    for (entrypoint_index, entrypoint_hash, tx, result) in
+    for (entrypoint_index, entrypoint_hash, tx, _) in
         external_signed_transaction_results(block_ref)
     {
         if !visibility.allows_external_entrypoint(block_ref, entrypoint_index) {
@@ -54747,7 +54759,7 @@ fn instruction_detail_at_height(
         if !signed_transaction_carrier_matches_indexed_identity(&entrypoint_hash, &tx, &target) {
             continue;
         }
-        let instruction = tx
+        tx
             .instructions()
             .explicit_instructions()
             .nth(lookup_index)

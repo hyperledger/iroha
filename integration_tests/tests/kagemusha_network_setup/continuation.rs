@@ -241,7 +241,10 @@ fn prefix(network: &Network, through: u64) -> Result<Vec<SumeragiFinalityProof>>
         let mut verifier = native(network)?;
         let mut current = Vec::new();
         for height in 1..=through {
-            let proof = client.get_sumeragi_finality_proof(NonZeroU64::new(height).unwrap())?;
+            let proof = client.get_sumeragi_finality_proof(
+                NonZeroU64::new(height).unwrap(),
+                verifier.root_scope(),
+            )?;
             let verified = verifier.verify(&proof)?;
             ensure!(
                 proof.height() == height && proof.committee.len() == 4,

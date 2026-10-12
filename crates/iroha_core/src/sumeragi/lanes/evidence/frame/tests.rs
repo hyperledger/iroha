@@ -113,9 +113,9 @@ fn frame(
     };
     let signatures: Vec<_> = signers[..3]
         .iter()
-        .map(|signer| signer.sign(&qc.preimage()))
+        .map(|signer| signer.sign(&qc.preimage()).unwrap())
         .collect();
-    qc.agg_sig = crypto.aggregate(&signatures);
+    qc.agg_sig = crypto.aggregate(&signatures).unwrap();
     if invalid_signature {
         qc.agg_sig.0[0] ^= 1;
     }

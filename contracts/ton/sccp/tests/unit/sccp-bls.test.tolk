@@ -16,11 +16,11 @@
 // a regenerated fixture cannot shrink the coverage unnoticed.
 
 import "@stdlib/strings"
+import "@acton/io"
 import "@acton/emulation/network"
 import "@acton/emulation/testing"
 import "@acton/testing/bench"
 import "@acton/testing/expect"
-import "@acton/io"
 import "@contracts/sccp-cells"
 import "@contracts/sccp-constants"
 import "@contracts/sccp-crypto"
@@ -349,7 +349,13 @@ get fun `test sha256 wrappers reproduce R, P and m of the worked examples`() {
         blockHash: VEC_COMMIT_BLOCK_HASH,
         resultBody: VEC_X_D_BODY,
     };
-    val built = voteMessage(SCCP_KIND_COMMIT, VEC_COMMIT_INSTANCE, VEC_COMMIT_HEIGHT, qc, VEC_COMMIT_R);
+    val built = voteMessage(
+        SCCP_KIND_COMMIT,
+        VEC_COMMIT_INSTANCE,
+        VEC_COMMIT_HEIGHT,
+        qc,
+        VEC_COMMIT_R,
+    );
     expect(built.bitsEqual(wordSlice(VEC_COMMIT_M))).toBeTrue();
     // QC_FIXED is 116 bytes: the 112 bytes of the cell and the `signers` word
     val qcCell = vecQcFixedCell();
@@ -392,6 +398,13 @@ get fun `test checkpoint ids and the committee root of the worked examples`() {
     expect(vecXRotationHead().remainingBitsCount()).toEqual(SCCP_X_HEAD_BITS);
     expect(vecXRotationTail().remainingBitsCount()).toEqual(SCCP_X_TAIL_BITS);
     expect((SCCP_X_HEAD_BITS + SCCP_X_TAIL_BITS) / 8).toEqual(VEC_X_BYTES);
+    // the split of X and the tags of §3.6 and §3.7, as the fixture states them
+    expect(SCCP_X_HEAD_BITS).toEqual(VEC_X_HEAD_BYTES * 8);
+    expect(SCCP_X_TAIL_BITS).toEqual(VEC_X_TAIL_BYTES * 8);
+    expect(SCCP_X_MAGIC).toEqual(VEC_X_MAGIC);
+    expect(SCCP_RESULT_TAG).toEqual(VEC_RESULT_TAG);
+    expect(SCCP_SIG_TAG).toEqual(VEC_SIG_TAG);
+    expect(SCCP_TAG_COMMITTEE_V1).toEqual(VEC_COMMITTEE_TAG);
     val keys = vecSyntheticCommitteeKeys();
     expect(sccpCommitteeRoot(4, sccpLoadKeys(sccpBuildKeys(keys), 4).parts)).toEqual(
         VEC_SYNTHETIC_COMMITTEE_ROOT,
@@ -537,7 +550,12 @@ get fun `test the identity signature is recognised by all of its 96 bytes`() {
         .endCell()
         .beginParse();
     expect(sccpIsIdentitySignature(uncompressed)).toBeFalse();
-    val zero = beginCell().storeUint(0, 256).storeUint(0, 256).storeUint(0, 256).endCell().beginParse();
+    val zero = beginCell()
+        .storeUint(0, 256)
+        .storeUint(0, 256)
+        .storeUint(0, 256)
+        .endCell()
+        .beginParse();
     expect(sccpIsIdentitySignature(zero)).toBeFalse();
     var row = 0;
     repeat (VEC_CERTIFICATE_COUNT) {
@@ -572,24 +590,75 @@ get fun `test bls wrapper refuses another message, signature or signer set`() {
     val k1 = publics.get(facts.committee.get(1));
     val k2 = publics.get(facts.committee.get(2));
     val k3 = publics.get(facts.committee.get(3));
-    val t0: tuple = [k0, k1, k2, 3, facts.m, cert.signature];
+    val t0: tuple = [
+        k0,
+        k1,
+        k2,
+        3,
+        facts.m,
+        cert.signature,
+    ];
     expect(sccpBlsFastAggregateVerify(t0)).toBeTrue();
     val other = vecCertificateFacts(VEC_CERT_N4_HIGHEST_Q);
-    val t1: tuple = [k0, k1, k2, 3, other.m, cert.signature];
+    val t1: tuple = [
+        k0,
+        k1,
+        k2,
+        3,
+        other.m,
+        cert.signature,
+    ];
     expect(sccpBlsFastAggregateVerify(t1)).toBeFalse();
-    val t2: tuple = [k0, k1, k3, 3, facts.m, cert.signature];
+    val t2: tuple = [
+        k0,
+        k1,
+        k3,
+        3,
+        facts.m,
+        cert.signature,
+    ];
     expect(sccpBlsFastAggregateVerify(t2)).toBeFalse();
-    val t3: tuple = [k0, k1, k2, 3, facts.m, vecCertificate(VEC_CERT_N4_HIGHEST_Q).signature];
+    val t3: tuple = [
+        k0,
+        k1,
+        k2,
+        3,
+        facts.m,
+        vecCertificate(VEC_CERT_N4_HIGHEST_Q).signature,
+    ];
     expect(sccpBlsFastAggregateVerify(t3)).toBeFalse();
     // a superset and a subset of the signers, and one key twice
-    val t4: tuple = [k0, k1, k2, k3, 4, facts.m, cert.signature];
+    val t4: tuple = [
+        k0,
+        k1,
+        k2,
+        k3,
+        4,
+        facts.m,
+        cert.signature,
+    ];
     expect(sccpBlsFastAggregateVerify(t4)).toBeFalse();
     val t5: tuple = [k0, k1, 2, facts.m, cert.signature];
     expect(sccpBlsFastAggregateVerify(t5)).toBeFalse();
-    val t6: tuple = [k0, k0, k1, k2, 4, facts.m, cert.signature];
+    val t6: tuple = [
+        k0,
+        k0,
+        k1,
+        k2,
+        4,
+        facts.m,
+        cert.signature,
+    ];
     expect(sccpBlsFastAggregateVerify(t6)).toBeFalse();
     // the aggregate does not depend on the key order
-    val t7: tuple = [k2, k0, k1, 3, facts.m, cert.signature];
+    val t7: tuple = [
+        k2,
+        k0,
+        k1,
+        3,
+        facts.m,
+        cert.signature,
+    ];
     expect(sccpBlsFastAggregateVerify(t7)).toBeTrue();
 }
 
@@ -600,22 +669,64 @@ get fun `test a tuple of another shape never verifies`() {
     val k0 = publics.get(facts.committee.get(0));
     val k1 = publics.get(facts.committee.get(1));
     val k2 = publics.get(facts.committee.get(2));
-    val genuine: tuple = [k0, k1, k2, 3, facts.m, cert.signature];
+    val genuine: tuple = [
+        k0,
+        k1,
+        k2,
+        3,
+        facts.m,
+        cert.signature,
+    ];
     expect(wrapperVerdict(genuine)).toEqual(1);
     // a key count that differs from the keys, no key, and σ before m
-    val fewer: tuple = [k0, k1, k2, 2, facts.m, cert.signature];
+    val fewer: tuple = [
+        k0,
+        k1,
+        k2,
+        2,
+        facts.m,
+        cert.signature,
+    ];
     expect(wrapperVerdict(fewer) < 1).toBeTrue();
-    val more: tuple = [k0, k1, k2, 4, facts.m, cert.signature];
+    val more: tuple = [
+        k0,
+        k1,
+        k2,
+        4,
+        facts.m,
+        cert.signature,
+    ];
     expect(wrapperVerdict(more) < 0).toBeTrue();
     val none: tuple = [0, facts.m, cert.signature];
     expect(wrapperVerdict(none)).toEqual(0);
-    val swapped: tuple = [k0, k1, k2, 3, cert.signature, facts.m];
+    val swapped: tuple = [
+        k0,
+        k1,
+        k2,
+        3,
+        cert.signature,
+        facts.m,
+    ];
     expect(wrapperVerdict(swapped) < 0).toBeTrue();
     // the opcode hashes the whole message slice
-    val longMessage: tuple = [k0, k1, k2, 3, withExtraByte(facts.m), cert.signature];
+    val longMessage: tuple = [
+        k0,
+        k1,
+        k2,
+        3,
+        withExtraByte(facts.m),
+        cert.signature,
+    ];
     expect(wrapperVerdict(longMessage)).toEqual(0);
     // a signature shorter than 96 bytes cannot be read
-    val shortSignature: tuple = [k0, k1, k2, 3, facts.m, cert.signature.getFirstBits(760)];
+    val shortSignature: tuple = [
+        k0,
+        k1,
+        k2,
+        3,
+        facts.m,
+        cert.signature.getFirstBits(760),
+    ];
     expect(wrapperVerdict(shortSignature) < 0).toBeTrue();
 }
 
@@ -628,9 +739,23 @@ get fun `test the opcode reads only the first bytes of longer key and signature 
     val k0 = publics.get(facts.committee.get(0));
     val k1 = publics.get(facts.committee.get(1));
     val k2 = publics.get(facts.committee.get(2));
-    val longSignature: tuple = [k0, k1, k2, 3, facts.m, withExtraByte(cert.signature)];
+    val longSignature: tuple = [
+        k0,
+        k1,
+        k2,
+        3,
+        facts.m,
+        withExtraByte(cert.signature),
+    ];
     expect(wrapperVerdict(longSignature)).toEqual(1);
-    val longKey: tuple = [withExtraByte(k0), k1, k2, 3, facts.m, cert.signature];
+    val longKey: tuple = [
+        withExtraByte(k0),
+        k1,
+        k2,
+        3,
+        facts.m,
+        cert.signature,
+    ];
     expect(wrapperVerdict(longKey)).toEqual(1);
 
     // the minter refuses the 97-byte signature by the size of the root cell
@@ -715,10 +840,7 @@ fun expectWrapperProfile(profile: BenchResult<bool>, n: int, q: int) {
             val price = 58000 + 3000 * q + 34;
             expect(info.totalGas).toEqual(price);
             reportGas(
-                StringBuilder.create()
-                    .append("BLS_FASTAGGREGATEVERIFY n=")
-                    .appendInt(n)
-                    .build(),
+                StringBuilder.create().append("BLS_FASTAGGREGATEVERIFY n=").appendInt(n).build(),
                 info.totalGas,
                 price,
             );
@@ -737,23 +859,32 @@ fun expectWrapperProfile(profile: BenchResult<bool>, n: int, q: int) {
 
 get fun `test bls wrapper stack shape and opcode gas at n=4, 7 and 31`() {
     expectWrapperProfile(
-        bench.measure("fast aggregate verify n=4", fun() {
-            return sccpBlsFastAggregateVerify(verifyTuple(VEC_CERT_N4_LOWEST_Q));
-        }),
+        bench.measure(
+            "fast aggregate verify n=4",
+            fun() {
+                return sccpBlsFastAggregateVerify(verifyTuple(VEC_CERT_N4_LOWEST_Q));
+            },
+        ),
         4,
         3,
     );
     expectWrapperProfile(
-        bench.measure("fast aggregate verify n=7", fun() {
-            return sccpBlsFastAggregateVerify(verifyTuple(VEC_CERT_N7_LOWEST_Q));
-        }),
+        bench.measure(
+            "fast aggregate verify n=7",
+            fun() {
+                return sccpBlsFastAggregateVerify(verifyTuple(VEC_CERT_N7_LOWEST_Q));
+            },
+        ),
         7,
         5,
     );
     expectWrapperProfile(
-        bench.measure("fast aggregate verify n=31", fun() {
-            return sccpBlsFastAggregateVerify(verifyTuple(VEC_CERT_N31_LOWEST_Q));
-        }),
+        bench.measure(
+            "fast aggregate verify n=31",
+            fun() {
+                return sccpBlsFastAggregateVerify(verifyTuple(VEC_CERT_N31_LOWEST_Q));
+            },
+        ),
         31,
         21,
     );
@@ -762,7 +893,12 @@ get fun `test bls wrapper stack shape and opcode gas at n=4, 7 and 31`() {
     expect(verifyTuple(VEC_CERT_N7_LOWEST_Q).size()).toEqual(5 + 3);
     expect(verifyTuple(VEC_CERT_N31_LOWEST_Q).size()).toEqual(21 + 3);
     // the last four words of a text are found across white space and braces
-    val (a, b, c, d) = lastFourWords("NOP\n  PUSHCONT {\n    DUP\n    TLEN\n  }\n UNTUPLEVAR X }\n");
+    val (
+        a,
+        b,
+        c,
+        d,
+    ) = lastFourWords("NOP\n  PUSHCONT {\n    DUP\n    TLEN\n  }\n UNTUPLEVAR X }\n");
     expect(a).toEqual("DUP".toBase256());
     expect(b).toEqual("TLEN".toBase256());
     expect(c).toEqual("UNTUPLEVAR".toBase256());
@@ -854,7 +990,16 @@ get fun `test every positive certificate row is accepted, published and stored`(
             );
         }
         expectEvents(res, events);
-        replayExpectCheckpoints(env, 1, facts.height, facts.id, 0, 0, 0, 0);
+        replayExpectCheckpoints(
+            env,
+            1,
+            facts.height,
+            facts.id,
+            0,
+            0,
+            0,
+            0,
+        );
         val state = env.minter.getSccpState();
         expect(state.high).toEqual(facts.height);
         expect(state.opCount).toEqual(0);
@@ -930,7 +1075,16 @@ get fun `test every negative certificate row with a TON outcome answers its exit
             expectOutcome(res, cert.exit);
             // a refused certificate publishes nothing and changes nothing
             expectEvents(res, []);
-            replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
+            replayExpectCheckpoints(
+                env,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+            );
             val state = env.minter.getSccpState();
             expect(state.high).toEqual(cert.pin.start - 1);
             expect(state.generation).toEqual(cert.pin.generation);
@@ -994,7 +1148,16 @@ get fun `test the identity signature is refused before the opcode and before the
     expectEvents(cheap, []);
     expect(stepGas(cheap) < 58000).toBeTrue();
     expect(env.minter.getSccpState().high).toEqual(height);
-    replayExpectCheckpoints(env, 1, height, id, 0, 0, 0, 0);
+    replayExpectCheckpoints(
+        env,
+        1,
+        height,
+        id,
+        0,
+        0,
+        0,
+        0,
+    );
     val again = replayCheckpoint(env, other, null);
     expectOutcome(again, SccpErrors.NothingToDo);
     expect(stepGas(again) < 58000).toBeTrue();
@@ -1022,7 +1185,16 @@ get fun `test the minter answers BadSignature for stored keys the opcode refuses
         val res = vecSubmitCertificate(env, cert, null);
         expectOutcome(res, SccpErrors.BadSignature);
         expectEvents(res, []);
-        replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
+        replayExpectCheckpoints(
+            env,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        );
         // the verdict is the opcode's: the minter ran no key check of its own
         expect(stepGas(res) > 58000).toBeTrue();
         i += 1;
@@ -1096,7 +1268,16 @@ get fun `test a w3f transcript signature over the commit digest is refused`() {
     val res = vecSubmitCertificate(env, cert, null);
     expectOutcome(res, cert.exit);
     expectEvents(res, []);
-    replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
+    replayExpectCheckpoints(
+        env,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+    );
     replayed += 1;
     // the pairing check is the only step the foreign transcript fails
     val accepted = replayCheckpoint(
@@ -1105,6 +1286,15 @@ get fun `test a w3f transcript signature over the commit digest is refused`() {
         null,
     );
     expectOutcome(accepted, 0);
-    replayExpectCheckpoints(env, 1, 7400, RUST_NEGATIVE_CHECKPOINT_ID, 0, 0, 0, 0);
+    replayExpectCheckpoints(
+        env,
+        1,
+        7400,
+        RUST_NEGATIVE_CHECKPOINT_ID,
+        0,
+        0,
+        0,
+        0,
+    );
     expect(replayed).toEqual(PINNED_RUST_NEGATIVE_CERTIFICATES);
 }

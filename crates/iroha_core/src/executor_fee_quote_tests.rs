@@ -106,6 +106,7 @@ fn original_claim_metadata_refusal_defers_fee_quote_and_retries_exact_payload() 
             &crate::gas::DEFAULT_ZK_GAS,
             &payload,
             50,
+            None, /* World-only pre-genesis fee fixture */
             2,
             Some(DataSpaceId::UNIVERSAL),
         )
@@ -157,6 +158,7 @@ fn original_claim_alias_refusal_after_metadata_defers_fee_quote_and_retries() {
             &crate::gas::DEFAULT_ZK_GAS,
             &payload,
             50,
+            None, /* World-only pre-genesis fee fixture */
             2,
             Some(DataSpaceId::UNIVERSAL),
         )
@@ -343,6 +345,7 @@ fn original_network_xor_pin_refusal_defers_quote_and_retries_same_parameter() {
             &crate::gas::DEFAULT_ZK_GAS,
             &payload,
             50,
+            None, /* World-only pre-genesis fee fixture */
             2,
             Some(DataSpaceId::UNIVERSAL),
         )
@@ -381,6 +384,7 @@ fn fee_quote_discovers_pipeline_gas_and_matches_strict_signed_payload_quote() {
         &crate::gas::DEFAULT_ZK_GAS,
         &payload,
         0,
+        None, /* World-only pre-genesis fee fixture */
         1,
         Some(DataSpaceId::UNIVERSAL),
     )
@@ -402,6 +406,7 @@ fn fee_quote_discovers_pipeline_gas_and_matches_strict_signed_payload_quote() {
         &crate::gas::DEFAULT_ZK_GAS,
         &payload,
         0,
+        None, /* World-only pre-genesis fee fixture */
         1,
         Some(DataSpaceId::UNIVERSAL),
     )
@@ -491,6 +496,8 @@ fn fee_quote_prices_a_proof_instruction_with_the_committed_gas_schedule() {
             zk_gas,
             &payload,
             0,
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                .expect("original committed fixture clock"),
             1,
             Some(DataSpaceId::UNIVERSAL),
         )

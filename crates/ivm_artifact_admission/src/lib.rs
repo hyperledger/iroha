@@ -669,10 +669,13 @@ mod tests {
             || verify_contract_artifact(&artifact),
         )
         .expect_err("enclosing allocation refusal must reach admission");
+        let retained = refusal.local_vm_error().unwrap();
         assert_eq!(
-            refusal.into_vm_error(),
-            VMError::ExecutionDeferred(ivm_abi::error::ExecutionDeferral::ActiveMemoryCapacity)
+            retained.execution_deferral(),
+            Some(ivm_abi::error::ExecutionDeferral::ActiveMemoryCapacity)
         );
+        assert!(matches!(retained, VMError::DecodeDeferred(_)));
+        assert_eq!(refusal.into_vm_error(), retained);
         let retry =
             verify_contract_artifact(&artifact).expect("retry unchanged canonical artifact");
         assert_eq!(retry.code_hash, baseline.code_hash);
@@ -735,10 +738,13 @@ mod tests {
             || parse_contract_metadata(&artifact),
         )
         .unwrap_err();
+        let retained = error.local_vm_error().unwrap();
         assert_eq!(
-            error.into_vm_error(),
-            VMError::ExecutionDeferred(ivm_abi::error::ExecutionDeferral::ActiveMemoryCapacity,)
+            retained.execution_deferral(),
+            Some(ivm_abi::error::ExecutionDeferral::ActiveMemoryCapacity)
         );
+        assert!(matches!(retained, VMError::DecodeDeferred(_)));
+        assert_eq!(error.into_vm_error(), retained);
         assert_eq!(
             parse_contract_metadata(&artifact).unwrap().contract_debug,
             parsed.contract_debug

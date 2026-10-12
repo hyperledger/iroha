@@ -1,7 +1,7 @@
 //! Real BLS checkpoint authority and bounded canonical-record regressions.
 
 use super::*;
-use crate::sumeragi_finality::test_fixtures::NativeFinalityFixture;
+use crate::sumeragi_finality::{SccpFinalityHeaderV1, test_fixtures::NativeFinalityFixture};
 
 fn root(fixture: &NativeFinalityFixture) -> SumeragiFinalityVerifier {
     SumeragiFinalityVerifier::new(
@@ -279,7 +279,7 @@ fn next_boundary(
         current.authorization.authorization_id().unwrap();
     next.leader_seed = [u8::try_from(next.authorization.epoch).unwrap(); 32];
     next.validate_successor(current).unwrap();
-    let (finality_header, mut result) =
+    let (original_x, mut result) =
         CertifiedResultV1::decode(&template.result_preimage, CertifiedResultScope::TairaGlobal)
             .unwrap()
             .into_parts();
@@ -315,14 +315,14 @@ fn next_boundary(
     qc.height = height;
     qc.epoch = header.epoch;
     qc.block_hash = header.hash(&crypto);
-    let finality_header = SccpFinalityHeaderV1::inactive(
-        *result.schedule.current.network_id.as_bytes(),
+    let original_x = SccpFinalityHeaderV1::inactive(
+        *current.network_id.as_bytes(),
         height,
-        finality_header.timestamp_ms(),
+        original_x.timestamp_ms(),
     )
     .unwrap();
     let result_preimage =
-        CertifiedResultV1::new(finality_header, result, CertifiedResultScope::TairaGlobal)
+        CertifiedResultV1::new(original_x, result, CertifiedResultScope::TairaGlobal)
             .unwrap()
             .preimage()
             .unwrap();

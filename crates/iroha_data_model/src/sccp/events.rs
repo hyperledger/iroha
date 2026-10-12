@@ -9,7 +9,7 @@
 //! unassigned: no variant decodes from them, and new events take indices above the last one.
 
 use super::{
-    committee::SccpGenerationCauseV1,
+    generation::SccpGenerationCauseV1,
     governance::SccpGovernanceSubjectV1,
     inbound::SccpSourceLocatorV1,
     light_client::{SccpLcFreezeReasonV1, SccpLcPointV1},
@@ -49,6 +49,120 @@ macro_rules! sccp_event_payload {
 }
 
 sccp_event_payload! {
+    /// A native generation starts under original committee and liability custody (§4.2 G2).
+    #[derive(Copy)]
+    #[norito_schema(name = "iroha_data_model::sccp::events::SccpCommitteeGenerationCreatedV1")]
+    pub struct SccpCommitteeGenerationCreatedV1 {
+        /// New generation.
+        pub generation: u64,
+        /// Genesis, key change or time-based renewal.
+        pub cause: SccpGenerationCauseV1,
+        /// Canonical committee key root.
+        pub committee_root: [u8; 32],
+        /// First governed height.
+        pub start_height: u64,
+        /// Immutable destination trust deadline.
+        pub deadline_ms: u64,
+    }
+}
+sccp_event_payload! {
+    /// A committee key lacks a slashable registration at creation (§4.2 G6).
+    #[derive(Copy)]
+    #[norito_schema(name = "iroha_data_model::sccp::events::SccpGenerationMemberUnslashableV1")]
+    pub struct SccpGenerationMemberUnslashableV1 {
+        /// Generation retaining the unresolved member.
+        pub generation: u64,
+        /// Canonical key position.
+        pub index: u8,
+    }
+}
+sccp_event_payload! {
+    /// Authenticated authority recovered after a missed boundary (§4.2 G7).
+    #[derive(Copy)]
+    #[norito_schema(name = "iroha_data_model::sccp::events::SccpCommitteeResyncV1")]
+    pub struct SccpCommitteeResyncV1 {
+        /// New independently pinned generation.
+        pub generation: u64,
+        /// Canonical current committee root.
+        pub committee_root: [u8; 32],
+        /// First recovered height.
+        pub start_height: u64,
+    }
+}
+sccp_event_payload! {
+    /// Every active destination passed this generation's trust deadline (§4.8 L5).
+    #[derive(Copy)]
+    #[norito_schema(name = "iroha_data_model::sccp::events::SccpGenerationDestinationClearedV1")]
+    pub struct SccpGenerationDestinationClearedV1 {
+        /// Ended generation.
+        pub generation: u64,
+        /// Liability clock of first clearance.
+        pub lc: u64,
+    }
+}
+/// Closed allocation-free reasons for SCCP failing closed at one native height.
+///
+/// Node-local allocation, storage and resource refusals defer execution; they must never
+/// be converted to these deterministic replicated input or bookkeeping reasons.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(no_fast_from_json, decode_from_slice, deny_unknown_fields)]
+#[norito(tag = "reason", content = "detail")]
+#[norito_schema(name = "iroha_data_model::sccp::events::SccpFinalityDegradedReasonV1")]
+pub enum SccpFinalityDegradedReasonV1 {
+    /// No authenticated native inputs exist for this execution.
+    #[codec(index = 0)]
+    #[norito(rename = "missing_inputs")]
+    MissingInputs,
+    /// The supplied authenticated inputs have invalid execution geometry.
+    #[codec(index = 1)]
+    #[norito(rename = "invalid_inputs")]
+    InvalidInputs,
+    /// The current generation is absent.
+    #[codec(index = 2)]
+    #[norito(rename = "missing_generation")]
+    MissingGeneration,
+    /// A retained generation violates its native structural relation.
+    #[codec(index = 3)]
+    #[norito(rename = "invalid_generation")]
+    InvalidGeneration,
+    /// The required authenticated native parent is absent.
+    #[codec(index = 4)]
+    #[norito(rename = "missing_parent")]
+    MissingParent,
+    /// The next deterministic generation or height cannot be represented.
+    #[codec(index = 5)]
+    #[norito(rename = "counter_exhausted")]
+    CounterExhausted,
+}
+
+sccp_event_payload! {
+    /// SCCP alone failed closed; native block execution remains valid (§4.6).
+    #[derive(Copy)]
+    #[norito_schema(name = "iroha_data_model::sccp::events::SccpFinalityDegradedV1")]
+    pub struct SccpFinalityDegradedV1 {
+        /// Executing height.
+        pub height: u64,
+        /// Deterministic reason, independent of node-local configuration.
+        pub reason: SccpFinalityDegradedReasonV1,
+    }
+}
+
+sccp_event_payload! {
     /// `RecordSccpMessage` or a bounce recorded an outbound message (§4.4 step 14).
     #[derive(Copy)]
     #[norito_schema(name = "iroha_data_model::sccp::events::SccpMessageRecordedV1")]
@@ -83,129 +197,6 @@ sccp_event_payload! {
         pub count: u32,
         /// History size after appending the block.
         pub history_size: u64,
-    }
-}
-
-sccp_event_payload! {
-    /// SCCP produced an inactive finality header because replicated bookkeeping could not
-    /// establish its generation (§4.6). Node-local resource failures instead defer execution.
-    #[derive(Copy)]
-    #[norito_schema(name = "iroha_data_model::sccp::events::SccpFinalityDegradedV1")]
-    pub struct SccpFinalityDegradedV1 {
-        /// Executed Taira height with inactive SCCP finality.
-        pub height: u64,
-        /// Deterministic input or bookkeeping failure.
-        pub reason: SccpFinalityDegradedReasonV1,
-    }
-}
-
-/// Replicated input and bookkeeping causes of inactive SCCP finality (§4.6).
-///
-/// These are event diagnostics, not evidence that a block is invalid. Node-local allocation,
-/// storage and other resource failures are retried and must never be mapped to these reasons.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    IntoSchema,
-    DeriveJsonSerialize,
-    DeriveJsonDeserialize,
-    norito::NoritoSchema,
-)]
-#[norito(no_fast_from_json)]
-#[norito(decode_from_slice)]
-#[norito(deny_unknown_fields)]
-#[norito(tag = "reason", content = "detail")]
-#[norito_schema(name = "iroha_data_model::sccp::events::SccpFinalityDegradedReasonV1")]
-pub enum SccpFinalityDegradedReasonV1 {
-    /// No authenticated native committee inputs were supplied for this height.
-    #[codec(index = 0)]
-    #[norito(rename = "missing_height_inputs")]
-    MissingHeightInputs,
-    /// Supplied native committee inputs do not describe the executed height.
-    #[codec(index = 1)]
-    #[norito(rename = "invalid_height_inputs")]
-    InvalidHeightInputs,
-    /// The replicated current-generation index has no corresponding generation record.
-    #[codec(index = 2)]
-    #[norito(rename = "missing_current_generation")]
-    MissingCurrentGeneration,
-    /// Replicated generation fields cannot describe a coherent native transition.
-    #[codec(index = 3)]
-    #[norito(rename = "inconsistent_generation_state")]
-    InconsistentGenerationState,
-    /// A resync requires the original parent tip, but it is absent from execution inputs.
-    #[codec(index = 4)]
-    #[norito(rename = "missing_parent_tip")]
-    MissingParentTip,
-    /// A checked generation, height, time or liability-clock calculation overflowed.
-    #[codec(index = 5)]
-    #[norito(rename = "arithmetic_overflow")]
-    ArithmeticOverflow,
-}
-
-sccp_event_payload! {
-    /// Native committee bookkeeping created a generation (§4.2.2 G2).
-    #[derive(Copy)]
-    #[norito_schema(name = "iroha_data_model::sccp::events::SccpCommitteeGenerationCreatedV1")]
-    pub struct SccpCommitteeGenerationCreatedV1 {
-        /// Monotonic SCCP generation, distinct from native epoch numbering.
-        pub generation: u64,
-        /// Creation trigger recorded in the original generation.
-        pub cause: SccpGenerationCauseV1,
-        /// Root of that generation's exact ordered native committee keys.
-        pub committee_root: [u8; 32],
-        /// First height covered by the generation.
-        pub start_height: u64,
-        /// Immutable destination deadline from generation creation.
-        pub deadline_ms: u64,
-    }
-}
-
-sccp_event_payload! {
-    /// Authenticated native inputs recovered a committee change missed while degraded
-    /// (§4.2.2 G7); this event is not a predecessor handoff certificate.
-    #[derive(Copy)]
-    #[norito_schema(name = "iroha_data_model::sccp::events::SccpCommitteeResyncV1")]
-    pub struct SccpCommitteeResyncV1 {
-        /// Newly installed SCCP generation.
-        pub generation: u64,
-        /// Root of the authenticated current committee's ordered keys.
-        pub committee_root: [u8; 32],
-        /// First height of the resync generation, equal to the resync block height.
-        pub start_height: u64,
-    }
-}
-
-sccp_event_payload! {
-    /// A generation key had no resolvable original staking tenure (§4.2.2 G6).
-    #[derive(Copy)]
-    #[norito_schema(name = "iroha_data_model::sccp::events::SccpGenerationMemberUnslashableV1")]
-    pub struct SccpGenerationMemberUnslashableV1 {
-        /// Generation whose retained member binding is absent.
-        pub generation: u64,
-        /// Zero-based index in the original ordered committee (at most 30 for 31 members).
-        pub index: u8,
-    }
-}
-
-sccp_event_payload! {
-    /// Every relevant destination's finalized time passed an ended generation's deadline
-    /// (§4.8 L5).
-    #[derive(Copy)]
-    #[norito_schema(name = "iroha_data_model::sccp::events::SccpGenerationDestinationClearedV1")]
-    pub struct SccpGenerationDestinationClearedV1 {
-        /// Ended generation whose destination-progress gate passed.
-        pub generation: u64,
-        /// Replicated liability clock when clearance was recorded.
-        pub lc: u64,
     }
 }
 
@@ -523,8 +514,14 @@ sccp_event_payload! {
         pub revision: u32,
         /// Control nonce.
         pub control_nonce: u64,
-        /// Commanded minting pause state.
-        pub paused: bool,
+        /// Enacting track: 1 for Parliament, 2 for the fast-pause panel.
+        pub track: u8,
+        /// Parliament flag after the effect.
+        pub parliament_paused: bool,
+        /// Active destination fast-pause expiry, or zero.
+        pub fast_pause_until_ms: u64,
+        /// Content identifier of the actual enacting certificate.
+        pub certificate_id: [u8; 32],
         /// Recording Taira height.
         pub height: u64,
         /// Leaf index within the block.
@@ -540,6 +537,20 @@ sccp_event_payload! {
         pub proposal_id: [u8; 32],
         /// `S(P)`: the subjects whose revision counters were incremented.
         pub subjects: Vec<SccpGovernanceSubjectV1>,
+    }
+}
+
+sccp_event_payload! {
+    /// The first Global block-start pass at or after a fast pause's expiry (§4.14.7 G4).
+    #[derive(Copy)]
+    #[norito_schema(name = "iroha_data_model::sccp::events::SccpFastPauseLapsedV1")]
+    pub struct SccpFastPauseLapsedV1 {
+        /// External network whose original record was removed.
+        pub network: SccpNetworkV1,
+        /// Exact certificate retained by that expired record.
+        pub certificate_id: [u8; 32],
+        /// Original absolute expiry; no new deadline is derived during cleanup.
+        pub until_ms: u64,
     }
 }
 
@@ -639,26 +650,30 @@ pub enum SccpEvent {
     #[codec(index = 25)]
     #[norito(rename = "governance_enacted")]
     GovernanceEnacted(SccpGovernanceEnactedV1),
-    /// Replicated bookkeeping produced inactive SCCP finality for this height.
+    /// Native generation created.
     #[codec(index = 26)]
-    #[norito(rename = "finality_degraded")]
-    FinalityDegraded(SccpFinalityDegradedV1),
-    /// A native committee generation was created.
-    #[codec(index = 27)]
     #[norito(rename = "committee_generation_created")]
     CommitteeGenerationCreated(SccpCommitteeGenerationCreatedV1),
-    /// Native committee bookkeeping recovered a missed boundary.
+    /// Unresolved original staking member.
+    #[codec(index = 27)]
+    #[norito(rename = "generation_member_unslashable")]
+    GenerationMemberUnslashable(SccpGenerationMemberUnslashableV1),
+    /// Recovery from a missed committee boundary.
     #[codec(index = 28)]
     #[norito(rename = "committee_resync")]
     CommitteeResync(SccpCommitteeResyncV1),
-    /// A generation member has no original retained staking binding.
+    /// Every active destination cleared a deadline.
     #[codec(index = 29)]
-    #[norito(rename = "generation_member_unslashable")]
-    GenerationMemberUnslashable(SccpGenerationMemberUnslashableV1),
-    /// All relevant destinations progressed past an ended generation's deadline.
-    #[codec(index = 30)]
     #[norito(rename = "generation_destination_cleared")]
     GenerationDestinationCleared(SccpGenerationDestinationClearedV1),
+    /// SCCP finality failed closed for one block.
+    #[codec(index = 30)]
+    #[norito(rename = "finality_degraded")]
+    FinalityDegraded(SccpFinalityDegradedV1),
+    /// Expired fast-pause record removed without changing Parliament state or heads.
+    #[codec(index = 31)]
+    #[norito(rename = "fast_pause_lapsed")]
+    FastPauseLapsed(SccpFastPauseLapsedV1),
 }
 
 #[cfg(test)]

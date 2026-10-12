@@ -257,6 +257,8 @@ fn with_native_state_sources<T>(
                     &view.zk().gas,
                     draft.payload(),
                     u64::try_from(draft.creation_time().as_millis()).unwrap(),
+                    crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                        .expect("original committed fixture time"),
                     header.height().get(),
                     Some(dataspace_id),
                 )

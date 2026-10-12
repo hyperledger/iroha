@@ -2,13 +2,14 @@
 use crate::execution_attempt::ExecutionAttemptError as Attempt;
 use iroha_data_model::{
     block::SignedBlock,
-    sumeragi_finality::{
-        CertifiedResultError, CertifiedResultScope, CertifiedResultV1, CommitmentError,
-    },
+    sumeragi_finality::{CertifiedResultError, CertifiedResultV1, CommitmentError},
 };
 use std::io;
 
-pub(super) fn validate(block: &SignedBlock) -> Result<(), Attempt<io::Error>> {
+pub(super) fn validate(
+    block: &SignedBlock,
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
+) -> Result<(), Attempt<io::Error>> {
     let invalid = |message: &'static str| io::Error::new(io::ErrorKind::InvalidData, message);
     let certificate = block
         .commit_certificate()
@@ -24,43 +25,39 @@ pub(super) fn validate(block: &SignedBlock) -> Result<(), Attempt<io::Error>> {
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     // The owning decoder enforces the finite result-preimage ceiling and input-derived
     // cumulative decode budgets. No schedule decoded here selects availability authority.
-    let result = CertifiedResultV1::decode(
-        certificate.result_preimage(),
-        CertifiedResultScope::TairaGlobal,
-    )
-    .map_err(|error| {
-        if let CertifiedResultError::Body(CommitmentError::Resource(resource)) = error {
-            if !cfg!(all(test, sumeragi_core_mutation = "HC20")) {
-                #[cfg(all(test, sumeragi_core_mutation = "HC24"))]
+    let result = CertifiedResultV1::decode(certificate.result_preimage(), root_scope.into())
+        .map_err(|error| {
+            if let CertifiedResultError::Body(CommitmentError::Resource(resource)) = error {
+                if !cfg!(all(test, sumeragi_core_mutation = "HC20")) {
+                    #[cfg(all(test, sumeragi_core_mutation = "HC24"))]
+                    return io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        CommitmentError::Resource(resource),
+                    )
+                    .into();
+                    #[cfg(not(all(test, sumeragi_core_mutation = "HC24")))]
+                    return crate::execution_attempt::canonical_decode_attempt_error(
+                        resource,
+                        |resource| {
+                            io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                CommitmentError::Resource(resource),
+                            )
+                        },
+                    );
+                }
                 return io::Error::new(
-                    io::ErrorKind::WouldBlock,
+                    io::ErrorKind::InvalidData,
                     CommitmentError::Resource(resource),
                 )
                 .into();
-                #[cfg(not(all(test, sumeragi_core_mutation = "HC24")))]
-                return crate::execution_attempt::canonical_decode_attempt_error(
-                    resource,
-                    |resource| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            CommitmentError::Resource(resource),
-                        )
-                    },
-                );
             }
-            return io::Error::new(
-                io::ErrorKind::InvalidData,
-                CommitmentError::Resource(resource),
-            )
-            .into();
-        }
-        io::Error::new(io::ErrorKind::InvalidData, error).into()
-    })?;
+            io::Error::new(io::ErrorKind::InvalidData, error).into()
+        })?;
+    let timestamp_ms = u64::try_from(block.header().creation_time().as_millis())
+        .map_err(|_| invalid("block time exceeds u64 milliseconds"))?;
     result
-        .check_block(
-            block.header().height().get(),
-            block.header().creation_time_ms,
-        )
+        .check_block(block.header().height().get(), timestamp_ms)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     let result = result.commitment();
     let (len, hash) = block

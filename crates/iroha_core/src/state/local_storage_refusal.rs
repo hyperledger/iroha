@@ -79,10 +79,8 @@ mod tests {
         );
         transaction.apply();
         drop(occupied);
-        block.arm_local_storage_refusal(StateStorageAdmissionError::SccpAnchor(
-            crate::smartcontracts::isi::sccp::anchor::SccpAnchorLocalError::Invariant(
-                "later source error",
-            ),
+        block.arm_local_storage_refusal(StateStorageAdmissionError::World(
+            mv::storage::AdmittedStorageError::ScopeIdentity,
         ));
         assert_eq!(block.require_storage_admission(), Err(expected));
         assert!(matches!(

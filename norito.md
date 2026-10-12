@@ -400,7 +400,7 @@ original ambient context and returns its own semantic result independently.
 
 Canonical artifact admission uses `decode_canonical_for_admission` for the complete
 single decode and exact canonical-byte comparison. Its opaque result distinguishes
-actual allocator failure, an original enclosing admission-budget refusal, and invalid
+a decoder-reported allocator failure, an original enclosing admission-budget refusal, and invalid
 input. Canonical/default/schema budgets are checked before enclosing operational budgets
 at each resource check. The original emitting layer, counter family and process-unique
 observer root/boundary are carried privately in the Rust error, so equal numeric ceilings,
@@ -425,6 +425,21 @@ provenance. The fieldless `DecodeResourceLimit` remains an anonymous checked-bou
 category, never a substitute for an actual recorded decoder refusal. Non-resource core
 errors remain terminal JSON diagnostics and cannot become allocator refusals. JSON body,
 intrinsic nesting, and arithmetic-overflow bounds remain protocol failures.
+
+`DecodeAttemptError::into_local_refusal` moves a captured local cause into
+`DecodeLocalRefusal`; `local_refusal` retains the same cause for a borrowed caller.
+The opaque owner stores either the original allocator byte demand or the original
+scoped resource error. Extraction and cloning allocate nothing and preserve the
+existing counter control, attempt, emitting layer and observer identity after scope
+retirement, including any original prepared-control charge until its final owner
+drops. Invalid bytes, protocol limits, reconstructed numeric budget errors and
+stale scoped errors cannot produce a local owner. Returning its scoped error to
+a later decoder attempt does not create fresh provenance. Kind and resource-field
+getters are diagnostics; they cannot construct an owner or an allocation-pool
+release source. The allocator branch preserves the existing trust boundary:
+public `Error::AllocationFailed` reports are accepted by `classify_decode_attempt`,
+so retained bytes do not prove an unforgeable physical allocator origin. This
+non-wire ownership API changes no encoding, layout or protocol validity rule.
 
 
 Closed named and tuple records can opt into `#[norito(decode_fields)]`. Their ordinary
@@ -1272,6 +1287,12 @@ Maps encode deterministically with the same active layout flags:
   key/value lengths encoded via `COMPACT_LEN`.
 - `HashMap` encodes entries in sorted key order for deterministic output;
   `BTreeMap` uses its natural ordering.
+
+`core::write_ordered_map_entries` exposes the same binary kernel for borrowed,
+strictly increasing entries without constructing a staging map. It rejects
+duplicate or descending keys and declared-count mismatches, and preserves field
+measurement and destination errors. Its output is identical to `BTreeMap` under
+the selected layout flags; an error requires discarding partial output.
 
 JSON objects have a separate key contract. `JsonObjectKey` supplies canonical,
 unquoted text; the map writer adds quotes and applies the same escaping as JSON

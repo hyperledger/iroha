@@ -231,10 +231,10 @@ fn genesis_execution_finality_requires_a_verified_successor() {
         }
         if changed_result {
             let original = genesis.commit_certificate().unwrap();
-            let (finality_header, mut preimage) =
+            let (original_x, mut preimage) =
                 iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
                     original.result_preimage(),
-                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                    chain.root_scope().into(),
                 )
                 .unwrap()
                 .into_parts();
@@ -247,8 +247,7 @@ fn genesis_execution_finality_requires_a_verified_successor() {
                 .corrupt_commit_result_for_testing(
                     std::num::NonZeroUsize::new(1).unwrap(),
                     iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
-                        finality_header,
-                        preimage.clone(),
+                        original_x, preimage,
                     )
                     .preimage()
                     .unwrap(),
@@ -319,10 +318,10 @@ fn genesis_result_rejects_a_substituted_native_lane_witness_root() {
     let chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000))
         .expect("original native genesis execution");
     let original = chain.committed(1).block().clone();
-    let (finality_header, mut preimage) =
+    let (original_x, mut preimage) =
         iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
             original.commit_certificate().unwrap().result_preimage(),
-            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            chain.root_scope().into(),
         )
         .unwrap()
         .into_parts();
@@ -336,8 +335,7 @@ fn genesis_result_rejects_a_substituted_native_lane_witness_root() {
         .corrupt_commit_result_for_testing(
             std::num::NonZeroUsize::new(1).unwrap(),
             iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
-                finality_header,
-                preimage.clone(),
+                original_x, preimage,
             )
             .preimage()
             .unwrap(),

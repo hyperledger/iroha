@@ -164,7 +164,7 @@ mod tests {
 
     #[test]
     fn staking_json_rejects_manual_reward_publication() {
-        let value = json::json!({"RecordPublicLaneRewards": {}});
+        let value = norito::json!({"RecordPublicLaneRewards": {}});
         assert!(from_json(&value).is_none());
         assert!(crate::value_to_instruction(value).is_err());
     }

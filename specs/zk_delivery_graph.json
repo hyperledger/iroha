@@ -31,7 +31,78 @@
       "acceptance": [
         "Every retained source requirement and historical finding has a task mapping. Audit native versus in-circuit digest use, BN254 Poseidon parameters and obsolete PQ-library replacements with deterministic vectors. Unbound uploaded keys, source hashes and global catalog membership cannot choose a proof guarantee."
       ],
-      "status": "planned"
+      "status": "in_progress",
+      "evidence": {
+        "source": "3cec95295cd863a4cd278dc5114bcd9243bee2b4 plus externally merged source. Actual supported-Python operation inventory suite passed190 tests in224.22s;14 repository paths changed during the run, so it is not a stable integrated-candidate qualification. Original6043d97c evidence remains historical. Current source-inventory and local implementation gaps are described per clause.",
+        "paths": [
+          "specs/zk_operation_inventory.json",
+          "scripts/check_zk_operation_inventory.py",
+          "scripts/tests/check_zk_operation_inventory_test.py",
+          "specs/zk_delivery_reconciliation.json",
+          "scripts/check_zk_delivery_plan.py",
+          "specs/zk_primitive_workloads.json",
+          "scripts/check_zk_primitive_workloads.py",
+          "crates/iroha_core_zk/src/native_pipa_r.rs",
+          "crates/iroha_core_zk/src/verification.rs",
+          "crates/iroha_core/src/smartcontracts/isi/world.rs",
+          "crates/iroha_core/src/state/deserialize_world.rs",
+          "crates/iroha_core/src/state/deserialize_core.rs",
+          "specs/state_table_inventory.json",
+          "specs/zk_first_release_goals.md"
+        ],
+        "commands": [
+          {
+            "command": "python3 scripts/check_zk_operation_inventory.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 -m unittest scripts.tests.check_zk_operation_inventory_test",
+            "outcome": "failed"
+          },
+          {
+            "command": "python3 -m unittest scripts.tests.check_zk_operation_inventory_test.TrackedInventory",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 -I -S scripts/check_zk_delivery_plan.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 -I -S scripts/check_zk_primitive_workloads.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "/opt/homebrew/bin/python3.12 -m pytest -q -p no:cacheprovider scripts/tests/check_zk_operation_inventory_test.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "PYTHONPATH=/Users/takemiyamakoto/Library/Python/3.9/lib/python/site-packages PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /opt/homebrew/bin/python3.12 -m pytest -q -p no:cacheprovider scripts/tests/check_zk_operation_inventory_test.py",
+            "outcome": "passed"
+          }
+        ],
+        "acceptance": [
+          {
+            "clause": "Map every r6 product, Exact12 protocol, general RAM-LFE class/opening, SoraCloud job, WG, AXT, IVM proof, Kaigi and voting operation through native ISI, handler, semantic relation, permissions and all SDK consumers; inventory generic verification, preverification, VK registration, genesis and restore.",
+            "state": "partial",
+            "proof": "specs/zk_operation_inventory.json records93 operations,81 instructions,12 protocols,87 routes and19 guarantee selectors, with typed relation, authority, SDK and admission paths. The earlier180/183 source-drift failures are historical; /opt/homebrew/bin/python3.12 -m pytest -q -p no:cacheprovider scripts/tests/check_zk_operation_inventory_test.py now passes190/0 after narrow reviewed reconciliation. Both plain-ballot operations anchor exact referendum permission, citizen and owner checks. Six AXT restore fields have22 exact guards, plus committed-height privacy policy and original State references, with seven adversarial tests and independent source review. Remaining lexical SDK/cfg/delegate/primitive coverage limits do not establish every runtime path or product delivery. A later merged-source rerun also passed190 tests (reports/F.1-current-merged-python-tests-2026-10-12/result.json), but14 concurrent source changes prevent whole-candidate qualification. No test success is inferred for the updated Core runtime."
+          },
+          {
+            "clause": "Every retained source requirement and historical finding has a task mapping.",
+            "state": "met",
+            "proof": "specs/zk_delivery_reconciliation.json retains the mapped requirement and finding corpus; python3 -I -S scripts/check_zk_delivery_plan.py checks91 tasks/32 deliveries and the exact mappings. The operation checker cites that canonical ledger instead of maintaining a second mapping owner."
+          },
+          {
+            "clause": "Audit native versus in-circuit digest use, BN254 Poseidon parameters and obsolete PQ-library replacements with deterministic vectors.",
+            "state": "partial",
+            "proof": "specs/zk_primitive_workloads.json and scripts/check_zk_primitive_workloads.py record current native PIPA-R transcript/VK roles separately from retained families and validate canonical reference vectors. Full BN254/PQ replacements and cryptographic qualification remain H.1/H.2/F.5 work; source inventory and reference-vector regeneration do not prove those repairs complete."
+          },
+          {
+            "clause": "Unbound uploaded keys, source hashes and global catalog membership cannot choose a proof guarantee.",
+            "state": "partial",
+            "proof": "specs/zk_operation_inventory.json keeps guarantee-selection defects explicit, including the generic STARK public-binding route, source-hash identity choices and product activation/lifecycle gates. crates/iroha_core_zk/src/native_pipa_r.rs pins its closed compiled relation/key identity, but not every wider consumer has the required semantic relation. Missing relation implementations and gate removal preserving genuine proof validity are locally implementable follow-on work, not a physical-platform TODO."
+          }
+        ]
+      }
     },
     {
       "id": "F.2",
@@ -46,83 +117,85 @@
       ],
       "status": "in_progress",
       "evidence": {
-        "source": "d651d51715fd16881b34d75384c4b9ea95cbd229 plus the uncommitted F.2 changes in the working tree",
+        "source": "3cec95295cd863a4cd278dc5114bcd9243bee2b4 plus current shared source. Earlier 6043d97c component and101-test results retain their original candidate pins. The new externally merged SCCP/local-snapshot completeness rows have independent source review and4 current Python tests passing; bounds and relations unchanged. Broad current Core/consumer runtime is pending.",
         "paths": [
           "specs/zk_resource_contract.json",
           "scripts/check_zk_resource_contract.py",
           "scripts/tests/check_zk_resource_contract_test.py",
+          "crates/iroha_core_zk/src/native_pipa_r.rs",
+          "crates/iroha_core_zk/src/native_pipa_r_tests.rs",
           "specs/zk_first_release_goals.md",
-          "crates/iroha_data_model/src/parameter/system.rs",
-          "crates/iroha_data_model/tests/resource_contract_v1.rs",
-          "crates/iroha_core/src/queue.rs",
-          "crates/iroha_core/src/queue/resource_contract_tests.rs",
-          "crates/iroha_core/src/sumeragi/payload.rs",
-          "crates/iroha_core/src/sumeragi/payload/resource_contract_tests.rs",
-          "crates/iroha_core/src/sumeragi/lanes/executor.rs",
-          "crates/iroha_sumeragi/src/machine/tests/handlers.rs"
+          "crates/norito/src/core.rs",
+          "crates/norito/src/lib.rs",
+          "crates/norito/src/canonical_codec_tests.rs",
+          "crates/iroha_version/src/lib.rs",
+          "crates/iroha_data_model/src/transaction/signed.rs",
+          "crates/iroha_data_model/src/transaction/signed/wire_v1_tests.rs",
+          "crates/iroha_data_model/src/sumeragi_finality/commitment.rs",
+          "crates/iroha_data_model/src/sumeragi_finality/world_state.rs",
+          "crates/iroha/src/client/workflow_ledger.rs",
+          "crates/iroha/src/workflow/journal.rs",
+          "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/ledger.rs",
+          "crates/iroha_core_zk/src/verification.rs"
         ],
         "commands": [
           {
-            "command": "python3 -B scripts/check_zk_resource_contract.py",
+            "command": "python3 scripts/check_zk_resource_contract.py",
             "outcome": "passed"
           },
           {
-            "command": "python3 -B -m pytest -p no:cacheprovider scripts/tests/check_zk_resource_contract_test.py -q",
+            "command": "python3 -m pytest -q scripts/tests/check_zk_resource_contract_test.py -k 'a_compared_constant_of_another_crate_is_classified'",
             "outcome": "passed"
           },
           {
-            "command": "cargo test --locked -p iroha_data_model --test resource_contract_v1",
+            "command": "python3 -m pytest -q scripts/tests/check_zk_resource_contract_test.py -k 'cap_functions_include or imported_integer_scope_does_not_merge or a_site_of_a_bound_owns_only'",
             "outcome": "passed"
           },
           {
-            "command": "cargo test --locked -p iroha_data_model --lib -- privacy_proof_payload_admits_exact_nine_mib_and_rejects_cap_plus_one proof_attachment_list_decode_rejects_frame_cap_plus_one_before_field_parsing",
+            "command": "CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/zk-resume-p1 cargo test --offline --locked --jobs 1 -p iroha_core_zk --lib native_pipa_r::tests::native_proof_carrier_cap_precedes_decode_and_includes_the_boundary -- --exact --nocapture",
             "outcome": "passed"
           },
           {
-            "command": "cargo test --locked -p iroha_sumeragi --lib -- payload_limit_is_inclusive_and_one_over_rejects_identically_on_every_verifier local_resource_failure_defers_without_vote_and_invalid_rejects_deterministically payload_at_the_committed_limit_is_proposed_and_one_byte_over_is_not det_s36_certified_mismatch_is_local chain_validation frame_and_sync_bounds_are_inclusive_at_the_committed_payload_limit local_validation",
+            "command": "rustfmt --edition 2024 --check crates/iroha_core_zk/src/native_pipa_r.rs crates/iroha_core_zk/src/native_pipa_r_tests.rs",
             "outcome": "passed"
           },
           {
-            "command": "cargo test --locked -p ivm --lib -- guest_heap_and_input_window_accept_their_bound_and_refuse_one_over",
-            "outcome": "passed"
-          },
-          {
-            "command": "cargo test --locked -p iroha_core --lib -- transaction_cap_is_exact_at_admission_and_block_validation queue_admission_and_proposer_selection_share_the_includable_bound default_limits_admit_and_select_the_largest_includable_transaction includable_bound_follows_the_route_and_an_unreadable_policy_defers lane_routed_transaction_is_admitted_and_selected_within_its_lane_budget deferred_includable_assessment_defers_queue_admission_without_custody committed_output_budget_accepts_the_exact_limit_and_refuses_one_over bounded_host_stops_queue_growth_before_push global_build_carries_a_transaction_of_the_payload_limit_less_the_reserve build_carries_a_transaction_of_the_payload_limit_less_the_framing_reserve proposer_selection_is_capped_by_the_fastpq_network_input_bound build_trims_the_batch_to_the_lane_payload_limit global_rescue_carries_a_stalled_lane_transaction_only_within_the_global_budget follower_accepts_the_assembled_maximum_and_the_reserve_is_packing_policy stored_body_projection_accepts_the_payload_limit_and_refuses_one_over strict_init_rejects_oversized_block_length_without_pruning classification_table sticky_deferral_alone_prevents_regular_transaction_publication mapping_rejections_cannot_erase_a_local_deferral payload_refusal_retains_selected_work_and_anchor_for_retry stored_body_retains_original_certificate_and_projected_payload_across_refusals malformed_proof_attachments_rejected_at_transaction_admission attachments_decompressed_limit_enforced preverify_attachments_reject_malformed_attachment_shapes_before_vk_lookup budget_rejects_index_skips_zero_length_and_oversize_without_mutation validate_ivm_max_cycles_equal_to_fuel_is_admitted validate_ivm_max_cycles_exceeds_fuel_rejected",
-            "outcome": "passed"
-          },
-          {
-            "command": "cargo test --locked -p iroha_torii --lib -- never_includable_transaction_refusal_is_permanent_and_reports_both_byte_counts verifying_key_file_read_accepts_v1_limit_and_rejects_first_overflow_byte",
-            "outcome": "passed"
-          },
-          {
-            "command": "cargo test --locked -p iroha_core --features zk-tests,zk-preverify,halo2-dev-tests --no-fail-fast --test iroha_core_group_01 --test iroha_core_group_02 --test iroha_core_group_03 --test iroha_core_group_04 --test iroha_core_group_05 -- zk_ballot_rejects_oversized_proof verifyproof_rejects_when_block_cap_hit overlay_instruction_cap_rejects_and_rest_apply overlay_bytes_cap_rejects_and_rest_apply quarantine_overflow_rejects_one_tx manual_prune_instruction_applies_new_cap bridge_range_length_cap_enforced verifyproof_rejects_when_exceeding_size_cap zk_roots_are_bounded_in_world_state zk_roots_get_respects_cap_and_max register_contract_code_bytes_respects_size_cap failed_native_finalization_and_rejected_cap_updates_retain_staging native_contract_upload_enforces_shape_quota_and_owner_cancellation",
+            "command": "python3 -m pytest -q scripts/tests/check_zk_resource_contract_test.py",
             "outcome": "failed"
           },
           {
-            "command": "cargo test --locked -p iroha_core --features zk-tests,zk-preverify,halo2-dev-tests --no-fail-fast --test iroha_core_group_01 --test iroha_core_group_02 --test iroha_core_group_03 --test iroha_core_group_05 -- bridge_range_length_cap_enforced register_contract_code_bytes_respects_size_cap failed_native_finalization_and_rejected_cap_updates_retain_staging native_contract_upload_enforces_shape_quota_and_owner_cancellation zk_ballot_rejects_oversized_proof overlay_instruction_cap_rejects_and_rest_apply overlay_bytes_cap_rejects_and_rest_apply zk_roots_get_respects_cap_and_max verifyproof_rejects_when_block_cap_hit verifyproof_rejects_when_exceeding_size_cap",
-            "outcome": "failed"
+            "command": "python3 -m pytest -q scripts/tests/check_zk_resource_contract_test.py -k test_every_term_of_the_path_crates_is_pinned_with_the_limits_it_is_part_of",
+            "outcome": "passed"
+          },
+          {
+            "command": "/opt/homebrew/bin/python3.12 -m pytest -q -p no:cacheprovider scripts/tests/check_zk_resource_contract_test.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "PYTHONPATH=/Users/takemiyamakoto/Library/Python/3.9/lib/python/site-packages PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /opt/homebrew/bin/python3.12 -m pytest -q -p no:cacheprovider scripts/tests/check_zk_resource_contract_test.py -k 'tracked_contract_matches_the_source or an_excluded_limit_pins_its_defining_expression or every_compared_limit_and_literal_of_the_path_crates_is_classified or every_term_of_the_path_crates_is_pinned_with_the_limits_it_is_part_of'",
+            "outcome": "passed"
           }
         ],
         "acceptance": [
           {
             "clause": "Define proof, signed attachments, transaction, block, RS16, transport, VM handles, decoded scratch, retained queued effects and deterministic work budgets including Norito overhead.",
             "state": "partial",
-            "proof": "specs/zk_resource_contract.json defines 244 bounds, 1 derived bound, 67 relations and 5 declared designs over proof, signed attachments, transaction, block, RS16, transport, VM handles, decoded scratch, queued effects and work budgets with their Norito framing, and python3 -B scripts/check_zk_resource_contract.py (625 scanned scopes match the source) and python3 -B -m pytest -p no:cacheprovider scripts/tests/check_zk_resource_contract_test.py -q (59 passed) check every owner expression, group and scanned scope against the source (scan described in specs/zk_first_release_goals.md); the four limits the confirming verifier named are bounds now. Partial because the definition is complete only inside the scanned scopes (residual of finding 4 of the confirming verifier): proof and transaction limits enforced in production files outside every scope have no occurrence in specs/zk_resource_contract.json, and setting each to 1 in memory leaves the checker green (PRIVATE_SETTLEMENT_MAX_PROOF_BYTES_V1, SCCP_SOURCE_PROOF_MAX_BYTES_V1 and MAX_AXT_PROOF_BLOB_PAYLOAD_BYTES in crates/iroha_data_model/src, MAX_TRANSACTION_PAYLOAD_BYTES in crates/iroha_torii/src/routing.rs); three product directories of iroha_core_zk are skipped; and the signed attachment occurrences (I.1), attachment handles (I.2), unified charge (I.4), 16 MiB transport profile (X.2) and structured size refusal (S.1) are declared with status not_implemented and have no executable check."
+            "proof": "specs/zk_resource_contract.json retains262 bounds and80 relations unchanged. dist/zk-delivery-handoff/reports/resource-external-merge-2026-10-12/result.json records4 passing current tests, including actual source guard, excluded-definition mutations and imported/literal completeness. The26 observed external-merge census differences were reconciled to actual canonical/product/local owners, removing only disappeared or unscanned scope entries; product maintenance limits are explicitly committed-State work, not local deferrals, and deletion/visit counts do not claim a bound on inner scans. The earlier101-pass supported-Python suite remains historical. Broader per-stage ownership/integration gaps remain open."
           },
           {
             "clause": "Actual maximum paths and exact/one-over tests agree across SDK admission, VM, proposer and follower.",
             "state": "partial",
-            "proof": "The exact and one-over tests of each stage pass on this tree: cargo test --locked -p iroha_data_model --test resource_contract_v1 (12 passed, SDK predicates of crates/iroha_data_model/src/parameter/system.rs), the consensus-core proposer and follower tests of crates/iroha_sumeragi/src/machine/tests/handlers.rs (7 passed), cargo test --locked -p ivm --lib -- guest_heap_and_input_window_accept_their_bound_and_refuse_one_over (1 passed), the 27 stage and behavior tests the contract names in the iroha_core lib, among them those of crates/iroha_core/src/queue/resource_contract_tests.rs, crates/iroha_core/src/sumeragi/payload/resource_contract_tests.rs and crates/iroha_core/src/sumeragi/lanes/executor.rs (27 passed), and the Torii refusal mapping with the verifying-key read limit (2 passed in the iroha_torii lib command); the plan author accepted admission and proposer being stricter than the follower by the reserve (scratchpad/codex/F.2-q1.md decision 1). Partial because boundary tests the contract names in crates/iroha_core/tests do not pass with --features zk-tests,zk-preverify,halo2-dev-tests: the target iroha_core_group_04 does not compile (crates/iroha_core/tests/runtime_upgrade_admission.rs:630, three named tests cannot run) and five named tests of groups 01, 03 and 05 fail (bridge_range_length_cap_enforced, the two overlay_bounds tests, the two zk_verify tests; none in an F.2 file), which leaves six consensus bounds without a passing boundary test or a test_gap; and because specs/zk_resource_contract.json itself records 13 relations violated today (a maximum zk-X509 transaction cannot be committed until X.2), 27 bounds with a test_gap owner, no test at exactly the limit for the six bounds added in integration, and no HTTP-level or four-peer case (V.2)."
+            "proof": "crates/iroha_core_zk/src/native_pipa_r_tests.rs adds an executed exact/one-over native-carrier cap test: 1 passed. specs/zk_resource_contract.json pins native key/proof/registry limits and the typed call binding; standalone IVM nesting has an explicit F.2 test gap. The current full SDK/admission/VM/proposer/follower maximum path has not been reproduced."
           },
           {
             "clause": "Missing local resources defer without rejection/vote; malformed carried evidence rejects deterministically.",
             "state": "partial",
-            "proof": "local_resource_failure_defers_without_vote_and_invalid_rejects_deterministically in crates/iroha_sumeragi/src/machine/tests/handlers.rs passes (three validators with different local timeouts defer without a vote and reject the invalid proposal identically); the queue deferral of crates/iroha_core/src/queue.rs and crates/iroha_core/src/sumeragi/payload.rs, the execution-attempt mapping and the transaction-level evidence tests named under behaviors pass in the 27-test iroha_core lib command; and the malformed attachment and proof cases pass in cargo test --locked -p iroha_data_model --test resource_contract_v1 and in cargo test --locked -p iroha_data_model --lib -- privacy_proof_payload_admits_exact_nine_mib_and_rejects_cap_plus_one proof_attachment_list_decode_rejects_frame_cap_plus_one_before_field_parsing (2 passed). Partial because these are unit tests with state doubles: deferral under real node memory pressure and malformed evidence across four peers are network cases assigned to V.2 and X.4 and have not run."
+            "proof": "crates/norito/src/core.rs and crates/norito/src/lib.rs retain move-only original DecodeAttemptError provenance across retired scopes and nested/foreign equal-limit contexts; canonical slot completion happens after decoder context retirement. crates/iroha_version/src/lib.rs and crates/iroha_data_model/src/transaction/signed.rs classify actual canonical checked-writer failures within the original attempt. Historical candidate model257/1ignored, checked-writer10, version11, SDK63/2ignored and wallet73 component controls passed at their recorded source pins with malformed/intrinsic negatives and unchanged custody/retry cases. However crates/iroha_core_zk/src/verification.rs and native_pipa_r.rs still erase resource failures into completed rejection reports/booleans/strings, downstream IVM/governance/Kaigi/prover paths need one fallible owner, and wallet later payout semantic writers retain a separate gap. reports/Native-verification-original-resource-follow-on-2026-10-12.md maps those ordinary implementation gaps; not platform TODOs. Current Core and consumer sources changed externally and require fresh qualification; the original-resource follow-on remains ordinary implementation work."
           },
           {
             "clause": "Derive RAM-LFE budgets from its full workload; preserve separately fixed X509 bounds and distinguish engineering time targets.",
             "state": "partial",
-            "proof": "specs/zk_resource_contract.json derives 30 RAM-LFE budgets over 14 components of the full workload and python3 -B scripts/check_zk_resource_contract.py recomputes the nine that have numbers; the X509 bounds stay separately fixed (FIXED_BOUNDS in scripts/check_zk_resource_contract.py, x509_validity_windows_are_fixed_and_inclusive in crates/iroha_data_model/tests/resource_contract_v1.rs) and the 300 s prover target is class engineering_target, apart from the consensus bounds. Partial because 21 of the 30 budgets have value null: 23 inputs are open with owners C.3, C.4, R.3, R.7 to R.12 and E.1."
+            "proof": "specs/zk_resource_contract.json preserves fixed X509 ceilings, engineering-target separation and the RAM-LFE workload derivation. C.3 inputs remain unresolved and RAM-LFE budgets remain open without invented numeric limits or qualification."
           }
         ]
       }
@@ -138,7 +211,80 @@
       "acceptance": [
         "Name the independently checked invariant, authorized issuance source, remaining exposure after erroneous proof acceptance, and mutation test for each economic effect. A reserve cap is never labeled proof soundness. Root publication/history follow canonical policy without a generic suspension switch."
       ],
-      "status": "planned"
+      "status": "in_progress",
+      "evidence": {
+        "source": "Current HEAD 3cec95295cd863a4cd278dc5114bcd9243bee2b4. Current economic source guard passes 29 effects /11 value protocols /58 cited tests /22 defects /5 suspension switches, with nonfatal stale source line annotations. Earlier exact five bridge controls passed on immutable Core 19444aad9136f61da5b8e9d3aae9c5972e10f655ceffe3db6d28460a0ecb5a27 in the completed history/F.3 filter; these are historical after broad production/dependency drift. The current 2026-10-12 build attempt failed before compilation: offline dependency resolution could not find blobby through cipher 0.4.4 / vendored aes 0.8.4 / iroha_zkp_vole / iroha_parliament_ballot_proof. No fetch, install, manifest/lock workaround or Git mutation was performed. Evidence: core-checkpoint-2026-10-12/build.{source.json,result.json,log}. This is an environment/dependency availability limit, not proof of a Mac hardware limitation; source conflicts were observed at the initial inspection and have since been resolved externally; fresh current qualification remains pending. Timestamped update: source conflicts observed during the earlier inspection were subsequently resolved externally. At2026-10-12T04:56:58Z specs/state_table_inventory.json parses as JSON with zero markers (SHA2563febebd2e65de41ec94abe7c80903129957a7be82a53a36581fee8cd327ba6b6). That restores syntax only, not current exporter/runtime parity. Root offline metadata at04:55:43Z still failed on missing locked blobby0.3.1 with Cargo.lock SHA2563c9b218f37e69d7bee06d7201e8ce3664989b70b95da4bcc16dd4fb3e5c77a78 stable; reports/current-offline-resolution-2026-10-12/result.json. No dependency fetch/install is authorized or performed by this agent.",
+        "paths": [
+          "specs/zk_economic_invariants.json",
+          "scripts/check_zk_economic_invariants.py",
+          "scripts/tests/check_zk_economic_invariants_test.py",
+          "crates/iroha_core/src/smartcontracts/isi/asset/privacy_economic_invariant_tests.rs",
+          "crates/iroha_core/src/smartcontracts/isi/privacy.rs",
+          "crates/iroha_core/src/state.rs",
+          "crates/iroha_core_privacy/src/privacy_state.rs"
+        ],
+        "commands": [
+          {
+            "command": "python3 scripts/check_zk_economic_invariants.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 -m unittest discover -s scripts/tests -p check_zk_economic_invariants_test.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 dist/zk-delivery-handoff/review-h2-f3/f3_checker_mutations.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "CARGO_TARGET_DIR=target/zk-resume-review CARGO_INCREMENTAL=0 cargo test --locked -p iroha_core --lib privacy_economic_invariant_tests -- --nocapture",
+            "outcome": "failed"
+          },
+          {
+            "command": "python3 -I -S scripts/check_zk_economic_invariants.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "dist/zk-delivery-handoff/resume-2026-10-11/iroha-core-canonical-slot-2026-10-12 pinned_history_of_an_earlier_build_replays_to_its_pinned_state privacy_economic_invariant_tests signed_initial_namespace_binding_tracks_real_domain_owner_and_retains_immutable_generation --nocapture",
+            "outcome": "passed"
+          },
+          {
+            "command": "CARGO_TARGET_DIR=target/zk-resume-p1 CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 cargo test --offline --locked -p iroha_core --lib --features telemetry --jobs 1 --no-run",
+            "outcome": "failed"
+          },
+          {
+            "command": "python3.12 -I -S scripts/check_zk_economic_invariants.py",
+            "outcome": "passed"
+          }
+        ],
+        "acceptance": [
+          {
+            "clause": "Classify private issuance, transparent supply changes, deposits, withdrawals, reserves, settlement and inter-pool movement for every value-bearing protocol.",
+            "state": "met",
+            "proof": "specs/zk_economic_invariants.json classifies29 effects across11 value-bearing protocols/all seven classes. scripts/check_zk_economic_invariants.py checks live operations, variants, handlers and World maps; the exact canonical KAGEMUSHA map replacement is retained in its selector. python3 scripts/check_zk_economic_invariants.py passes (58 cited tests,22 open defects,5 switches); python3 -m unittest discover -s scripts/tests -p check_zk_economic_invariants_test.py passes116. scripts/tests/check_zk_economic_invariants_test.py preserves negative coverage for a missing out-of-scope reason. The2026-10-12 standard-library-only checker rerun still passes29effects/11valueprotocols/58tests/22open defects/5switches; log reports/F.3-current-reassessment-check-2026-10-12.log. Current HEAD recheck also passes with the same counts; exact scope and source hashes are core-checkpoint-2026-10-12/static-guards.json."
+          },
+          {
+            "clause": "Define retained-state readability, cancellation/expiry, failure atomicity and asset exits under ordinary key/policy revocation and correction.",
+            "state": "partial",
+            "proof": "specs/zk_economic_invariants.json answers lifecycle fields honestly but14 are not_defined: policy revocation/correction for six product families, plus confidential-asset key revocation/correction. Those canonical semantics and actual product-flow evidence remain to implement. dist/zk-delivery-handoff/reports/F.3-review-2026-10-11.md records them as ordinary implementation gaps."
+          },
+          {
+            "clause": "Name the independently checked invariant, authorized issuance source, remaining exposure after erroneous proof acceptance, and mutation test for each economic effect.",
+            "state": "partial",
+            "proof": "specs/zk_economic_invariants.json retains five reachable effects without faulty-verifier mutation tests. crates/iroha_core/src/smartcontracts/isi/asset/privacy_economic_invariant_tests.rs covers public bridge reserves, not complete Orchard apply or the five missing product paths. The earlier immutable final Core binary 19444aad... passed all five existing bridge controls within the completed 10-pass history/F.3 filter; current Core/Model/Crypto/Norito dependencies have since changed. Current rebuild failed during offline dependency resolution, so those controls remain unexecuted on the current candidate. Missing product mutations remain ordinary implementation work, not platform TODOs."
+          },
+          {
+            "clause": "A reserve cap is never labeled proof soundness.",
+            "state": "met",
+            "proof": "specs/zk_economic_invariants.json distinguishes proof soundness from bounded reserve exposure; the existing bridge harness explicitly permits the full funded reserve to be stolen by an erroneously accepted proof without claiming hidden conservation. Historical independent checker mutations reject missing effects, false suspensions and reserve-as-soundness claims. All five bridge controls passed on the earlier immutable Core binary 19444aad...; current static inventory guard passes, but current runtime remains unqualified until the source/dependency blockers are resolved."
+          },
+          {
+            "clause": "Root publication/history follow canonical policy without a generic suspension switch.",
+            "state": "unmet",
+            "proof": "crates/iroha_core/src/smartcontracts/isi/privacy.rs still consults lifecycle for root publication and bootstrap; crates/iroha_core/src/state.rs consults config.enabled/activation/lifecycle for settlement; crates/iroha_core_privacy/src/privacy_state.rs performs qualified activation lookup. All five generic switches remain explicitly recorded in specs/zk_economic_invariants.json. Canonical root/history handling must remove availability gating while preserving proof/permission/replay validity."
+          }
+        ]
+      }
     },
     {
       "id": "F.4",
@@ -151,7 +297,229 @@
       "acceptance": [
         "No environment, node-local configuration, feature, binary/source digest, chain-ID production flag, readiness certificate or all-protocol manifest changes validity or availability. Completed capabilities run through ordinary deployment. Preserve cryptography, permissions, key revocation, replay, finality and deterministic limits; feature/config parity tests compare roots, effects and gas."
       ],
-      "status": "planned"
+      "status": "in_progress",
+      "evidence": {
+        "source": "Current HEAD3cec95295cd863a4cd278dc5114bcd9243bee2b4 plus scoped working-tree F4 census and original-pool fixture repairs. All four F4 clauses remain partial because committed-validity migration, generic verifier refusal propagation, relation/gate removal and whole-node parity are unfinished. Current immutable Core25f11b660f8df800e047caecb658dabbcc8777f14ad57bbd9074e13bb0ea9f40 passes all68 F4 controls with zero runtime source drift; the original undo Capacity fixture now admits actual construction and preserves exact original refusal/refund/retry assertions. Combined build source-phase pins are retained in core-checkpoint-2026-10-12/final-combined; earlier63/5 and67/1 outcomes remain historical logs. Current217-entry/1460-site census passes64 supported Python3.12 tests and independent root2 controls, with43 source-backed row deltas preserving all classifications/status/owners. No production validity rule was weakened, no entire delivery or platform/network qualification is claimed.",
+        "paths": [
+          "scripts/check_zk_runtime_validity.py",
+          "scripts/tests/check_zk_runtime_validity_test.py",
+          "scripts/check_zk_feature_parity.py",
+          "specs/zk_runtime_validity_census.json",
+          "crates/iroha_kagami/src/genesis/sign.rs",
+          "crates/iroha_data_model/src/zk_validity_policy.rs",
+          "crates/iroha_core/src/zk_validity_policy.rs",
+          "crates/iroha_core/src/pipeline_validity_policy.rs",
+          "crates/iroha_core/src/state.rs",
+          "crates/iroha_core/src/state/state_block_construction.rs",
+          "crates/iroha_core/src/executor.rs",
+          "crates/iroha_core/src/smartcontracts/isi/account_admission.rs",
+          "crates/iroha_core/src/zk_validity_policy_feature_parity_tests.rs",
+          "crates/iroha_core_zk/Cargo.toml",
+          "crates/iroha_core_zk/src/lib.rs",
+          "crates/iroha_torii/src/private_settlement.rs",
+          "crates/iroha_torii/src/zk_prover.rs",
+          "crates/iroha_config/src/parameters/actual.rs",
+          "crates/iroha_config/src/parameters/user.rs",
+          "crates/irohad/src/main.rs",
+          "crates/iroha_p2p/src/peer.rs",
+          "crates/iroha_core/src/pipeline_gas_policy.rs",
+          "crates/iroha_core/src/pipeline_validity_policy_tests.rs",
+          "crates/iroha_core/src/state/runtime_configuration.rs",
+          "crates/iroha_core/src/executor/private_fees.rs",
+          "crates/iroha_core/src/executor_fastpq_rejection_tail.rs",
+          "crates/iroha_core/src/executor_fastpq_rejection_tail/sponsored_alias_tests.rs",
+          "crates/iroha_core/src/smartcontracts/isi/world.rs",
+          "crates/iroha_core/src/lib.rs",
+          "crates/iroha_core/src/tx.rs",
+          "crates/iroha_core/src/block.rs",
+          "crates/iroha_core/src/sumeragi/amx/native/tests.rs",
+          "crates/iroha_core/src/sumeragi/amx/native/tests/paid_borrowed_custody.rs",
+          "crates/iroha_core/src/sumeragi/node/tests/dataspace_roots.rs",
+          "crates/iroha_core/src/kagemusha_wallet_v1/tests/wsv_tests.rs",
+          "crates/iroha_core/src/state/fastpq_source_inventory/owned_sources_tests.rs",
+          "crates/iroha_core/src/state/fastpq_quantity_capture_tests.rs",
+          "crates/iroha_core/src/state/output_network_source_tail_tests.rs",
+          "crates/iroha_torii/src/lib.rs",
+          "crates/iroha_torii/src/routing.rs",
+          "configs/soranexus/taira/config.toml",
+          "configs/soranexus/taira/genesis.template.json",
+          "specs/nexus_fee_model.md",
+          "crates/iroha_core/src/state/deserialize_core.rs",
+          "crates/iroha_core/src/state/authority_registry/world.rs",
+          "crates/iroha_core/src/state/runtime_catalog.rs",
+          "crates/iroha_core/src/smartcontracts/isi/settlement.rs",
+          "crates/iroha_core/benches/blocks/common.rs",
+          "crates/iroha_core/src/alias_setup.rs",
+          "crates/iroha_core/src/block/fee_admission_tests.rs",
+          "crates/iroha_core/src/executor/root_scope/tests.rs",
+          "crates/iroha_core/src/executor_fee_quote_tests.rs",
+          "crates/iroha_core/src/gossiper.rs",
+          "crates/iroha_core/src/governance/parliament/fixture_helpers.rs",
+          "crates/iroha_core/src/governance/parliament/tests/fixtures.rs",
+          "crates/iroha_core/src/pipeline/access.rs",
+          "crates/iroha_core/src/pipeline/overlay.rs",
+          "crates/iroha_core/src/pipeline/overlay_atomic_settlement_tests.rs",
+          "crates/iroha_core/src/queue.rs",
+          "crates/iroha_core/src/queue/capacity_and_concurrency_tests.rs",
+          "crates/iroha_core/src/queue/instruction_and_state_routing_tests.rs",
+          "crates/iroha_core/src/queue/privacy_governance_compliance_tests.rs",
+          "crates/iroha_core/src/queue/resident_owner_tests.rs",
+          "crates/iroha_core/src/queue/resource_contract_tests.rs",
+          "crates/iroha_core/src/queue/router.rs",
+          "crates/iroha_core/src/smartcontracts/code.rs",
+          "crates/iroha_core/src/smartcontracts/isi/domain/private_root_home_tests.rs",
+          "crates/iroha_core/src/smartcontracts/isi/kaigi.rs",
+          "crates/iroha_core/src/smartcontracts/isi/musubi/archive_replay_tests.rs",
+          "crates/iroha_core/src/smartcontracts/isi/query.rs",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/eligibility_tests.rs",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/init.rs",
+          "crates/iroha_core/src/smartcontracts/isi/settlement/tests/atomic_tests.rs",
+          "crates/iroha_core/src/smartcontracts/isi/space_directory.rs",
+          "crates/iroha_core/src/smartcontracts/isi/staking_admission_tests.rs",
+          "crates/iroha_core/src/smartcontracts/isi/staking_core_tests.rs",
+          "crates/iroha_core/src/smartcontracts/isi/staking_monetary_fixture_tests.rs",
+          "crates/iroha_core/src/smartcontracts/isi/staking_monetary_tests.rs",
+          "crates/iroha_core/src/smartcontracts/isi/staking_preparation_tests.rs",
+          "crates/iroha_core/src/smartcontracts/isi/triggers/mod.rs",
+          "crates/iroha_core/src/smartcontracts/isi/world_public_artifact_tests.rs",
+          "crates/iroha_core/src/smartcontracts/isi/world_validation_fee_tests.rs",
+          "crates/iroha_core/src/smartcontracts/ivm/host.rs",
+          "crates/iroha_core/src/smartcontracts/ivm/host/zk_verification_tests.rs",
+          "crates/iroha_core/src/smartcontracts/limits.rs",
+          "crates/iroha_core/src/snapshot/reconciliation_generation_tests.rs",
+          "crates/iroha_core/src/snapshot/support_policy_tests.rs",
+          "crates/iroha_core/src/state/authorization_read_tests.rs",
+          "crates/iroha_core/src/state/block_field/frozen_tests.rs",
+          "crates/iroha_core/src/state/custody_fixture.rs",
+          "crates/iroha_core/src/state/deserialize_world.rs",
+          "crates/iroha_core/src/state/direct_commit_refusal_tests.rs",
+          "crates/iroha_core/src/state/fastpq_source_quota_tests.rs",
+          "crates/iroha_core/src/state/network_policy_routes_tests.rs",
+          "crates/iroha_core/src/state/network_xor.rs",
+          "crates/iroha_core/src/state/output_callback_tests.rs",
+          "crates/iroha_core/src/state/output_capacity_tests.rs",
+          "crates/iroha_core/src/state/output_contract_event_tests.rs",
+          "crates/iroha_core/src/state/output_internal_root_scope_tests.rs",
+          "crates/iroha_core/src/state/output_network_fee_tests.rs",
+          "crates/iroha_core/src/state/output_network_tests.rs",
+          "crates/iroha_core/src/state/output_pipeline_tests.rs",
+          "crates/iroha_core/src/state/output_producer_tests.rs",
+          "crates/iroha_core/src/state/output_seal_tests.rs",
+          "crates/iroha_core/src/state/output_time_tests.rs",
+          "crates/iroha_core/src/state/runtime_catalog_commit_tests.rs",
+          "crates/iroha_core/src/state/runtime_catalog_tests.rs",
+          "crates/iroha_core/src/state/runtime_configuration_tests.rs",
+          "crates/iroha_core/src/state/snapshot_owner_policy_tests.rs",
+          "crates/iroha_core/src/state/stake_reserves.rs",
+          "crates/iroha_core/src/state/tests.rs",
+          "crates/iroha_core/src/state/tests/commit_topology_tests.rs",
+          "crates/iroha_core/src/state/validator_committee/tests.rs",
+          "crates/iroha_core/src/state/validator_committee/tests/incumbent.rs",
+          "crates/iroha_core/src/state/world_state_accumulator_tests.rs",
+          "crates/iroha_core/src/sumeragi/certified_chain/boundary_tests.rs",
+          "crates/iroha_core/src/sumeragi/epoch/parameters.rs",
+          "crates/iroha_core/src/sumeragi/epoch_election/tests.rs",
+          "crates/iroha_core/src/sumeragi/evidence/tests.rs",
+          "crates/iroha_core/src/sumeragi/lanes/custody/tests.rs",
+          "crates/iroha_core/src/sumeragi/lanes/routing.rs",
+          "crates/iroha_core/src/sumeragi/lanes/routing/test_support.rs",
+          "crates/iroha_core/src/sumeragi/penalties.rs",
+          "crates/iroha_core/src/sumeragi/private_dataspace/tests.rs",
+          "crates/iroha_core/src/sumeragi/schedule/execution_tests.rs",
+          "crates/iroha_core/src/sumeragi/test_chain.rs",
+          "crates/iroha_core/src/sumeragi/test_chain/retail_multisig.rs",
+          "crates/iroha_core/src/tx/sandbox_state_tests.rs",
+          "crates/iroha_core/src/tx_height_expiry_inline_tests.rs",
+          "crates/iroha_core/src/validation_fee/permission_guard_tests.rs",
+          "crates/iroha_core/src/validation_fee/tests.rs",
+          "crates/iroha_core/src/validation_fee_rewards/exposure.rs",
+          "crates/iroha_core/src/validation_fee_rewards/exposure_archive_tests.rs",
+          "crates/iroha_core/src/validation_fee_rewards/signed_claim_tests.rs",
+          "crates/iroha_core/src/zk_validity_policy_boundary_tests.rs",
+          "crates/iroha_core/src/zk_validity_policy_parity_tests.rs",
+          "crates/iroha_core/tests/common/root_scope_fixture.rs",
+          "crates/iroha_core/tests/contract_manifest_triggers.rs",
+          "crates/iroha_core/tests/isi_gas_fees.rs",
+          "crates/iroha_core/tests/ivm_manifest_abi_reject.rs",
+          "crates/iroha_core/tests/validation_fee_admission.rs",
+          "crates/iroha_torii/src/da/tests.rs",
+          "crates/iroha_torii/src/gov/tests.rs",
+          "crates/iroha_torii/src/routing/npos_diagnostics_tests.rs",
+          "crates/iroha_torii/src/tests/lib_runtime_handlers/part_6.rs",
+          "crates/iroha_torii/src/tests/lib_tests/part_3.rs",
+          "crates/iroha_torii/src/tests/routing.rs",
+          "crates/iroha_core/src/resource_coherence.rs",
+          "crates/iroha_data_model/src/parameter/system/resource_coherence.rs",
+          "crates/iroha_core_zk/src/verification.rs",
+          "crates/iroha_core_zk/src/native_pipa_r.rs",
+          "crates/iroha_core_zk/src/stark.rs",
+          "crates/iroha_core/src/zk_guardrails.rs"
+        ],
+        "commands": [
+          {
+            "command": "python3 -I -S scripts/check_zk_runtime_validity.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 -m pytest -q -p no:cacheprovider scripts/tests/check_zk_runtime_validity_test.py scripts/tests/check_zk_feature_parity_test.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "dist/zk-delivery-handoff/resume-2026-10-11/iroha-core-canonical-slot-final-parity-2026-10-12 pipeline_gas_policy pipeline_validity_policy zk_validity_policy state_snapshot_decode_error_tests resource_coherence --nocapture",
+            "outcome": "failed"
+          },
+          {
+            "command": "CARGO_TARGET_DIR=target/zk-resume-review CARGO_INCREMENTAL=0 cargo test --offline --manifest-path dist/zk-delivery-handoff/review-f4/fee-projection-harness/Cargo.toml -- --nocapture",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 -I -S dist/zk-delivery-handoff/review-f4/run_fee_owner_mutations.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "scripts/check_no_legacy_codec.sh",
+            "outcome": "passed"
+          },
+          {
+            "command": "/opt/homebrew/bin/python3.12 -I -S scripts/check_zk_runtime_validity.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "PYTHONPATH=/Users/takemiyamakoto/Library/Python/3.9/lib/python/site-packages PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /opt/homebrew/bin/python3.12 -m pytest -q -p no:cacheprovider scripts/tests/check_zk_runtime_validity_test.py scripts/tests/check_zk_feature_parity_test.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "dist/zk-delivery-handoff/core-checkpoint-2026-10-12/post-fetch/iroha-core-fixture-checkpoint pipeline_gas_policy pipeline_validity_policy zk_validity_policy state_snapshot_decode_error_tests resource_coherence --nocapture",
+            "outcome": "failed"
+          },
+          {
+            "command": "python3.12 dist/zk-delivery-handoff/scripts/run_core_checkpoint_group.py --checkpoint dist/zk-delivery-handoff/core-checkpoint-2026-10-12/final-combined --group f4",
+            "outcome": "passed"
+          }
+        ],
+        "acceptance": [
+          {
+            "clause": "Move validity-affecting windows, expiry/skew rules, proof limits and relation-selecting keys into committed State; remove review/activation prerequisites across Core, Torii, SDKs, genesis and restore as each path is rebuilt.",
+            "state": "partial",
+            "proof": "crates/iroha_core/src/pipeline_gas_policy.rs retains one immutable owner for canonical parameters plus validated gas/limit projections; readers do not decode or use node-policy fallback. Current immutable Core25f11b6... passes all68 focused controls, including ten coupled-owner and actual certified-history fee/config/quote/effects/gas tests and all repaired original-pool restore fixtures in crates/iroha_core/src/state/deserialize_core.rs. Runtime sources were unchanged. Current crates/irohad/src/main.rs still installs config.crypto/oracle/fraud/governance/content/settlement, and crates/iroha_core/src/smartcontracts/isi/account_admission.rs reads state_transaction.crypto.allowed_signing/allowed_curve_ids. Migration of those validity families to committed state and complete replay/activation semantics remains ordinary implementation work."
+          },
+          {
+            "clause": "No environment, node-local configuration, feature, binary/source digest, chain-ID production flag, readiness certificate or all-protocol manifest changes validity or availability.",
+            "state": "partial",
+            "proof": "scripts/check_zk_runtime_validity.py now passes217 entries/1460sites after43 source-backed row changes, with all existing classification/status/owner fields preserved. Complete scripts/tests/check_zk_runtime_validity_test.py and scripts/tests/check_zk_feature_parity_test.py suites pass64 tests under supported Python3.12. Independent root source/patch/preservation review and two regression tests pass. SCCP native producers exist but HTTP original-receipt acquisition and route registration remain incomplete; their entries remain out_of_plan. Current crates/iroha_core_zk/src/verification.rs retains pipa_r/stark enabled checks and maps canonical envelope failure to MalformedEnvelope, while native_pipa_r.rs converts errors to strings/bools and stark.rs returns string decoder errors. Original refusal propagation through punitive governance, IVM and later public-input reads remains to implement. Current private_settlement.rs lifecycle/capability prerequisites and optional backend paths also remain. These are source obligations, not unavailable-platform exceptions."
+          },
+          {
+            "clause": "Completed capabilities run through ordinary deployment.",
+            "state": "partial",
+            "proof": "crates/iroha_kagami/src/genesis/sign.rs retains canonical default genesis-policy hashing for unpublished signing, but the exact unpublished signer regression still has no passing result in this evidence set. Historical Core/Kagami builds do not qualify the externally changed current graph. crates/iroha_core_zk/src/lib.rs and crates/iroha_torii/src/zk_prover.rs still reject/skip disabled backends, and private_settlement.rs still requires activation/lifecycle/capability state. Completing relations and removing inappropriate deployment gating remains local implementation work; fresh ordinary-deployment checks follow source/dependency repair."
+          },
+          {
+            "clause": "Preserve cryptography, permissions, key revocation, replay, finality and deterministic limits; feature/config parity tests compare roots, effects and gas.",
+            "state": "partial",
+            "proof": "crates/iroha_core/src/pipeline_validity_policy_tests.rs and crates/iroha_core/src/state/deserialize_core.rs preserve real certified-history fee/config/quote/effects, exact immutable policy identity and original-pool restore refusal/refund/retry controls. The current68-test selection passes all68 on immutable Core25f11b660f8df800e047caecb658dabbcc8777f14ad57bbd9074e13bb0ea9f40 with zero runtime source drift. The previously failing undo fixture now reaches the actual intended Capacity refusal after admitting original World construction; it does not accept earlier ExceedsLimit as equivalent. Historical63/5 and67/1 failures remain preserved. Evidence: core-checkpoint-2026-10-12/final-combined/runtime-f4/result.json and test.log. Whole-node/cross-feature parity and remaining-family migration remain ordinary implementation work; no unsupported-platform waiver applies."
+          }
+        ]
+      }
     },
     {
       "id": "I.1",
@@ -167,7 +535,124 @@
       "acceptance": [
         "Proofs bind the normalized intent excluding generated proof bytes/digests to avoid circularity; the transaction signature covers the complete canonical proof-bearing payload. Reject reorder/substitute/omit/duplicate/replay. Specify attachment type, index, length and hash checks and regenerate all first-release fixtures without a fallback decoder."
       ],
-      "status": "planned"
+      "status": "in_progress",
+      "evidence": {
+        "source": "6043d97c4003da4bbb3fc772d9a0548b3f456b16 plus shared working-tree changes; 2026-10-12 Rust model53 tests passed; exact source schema generation passed; Kotlin canonical SignedAttachments/IvmProved and typed privacy projection implemented and independently verified with rebuilt native; full Gradle and cross-SDK/node delivery open; selected X.2 envelope cap 9,699,840, Submit frame cap 9,699,844, block privacy 16,711,680 mirrored; fresh native rebuild and 7 accepted / 12 rejected / 24 privacy projections Kotlin runtime pass after canonical charge/digest repair",
+        "paths": [
+          "crates/iroha_data_model/src/transaction/signed_attachments.rs",
+          "crates/iroha_data_model/src/transaction/signed_attachments/tests.rs",
+          "crates/iroha_data_model/src/transaction/signed/ordered_intent.rs",
+          "crates/iroha_data_model/src/transaction/signed/ordered_intent_tests.rs",
+          "crates/iroha_core/src/tx.rs",
+          "norito.md",
+          "specs/references/schema.json",
+          "kotlin/core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/tx/SignedAttachmentVectorsTest.kt",
+          "javascript/iroha_js/src/transactionCodec.js",
+          "specs/references/genesis_schema.json",
+          "fixtures/zk/signed_attachments_v1/vectors.json",
+          "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/SignedAttachmentsV1.kt",
+          "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/TransactionPayload.kt",
+          "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/SignedAttachmentsAdapter.kt",
+          "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/TransactionPayloadAdapter.kt",
+          "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/NoritoJavaCodecAdapter.kt",
+          "kotlin/core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/tx/norito/SignedAttachmentsCodecTest.kt",
+          "kotlin/core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/core/model/SignedAttachmentsV1Test.kt",
+          "kotlin/core-jvm/src/test/java/org/hyperledger/iroha/sdk/core/model/SignedAttachmentsJavaCalls.java",
+          "kotlin/core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/tx/SignedAttachmentPayloadAssertions.kt",
+          "kotlin/core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/tx/norito/SignedAttachmentsCodecAssertions.kt",
+          "crates/iroha_data_model/src/transaction/signed.rs",
+          "crates/connect_norito_bridge/src/platform_jni/privacy_intent.rs",
+          "crates/connect_norito_bridge/src/platform_jni/part_3.rs",
+          "crates/connect_norito_bridge/src/platform_jni.rs",
+          "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/Executable.kt",
+          "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/privacy/PrivacyNativeBridge.kt",
+          "scripts/check_kotlin_jni.py",
+          "scripts/check_jni_sdk_android_pairs.py",
+          "crates/iroha_data_model/src/isi/privacy.rs",
+          "crates/connect_norito_bridge/src/platform_jni/part_2.rs",
+          "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/privacy/PrivacyCapabilitiesV1.kt"
+        ],
+        "commands": [
+          {
+            "command": "rustfmt --edition 2024 --config skip_children=true --check crates/iroha_data_model/src/transaction/signed_attachments.rs crates/iroha_data_model/src/transaction/signed_attachments/tests.rs",
+            "outcome": "passed"
+          },
+          {
+            "command": "cargo fmt --all -- --check",
+            "outcome": "passed"
+          },
+          {
+            "command": "git diff --check -- crates/iroha_data_model/src/transaction/signed_attachments.rs crates/iroha_data_model/src/transaction/signed_attachments/tests.rs norito.md",
+            "outcome": "passed"
+          },
+          {
+            "command": "bash scripts/check_no_legacy_codec.sh",
+            "outcome": "passed"
+          },
+          {
+            "command": "CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/zk-resume-i1 cargo test --offline --locked --jobs 1 -p iroha_data_model --lib -- signed_attachments ordered_intent",
+            "outcome": "passed"
+          },
+          {
+            "command": "CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/zk-resume-p1 cargo test --offline --locked --jobs 1 -p iroha_data_model --lib -- signed_attachments ordered_intent privacy::action_role",
+            "outcome": "passed"
+          },
+          {
+            "command": "CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/zk-resume-i1 cargo run --offline --locked --jobs 1 -p iroha_kagami --bin kagami -- advanced schema --genesis-out dist/zk-delivery-handoff/reports/I.1-resume-2026-10-11-genesis_schema.generated.json",
+            "outcome": "failed"
+          },
+          {
+            "command": "CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/zk-resume-i1 cargo run --offline --locked --jobs 1 --manifest-path dist/zk-delivery-handoff/resume-2026-10-11/schema-module-locked-harness/Cargo.toml -- --genesis-out dist/zk-delivery-handoff/reports/I.1-resume-2026-10-11-genesis_schema.locked-module-generated.json",
+            "outcome": "passed"
+          },
+          {
+            "command": "JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./gradlew --offline :core-jvm:compileKotlin --console=plain",
+            "outcome": "failed"
+          },
+          {
+            "command": "sh dist/zk-delivery-handoff/resume-2026-10-11/kotlin-model-harness/run-diagnostic.sh",
+            "outcome": "passed"
+          },
+          {
+            "command": "CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/zk-resume-i1 cargo build --offline --locked --jobs 1 -p connect_norito_bridge --lib",
+            "outcome": "passed"
+          },
+          {
+            "command": "sh dist/zk-delivery-handoff/resume-2026-10-11/kotlin-model-harness/run-full-payload-diagnostic.sh",
+            "outcome": "passed"
+          },
+          {
+            "command": "CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/zk-resume-i1 cargo build --offline --locked --jobs 1 -p connect_norito_bridge --lib --no-default-features --features privacy-production-enabled",
+            "outcome": "passed"
+          },
+          {
+            "command": "CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/zk-resume-i1 cargo test --offline --locked --jobs 1 --manifest-path dist/zk-delivery-handoff/resume-2026-10-11/privacy-projection-module-harness/Cargo.toml",
+            "outcome": "passed"
+          }
+        ],
+        "acceptance": [
+          {
+            "clause": "Define canonical proof-free ordered intent descriptors, per-action statement/role/authority bindings and signed inline attachment occurrences for large proofs and admitted key material.",
+            "state": "partial",
+            "proof": "crates/iroha_data_model/src/transaction/signed_attachments.rs defines the canonical ordered descriptors and inline occurrence schema. Its custom action decoder now preflights wire-ID length, invocation-path count and reference count before owned decoding; crates/iroha_data_model/src/transaction/signed_attachments/tests.rs covers exact bounds, forged declarations, all operation/authority/invocation variants and zero-budget borrowed-span inspection. Independent static review confirmed the repair. The initial focused model command failed before tests on the unrelated shared validity-policy schema test; after its external repair, CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/zk-resume-p1 cargo test --offline --locked --jobs 1 -p iroha_data_model --lib -- signed_attachments ordered_intent privacy::action_role passed 60 tests (53 I.1 and 7 P.1), with one fixture writer ignored. All four added decoder/budget tests passed. Kotlin now has the immutable canonical signed model, complete carrier layout, exact aggregate-size preflight, ordered-intent binding, native wire registry parity, and removal of the retired payload list API. Its actual source compiles with -Xjdk-release=8 in a diagnostic harness using preexisting compiled dependency classes, embedded Kotlin2.3.20 and bcprov1.84; four model assertion groups and a Java-source JDK8 consumer run passed. This is not full SDK qualification; ordinary offline Gradle is blocked by absent foojay1.0.0, and Kotlin2.3.10/bcprov1.78.1/zstd-jni1.5.7-7 dependencies are not cached. Canonical IvmProved and typed native privacy normalization are now implemented: the shared Rust normalizer produces intent-only bytes, ordinary construction admission remains mandatory, and all12protocols are covered directly and in Batch. JavaScript and other SDK completion remain open. The Submit allocation preflight now derives from the 9,699,840-byte canonical envelope ceiling plus its four-byte canonical wrapper prefix; the exact-source JNI helper accepts that ceiling and rejects one byte over. Fresh matching native runtime repeats all 7 accepted vectors, 12 rejection cases and 24 typed privacy direct/Batch projections with Rust-generated limit metadata parity. These are codec/projection checks, not native proof qualification."
+          },
+          {
+            "clause": "Proofs bind the normalized intent excluding generated proof bytes/digests to avoid circularity; the transaction signature covers the complete canonical proof-bearing payload.",
+            "state": "partial",
+            "proof": "crates/iroha_data_model/src/transaction/signed/ordered_intent.rs defines the proof-free normalized intent and full signed payload flow. crates/iroha_data_model/src/transaction/signed/ordered_intent_tests.rs exercises the non-circular statement/signature dataflow with synthetic hash-derived proof bytes; this is not actual ZK verification evidence. Production native action routes still return typed unsupported pending I.2/I.3 and must bind verifier public inputs to the normalized statement before end-to-end proof replay protection can be claimed."
+          },
+          {
+            "clause": "Reject reorder/substitute/omit/duplicate/replay.",
+            "state": "partial",
+            "proof": "crates/iroha_data_model/src/transaction/signed_attachments/tests.rs and crates/iroha_data_model/src/transaction/signed/ordered_intent_tests.rs contain malformed/reordered/substituted/omitted/duplicated/stale-binding cases and passed the independent current-source model run; crates/iroha_core/src/tx.rs contains admission rejection cases and exact/over-limit tests. Current Core execution remains unqualified because the shared Core build has unrelated compile errors. Descriptor binding rejection does not establish cryptographic replay resistance for native proof operations awaiting I.2/I.3. Current 2026-10-12 resume evidence supersedes the obsolete count of shared Core compile errors: the last unified CLI/Torii/daemon build terminated on 16 retired SCCP wallet API errors before tests, and the current external merge has literal markers in required shared source. See reports/CertifiedResult-consumer-resume-source-2026-10-12.json; no current node/consumer qualification is claimed."
+          },
+          {
+            "clause": "Specify attachment type, index, length and hash checks and regenerate all first-release fixtures without a fallback decoder.",
+            "state": "partial",
+            "proof": "norito.md and crates/iroha_data_model/src/transaction/signed_attachments.rs specify type, index, length, hash and nested allocation bounds with no fallback decoder. The canonical schema.rs module generated and validated both schema artifacts with every existing dependency identity matching the root Cargo.lock; specs/references/schema.json now replaces the retired optional proof-attachment list with SignedAttachmentsV1. The ordinary Kagami command remains blocked by163 Core errors; isolated module success is not full Kagami integration. Rust-generated signed attachment fixtures now include7 accepted and12 rejected cases plus24 typed privacy direct/Batch projections, adding optional generic hash arrays, lane privacy raw leaf/newtype ID, contract-subject call path, and explicit account authority; the Rust focused suite53passed/1ignored. Actual Kotlin standalone frame/carrier normalization/statement-digest diagnostics match5 native-independent Rust cases, reject checksum tampering and preflight oversize proof/aggregate counts; exact canonical frame cap accepts the limit and rejects+1. Java-source model consumer compiled --release8 and ran. After rebuilding connect_norito_bridge from current source offline in target/zk-resume-i1, all7 payload/native roundtrips, complete normalized preimages/digests,12 negative vectors, public carrier construction/rebinding and registry parity passed in the same diagnostic harness. The ABI29 gate stayed mandatory; the old installed-native mismatch is resolved locally. Full requested-version Gradle/package qualification remains open. javascript/iroha_js/src/transactionCodec.js still rejects attachments. Typed native privacy normalization and canonical IvmProved now pass actual-source/native diagnostics, independently repeated by root; 24 direct/Batch cases cover exact bytes/digests, generated-field invariance, context sensitivity and malformed inputs. Cross-SDK Swift/Kotlin/Java/JavaScript/Python convergence and node/native-operation delivery remain implementation/validation work on this Mac, not hardware-platform TODOs. The companion I.1-projection-resume-2026-10-12.md records complete commands, provenance and current limits. Current 2026-10-12 resume evidence supersedes the obsolete count of shared Core compile errors: the last unified CLI/Torii/daemon build terminated on 16 retired SCCP wallet API errors before tests, and the current external merge has literal markers in required shared source. See reports/CertifiedResult-consumer-resume-source-2026-10-12.json; no current node/consumer qualification is claimed."
+          }
+        ]
+      }
     },
     {
       "id": "I.2",
@@ -452,7 +937,116 @@
       "acceptance": [
         "Compare F257 sparse-slot representation with a measured alternative/batching modulus, including equality exponentiation, broadcasts/key switching, scalar-subalgebra input proof, masking and unused-output zeroing. Use independent arithmetic/decryption vectors. No depth-16/+10 heuristic, exact-lift BFV, plaintext fallback or unmeasured flooding constants establish security. Verify secret erasure on success, error and unwind. Derive and measure physical noise/work bounds for the proved normalizing lowering under one fixed public schedule per class profile padded to the class maximum; logical rank bounds ciphertext multiplication depth, not physical noise, and instruction-by-instruction evaluation of the existing candidates does not hold the maximum shape."
       ],
-      "status": "planned"
+      "status": "in_progress",
+      "evidence": {
+        "source": "3cec95295cd863a4cd278dc5114bcd9243bee2b4 plus the external integration working tree, assessed 2026-10-12. Independent current C.3 Python suite 40 passed; strict E.1 pinned consumer reconstructed all 16 original historical runs and produced the byte-identical tracked summary. No fresh estimator, BGV Rust suite or performance campaign. Exact scope and hashes are in reports/C.3-pinned-consumer-independent-review-2026-10-12.json. Candidate profiles remain unqualified; proved normalizing lowering, physical maximum-shape noise/work and full erasure qualification are substantive unfinished work, not physical-platform TODOs.",
+        "paths": [
+          "crates/iroha_fhe/src/bgv/mod.rs",
+          "crates/iroha_fhe/src/bgv/profile.rs",
+          "crates/iroha_fhe/src/bgv/coins.rs",
+          "crates/iroha_fhe/src/bgv/keys.rs",
+          "crates/iroha_fhe/src/bgv/cipher.rs",
+          "crates/iroha_fhe/src/bgv/eval.rs",
+          "crates/iroha_fhe/src/bgv/encoding.rs",
+          "crates/iroha_fhe/src/bgv/noise.rs",
+          "crates/iroha_fhe/src/bgv/plan.rs",
+          "crates/iroha_fhe/src/bgv/cost.rs",
+          "crates/iroha_fhe/src/rns_chain.rs",
+          "crates/iroha_fhe/tests/bgv_vectors.rs",
+          "crates/iroha_fhe/tests/bgv_noise.rs",
+          "crates/iroha_fhe/tests/bgv_clearing.rs",
+          "crates/iroha_fhe/tests/bgv_tape_plan.rs",
+          "crates/iroha_fhe/tests/bgv_cost_model_vectors.rs",
+          "crates/iroha_fhe/tests/bgv_cost_measurement.rs",
+          "crates/iroha_fhe/tests/support/machine.rs",
+          "crates/iroha_fhe/tests/vectors/bgv_reference.py",
+          "crates/iroha_fhe/tests/vectors/bgv_kat_v1.txt",
+          "scripts/fhe_bgv_cost_model.py",
+          "scripts/fhe_bgv_lattice_estimator.sage",
+          "scripts/tests/fhe_bgv_cost_model_test.py",
+          "specs/fhe_bgv_cost_summary.json",
+          "specs/fhe_bgv_lattice_estimator_output.txt",
+          "specs/ram_lfe_encryption_replacement.md",
+          "specs/ram_lfe_plaintext_packing.md",
+          "specs/ram_lfe_execution_proof.md",
+          "scripts/zk_resource_harness.py"
+        ],
+        "commands": [
+          {
+            "command": "python3 -I -S scripts/fhe_bgv_cost_model.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 -I -S crates/iroha_fhe/tests/vectors/bgv_reference.py --check",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 -m unittest scripts.tests.fhe_bgv_cost_model_test",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 -I -S dist/zk-delivery-handoff/scripts/audit_c3_historical_runs.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "CARGO_TARGET_DIR=target/zk-resume-review CARGO_INCREMENTAL=0 cargo test --offline --locked -j 1 -p iroha_fhe",
+            "outcome": "not_run"
+          },
+          {
+            "command": "CARGO_TARGET_DIR=target/zk-resume-review CARGO_INCREMENTAL=0 cargo test --offline --locked -j 1 -p iroha_fhe --no-default-features",
+            "outcome": "not_run"
+          },
+          {
+            "command": "python3.12 -m unittest scripts.tests.fhe_bgv_cost_model_test.PinnedRunTest -v",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3.12 -m unittest scripts.tests.fhe_bgv_cost_model_test -v",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3.12 dist/zk-delivery-handoff/scripts/reproduce_c3_pinned_consumer_2026_10_12.py",
+            "outcome": "passed"
+          }
+        ],
+        "acceptance": [
+          {
+            "clause": "Implement and cost the genuine exact modular RNS-BGV starting candidate, secure key/encrypt/decrypt, relinearization, modulus switching and automorphisms; derive distributions, estimator assumptions and explicit rounding/noise failure bounds.",
+            "state": "partial",
+            "proof": "crates/iroha_fhe/src/bgv/keys.rs and the sibling cipher/eval/noise modules supplies genuine exact RNS-BGV candidate operations; specs/ram_lfe_encryption_replacement.md derives distributions, key-switch/rounding recurrences and conditional admitted-noise bounds. specs/fhe_bgv_lattice_estimator_output.txt records actual 2026-10-06 SageMath10.9/pinned-estimator runs, not a new run: 406 results,343 returned costs,63 unfinished/unstarted. BDGL16 minimum returned classical costs are136.8631/197.8730/135.3391 bits for affine/bounded/refresh; ADPS16 classical102.492/161.476/98.988. Unreturned attacks, ring/circular-security assumptions, malicious inputs and side channels remain unqualified. No profile is selected. python3 -I -S scripts/fhe_bgv_cost_model.py passes current source/derived-summary consistency; it does not remeasure or certify security."
+          },
+          {
+            "clause": "Use secure randomness and bounded clearing owners for every secret buffer.",
+            "state": "partial",
+            "proof": "crates/iroha_fhe/src/bgv/coins.rs uses fallible OS entropy, purpose/profile-separated derived streams and a whole clearing heap owner; keys/plaintexts/custody frames have clearing owners. crates/iroha_fhe/src/rns_chain.rs still uses a secret-dependent Zeroizing stack digit buffer during decrypt, outside the heap observation probe; transient hash stack/register copies also remain outside its stated guarantee. This is an erasure-audit gap, not evidence that the present wrapper fails to clear. No full secret-buffer qualification is claimed."
+          },
+          {
+            "clause": "Compare F257 sparse-slot representation with a measured alternative/batching modulus, including equality exponentiation, broadcasts/key switching, scalar-subalgebra input proof, masking and unused-output zeroing.",
+            "state": "partial",
+            "proof": "specs/fhe_bgv_cost_summary.json compares F257 sparse slots with t786433 batching, equality exponentiation, broadcasts/key switching, masks and unused-output zeroing from 16 historical scalar runs. scripts/fhe_bgv_cost_model.py now requires one unique externally retained manifest pin per run and consumes only the report and documents returned by scripts/zk_resource_harness.py read_pinned_run, without reopening evidence, unsigned success or fallback aliases. Independent python3.12 dist/zk-delivery-handoff/scripts/reproduce_c3_pinned_consumer_2026_10_12.py rebuilt all 16 real run directories using the tracked-summary pins and reproduced the full summary byte for byte (SHA-256 77c2fb8e160828b1def966f8d49543bbac1afb1e2ff9d9117cdd94fc8912daf6); a wrong external pin on real evidence was rejected with manifest_digest_differs. The runs retain original executable 1beda899..., source d651d517..., warm-file-cache and concurrent-load metadata, not current-build qualification. Scalar-subalgebra/client-input proof remains only a work projection in specs/ram_lfe_plaintext_packing.md; R.11 construction and the full parameter-matched comparison remain open."
+          },
+          {
+            "clause": "Use independent arithmetic/decryption vectors.",
+            "state": "met",
+            "proof": "crates/iroha_fhe/tests/bgv_vectors.rs consumes independently written Python known-answer vectors and a separate Rust big-integer oracle, including arithmetic/decryption and key/ciphertext codecs. python3 -I -S crates/iroha_fhe/tests/vectors/bgv_reference.py --check passes on the current vector fixture. Restored October5 Rust/vector runs remain historical evidence; no fresh full Rust integration run or third-party BGV-library parity is claimed."
+          },
+          {
+            "clause": "No depth-16/+10 heuristic, exact-lift BFV, plaintext fallback or unmeasured flooding constants establish security.",
+            "state": "met",
+            "proof": "crates/iroha_fhe/src/bgv/profile.rs explicitly marks every candidate unqualified and distinguishes returned estimator costs from security, while specs/ram_lfe_encryption_replacement.md rejects depth-only/+10, exact-lift BFV/plaintext fallbacks and unmeasured flooding as qualification. The independent python3.12 -m unittest scripts.tests.fhe_bgv_cost_model_test -v passed all 40 tests, including the six mandatory-pin consumer controls and existing measured/parameter/projection distinctions and maximum-shape refusal counterexamples. Selected source pins remained unchanged. The illustrative flooding projection is not a privacy construction; the genuine historical-run reproduction did not rerun measurements or the estimator."
+          },
+          {
+            "clause": "Verify secret erasure on success, error and unwind.",
+            "state": "partial",
+            "proof": "crates/iroha_fhe/tests/bgv_clearing.rs has heap-release observations for success, entropy/error returns, custody encoding and unwind. Restored C.3 confirmation reports killed heap-owner mutations but surviving R23 when the rns_chain stack-digit Zeroizing wrapper was removed. Current crates/iroha_fhe/src/rns_chain.rs retains that wrapper and the current heap-only test still does not observe it. Fresh Rust erasure tests/mutations were not rerun for this reassessment, and full stack/transient erasure remains unproved."
+          },
+          {
+            "clause": "Derive and measure physical noise/work bounds for the proved normalizing lowering under one fixed public schedule per class profile padded to the class maximum; logical rank bounds ciphertext multiplication depth, not physical noise, and instruction-by-instruction evaluation of the existing candidates does not hold the maximum shape.",
+            "state": "unmet",
+            "proof": "specs/ram_lfe_encryption_replacement.md explicitly requires the proved normalizing lowering and fixed padded public schedule; current tests/support machine is an instruction-by-instruction diagnostic plus cleartext normalization, not the encrypted normalized construction. specs/fhe_bgv_cost_summary.json still projects38 main primes against affine6 and52 against bounded22 for counterexample families. Neither physical maximum-shape noise/work, encrypted equivalence, circuit privacy/sanitization, genuine refresh nor their complete proofs are supplied. Existing bounded.selects uses unloaded zero registers and affine.state_and_registers omits MulPlain, so those fixtures cannot establish exhaustive encrypted worst-case coverage. Increasing chains or recasting logical rank as physical noise would not close the clause."
+          }
+        ]
+      }
     },
     {
       "id": "C.4",
@@ -541,7 +1135,57 @@
       "acceptance": [
         "Specify provider trust/key/revocation policy, challenge replay prevention, number recycling, issuer compromise and SIM takeover exposure. Provider learns the number; prove the credential privately against the encrypted canonical input. Canonicality alone is not control; no reviewer approval or canonicality-attestor gate returns."
       ],
-      "status": "planned"
+      "status": "in_progress",
+      "evidence": {
+        "source": "Current HEAD 3cec95295cd863a4cd278dc5114bcd9243bee2b4; exact phone-control source review retains the raw48 repair, challenge/provider contract and lifecycle model. All four Rust owners match the earlier pinned Core source manifest; broader Crypto/Norito/Model dependencies changed, so the21 phone/216 RAM-LFE/30 model passes remain historical component results. No State/private-relation/delivery implementation was added. The shared current Core no-run attempt failed before compilation because offline resolution lacks blobby; specs/state_table_inventory.json contained conflict regions at the initial inspection, subsequently resolved externally. Build/source evidence is core-checkpoint-2026-10-12/build.{log,source.json,result.json}. Broad production/dependency changes invalidate any whole-current-candidate interpretation of earlier binaries. No additional build was attempted for this reconciliation and no source/merge/index/history was changed. Review: core-checkpoint-2026-10-12/ASSESSMENT.md and P1-R1-F4-current-source-pins.json Timestamped update: source conflicts observed during the earlier inspection were subsequently resolved externally. At2026-10-12T04:56:58Z specs/state_table_inventory.json parses as JSON with zero markers (SHA2563febebd2e65de41ec94abe7c80903129957a7be82a53a36581fee8cd327ba6b6). That restores syntax only, not current exporter/runtime parity. Root offline metadata at04:55:43Z still failed on missing locked blobby0.3.1 with Cargo.lock SHA2563c9b218f37e69d7bee06d7201e8ce3664989b70b95da4bcc16dd4fb3e5c77a78 stable; reports/current-offline-resolution-2026-10-12/result.json. No dependency fetch/install is authorized or performed by this agent.",
+        "paths": [
+          "specs/ram_lfe_execution_proof.md",
+          "crates/iroha_crypto/src/ram_lfe/phone_control.rs",
+          "crates/iroha_crypto/src/ram_lfe/phone_control_tests.rs",
+          "crates/iroha_data_model/src/phone_control.rs",
+          "crates/iroha_data_model/tests/phone_control_v1.rs"
+        ],
+        "commands": [
+          {
+            "command": "CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/zk-resume-p1 cargo test --offline --locked --jobs 1 -p iroha_crypto --lib ram_lfe::phone_control::tests",
+            "outcome": "passed"
+          },
+          {
+            "command": "CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/zk-resume-p1 cargo test --offline --locked --jobs 1 -p iroha_crypto --lib ram_lfe",
+            "outcome": "passed"
+          },
+          {
+            "command": "scripts/check_no_legacy_codec.sh",
+            "outcome": "passed"
+          },
+          {
+            "command": "CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/zk-resume-p1 cargo test --offline --locked --jobs 1 -p iroha_data_model --test phone_control_v1",
+            "outcome": "passed"
+          }
+        ],
+        "acceptance": [
+          {
+            "clause": "Use the user-selected verification-provider credential: a fresh SMS/carrier challenge produces a short-lived credential bound to beneficiary AccountId, network, policy, nonce and validity.",
+            "state": "partial",
+            "proof": "crates/iroha_data_model/src/phone_control.rs supplies challenge/credential/provider policy and bound verification; specs/ram_lfe_execution_proof.md specifies fresh SMS/carrier challenge, trust and short-lived validity. crates/iroha_crypto/src/ram_lfe/phone_control.rs now decodes the same exact raw48 commitment payload it serializes, fixing legitimate canonical roundtrips without another layout. CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/zk-resume-p1 cargo test --offline --locked --jobs 1 -p iroha_crypto --lib ram_lfe::phone_control::tests passed 21 tests; CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/zk-resume-p1 cargo test --offline --locked --jobs 1 -p iroha_crypto --lib ram_lfe passed 216 tests after repair. The typed credential model integration command passed 30 tests; this work provides no live challenge provider or delivery consumer. Current source retains these rules, but recorded runtime results qualify their historical candidate only."
+          },
+          {
+            "clause": "Specify provider trust/key/revocation policy, challenge replay prevention, number recycling, issuer compromise and SIM takeover exposure.",
+            "state": "partial",
+            "proof": "Recovered repair code in crates/iroha_data_model/src/phone_control.rs rejects backdated retirement, retains longer_credentials_expire_by_ms across lifetime decreases, preserves revoked-key slots permanently, and specifies transition-time ownership. crates/iroha_data_model/tests/phone_control_v1.rs includes live-binding retirement/removal, prior-lifetime retention and distinct credential-vs-binding replay-expiry tests. Those tests passed at the recorded earlier checkpoint (30 total) with CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/zk-resume-p1 cargo test --offline --locked --jobs 1 -p iroha_data_model --test phone_control_v1. specs/ram_lfe_execution_proof.md states recycling, issuer compromise and SIM-takeover exposure; actual State lifecycle enforcement remains R.4. Current source retains these rules, but recorded runtime results qualify their historical candidate only."
+          },
+          {
+            "clause": "Provider learns the number; prove the credential privately against the encrypted canonical input.",
+            "state": "partial",
+            "proof": "specs/ram_lfe_execution_proof.md states that the provider learns the number and defines the private proof obligations. crates/iroha_crypto/src/ram_lfe/phone_control.rs exposes the typed Goldilocks commitment, and phone_control_tests.rs covers binding/field mapping. Current crates/iroha_data_model/src/phone_control.rs explicitly retains TODO(R.2) credential-commitment/encrypted-input/nullifier relation, TODO(R.4) authorized State transitions/challenge consumption/replay/expiry/revocation, and TODO(R.5) provider challenge plus SDK/JSON delivery. No matching PhoneControlEvidenceV1 or PhoneControlProviderPolicyV1 consumer exists in the current Core/Torii/Rust SDK source search. These are concrete local implementation/integration gaps; there is no established Mac hardware reason that makes them platform TODOs."
+          },
+          {
+            "clause": "Canonicality alone is not control; no reviewer approval or canonicality-attestor gate returns.",
+            "state": "met",
+            "proof": "specs/ram_lfe_execution_proof.md distinguishes actual phone control from canonicality, and crates/iroha_data_model/src/phone_control.rs carries no reviewer approval or canonicality-attestor state. The repair adds no alternate decoder or gate; scripts/check_no_legacy_codec.sh passed. The source review found no alternate decoder or new reviewer/canonicality gate; the recorded codec guard pass is historical."
+          }
+        ]
+      }
     },
     {
       "id": "R.2",
@@ -645,7 +1289,66 @@
       "acceptance": [
         "Protocol-specific builders and adapters delegate to that path; retire duplicate authoritative routes. Distinguish enum presence, implemented verification, state effects and usable delivery instead of claiming twelve production-ready protocols."
       ],
-      "status": "planned"
+      "status": "in_progress",
+      "evidence": {
+        "source": "Current HEAD 3cec95295cd863a4cd278dc5114bcd9243bee2b4; current source review keeps P.1 in_progress. Closed role/typed dispatch and exact-call guard source remain present; earlier 60 model and 14 CorePrivacy results are preserved as historical component evidence. The later 190-test operation inventory suite passed at its recorded checkpoint, superseding the older 180/183 result as the latest completed full suite, but its scanned runtime sources have since changed. The shared current Core no-run attempt failed before compilation because offline resolution lacks blobby; specs/state_table_inventory.json contained conflict regions at the initial inspection, subsequently resolved externally. Build/source evidence is core-checkpoint-2026-10-12/build.{log,source.json,result.json}. Broad production/dependency changes invalidate any whole-current-candidate interpretation of earlier binaries. No additional build was attempted for this reconciliation and no source/merge/index/history was changed. Review: core-checkpoint-2026-10-12/ASSESSMENT.md and P1-R1-F4-current-source-pins.json Timestamped update: source conflicts observed during the earlier inspection were subsequently resolved externally. At2026-10-12T04:56:58Z specs/state_table_inventory.json parses as JSON with zero markers (SHA2563febebd2e65de41ec94abe7c80903129957a7be82a53a36581fee8cd327ba6b6). That restores syntax only, not current exporter/runtime parity. Root offline metadata at04:55:43Z still failed on missing locked blobby0.3.1 with Cargo.lock SHA2563c9b218f37e69d7bee06d7201e8ce3664989b70b95da4bcc16dd4fb3e5c77a78 stable; reports/current-offline-resolution-2026-10-12/result.json. No dependency fetch/install is authorized or performed by this agent.",
+        "paths": [
+          "crates/iroha_data_model/src/privacy/action_role.rs",
+          "crates/iroha_core_privacy/src/privacy_dispatch.rs",
+          "crates/iroha_core_privacy/src/privacy_verifier/role_dispatch_tests.rs",
+          "crates/iroha_core/src/smartcontracts/isi/privacy/role_dispatch_tests.rs",
+          "scripts/check_zk_operation_inventory.py",
+          "scripts/tests/check_zk_operation_inventory_test.py",
+          "specs/zk_operation_inventory.json"
+        ],
+        "commands": [
+          {
+            "command": "python3 -m unittest scripts.tests.check_zk_operation_inventory_test.Exact12SingleRoute scripts.tests.check_zk_operation_inventory_test.Exact12Roles",
+            "outcome": "passed"
+          },
+          {
+            "command": "CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/zk-resume-p1 cargo test --offline --locked --jobs 1 -p iroha_data_model --lib -- signed_attachments ordered_intent privacy::action_role",
+            "outcome": "passed"
+          },
+          {
+            "command": "target/zk-resume-review/debug/deps/iroha_core_privacy-43dab0fa24a28a69 privacy_dispatch::tests every_role_reaches_its_own_native_verifier_or_its_typed_refusal unsupported_refusal_keeps_its_place_in_the_failure_precedence dispatch_rejects_substitution_between_every_pair_of_roles_before_any_verifier sealed_effects_carry_only_the_effect_of_their_own_role verified_real_proofs_seal_the_role_of_their_envelope compiled_profile_matches_only_envelopes_bound_from_its_own_statements",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 -m unittest scripts.tests.check_zk_operation_inventory_test",
+            "outcome": "failed"
+          },
+          {
+            "command": "python3 -m unittest scripts.tests.check_zk_operation_inventory_test.TrackedInventory",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 scripts/check_zk_operation_inventory.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "TMPDIR=\"$PWD/dist/zk-delivery-handoff/f1-python-tmp\" python3 -m unittest scripts.tests.check_zk_operation_inventory_test",
+            "outcome": "passed"
+          }
+        ],
+        "acceptance": [
+          {
+            "clause": "Map all twelve registered protocols to one canonical envelope/dispatch path and one verifier/state executor per role.",
+            "state": "partial",
+            "proof": "crates/iroha_data_model/src/privacy/action_role.rs supplies the closed role mapping; crates/iroha_core_privacy/src/privacy_dispatch.rs owns typed dispatch and separates verification, effects and delivery. Earlier focused Exact12 classes passed25, the model command passed60 including7 roles, and the recorded CorePrivacy command passed14 with genuine VeRange/PGC/Jindo/Orchard/FCMP proofs sealed to envelope roles. Those source owners still match the older checked source hashes, but transitive runtime dependencies changed; no current whole-binary qualification follows. The actual Core handler/action-driver tests in crates/iroha_core/src/smartcontracts/isi/privacy/role_dispatch_tests.rs remain present and unqualified in this evidence set. Fresh exact admission/effect/equivalence execution and integration coverage remain required after shared source/dependency reconciliation."
+          },
+          {
+            "clause": "Protocol-specific builders and adapters delegate to that path; retire duplicate authoritative routes.",
+            "state": "partial",
+            "proof": "scripts/check_zk_operation_inventory.py and scripts/tests/check_zk_operation_inventory_test.py enforce exact native admission caller counts and relation/selector/circuit chains; mutation controls reject duplicate calls and swapped routes. The old183-test run was180passed/3failed. It was followed by9 targeted passes and then the full TMPDIR=\"$PWD/dist/zk-delivery-handoff/f1-python-tmp\" python3 -m unittest scripts.tests.check_zk_operation_inventory_test passed190/0 at the F.1 C1/C2 repair checkpoint (reports/F.1-C1-C2-repair-2026-10-12.json and full-tests log). That full run used Python3.9 as a diagnostic; it is historical, and changed scanned Core/State sources require a current supported-interpreter recheck. Source checker/history then reported93 operations/81 instructions/12 protocols/87 routes/19 selections. Core handler/action-driver runtime and product-flow integration remain unfinished; lexical inventory success does not supply them."
+          },
+          {
+            "clause": "Distinguish enum presence, implemented verification, state effects and usable delivery instead of claiming twelve production-ready protocols.",
+            "state": "met",
+            "proof": "specs/zk_operation_inventory.json still distinguishes role/enumeration presence, native verification, sealed effects and usable delivery, including typed unsupported roles; the current row/checker files match the190-test checkpoint. Earlier Exact12SingleRoute/Exact12Roles passed25; this is historical scoped evidence, not a claim that twelve protocols are production-ready."
+          }
+        ]
+      }
     },
     {
       "id": "P.2",
@@ -887,7 +1590,70 @@
       "acceptance": [
         "Select canonical native commitments consistently across catalog, Kaigi, spentness, MKHE, SDKs and fixtures; retain mathematically distinct families where needed. BN254 Poseidon and PQ dependency repairs get vectors. Exploratory measurements may guide choices and never count as final candidate qualification."
       ],
-      "status": "planned"
+      "status": "in_progress",
+      "evidence": {
+        "source": "3cec95295cd863a4cd278dc5114bcd9243bee2b4 plus current shared source; reviewed VOLE/Parliament inventory reconciliation records39 consumers and1720 scanned files. Corrected primitive guard and full99 Python tests pass;64 non-edited pinned source files unchanged. All19 other top-level sections, frozen profiles and measurements are unchanged. Historical6043d97c runtime remains pinned to its actual candidate; no current global cryptographic or runtime qualification.",
+        "paths": [
+          "specs/zk_primitive_workloads.json",
+          "scripts/check_zk_primitive_workloads.py",
+          "scripts/tests/check_zk_primitive_workloads_test.py",
+          "scripts/zk_bn254_poseidon_reference.py",
+          "scripts/zk_pq_kat_reference.py",
+          "specs/zk_operation_inventory.json"
+        ],
+        "commands": [
+          {
+            "command": "python3 -I -S scripts/check_zk_primitive_workloads.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 -m py_compile scripts/check_zk_primitive_workloads.py scripts/tests/check_zk_primitive_workloads_test.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 -m unittest scripts.tests.check_zk_primitive_workloads_test",
+            "outcome": "failed"
+          },
+          {
+            "command": "python3 -m unittest scripts.tests.check_zk_primitive_workloads_test.ScanChecks.test_wrapper_uses_are_listed_and_classified",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 -m unittest discover -s scripts/tests -p check_zk_primitive_workloads_test.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3.12 scripts/check_zk_primitive_workloads.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3.12 -m unittest scripts.tests.check_zk_primitive_workloads_test",
+            "outcome": "passed"
+          }
+        ],
+        "acceptance": [
+          {
+            "clause": "Inventory native versus in-circuit digests and define exploratory security/cost comparisons for shared proofs and product-specific roles; WG candidate measurement is explicitly owned by G.2.",
+            "state": "partial",
+            "proof": "specs/zk_primitive_workloads.json and scripts/check_zk_primitive_workloads.py agree on35 primitives,67 roles,39 consumers,1720 files,77 production producers and24 workloads. Separate new VOLE proof-internal and Parliament TODO/label-only owners preserve their unqualified scope. python3.12 -m unittest scripts.tests.check_zk_primitive_workloads_test passes99 tests, including three new owner/omission regressions. Independent root source review verifies exact SHAKE/Keccak uses and unchanged profile/measurement sections. Complete per-call/domain/output coverage outside reviewed roles remains unverified; this lexical inventory does not prove runtime delivery."
+          },
+          {
+            "clause": "Select canonical native commitments consistently across catalog, Kaigi, spentness, MKHE, SDKs and fixtures; retain mathematically distinct families where needed.",
+            "state": "partial",
+            "proof": "specs/zk_primitive_workloads.json preserves canonical candidate decisions and anchored SDK/fixture carriers, separates current native PIPA-R transcript/VK-binding roles from extant retained families, and corrects PGC account-root proof-binding coordination. scripts/tests/check_zk_primitive_workloads_test.py adds wrong-primitive disposition mutations. Known fixture-enumeration and optional compile-status coverage limits remain; no global cryptographic migration or qualification is claimed. The newly merged experimental VOLE owner and unimplemented Parliament relation are now classified separately; no in-circuit relation or profile is implied."
+          },
+          {
+            "clause": "BN254 Poseidon and PQ dependency repairs get vectors.",
+            "state": "met",
+            "proof": "python3 -I -S scripts/check_zk_primitive_workloads.py passes independent BN254 table/vector regeneration using scripts/zk_bn254_poseidon_reference.py and pinned PQ fixture-digest checks using scripts/zk_pq_kat_reference.py. Existing Rust vector sources/fixtures remain inventoried in specs/zk_primitive_workloads.json. This clause concerns vectors; Rust consumers and wider F.5 repairs were not rerun or declared complete in this turn."
+          },
+          {
+            "clause": "Exploratory measurements may guide choices and never count as final candidate qualification.",
+            "state": "met",
+            "proof": "scripts/check_zk_primitive_workloads.py rejects qualification claims and preserves H.2 owning-section measurement scope and complete frozen-profile identities. specs/zk_primitive_workloads.json retains unchanged frozen H.2 definitions and exploratory measurement records; updated retained identities describe only changed role semantics."
+          }
+        ]
+      }
     },
     {
       "id": "H.2",
@@ -903,7 +1669,88 @@
       "acceptance": [
         "Build/source hashes remain evidence metadata, not transaction truth. No old transcript is kept for proof-byte compatibility. WG tree/hash is selected separately after G.2, then frozen in G.3. Changed algorithms invalidate affected final measurements and never require a runtime reviewer token."
       ],
-      "status": "planned"
+      "status": "in_progress",
+      "evidence": {
+        "source": "3cec95295cd863a4cd278dc5114bcd9243bee2b4 plus current shared source; reviewed VOLE/Parliament inventory reconciliation records39 consumers and1720 scanned files. Corrected primitive guard and full99 Python tests pass;64 non-edited pinned source files unchanged. All19 other top-level sections, frozen profiles and measurements are unchanged. Historical6043d97c runtime remains pinned to its actual candidate; no current global cryptographic or runtime qualification.",
+        "paths": [
+          "crates/fastpq_isi/src/semantic_profile.rs",
+          "crates/fastpq_prover/src/backend/transcript_profile.rs",
+          "crates/fastpq_prover/src/backend/compact_sha3.rs",
+          "crates/fastpq_prover/src/backend/deep_binding.rs",
+          "specs/zk_primitive_workloads.json",
+          "scripts/check_zk_primitive_workloads.py",
+          "scripts/tests/check_zk_primitive_workloads_test.py"
+        ],
+        "commands": [
+          {
+            "command": "CARGO_TARGET_DIR=target/zk-resume-review CARGO_INCREMENTAL=0 cargo test --locked -p fastpq_isi semantic_profile -- --nocapture",
+            "outcome": "passed"
+          },
+          {
+            "command": "CARGO_TARGET_DIR=target/zk-resume-review CARGO_INCREMENTAL=0 cargo test --locked -p fastpq_prover --lib transcript_profile -- --nocapture",
+            "outcome": "passed"
+          },
+          {
+            "command": "target/zk-resume-review/debug/deps/fastpq_prover-d28f7529c088cbd4 backend::deep_fixture::frozen_tests::a_real_proof_fails_under_every_changed_reordered_or_omitted_bound_element --exact --ignored --nocapture",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 scripts/zk_semantic_profile_reference.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 -m unittest scripts.tests.check_zk_primitive_workloads_test.SemanticProfiles",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 dist/zk-delivery-handoff/review-h2-f3/h2_measurement_identity_after_fix.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 -I -S scripts/check_zk_primitive_workloads.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 -m unittest discover -s scripts/tests -p check_zk_primitive_workloads_test.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3.12 scripts/check_zk_primitive_workloads.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3.12 -m unittest scripts.tests.check_zk_primitive_workloads_test",
+            "outcome": "passed"
+          }
+        ],
+        "acceptance": [
+          {
+            "clause": "Select the shared backend transcript and applicable native/in-circuit profiles from explicit security design and exploratory measurements; regenerate canonical semantic identities and fixtures.",
+            "state": "partial",
+            "proof": "specs/zk_primitive_workloads.json retains seven selected profiles and conditional security scope. Historical semantic-profile, transcript and retained-proof mutation evidence remains pinned to its actual source. Current merged-source census reconciliation adds only distinct experimental VOLE and TODO-only Parliament consumers and file entries; frozen profiles, measurements and19 other sections are identical. python3.12 -m unittest scripts.tests.check_zk_primitive_workloads_test passes99 tests. Complete H.1 consumer coverage, B.2 security design and H.3 final measurements remain open; the inventory repair does not qualify VOLE, FASTPQ, WG or any profile."
+          },
+          {
+            "clause": "Build/source hashes remain evidence metadata, not transaction truth.",
+            "state": "met",
+            "proof": "crates/fastpq_isi/src/semantic_profile.rs hashes ordered typed semantic parameters only; crates/fastpq_prover/src/backend/transcript_profile.rs uses these descriptors, not source/build hashes. CARGO_TARGET_DIR=target/zk-resume-review CARGO_INCREMENTAL=0 cargo test --locked -p fastpq_isi semantic_profile -- --nocapture passes7 identity tests."
+          },
+          {
+            "clause": "No old transcript is kept for proof-byte compatibility.",
+            "state": "met",
+            "proof": "crates/fastpq_prover/src/backend/compact_sha3.rs and crates/fastpq_prover/src/backend/deep_binding.rs retain one canonical q77 transcript construction. target/zk-resume-review/debug/deps/fastpq_prover-d28f7529c088cbd4 backend::deep_fixture::frozen_tests::a_real_proof_fails_under_every_changed_reordered_or_omitted_bound_element --exact --ignored --nocapture passes1 real retained-proof mutation test, including changed/omitted/reordered bound elements; no old proof-byte compatibility verifier was found. Other protocol migrations remain separate owners under the H.2 ruling."
+          },
+          {
+            "clause": "WG tree/hash is selected separately after G.2, then frozen in G.3.",
+            "state": "met",
+            "proof": "specs/zk_primitive_workloads.json leaves WG tree/hash selection to G.2 and freeze to G.3; python3 -m unittest scripts.tests.check_zk_primitive_workloads_test.SemanticProfiles passes16 scoped semantic-profile tests. This does not claim G.3 completed."
+          },
+          {
+            "clause": "Changed algorithms invalidate affected final measurements and never require a runtime reviewer token.",
+            "state": "met",
+            "proof": "scripts/check_zk_primitive_workloads.py binds measurement scope to its owning section and requires the complete profile identity set. scripts/tests/check_zk_primitive_workloads_test.py rejects omission, partial sets, stale identities and scope downgrade; python3 -m unittest scripts.tests.check_zk_primitive_workloads_test.SemanticProfiles passes16 and python3 dist/zk-delivery-handoff/review-h2-f3/h2_measurement_identity_after_fix.py passes independent negative controls. No runtime reviewer token is added; H.3 final measurements are not claimed. The current full primitive guard rerun passes96, including the scope/identity negatives. No old benchmark is rebound to the changed native consensus source. The current full99-test run includes these existing identity/scope controls, and all recorded profile/measurement objects remain unchanged after the new census entries."
+          }
+        ]
+      }
     },
     {
       "id": "H.3",
@@ -1023,7 +1870,89 @@
       "acceptance": [
         "State cross-transaction partial completion explicitly. Test interruption before submission, after ambiguous submission and after irreversible progress; resume checks committed outcome before retrying and never fabricates cross-transaction atomicity."
       ],
-      "status": "planned"
+      "status": "in_progress",
+      "evidence": {
+        "source": "3cec95295cd863a4cd278dc5114bcd9243bee2b4 plus the externally changed integration working tree, reassessed 2026-10-12. Historical source-pinned SDK run at the earlier 6043d97c4003da4bbb3fc772d9a0548b3f456b16 working-tree checkpoint passed 63 tests, failed 0 and ignored 2 fixture exporters; binary SHA-256 75357b7edbd6b24571e4776e18dcbdda893b5a06d8054e8231c969204e09416c. This is not current-source consumer qualification. Of its 20 selected source pins, 17 still match and 3 changed (Cargo.lock, Norito core.rs, Torii utils.rs). Earlier literal merge markers no longer appear in the inspected Core/model/SDK/Torii source at the latest read, but the changed dependency candidate has not been built or tested. Prior 46-module/54-SDK runs and two scratch mutations are older checkpoint evidence; wallet checks remain separate component scope. Latest read-only offline workspace dependency resolution failed because blobby v0.3.1 is not cached; no fetch was performed.",
+        "paths": [
+          "crates/iroha/src/workflow.rs",
+          "crates/iroha/src/workflow/contract.rs",
+          "crates/iroha/src/workflow/engine.rs",
+          "crates/iroha/src/workflow/journal.rs",
+          "crates/iroha/src/workflow/storage.rs",
+          "crates/iroha/src/workflow/testing.rs",
+          "crates/iroha/src/workflow/journal_tests.rs",
+          "crates/iroha/src/workflow/engine_tests.rs",
+          "crates/iroha/src/workflow/scenario_tests.rs",
+          "crates/iroha/src/client/workflow_ledger.rs",
+          "crates/iroha/src/client/workflow_ledger_tests.rs",
+          "specs/zk_durable_workflow.md",
+          "fixtures/zk/workflow_v1/manifest.json",
+          "fixtures/zk/workflow_v1/state_machine.json",
+          "fixtures/zk/workflow_v1/vectors.json",
+          "fixtures/zk/workflow_v1/scenarios/cancel_during_round_recovery_prevents_restart.json",
+          "fixtures/zk/workflow_v1/scenarios/dispatch_bound_is_separate_from_the_identity_bound.json",
+          "fixtures/zk/workflow_v1/scenarios/concurrent_cancel_during_unadmitted_dispatch_drops_signed_bytes.json",
+          "fixtures/zk/workflow_v1/scenarios/concurrent_cancel_during_refused_dispatch_retains_refusal.json",
+          "scripts/check_durable_workflow_contract.py",
+          "scripts/tests/check_durable_workflow_contract_test.py",
+          "Makefile",
+          ".github/workflows/pr.yml",
+          "crates/iroha/src/workflow/error.rs",
+          "crates/iroha/src/client.rs",
+          "crates/iroha_version/src/lib.rs",
+          "crates/iroha_data_model/src/transaction/signed.rs",
+          "crates/iroha_data_model/src/transaction/signed/wire_v1.rs",
+          "crates/iroha_torii/src/utils.rs",
+          "crates/iroha_torii/src/torii_proxy_signed_query_validation.rs"
+        ],
+        "commands": [
+          {
+            "command": "CARGO_TARGET_DIR=target/zk-resume-root CARGO_INCREMENTAL=0 cargo test --offline --locked --manifest-path dist/zk-delivery-handoff/resume-2026-10-11/workflow-module-locked-harness/Cargo.toml --lib --jobs 2",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 scripts/check_durable_workflow_contract.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 -m unittest scripts.tests.check_durable_workflow_contract_test",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 dist/zk-delivery-handoff/resume-2026-10-11/run_workflow_mutations.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "CARGO_TARGET_DIR=target/zk-resume-root CARGO_INCREMENTAL=0 cargo test --offline --locked -p iroha --lib workflow --jobs 2",
+            "outcome": "passed"
+          },
+          {
+            "command": "CARGO_TARGET_DIR=target/zk-resume-review CARGO_INCREMENTAL=0 cargo test --offline --locked -j 1 -p iroha --lib --no-run",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 dist/zk-delivery-handoff/scripts/run_sdk_original_decode_review.py",
+            "outcome": "passed"
+          }
+        ],
+        "acceptance": [
+          {
+            "clause": "Expose separately named bootstrap/DKG workflow calls with idempotent steps, durable progress and resumable transaction identities.",
+            "state": "partial",
+            "proof": "crates/iroha/src/workflow/engine.rs and crates/iroha/src/client/workflow_ledger.rs expose separately named bootstrap/DKG workflows with persisted identities, bounded plans, status-before-retry and CAS restarts. The historical python3 dist/zk-delivery-handoff/scripts/run_sdk_original_decode_review.py executed the actual SDK workflow/account adapter and three evidence transport cases at its recorded source checkpoint: 63 passed, 0 failed, 2 fixture exporters ignored. The retained log and source/binary manifest establish that checkpoint only. Original journal, versioned signed and unsigned refusal propagation and actual checked-writer boundaries were exercised without publishing custody or sending HTTP; those selected workflow sources still match, while the dependency/current integration candidate changed. A fresh current-source SDK run is pending. Non-Rust SDK workflow engines/shared scenario execution and S.1 multisignature prepared signing remain implementation gaps, not platform TODOs."
+          },
+          {
+            "clause": "State cross-transaction partial completion explicitly.",
+            "state": "met",
+            "proof": "specs/zk_durable_workflow.md currently states per-transaction atomicity only and retains confirmed irreversible steps during cancellation. crates/iroha/src/workflow/scenario_tests.rs defines all 70 scenarios against the Rust engine; progress separates confirmed/irreversible/unresolved/failed/not-started/rolled-back, with rolled-back always empty. The historical 63-test SDK selection ran this scenario suite and genuine cancellation/read-refusal custody controls. No current-source rerun or cross-transaction rollback is claimed; the explicit partial-completion contract remains present in the current source."
+          },
+          {
+            "clause": "Test interruption before submission, after ambiguous submission and after irreversible progress; resume checks committed outcome before retrying and never fabricates cross-transaction atomicity.",
+            "state": "partial",
+            "proof": "The historical python3 dist/zk-delivery-handoff/scripts/run_sdk_original_decode_review.py passed 63 actual SDK tests at its source-pinned checkpoint, including interruption/status recovery, ambiguous admission, irreversible progress, cancellation races and six original-reader/writer regressions. Its zero/tight budgets preserved original kind after retirement and an unrelated equal-budget scope, unchanged stored/signed custody and successful same-byte retry; malformed data still yielded corruption/rejection and signed preflight refusal sent no HTTP. The earlier lower version 11 and model wire 10 tests passed at their recorded checkpoints, including bare-decode versus late checked-writer controls. None is promoted to the changed current dependency candidate, which still needs actual SDK/consumer qualification. Prior scratch CAS/refund mutants and 39 workflow guard tests are historical evidence. Non-Rust families and external multisignature signing remain open. crates/iroha/src/workflow/storage.rs retains Linux/Windows file-store and Windows ACL execution TODOs. Wider CoreZK/IVM/governance proof-reader error erasure and remaining wallet-original paths are separate F.2/F.4/product dependencies; neither a wallet component result nor this historical Rust workflow result qualifies them."
+          }
+        ]
+      }
     },
     {
       "id": "S.3",
@@ -1386,38 +2315,33 @@
       "acceptance": [
         "Reuse the existing table catalog/publication owner. Specify Sumeragi E51 changes and non-circular result/header/certificate binding. All table mutations must affect the appropriate root; no unowned shadow root or compatibility layout survives."
       ],
-      "status": "in_progress",
+      "status": "implemented",
       "evidence": {
-        "source": "d651d51715fd16881b34d75384c4b9ea95cbd229 plus the uncommitted G.1 changes in the working tree (integration pass 2: specs/state_table_inventory.json regenerated and the test tables of the three state_table_inventory_*.rs sources updated for the merged source)",
+        "source": "HEAD 3cec95295cd863a4cd278dc5114bcd9243bee2b4 plus reviewed working-tree G1 classification/order repairs, qualified 2026-10-12. Current immutable Core binary25f11b660f8df800e047caecb658dabbcc8777f14ad57bbd9074e13bb0ea9f40 passes69 definition/census/reference tests,1 intentionally ignored exporter. Current Sumeragi spec binary2f728a07e51b16472d4b22e409f504620066f0b30089598f3277658585fda4df passes2 tests. Root independently confirms generated-inventory equality and exhaustive domain census with2 passes. Every runtime window has zero source drift. Combined build launch had four classified deltas: daemon outside Core, SCCP cfg(test) edit before test rustc, and generated proof/State inventories; exact pre-compilation pins retained. Current State inventory matches the actual exporter read-only; no external generated content was overwritten. Definition-level closure follows author ruling2026-10-05T01-48-30, decision2: G1 defines/checks obligations, G3 delivers system property. All28 unrooted canonical fields and11 implementation defects remain open under their recorded G3/F4 owners. No full-State/root/network implementation or release qualification is claimed. Earlier missing dependency/merge/parity failures remain in checkpoint history and are resolved for this current definition candidate.",
         "paths": [
-          "specs/state_table_inventory.json",
           "specs/sumeragi.md",
           "specs/kotodama_ivm_completion.md",
+          "specs/state_table_inventory.json",
+          "crates/iroha_core/src/state/authority_registry/keyed_commitment.rs",
+          "crates/iroha_core/src/state/authority_registry/keyed_commitment/reference.rs",
+          "crates/iroha_core/src/state/authority_registry/keyed_commitment/tests.rs",
           "crates/iroha_core/src/state/state_table_inventory_tests.rs",
           "crates/iroha_core/src/state/state_table_inventory_domains.rs",
           "crates/iroha_core/src/state/state_table_inventory_functions.rs",
-          "crates/iroha_core/src/state/authority_registry/keyed_commitment.rs",
-          "crates/iroha_core/src/state/authority_registry/keyed_commitment/conformance.rs",
-          "crates/iroha_core/src/state/authority_registry/keyed_commitment/reference.rs",
-          "crates/iroha_core/src/state/authority_registry/keyed_commitment/tests.rs",
           "crates/iroha_core/src/state/authority_registry.rs",
-          "crates/iroha_core/src/state/authority_registry/complete/table_capture.rs"
+          "crates/iroha_sumeragi/tests/spec.rs"
         ],
         "commands": [
           {
-            "command": "cargo test --locked -p iroha_core --lib -- keyed_commitment inventory_tests authority_registry::tests world_state_accumulator::tests",
+            "command": "python3.12 dist/zk-delivery-handoff/scripts/run_core_checkpoint_group.py --checkpoint dist/zk-delivery-handoff/core-checkpoint-2026-10-12/final-combined --group g1",
             "outcome": "passed"
           },
           {
-            "command": "cargo test --locked -p iroha_sumeragi --test spec",
+            "command": "CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/zk-resume-p1 cargo test --offline --locked --jobs 1 -p iroha_sumeragi --test spec",
             "outcome": "passed"
           },
           {
-            "command": "cargo check --locked -p iroha_core --lib",
-            "outcome": "passed"
-          },
-          {
-            "command": "cargo test --locked -p iroha_core --lib -- keyed_commitment inventory_tests world_state_accumulator authority_registry world_projection storage_transactions",
+            "command": "/opt/homebrew/bin/python3.12 dist/zk-delivery-handoff/scripts/run_decode_owner_validation_2026_10_12.py core-inventory-independent-confirmation dist/zk-delivery-handoff/core-checkpoint-2026-10-12/final-combined/iroha-core-fixture-checkpoint --exact state::world_projection::world_state_accumulator::inventory_tests::tracked_inventory_matches_the_source state::world_projection::world_state_accumulator::inventory_tests::source_scan_classifies_every_domain_literal_and_construction_use --nocapture",
             "outcome": "passed"
           }
         ],
@@ -1425,22 +2349,22 @@
           {
             "clause": "Inventory every authoritative persisted execution table and define one State-owned keyed commitment with inclusion, absence and complete-range witnesses, canonical result-root ordering and atomic publication custody.",
             "state": "met",
-            "proof": "specs/state_table_inventory.json lists all 403 registry fields of State, World, the trigger set and the canonical runtime (217 canonical tables, 58 canonical cells) and is generated from crates/iroha_core/src/state/authority_registry.rs and the table catalog; crates/iroha_core/src/state/authority_registry/keyed_commitment.rs defines the one KeyedStateCommitment interface with inclusion, absence and complete-range witnesses and the 32-byte KeyedStateRoot, with rules K1-K12 in crates/iroha_core/src/state/authority_registry/keyed_commitment/conformance.rs, the reference oracle crates/iroha_core/src/state/authority_registry/keyed_commitment/reference.rs and crates/iroha_core/src/state/authority_registry/keyed_commitment/tests.rs, and sections 16.1 to 16.7 of specs/sumeragi.md give the canonical order, the result layout and publication rules P1-P6. On the current tree `cargo test --locked -p iroha_core --lib -- keyed_commitment inventory_tests authority_registry::tests world_state_accumulator::tests` passed (54 passed, 0 failed, 1 ignored: the generator), including tracked_inventory_matches_the_source, inventory_lists_every_registry_field_and_every_catalog_table, reference_oracle_satisfies_every_contract_rule, execution_commitment_layout_matches_the_specified_replacement and only_the_publication_owner_advances_the_certified_state_commitment, and `cargo check --locked -p iroha_core --lib` passed for the non-test build of the interface; the plan author read G.1 as the definition and G.3 as the build (scratchpad/codex/G.1-q2.md, point 2)."
+            "proof": "specs/state_table_inventory.json is current generated-source parity for391 fields,206 canonical tables,59 canonical cells,35 commitments,1032 domain literals,214 State-reading hash functions and9 protocol carriers. crates/iroha_core/src/state/state_table_inventory_tests.rs guards new/removed domains, construction uses, State fields and carriers, including deliberate discrepancy controls. The shared keyed_commitment.rs interface/reference defines inclusion, absence and complete ranges with K1-K12, original publication custody and canonical ordering in specs/sumeragi.md section16. Current69/0/1 Core group and root independent2/2 confirm this candidate; logs and source pins reside in core-checkpoint-2026-10-12/final-combined/runtime-g1 and reports/decode-owner-2026-10-12/core-inventory-independent-confirmation. Source owners: crates/iroha_core/src/state/authority_registry/keyed_commitment.rs defines the contract, crates/iroha_core/src/state/authority_registry/keyed_commitment/reference.rs supplies its test oracle, and crates/iroha_core/src/state/authority_registry/keyed_commitment/tests.rs exercises conformance and malformed witnesses. crates/iroha_core/src/state/state_table_inventory_domains.rs and crates/iroha_core/src/state/state_table_inventory_functions.rs contain the reviewed exhaustive classifications; specs/kotodama_ivm_completion.md ties the current inventory and G3 defects to the VM completion contract. Recorded validation command: python3.12 dist/zk-delivery-handoff/scripts/run_core_checkpoint_group.py --checkpoint dist/zk-delivery-handoff/core-checkpoint-2026-10-12/final-combined --group g1."
           },
           {
             "clause": "Reuse the existing table catalog/publication owner.",
             "state": "met",
-            "proof": "The committed schema is StateSchema::from_registry over the STATE_FIELDS of crates/iroha_core/src/state/authority_registry.rs, the inventory compares its canonical tables with catalog_table_ids of crates/iroha_core/src/state/authority_registry/complete/table_capture.rs, and section 16.5 of specs/sumeragi.md names crates/iroha_core/src/state/publication.rs as the one publication owner; no second catalog or owner is added. inventory_lists_every_registry_field_and_every_catalog_table, registry_schema_commits_every_canonical_table_and_cell_once and only_the_publication_owner_advances_the_certified_state_commitment passed in `cargo test --locked -p iroha_core --lib -- keyed_commitment inventory_tests authority_registry::tests world_state_accumulator::tests`, and the tests of the reused registry, accumulator and transaction storage passed in `cargo test --locked -p iroha_core --lib -- keyed_commitment inventory_tests world_state_accumulator authority_registry world_projection storage_transactions` (819 passed, 0 failed, 1 ignored)."
+            "proof": "crates/iroha_core/src/state/authority_registry.rs remains the existing authoritative catalog, with the keyed_commitment interface/reference contract. specs/sumeragi.md P1-P6 assigns exactly one original publication owner and defines atomic custody/recovery; current registry, conformance, mutation and publication-definition controls are included in the69 passing Core tests."
           },
           {
             "clause": "Specify Sumeragi E51 changes and non-circular result/header/certificate binding.",
             "state": "met",
-            "proof": "specs/sumeragi.md specifies the change: row E51 keeps the as-built text and carries the prospective replacement paragraph, section 4.1 binds parent_keyed_state_root = root(P_{h-1}) and keyed_state_root = root(X_h), section 16.6 gives the in-place replacement of the two result fields with rules N1-N5 (header binds only the parent result, no State cut depends on the certificate that authenticates it) and section 16.7 the root history; specs/kotodama_ivm_completion.md carries the G2 inventory paragraph. `cargo test --locked -p iroha_sumeragi --test spec` passed (2 passed), and contract_section_states_every_publication_and_binding_rule_once and execution_commitment_layout_matches_the_specified_replacement of crates/iroha_core/src/state/state_table_inventory_tests.rs passed in the iroha_core run."
+            "proof": "specs/sumeragi.md section16.6 and E51 specify parent and sealed execution cuts, exact32-byte root payload, in-place result replacement and N1-N5 non-circular header/result/certificate binding. crates/iroha_sumeragi/tests/spec.rs passes both current checks; core-checkpoint-2026-10-12/g1-current-spec/result.json pins the actual source and immutable binary. This defines G3 implementation obligations without asserting runtime cutover complete. Recorded validation command: CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/zk-resume-p1 cargo test --offline --locked --jobs 1 -p iroha_sumeragi --test spec."
           },
           {
             "clause": "All table mutations must affect the appropriate root; no unowned shadow root or compatibility layout survives.",
-            "state": "partial",
-            "proof": "The plan author reads this sentence at contract level for G.1 (scratchpad/codex/G.1-q2.md, point 2: the system property is G.3, where the 28 canonical State-level fields without a certified root and open defects G1-D1 to G1-D11 stay), and its three conditions hold on the current tree: sections 16.5 P1 and 16.8 of specs/sumeragi.md forbid a second root or layout, specs/state_table_inventory.json gives every field its root and each of the 32 commitments one class, owner and disposition, and the drift detectors of crates/iroha_core/src/state/state_table_inventory_tests.rs with the tables crates/iroha_core/src/state/state_table_inventory_domains.rs and crates/iroha_core/src/state/state_table_inventory_functions.rs passed in `cargo test --locked -p iroha_core --lib -- keyed_commitment inventory_tests authority_registry::tests world_state_accumulator::tests`. Partial because both open findings of the confirming verifier are still present: the retired layout ValidatorSetCheckpoint (crates/iroha_data_model/src/consensus.rs, fields parent_state_root and post_state_root, used only by its own round-trip test and required absent from the Torii OpenAPI document) has no owner or disposition in the inventory, roadmap.md or status.md, and the every-field sentence of section 16.8 for the handshake capabilities does not hold for ConfidentialHandshakeCaps, while HandshakeHello with its four metadata records and LaneBatch are walked by no carrier and named by no not_walked or not_detected entry."
+            "state": "met",
+            "proof": "specs/sumeragi.md section16 and specs/state_table_inventory.json require every canonical field under one keyed commitment and forbid independently authoritative shadow roots/compatibility layouts. Per the recorded author contract-level ruling2026-10-05T01-48-30 decision2, current exhaustive inventory, owner/disposition and mutation detectors meet G1 while G3 delivers the implementation. All391 original field entries and11 open defects are preserved;28 canonical State fields remain outside the current World-only certified root. Current root/source-discrepancy controls and generated parity pass without deleting those defects or treating a new domain as implicitly classified. Recorded validation command: /opt/homebrew/bin/python3.12 dist/zk-delivery-handoff/scripts/run_decode_owner_validation_2026_10_12.py core-inventory-independent-confirmation dist/zk-delivery-handoff/core-checkpoint-2026-10-12/final-combined/iroha-core-fixture-checkpoint --exact state::world_projection::world_state_accumulator::inventory_tests::tracked_inventory_matches_the_source state::world_projection::world_state_accumulator::inventory_tests::source_scan_classifies_every_domain_literal_and_construction_use --nocapture."
           }
         ]
       }
@@ -1460,7 +2384,53 @@
       "acceptance": [
         "Compare representative and maximum workloads, proof/verification time, bytes and memory under named hardware/load. Label projections and revise them when actual measurements disagree; benchmark identity freezes each experiment but does not predetermine the winning algorithm."
       ],
-      "status": "planned"
+      "status": "in_progress",
+      "evidence": {
+        "source": "3cec95295cd863a4cd278dc5114bcd9243bee2b4 plus the external integration working tree, assessed 2026-10-12. Prototype and measurement implementation exists; historical exploratory evidence retains original 6043d97c source/executable/schema pins. Independent quarantine audit verifies eight diagnostic-wrapper runs excluded and two original uninstrumented runs retained as historical evidence only. No canonical summary adoption, current Rust build, or fresh measurement qualification. Current source-derived State inventory parity and fresh unmodified-harness campaign remain open.",
+        "paths": [
+          "crates/fastpq_prover/src/state_commitment_prototypes.rs",
+          "crates/fastpq_prover/src/state_commitment_prototypes/hash.rs",
+          "crates/iroha_core/src/state/authority_registry/keyed_commitment/candidates_tests.rs",
+          "crates/iroha_core_privacy/tests/state_commitment_candidates_measurement.rs",
+          "scripts/check_state_commitment_candidates.py",
+          "scripts/tests/check_state_commitment_candidates_test.py",
+          "scripts/zk_resource_harness.py",
+          "specs/state_commitment_candidates.json",
+          "specs/state_table_inventory.json",
+          "specs/sumeragi.md"
+        ],
+        "commands": [
+          {
+            "command": "python3 dist/zk-delivery-handoff/scripts/audit_g2_quarantined_campaign_2026_10_12.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "cargo test --offline --locked -j 1 -p iroha_core --lib --features state-commitment-prototypes measured_schema_is_the_registry_schema_of_the_actual_state",
+            "outcome": "not_run"
+          },
+          {
+            "command": "python3 -I -S scripts/check_state_commitment_candidates.py",
+            "outcome": "not_run"
+          }
+        ],
+        "acceptance": [
+          {
+            "clause": "Prototype candidate trees/hashes and measure native update/storage and actual in-circuit inclusion/absence/range witnesses using the AIR interface before selecting the construction.",
+            "state": "partial",
+            "proof": "crates/fastpq_prover/src/state_commitment_prototypes.rs supplies four development-only authenticated-map candidates and hash profiles; crates/iroha_core/src/state/authority_registry/keyed_commitment/candidates_tests.rs adapts them to the existing K1-K12 contract. crates/iroha_core_privacy/tests/state_commitment_candidates_measurement.rs measures native and actual AIR/reference inclusion/absence/range work. The historical experiment does not qualify the newly merged State schema, and committed-proof work remains a B.2 dependency. No construction is selected in specs/state_commitment_candidates.json. Required source-derived State schema parity and a fresh unmodified-harness campaign are implementable work on this Mac, currently awaiting coherent merged source and offline dependency availability."
+          },
+          {
+            "clause": "Compare representative and maximum workloads, proof/verification time, bytes and memory under named hardware/load.",
+            "state": "partial",
+            "proof": "specs/state_commitment_candidates.json and crates/iroha_core_privacy/tests/state_commitment_candidates_measurement.rs define representative and maximum measured populations, multi-table/cell updates, bytes, allocation/storage models and native/AIR timings under named Apple M1 Ultra hardware and shared load. Committed proof time/bytes/memory remain explicitly unavailable; storage estimates and standalone-gadget composition are not claimed as measured committed proofs. python3 dist/zk-delivery-handoff/scripts/audit_g2_quarantined_campaign_2026_10_12.py independently verified all ten fresh-schema retry manifest/log pins: two uninstrumented original runs retain historical scope, while eight instrumented retries each logged ProcessObservationError before rethrow and are quarantined despite accepted harness verdicts. Neither the draft comparison nor timings were adopted; raw evidence and the original rejected observation run remain unchanged."
+          },
+          {
+            "clause": "Label projections and revise them when actual measurements disagree; benchmark identity freezes each experiment but does not predetermine the winning algorithm.",
+            "state": "partial",
+            "proof": "scripts/check_state_commitment_candidates.py separates measured, declared and projected quantities and requires externally retained E.1 manifest pins. specs/state_commitment_candidates.json records unselected candidates, explicit null reasons and proposed rather than frozen decision weights. The historical independent ten-run review reconstructed original raw timing aggregates and reported projection revisions without choosing a winner. The new retry campaign has excluded diagnostic instrumentation and changed State inventory, so its comparison cannot replace the canonical summary or qualify current performance. Preserve the original prototype/executable/schema/source identities and remeasure after reconciliation; do not change a receipt hash to match current code."
+          }
+        ]
+      }
     },
     {
       "id": "G.3",
@@ -1875,20 +2845,42 @@
       ],
       "status": "in_progress",
       "evidence": {
-        "source": "d651d51715fd16881b34d75384c4b9ea95cbd229 plus the uncommitted T.1 changes in the working tree (integration pass 2: the future_checkpoint_rule and test_prerequisites keys of specs/first_release_history_cutover.json, their checks in scripts/check_first_release_history.py with 26 cases in pytests/scripts/first_release_history_guard_test.py, one guard bullet and one sentence in specs/first_release_history_cutover.md, and the declared cutover in fixtures/core/first_release_history/README.md)",
+        "source": "Current HEAD 3cec95295cd863a4cd278dc5114bcd9243bee2b4; actual current history source guard passes. Earlier immutable Core 19444aad9136f61da5b8e9d3aae9c5972e10f655ceffe3db6d28460a0ecb5a27 passed all 5 non-maintenance history controls plus 5 F.3 controls, with 1 capture exporter ignored. Current history fixture revision differs and is not runtime-qualified here. The current 2026-10-12 build attempt failed before compilation: offline dependency resolution could not find blobby through cipher 0.4.4 / vendored aes 0.8.4 / iroha_zkp_vole / iroha_parliament_ballot_proof. No fetch, install, manifest/lock workaround or Git mutation was performed. Evidence: core-checkpoint-2026-10-12/build.{source.json,result.json,log}. This is an environment/dependency availability limit, not proof of a Mac hardware limitation; source conflicts were observed at the initial inspection and have since been resolved externally; fresh current qualification remains pending. Timestamped update: source conflicts observed during the earlier inspection were subsequently resolved externally. At2026-10-12T04:56:58Z specs/state_table_inventory.json parses as JSON with zero markers (SHA2563febebd2e65de41ec94abe7c80903129957a7be82a53a36581fee8cd327ba6b6). That restores syntax only, not current exporter/runtime parity. Root offline metadata at04:55:43Z still failed on missing locked blobby0.3.1 with Cargo.lock SHA2563c9b218f37e69d7bee06d7201e8ce3664989b70b95da4bcc16dd4fb3e5c77a78 stable; reports/current-offline-resolution-2026-10-12/result.json. No dependency fetch/install is authorized or performed by this agent.",
         "paths": [
-          "specs/first_release_history_cutover.md",
           "specs/first_release_history_cutover.json",
+          "specs/first_release_history_cutover.md",
           "scripts/check_first_release_history.py",
-          "scripts/first_release_history_evidence.py",
           "pytests/scripts/first_release_history_guard_test.py",
           "pytests/scripts/first_release_history_evidence_test.py",
+          "crates/norito/src/core.rs",
+          "crates/norito/src/core/borrowed_field_framing_tests.rs",
+          "crates/iroha_data_model/src/block/tests.rs",
           "crates/iroha_core/src/sumeragi/node/tests/history_cutover_tests.rs",
+          "crates/iroha_data_model/src/block/mod.rs",
+          "crates/iroha_data_model/src/block/prepared_signatures.rs",
+          "crates/iroha_data_model/src/block/executed_wire_identity_tests.rs",
+          "crates/iroha_data_model/src/block/proposal_wire_hash_tests.rs",
+          "crates/iroha_data_model/src/sumeragi/finality.rs",
+          "crates/iroha_data_model/examples/decode_signed_block.rs",
+          "crates/iroha_data_model/benches/chain_wire.rs",
+          "crates/iroha_data_model/tests/norito_chain_layout.rs",
+          "crates/iroha_genesis/src/lib.rs",
+          "crates/iroha_genesis/src/genesis_manifest_tests.rs",
+          "crates/iroha_genesis/src/genesis_tail_tests.rs",
+          "crates/iroha_js_host/src/authenticated_block_proofs.rs",
+          "crates/iroha_test_network/src/lib.rs",
+          "crates/iroha_core/src/sumeragi/finality/proof_destination.rs",
+          "crates/iroha_core/src/kura/tests/01_support_snapshot_bootstrap_and_rewrite.rs",
+          "crates/iroha_core/src/kura/tests/05_merge_resolution_and_eviction.rs",
+          "crates/iroha_core/src/kura/tests/17_read_only_evidence_tests.rs",
+          "crates/iroha_version/src/lib.rs",
+          "integration_tests/tests/debug_genesis.rs",
+          "integration_tests/tests/genesis_json.rs",
           "fixtures/core/first_release_history/manifest.json",
           "fixtures/core/first_release_history/README.md",
-          "crates/iroha_genesis/src/genesis_tail_tests.rs",
-          ".github/workflows/pr.yml",
-          "crates/iroha_data_model/src/block/mod.rs"
+          "fixtures/core/first_release_history/block-1.wire",
+          "fixtures/core/first_release_history/block-2.wire",
+          "fixtures/core/first_release_history/block-3.wire"
         ],
         "commands": [
           {
@@ -1896,71 +2888,71 @@
             "outcome": "passed"
           },
           {
-            "command": "python3 scripts/check_first_release_history.py --test-commands",
+            "command": "python3 -m pytest -q pytests/scripts/first_release_history_guard_test.py pytests/scripts/first_release_history_evidence_test.py",
             "outcome": "passed"
           },
           {
-            "command": "python3 -m pytest pytests/scripts/first_release_history_guard_test.py pytests/scripts/first_release_history_evidence_test.py -q",
+            "command": "CARGO_TARGET_DIR=$PWD/target/zk-resume-root CARGO_INCREMENTAL=0 cargo test --offline --locked -p norito --lib generic_byte_arrays_reject_length_n_truncation_inside_and_outside_options --jobs 2",
             "outcome": "passed"
           },
           {
-            "command": "python3 scripts/check_zk_delivery_plan.py",
+            "command": "CARGO_TARGET_DIR=$PWD/target/zk-resume-root CARGO_INCREMENTAL=0 cargo test --offline --locked -p iroha_data_model --lib framed_block_rejects_packed_confidential_digest_hash_arrays --jobs 2",
             "outcome": "passed"
           },
           {
-            "command": "cargo test -p iroha_data_model --lib -- block_payload_rejects_pre_release_layout_with_retired_roster_slot header_rejects_pre_release_layout_with_retired_roster_slot header_rejects_pre_release_payload_without_execution_context_hash_field transaction_v1_rejects_pre_release_binary_layouts_without_nullable_fields",
+            "command": "CARGO_TARGET_DIR=$PWD/target/zk-resume-root CARGO_INCREMENTAL=0 cargo test --offline --locked -p iroha_data_model --lib block:: --jobs 2",
             "outcome": "passed"
           },
           {
-            "command": "cargo test -p iroha_genesis --lib -- completed_default_genesis_source_template_proposal_roundtrips completed_default_genesis_source_template_uses_the_single_framed_block_wire",
+            "command": "CARGO_TARGET_DIR=$PWD/target/zk-resume-root CARGO_INCREMENTAL=0 cargo test --offline --locked -p iroha_data_model --doc 'block::model::SignedBlock' --jobs 2",
             "outcome": "passed"
           },
           {
-            "command": "cargo test -p iroha_core --lib -- a_store_never_replays_under_another_genesis all_seat_restart_reproduces_missing_original_context_archives_from_certified_execution current_genesis_history_replays_from_reopened_stores_to_the_identical_state every_inventoried_retired_store_artifact_stops_strict_startup idle_chain_never_advances_and_real_work_survives_restart native_storage_original_frames_and_certificates_survive_strict_restart pinned_history_of_an_earlier_build_replays_to_its_pinned_state recovery_rejects_both_branch_v5_journal_layouts_without_migration replay_from_scratch_reproduces_the_world_state_accumulator replay_rejects_a_block_whose_certified_result_differs replay_rejects_a_tampered_world_and_startup_rejects_a_stale_accumulator stored_block_wire_is_exactly_the_framed_first_release_layout strict_startup_rejects_every_retired_kura_artifact_after_fast_defers_the_audit take_parameters_cell_rejects_legacy_blocks_envelope",
+            "command": "CARGO_TARGET_DIR=$PWD/target/zk-resume-root CARGO_INCREMENTAL=0 cargo test --offline --locked -p iroha_genesis --lib genesis --jobs 2",
             "outcome": "passed"
           },
           {
-            "command": "cargo build -p irohad --bin iroha3d",
+            "command": "cargo test --offline --locked -p iroha_core --lib history_cutover_tests",
+            "outcome": "not_run"
+          },
+          {
+            "command": "dist/zk-delivery-handoff/resume-2026-10-11/iroha-core-canonical-slot-2026-10-12 pinned_history_of_an_earlier_build_replays_to_its_pinned_state privacy_economic_invariant_tests signed_initial_namespace_binding_tracks_real_domain_owner_and_retains_immutable_generation --nocapture",
             "outcome": "passed"
           },
           {
-            "command": "TEST_NETWORK_BIN_IROHAD=\"${CARGO_TARGET_DIR:-$PWD/target}/debug/iroha3d\" cargo test -p integration_tests --test sumeragi -- validators_restart_one_and_all",
-            "outcome": "passed"
-          },
-          {
-            "command": "TEST_NETWORK_BIN_IROHAD=\"${CARGO_TARGET_DIR:-$PWD/target}/debug/iroha3d\" cargo test -p integration_tests --test sumeragi_lanes -- a_fixed_lane_carries_transactions_over_p2p_across_a_restart",
-            "outcome": "passed"
-          },
-          {
-            "command": "cargo test -p ivm --test ivm_group_01 -- abi_hash_matches_v1_golden",
+            "command": "CARGO_TARGET_DIR=target/zk-resume-p1 CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 cargo test --offline --locked -p iroha_core --lib --features telemetry --jobs 1 --no-run",
             "outcome": "failed"
+          },
+          {
+            "command": "python3.12 -I -S scripts/check_first_release_history.py",
+            "outcome": "passed"
           }
         ],
         "acceptance": [
           {
             "clause": "Preserve replay of the current canonical genesis/schema; deliberately incompatible first-release changes regenerate fixtures/manifests/ABI artifacts and define fresh-genesis testnet cutover or contract redeployment as appropriate.",
             "state": "partial",
-            "proof": "Replay half met: `cargo test -p iroha_core --lib -- a_store_never_replays_under_another_genesis all_seat_restart_reproduces_missing_original_context_archives_from_certified_execution current_genesis_history_replays_from_reopened_stores_to_the_identical_state every_inventoried_retired_store_artifact_stops_strict_startup idle_chain_never_advances_and_real_work_survives_restart native_storage_original_frames_and_certificates_survive_strict_restart pinned_history_of_an_earlier_build_replays_to_its_pinned_state recovery_rejects_both_branch_v5_journal_layouts_without_migration replay_from_scratch_reproduces_the_world_state_accumulator replay_rejects_a_block_whose_certified_result_differs replay_rejects_a_tampered_world_and_startup_rejects_a_stale_accumulator stored_block_wire_is_exactly_the_framed_first_release_layout strict_startup_rejects_every_retired_kura_artifact_after_fast_defers_the_audit take_parameters_cell_rejects_legacy_blocks_envelope` passed 14 of 14 on this tree, with four validators' on-disk stores closed, reopened and replayed through production prepare and the pinned frames of fixtures/core/first_release_history/manifest.json stored, read back and replayed (crates/iroha_core/src/sumeragi/node/tests/history_cutover_tests.rs), and `cargo test -p iroha_genesis --lib -- completed_default_genesis_source_template_proposal_roundtrips completed_default_genesis_source_template_uses_the_single_framed_block_wire` passed 2 (crates/iroha_genesis/src/genesis_tail_tests.rs). Cutover half partial: the rule is the seven-surface table of specs/first_release_history_cutover.md, which `python3 scripts/check_first_release_history.py` (passed) compares with specs/first_release_history_cutover.json, and it was applied to the execution-result change of merge d651d51715 (history regenerated, digest ba98b7ec015e74b6... recorded, cutover `fresh_genesis` declared in fixtures/core/first_release_history/README.md); it is not applied to the ABI-hash change the integration report traces to commit a5d2617d6a: `cargo test -p ivm --test ivm_group_01 -- abi_hash_matches_v1_golden` failed (computed c7281066..., golden 28209c68...), fifteen files still carry the previous hash, among them two artifacts the `abi` surface lists (crates/ivm/tests/abi_hash_versions.rs, javascript/iroha_js/test/fixtures/current_rust_contract_artifact.json), and no `contract_redeployment` cutover is declared. Decision 5 of /private/tmp/claude-501/-Users-takemiyamakoto-devstuff-iroha/e97c4ffe-38a2-4a0a-ad0a-4610af601e8a/scratchpad/codex/a2.md keeps that a failing check until one change regenerates the golden and carriers and states the T.1 cutover; fixtures/sumeragi/native-finality, listed under `execution_root`, was not regenerated with the pinned history and was not checked."
+            "proof": "specs/first_release_history_cutover.json currently declares fresh_genesis for State/execution-root changes and pins history 0a5f43cc000eec85bf1cd47cb3b2428f2654198909b161300c6f199350ee6e65. The current static history guard passes; core-checkpoint-2026-10-12/static-guards.json. Earlier exporter/replay and five full history controls passed for the previous fef37b... fixture and immutable Core binary 19444aad..., but the current fixture and changed production dependency graph require fresh capture/replay verification. No old-history compatibility or live deployment claim is made."
           },
           {
             "clause": "Never add old-layout decoders/verifier branches/migration shims or claim old history replays in a new incompatible binary.",
-            "state": "met",
-            "proof": "T.1 added no production decoder, verifier branch or shim, and `python3 scripts/check_first_release_history.py` passed on this tree: one admitted version per history wire type, no unlisted Version implementation, no compatibility-named loader item, none of 19 retired identifiers, no production reference to the headerless block helper (`python3 -m pytest pytests/scripts/first_release_history_guard_test.py pytests/scripts/first_release_history_evidence_test.py -q` gave 198 passed, 178 of them guard cases in pytests/scripts/first_release_history_guard_test.py). All eight listed obsolete-layout rejection tests passed, four in `cargo test -p iroha_data_model --lib -- block_payload_rejects_pre_release_layout_with_retired_roster_slot header_rejects_pre_release_layout_with_retired_roster_slot header_rejects_pre_release_payload_without_execution_context_hash_field transaction_v1_rejects_pre_release_binary_layouts_without_nullable_fields` and four in the iroha_core run, where a_store_never_replays_under_another_genesis also refuses a store under another genesis, so no old history is claimed to replay. Stated limit: the loader check of scripts/check_first_release_history.py is name-based, and thirteen compatibility constructs that predate T.1 stay listed with their owning tasks in specs/first_release_history_cutover.json."
+            "state": "partial",
+            "proof": "crates/norito/src/core.rs rejects the removed packed generic-byte-array fallback and its direct/optional regression passed. crates/iroha_data_model/src/block/mod.rs removes Version/EncodeVersioned and the public deframing API; canonical SignedBlockWire remains version 1. Model block tests passed 271/5 ignored and the generic-decoder compile-fail documentation passed. specs/first_release_history_cutover.json removes resolved T1-A16/A17 but retains other concrete retirement findings."
           },
           {
             "clause": "Retain current-genesis cold restart/full canonical-block replay; authenticated snapshot restore is separate unfinished work and not a gate.",
-            "state": "met",
-            "proof": "In process, current_genesis_history_replays_from_reopened_stores_to_the_identical_state (crates/iroha_core/src/sumeragi/node/tests/history_cutover_tests.rs) replays four reopened on-disk stores with no genesis or snapshot supplied and passed in the iroha_core run. With real peers, `python3 scripts/check_first_release_history.py --test-commands` prints the daemon build first; `cargo build -p irohad --bin iroha3d` passed, then `TEST_NETWORK_BIN_IROHAD=\"${CARGO_TARGET_DIR:-$PWD/target}/debug/iroha3d\" cargo test -p integration_tests --test sumeragi -- validators_restart_one_and_all` passed 1 of 1 and `TEST_NETWORK_BIN_IROHAD=\"${CARGO_TARGET_DIR:-$PWD/target}/debug/iroha3d\" cargo test -p integration_tests --test sumeragi_lanes -- a_fixed_lane_carries_transactions_over_p2p_across_a_restart` passed 1 of 1 on this tree. specs/first_release_history_cutover.md states that authenticated snapshot restore is separate unfinished work no delivery waits for, and no listed test supplies a snapshot."
+            "state": "partial",
+            "proof": "crates/iroha_core/src/sumeragi/node/tests/history_cutover_tests.rs retains current-genesis canonical replay, reopened-store equality, retired-artifact refusal and another-genesis refusal controls. All five non-maintenance tests passed on earlier binary 19444aad... (resume-2026-10-11/core-final-history-and-f3-2026-10-12.{json,log}). Current exact tests did not run because offline resolution failed before compilation; no snapshot or final-candidate qualification is claimed."
           },
           {
             "clause": "Editing this plan authorizes no live reset/deployment.",
             "state": "met",
-            "proof": "specs/first_release_history_cutover.md opens with 'Editing this file, the inventory or the plan authorizes no reset, deployment or movement of live value', and `python3 scripts/check_zk_delivery_plan.py` (passed) holds the plan and the graph to the same sentence. Nothing T.1 added can act on a network: scripts/check_first_release_history.py and scripts/first_release_history_evidence.py import only argparse, hashlib, json, os, pathlib, re, stat and sys (grep on this tree), and the one automation, job first_release_history of .github/workflows/pr.yml, has read-only contents permission and runs the guard and its tests. No reset or deployment was performed; the 2026-10-05 cutover regenerated only the local pinned fixture (fixtures/core/first_release_history/README.md)."
+            "proof": "specs/first_release_history_cutover.md explicitly leaves live cutover to separate signed operator deployment/reset tooling; this work performed no reset, deployment or live-state mutation."
           },
           {
             "clause": "Retain diagnostic evidence of obsolete histories without shipping their decoders; a future authenticated checkpoint specifies its verified suffix and cannot retroactively validate discarded history.",
             "state": "partial",
-            "proof": "Evidence retention met: scripts/first_release_history_evidence.py records and verifies a digest manifest of an obsolete store without opening it (20 cases of pytests/scripts/first_release_history_evidence_test.py passed) and the guard anchors both read-only probes and the Taira custody rule. Checkpoint clause met as a tracked normative constraint under decision 3 of /private/tmp/claude-501/-Users-takemiyamakoto-devstuff-iroha/e97c4ffe-38a2-4a0a-ad0a-4610af601e8a/scratchpad/codex/a2.md: the section 'Snapshots and checkpoints' of specs/first_release_history_cutover.md is pinned by future_checkpoint_rule in specs/first_release_history_cutover.json (three statements, section digest, the TODO(S9) source anchor) and `python3 scripts/check_first_release_history.py` passed with 16 checkpoint cases in pytests/scripts/first_release_history_guard_test.py; this preserves the rule, no checkpoint exists and S9 stays open. Decoder retirement partial: every_inventoried_retired_store_artifact_stops_strict_startup refused all 28 inventoried retired artifacts in the iroha_core run, but finding T1-A15, owned by T.1, is open: crates/iroha_data_model/src/block/mod.rs still ships a public headerless `DecodeVersioned for SignedBlock` and `frame_versioned_signed_block_bytes` against the rule that bare block payloads are unsupported, kept from production callers only by a textual check; the blocker its TODO names (the data-model lib-test target not building) is gone, since `cargo test -p iroha_data_model --lib -- block_payload_rejects_pre_release_layout_with_retired_roster_slot header_rejects_pre_release_layout_with_retired_roster_slot header_rejects_pre_release_payload_without_execution_context_hash_field transaction_v1_rejects_pre_release_binary_layouts_without_nullable_fields` built and ran, so making both test-only can now be done and validated."
+            "proof": "specs/first_release_history_cutover.md/json retain the verified-suffix rule, obsolete-history diagnostics and twelve open retirement findings owned by I.5/A.4/B.3/R.6/C.5 and outside-plan consensus/query owners. The current python3.12 -I -S scripts/check_first_release_history.py passes. Earlier full Python and Rust results remain historical where their inputs changed. These remaining retirements are ordinary implementation work; previous fixture frames are diagnostic dist artifacts, never alternative shipping decoders."
           }
         ]
       }

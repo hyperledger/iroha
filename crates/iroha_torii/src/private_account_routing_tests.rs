@@ -136,15 +136,15 @@ async fn account_routes_require_valid_root_metadata_and_preserve_explicit_global
         let mut block = app.state.world.block();
         block
             .parameters
-            .custom
-            .remove(&consensus_metadata::handshake_meta_id());
+            .remove_custom_parameter(&consensus_metadata::handshake_meta_id());
         if malformed {
             block
                 .parameters
                 .set_parameter(Parameter::Custom(CustomParameter::new(
                     consensus_metadata::handshake_meta_id(),
                     iroha_primitives::json::Json::new(false),
-                )));
+                )))
+                .expect("unparsed root metadata fixture");
         }
         block.commit();
         assert_eq!(

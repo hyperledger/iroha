@@ -27,7 +27,6 @@ use iroha_data_model::{
     sccp::{
         bounded_bytes::SccpBoundedBytesError,
         commitment::{SCCP_HISTORY_MAX_SIZE_V1, SccpBlockCommitmentV1, SccpHistoryStateV1},
-        committee::SccpGenerationCauseV1,
         control::{
             SCCP_FIRST_CONTROL_NONCE_V1, SccpControlLeafRefV1, SccpControlRecordV1, SccpLeafRefV1,
             SccpTransferLeafRefV1,
@@ -41,7 +40,7 @@ use iroha_data_model::{
         events::{
             SccpBlockCommittedV1, SccpBounceReasonV1, SccpCommitteeGenerationCreatedV1,
             SccpCommitteeResyncV1, SccpControlRecordedV1, SccpEvent, SccpEventSet,
-            SccpFinalityDegradedReasonV1, SccpFinalityDegradedV1,
+            SccpFastPauseLapsedV1, SccpFinalityDegradedReasonV1, SccpFinalityDegradedV1,
             SccpGenerationDestinationClearedV1, SccpGenerationMemberUnslashableV1,
             SccpGovernanceEnactedV1, SccpInboundBouncedV1, SccpInboundLiabilityShortfallV1,
             SccpInboundProvenV1, SccpInboundReleasedV1, SccpLightClientAdvancedV1,
@@ -50,6 +49,7 @@ use iroha_data_model::{
             SccpRecipientRegisteredV1, SccpRevisionActivationChangedV1, SccpStrandedReleasedV1,
             SccpTrustedCheckpointInstalledV1,
         },
+        generation::SccpGenerationCauseV1,
         governance::SccpGovernanceSubjectV1,
         inbound::{
             SCCP_SOURCE_PROOF_MAX_BYTES_V1, SccpBounceStatusV1, SccpInboundRecordV1,
@@ -130,6 +130,12 @@ fn revision(number: u32, activation: SccpRouteActivationV1) -> SccpRouteRevision
         ..SccpRouteRevisionV1::staged(
             number,
             evm(u8::try_from(number).expect("small revision")),
+            iroha_data_model::sccp::deployment::SccpCommitteePinV1 {
+                generation: 1,
+                committee_root: [0x44; 32],
+                start_height: 1,
+                until_ms: 1_801_209_600_000,
+            },
             21_000_000_000_000_000,
             100,
         )
@@ -252,8 +258,8 @@ fn evidence(len: usize) -> SccpLcEvidenceBytesV1 {
 
 /// Codec index of every event variant, in declaration order. Indices 2 to 9 belonged to the
 /// events of the attestation transport and stay unassigned.
-const EVENT_CODEC_INDICES: [u32; 23] = [
-    0, 1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+const EVENT_CODEC_INDICES: [u32; 24] = [
+    0, 1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
 ];
 
 /// JSON tags of the events deleted with the attestation transport (§4.17).
@@ -435,7 +441,10 @@ fn every_event() -> Vec<(SccpEvent, &'static str)> {
                 network: ETH,
                 revision: 1,
                 control_nonce: 1,
-                paused: true,
+                track: 1,
+                parliament_paused: true,
+                fast_pause_until_ms: 0,
+                certificate_id: [0x5a; 32],
                 height: 30,
                 commitment_index: 0,
             }),
@@ -453,43 +462,51 @@ fn every_event() -> Vec<(SccpEvent, &'static str)> {
             "governance_enacted",
         ),
         (
-            SccpEvent::FinalityDegraded(SccpFinalityDegradedV1 {
-                height: 31,
-                reason: SccpFinalityDegradedReasonV1::MissingHeightInputs,
-            }),
-            "finality_degraded",
-        ),
-        (
             SccpEvent::CommitteeGenerationCreated(SccpCommitteeGenerationCreatedV1 {
-                generation: 3,
-                cause: SccpGenerationCauseV1::KeyChange,
+                generation: 1,
+                cause: SccpGenerationCauseV1::Genesis,
                 committee_root: [23; 32],
-                start_height: 32,
+                start_height: 1,
                 deadline_ms: 1_758_604_800_000,
             }),
             "committee_generation_created",
         ),
         (
-            SccpEvent::CommitteeResync(SccpCommitteeResyncV1 {
-                generation: 4,
-                committee_root: [24; 32],
-                start_height: 33,
-            }),
-            "committee_resync",
-        ),
-        (
             SccpEvent::GenerationMemberUnslashable(SccpGenerationMemberUnslashableV1 {
-                generation: 4,
-                index: 30,
+                generation: 1,
+                index: 3,
             }),
             "generation_member_unslashable",
         ),
         (
+            SccpEvent::CommitteeResync(SccpCommitteeResyncV1 {
+                generation: 2,
+                committee_root: [24; 32],
+                start_height: 10,
+            }),
+            "committee_resync",
+        ),
+        (
             SccpEvent::GenerationDestinationCleared(SccpGenerationDestinationClearedV1 {
-                generation: 3,
-                lc: 1_758_604_800_001,
+                generation: 1,
+                lc: 1_759_000_000_000,
             }),
             "generation_destination_cleared",
+        ),
+        (
+            SccpEvent::FinalityDegraded(SccpFinalityDegradedV1 {
+                height: 11,
+                reason: SccpFinalityDegradedReasonV1::MissingInputs,
+            }),
+            "finality_degraded",
+        ),
+        (
+            SccpEvent::FastPauseLapsed(SccpFastPauseLapsedV1 {
+                network: ETH,
+                certificate_id: [29; 32],
+                until_ms: 1_758_604_800_000,
+            }),
+            "fast_pause_lapsed",
         ),
     ]
 }
@@ -1073,11 +1090,14 @@ fn leaf_control_and_record_roundtrips() {
         roundtrip(&SccpLeafRefV1::control(network, 2, u64::MAX));
     }
     roundtrip(&SccpControlRecordV1 {
-        paused: false,
+        track: 1,
+        parliament_paused: false,
+        fast_pause_until_ms: 0,
         height: 99,
         commitment_index: 511,
         leaf: [3; 32],
-        proposal_id: [4; 32],
+        certificate_id: [4; 32],
+        effect_hash: [5; 32],
     });
     for status in outbound_statuses() {
         roundtrip(&status);
@@ -1094,6 +1114,7 @@ fn leaf_control_and_record_roundtrips() {
         SccpPendingReasonV1::CreditRefused,
         SccpPendingReasonV1::FeeSinkUnavailable,
         SccpPendingReasonV1::BlockLeavesFull,
+        SccpPendingReasonV1::Held,
     ] {
         roundtrip(&reason);
         roundtrip(&inbound(SccpInboundStatusV1::pending(reason)));
@@ -1179,12 +1200,12 @@ fn every_event_roundtrips_with_its_snake_case_tag() {
 #[test]
 fn native_generation_event_payloads_cover_every_decoder() {
     for reason in [
-        SccpFinalityDegradedReasonV1::MissingHeightInputs,
-        SccpFinalityDegradedReasonV1::InvalidHeightInputs,
-        SccpFinalityDegradedReasonV1::MissingCurrentGeneration,
-        SccpFinalityDegradedReasonV1::InconsistentGenerationState,
-        SccpFinalityDegradedReasonV1::MissingParentTip,
-        SccpFinalityDegradedReasonV1::ArithmeticOverflow,
+        SccpFinalityDegradedReasonV1::MissingInputs,
+        SccpFinalityDegradedReasonV1::InvalidInputs,
+        SccpFinalityDegradedReasonV1::MissingGeneration,
+        SccpFinalityDegradedReasonV1::InvalidGeneration,
+        SccpFinalityDegradedReasonV1::MissingParent,
+        SccpFinalityDegradedReasonV1::CounterExhausted,
     ] {
         roundtrip_with_slice(&reason);
         roundtrip_with_slice(&SccpFinalityDegradedV1 {
@@ -1494,6 +1515,7 @@ fn enum_json_tags_are_snake_case() {
             json_tag(&SccpPendingReasonV1::BlockLeavesFull, "reason"),
             "block_leaves_full",
         ),
+        (json_tag(&SccpPendingReasonV1::Held, "reason"), "held"),
         (
             json_tag(&SccpRouteActivationV1::InboundOnly, "activation"),
             "inbound_only",
@@ -1539,7 +1561,7 @@ fn unknown_binary_tags_are_rejected() {
     assert_rejects_tags::<SccpLeafRefV1>(&[2, u32::MAX], 64);
     assert_rejects_tags::<SccpVoidKindV1>(&[2, u32::MAX], 0);
     assert_rejects_tags::<SccpOutboundStatusV1>(&[4, u32::MAX], 64);
-    assert_rejects_tags::<SccpPendingReasonV1>(&[6, u32::MAX], 0);
+    assert_rejects_tags::<SccpPendingReasonV1>(&[7, u32::MAX], 0);
     assert_rejects_tags::<SccpInboundStatusV1>(&[3, u32::MAX], 64);
     assert_rejects_tags::<SccpRouteActivationV1>(&[5, u32::MAX], 0);
     assert_rejects_tags::<SccpLcFreezeReasonV1>(&[2, u32::MAX], 64);
@@ -1909,7 +1931,18 @@ fn registry_rules() {
     assert!(!SccpRouteActivationV1::Retired.can_transition_to(SccpRouteActivationV1::Staged));
     assert!(!SccpRouteActivationV1::Staged.can_transition_to(SccpRouteActivationV1::Paused));
 
-    let staged = SccpRouteRevisionV1::staged(1, evm(9), 1_000, 40);
+    let staged = SccpRouteRevisionV1::staged(
+        1,
+        evm(9),
+        iroha_data_model::sccp::deployment::SccpCommitteePinV1 {
+            generation: 1,
+            committee_root: [0x44; 32],
+            start_height: 1,
+            until_ms: 1_801_209_600_000,
+        },
+        1_000,
+        40,
+    );
     assert_eq!(staged.destination_word, evm(9).destination_word());
     assert_eq!(staged.next_control_nonce, SCCP_FIRST_CONTROL_NONCE_V1);
     assert_eq!(staged.next_outbound_nonce, 0);

@@ -25,6 +25,14 @@ use crate::{
     sumeragi_lanes::SumeragiLaneState,
 };
 
+fn fixture_scope(instance: [u8; 32]) -> CertifiedResultScope {
+    if instance == GLOBAL {
+        CertifiedResultScope::TairaGlobal
+    } else {
+        CertifiedResultScope::NonGlobal
+    }
+}
+
 const DS1: DataSpaceId = DataSpaceId::new(11);
 const DS2: DataSpaceId = DataSpaceId::new(12);
 const DS3: DataSpaceId = DataSpaceId::new(13);
@@ -256,13 +264,10 @@ fn certify(
     next: Option<&ValidatorEpochContextV1>,
     signers: usize,
 ) -> AmxCertifiedBlockV1 {
-    let commitment = result_commitment(context, height, writes, next);
-    let commitment = CertifiedResultV1::new(
-        SccpFinalityHeaderV1::inactive(*context.network_id.as_bytes(), height, height).unwrap(),
-        commitment,
-        CertifiedResultScope::NonGlobal,
-    )
-    .unwrap();
+    let body = result_commitment(context, height, writes, next);
+    let x = SccpFinalityHeaderV1::inactive(*context.network_id.as_bytes(), height, height * 1000)
+        .unwrap();
+    let commitment = CertifiedResultV1::new(x, body, fixture_scope(instance)).unwrap();
     let (header, qc) = sign(
         instance,
         context,
@@ -301,6 +306,7 @@ fn record_proof(
             .iter()
             .map(|(key, value)| (key.as_slice(), value.as_slice())),
         record.clone(),
+        fixture_scope(instance),
     )
     .unwrap()
 }
@@ -567,6 +573,7 @@ fn sumeragi_amx_record_proof_construction_requires_the_complete_certified_write_
                 .iter()
                 .map(|(key, value)| (key.as_slice(), value.as_slice())),
             record.clone(),
+            CertifiedResultScope::NonGlobal,
         )
     };
 
@@ -574,7 +581,7 @@ fn sumeragi_amx_record_proof_construction_requires_the_complete_certified_write_
     let tracker = AmxForeignInstanceV1::new(
         instance(DS1),
         context.clone(),
-        crate::sumeragi_finality::CertifiedResultScope::NonGlobal,
+        CertifiedResultScope::NonGlobal,
     )
     .unwrap();
     tracker.verify_record(&proof).unwrap();
@@ -627,6 +634,7 @@ fn sumeragi_amx_record_proof_construction_rejects_invalid_result_preimages() {
                 all.iter()
                     .map(|(key, value)| (key.as_slice(), value.as_slice())),
                 record.clone(),
+                CertifiedResultScope::NonGlobal
             )
             .is_err()
         );
@@ -1638,6 +1646,7 @@ fn amx_record_proof_decode_refusal_is_not_a_proof_verdict() {
                 .iter()
                 .map(|(key, value)| (key.as_slice(), value.as_slice())),
             denied_record,
+            CertifiedResultScope::NonGlobal,
         )
     })
     .unwrap_err();
@@ -1651,6 +1660,7 @@ fn amx_record_proof_decode_refusal_is_not_a_proof_verdict() {
             .iter()
             .map(|(key, value)| (key.as_slice(), value.as_slice())),
         record.clone(),
+        CertifiedResultScope::NonGlobal,
     )
     .unwrap();
     assert_eq!(retry.block, original);
@@ -1834,18 +1844,15 @@ pub fn allocated_amx_instruction_fixture() -> (
             .iter()
             .map(|(key, value)| (key.as_slice(), value.as_slice())),
         record,
+        CertifiedResultScope::NonGlobal,
     )
     .unwrap();
     assert_eq!(
-        AmxForeignInstanceV1::new(
-            GLOBAL,
-            context,
-            crate::sumeragi_finality::CertifiedResultScope::TairaGlobal
-        )
-        .unwrap()
-        .verify_record(&expected)
-        .unwrap()
-        .height,
+        AmxForeignInstanceV1::new(GLOBAL, context, CertifiedResultScope::TairaGlobal)
+            .unwrap()
+            .verify_record(&expected)
+            .unwrap()
+            .height,
         2
     );
     // This input remains explicitly offchain/unadmitted. Its BLS fixture check above does

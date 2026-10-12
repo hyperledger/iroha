@@ -95,7 +95,7 @@ class TrackedSpecification(TreeFixture):
 
     def test_every_named_consumer_and_family_is_present(self) -> None:
         consumers = set(self.spec["consumers"])
-        for key in ("privacy-catalog", "kaigi", "confidential", "mkhe", "fastpq", "halo2-ipa", "bulletproofs", "ivm"):
+        for key in ("privacy-catalog", "kaigi", "confidential", "mkhe", "fastpq", "halo2-ipa", "bulletproofs", "vole-in-the-head", "parliament-ballot", "ivm"):
             self.assertIn(key, consumers)
         roles = {role["key"]: role for role in self.spec["digest_roles"]}
         for key in (
@@ -153,6 +153,41 @@ class ScanChecks(TreeFixture):
         report = checker.Report()
         checker.check_consumers(spec, self.derived, report)
         return report.errors
+
+    def test_vole_backend_and_ballot_candidate_have_distinct_file_owners(self) -> None:
+        scanner = checker.Scanner(self.spec)
+        owners = {
+            "crates/iroha_zkp_vole/": "vole-in-the-head",
+            "crates/iroha_parliament_ballot_proof/": "parliament-ballot",
+        }
+        for prefix, consumer in owners.items():
+            paths = [path for path in self.derived["scan"]["files"] if path.startswith(prefix)]
+            self.assertTrue(paths, prefix)
+            for path in paths:
+                self.assertEqual(scanner.consumer_of(path), consumer, path)
+                self.assertEqual(scanner.unit_of(path)[1], "file", path)
+        # Owner rules precede incidental algorithm names in future module paths.
+        for prefix, consumer in owners.items():
+            self.assertEqual(scanner.consumer_of(prefix + "src/poseidon_relation.rs"), consumer)
+
+    def test_vole_proof_internals_do_not_claim_implemented_ballot_constraints(self) -> None:
+        uses = self.spec["consumers"]
+        for primitive in ("keccak", "shake"):
+            self.assertEqual(uses["vole-in-the-head"]["uses"][primitive]["class"], "proof-internal")
+            self.assertEqual(uses["parliament-ballot"]["uses"][primitive]["class"], "label-only")
+        for consumer in ("vole-in-the-head", "parliament-ballot"):
+            spec = self.mutated()
+            del spec["consumers"][consumer]["uses"]["shake"]
+            self.assertReported(self.consumer_errors(spec), f"consumer {consumer}: use of shake")
+
+    def test_vole_and_ballot_digest_files_cannot_disappear_from_the_inventory(self) -> None:
+        for path in (
+            "crates/iroha_zkp_vole/src/hash.rs",
+            "crates/iroha_parliament_ballot_proof/src/keccak_relation.rs",
+        ):
+            spec = self.mutated()
+            del spec["scan"]["files"][path]
+            self.assertReported(self.scan_errors(spec), f"scan: {path} uses ['keccak', 'shake'] and is not listed")
 
     def test_an_unlisted_digest_use_in_a_file_fails(self) -> None:
         spec = self.mutated()

@@ -2251,7 +2251,6 @@ pub mod extractors {
                     "A present query string must contain at least one key=value pair.",
                 )));
             }
-            #[cfg(feature = "app_api")]
             if let Some(decoded) =
                 crate::decode_current_app_routed_read_query::<T>(query.unwrap_or_default(), true)
             {
@@ -2283,7 +2282,6 @@ pub mod extractors {
                     "A present query string must contain at least one key=value pair.",
                 )));
             }
-            #[cfg(feature = "app_api")]
             if let Some(decoded) =
                 crate::decode_current_app_routed_read_query::<T>(query.unwrap_or_default(), false)
             {

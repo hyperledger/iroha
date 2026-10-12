@@ -297,8 +297,8 @@ fn sccp_byte_gas(bytes: usize, per_unit: u64, bytes_per_unit: u64) -> u64 {
 fn sccp_proof_gas(proof_bytes: usize) -> u64 {
     SCCP_LIGHT_CLIENT_VERIFY.saturating_add(sccp_byte_gas(proof_bytes, 1, SCCP_PROOF_BYTES_PER_GAS))
 }
-/// Gas of the SCCP v1 instructions (`specs/sccp.md` §4), proportional to their signature and
-/// proof work, or `None` for any other instruction.
+/// Gas of the SCCP v1 instructions (`specs/sccp.md` §4), proportional to their proof work and
+/// payload bytes, or `None` for any other instruction.
 fn sccp_instruction_gas(any: &dyn core::any::Any) -> Option<u64> {
     use dm_isi::sccp;
     if let Some(record) = any.downcast_ref::<sccp::RecordSccpMessage>() {
@@ -2013,6 +2013,12 @@ mod tests {
             assert!(gas(instruction.clone()) < SHIPPED_BLOCK_GAS_LIMIT);
             assert_eq!(confidential_gas_cost(&instruction, &DEFAULT_ZK_GAS), 0);
         }
+        assert_eq!(
+            I::all().len(),
+            7,
+            "the seven SCCP v1 instructions are priced"
+        );
+        assert_eq!(gas(I::initialize().into()), BASE_SCCP);
         let record = |bytes: usize| {
             let mut record = I::record();
             record.recipient = vec![1; bytes];

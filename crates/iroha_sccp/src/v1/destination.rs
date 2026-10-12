@@ -350,6 +350,230 @@ impl TairaCertificateV1 {
     }
 }
 
+/// Borrowed authority for the destination's exact certificate verification kernel.
+///
+/// The caller obtains the network, instance, committee (including its latch) and checkpoint
+/// lookup from one selected destination state. Construction authenticates no remote source;
+/// it checks the TON key/root relation so a supplied key slice cannot substitute authority.
+/// `Live` and entry-point violation/update rules remain the caller's responsibility.
+#[derive(Clone, Copy, Debug)]
+pub struct CertificateAuthorityV1<'a> {
+    flavor: DestinationFlavor,
+    taira_network_id: &'a [u8; 32],
+    consensus_instance: &'a [u8; 32],
+    committee: &'a CommitteeStateV1,
+    ton_keys: Option<&'a [[u8; KEY_LEN]]>,
+}
+/// The result of the common certificate kernel, before entry-point state transitions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CertificateVerificationV1 {
+    /// Verified current-generation header.
+    pub header: SccpFinalityHeaderV1,
+    /// `keccak256(X)` of that header.
+    pub checkpoint_id: [u8; 32],
+    /// Whether the full cryptographic path ran, requiring certificate publication.
+    pub full_path: bool,
+}
+impl<'a> CertificateAuthorityV1<'a> {
+    /// Borrow the actual selected destination authority. EVM obtains keys from each certificate;
+    /// TON requires the stored canonical keys and their exact current committee root.
+    ///
+    /// # Errors
+    /// Returns `BadCommittee` for absent, substituted or malformed TON committee keys.
+    pub fn new(
+        flavor: DestinationFlavor,
+        taira_network_id: &'a [u8; 32],
+        consensus_instance: &'a [u8; 32],
+        committee: &'a CommitteeStateV1,
+        ton_keys: Option<&'a [[u8; KEY_LEN]]>,
+    ) -> Result<Self, DestinationError> {
+        if flavor == DestinationFlavor::Ton
+            && !ton_keys.is_some_and(|keys| successor_keys_match(keys, &committee.root))
+        {
+            return Err(DestinationError::BadCommittee);
+        }
+        Ok(Self {
+            flavor,
+            taira_network_id,
+            consensus_instance,
+            committee,
+            ton_keys,
+        })
+    }
+    /// Verify steps 1–12 of §5.1.3 against this borrowed authority.
+    /// `checkpoint_at` reads the selected destination's stored id at the requested height.
+    /// A stored matching id takes the mandatory cheap path only after checks 1–6.
+    ///
+    /// This operation has no effects and does not assert `Live` or accept a state transition.
+    /// Apply the entry point's committee rules to the returned header before using it.
+    ///
+    /// # Errors
+    /// Returns the same first failed certificate check as the destination entry points.
+    pub fn verify(
+        &self,
+        certificate: &TairaCertificateV1,
+        checkpoint_at: impl FnOnce(u64) -> Option<[u8; 32]>,
+    ) -> Result<CertificateVerificationV1, DestinationError> {
+        let cur = self.committee;
+        let flavor = self.flavor;
+
+        // 1. Exact lengths: `QC_FIXED`, `X`, the signature, and on EVM the committee and
+        //    `signerYs`. TON reads the committee from storage.
+        let qc = QcFixedV1::parse(&certificate.qc).map_err(|_| DestinationError::BadCertificate)?;
+        let raw_header = <&[u8; X_LEN]>::try_from(&certificate.header[..])
+            .map_err(|_| DestinationError::BadHeader)?;
+        let calldata_keys;
+        let (keys, signature, ys): (&[[u8; KEY_LEN]], &[u8], &[[u8; FP_LEN]]) = match flavor {
+            DestinationFlavor::Evm => {
+                if certificate.signature.len() != EVM_SIGNATURE_LEN {
+                    return Err(DestinationError::BadCertificate);
+                }
+                calldata_keys =
+                    committee_keys(&certificate.committee).ok_or(DestinationError::BadCommittee)?;
+                let (ys, rest) = certificate.signer_ys.as_chunks::<FP_LEN>();
+                if !rest.is_empty() || Some(ys.len()) != quorum(calldata_keys.len()) {
+                    return Err(DestinationError::BadCertificate);
+                }
+                (
+                    calldata_keys.as_slice(),
+                    certificate.signature.as_slice(),
+                    ys,
+                )
+            }
+            DestinationFlavor::Ton => {
+                if certificate.ton_signature.len() != SIGNATURE_LEN {
+                    return Err(DestinationError::BadCertificate);
+                }
+                (
+                    self.ton_keys.unwrap_or_default(),
+                    certificate.ton_signature.as_slice(),
+                    <&[[u8; FP_LEN]]>::default(),
+                )
+            }
+        };
+
+        // 2. `X` is a header of this Taira network with `ACTIVE` set.
+        let header = SccpFinalityHeaderV1::parse(raw_header)
+            .ok()
+            .filter(|header| header.network_id() == *self.taira_network_id && header.is_active())
+            .ok_or(DestinationError::BadHeader)?;
+
+        // 3. Classification: only a certificate of the current generation goes on.
+        if !cur.is_current(&header) {
+            return Err(DestinationError::CommitteeNotAccepted);
+        }
+
+        // 4. EVM: the calldata committee is the current one.
+        if flavor == DestinationFlavor::Evm && committee_root(keys) != Some(cur.root) {
+            return Err(DestinationError::BadCommittee);
+        }
+
+        // 5. The signer set: no spare bit and exactly `q` signers.
+        check_signers(qc.signers, keys.len()).map_err(CertificateError::destination_error)?;
+        let indices =
+            signer_indices(qc.signers, keys.len()).ok_or(DestinationError::BadCertificate)?;
+        let signer_keys: Vec<[u8; KEY_LEN]> = indices.iter().map(|index| keys[*index]).collect();
+
+        // 6. Encodings, before the cheap path and before any curve operation. Both flavours
+        //    refuse the identity signature first. EVM then requires every signer `y` below
+        //    `p`, every limb of `σ` below `p`, and for every signer key its flags, an `x`
+        //    below `p` and coordinates other than `(0, 0)`.
+        match flavor {
+            DestinationFlavor::Evm => {
+                if *signature == IDENTITY_SIGNATURE_EVM {
+                    return Err(DestinationError::BadSignature);
+                }
+                if !ys.iter().all(fp_is_canonical) {
+                    return Err(DestinationError::BadCommittee);
+                }
+                let (limbs, _) = signature.as_chunks::<FP_LEN>();
+                if !limbs.iter().all(fp_is_canonical) {
+                    return Err(DestinationError::BadSignature);
+                }
+                if !signer_keys.iter().zip(ys).all(|(key, y)| {
+                    signer_key_flags_match(key, y) && signer_coordinates_name_a_finite_point(key, y)
+                }) {
+                    return Err(DestinationError::BadCommittee);
+                }
+            }
+            DestinationFlavor::Ton => {
+                if *signature == IDENTITY_SIGNATURE {
+                    return Err(DestinationError::BadSignature);
+                }
+            }
+        }
+
+        // 7. The checkpoint id. `R` belongs to the full path.
+        let id = checkpoint_id(raw_header);
+
+        // 8. Cheap path (mandatory): a stored `X` is already certified, so its signature is
+        //    not checked and it is not published again.
+        if checkpoint_at(header.height()) == Some(id) {
+            return Ok(CertificateVerificationV1 {
+                header,
+                checkpoint_id: id,
+                full_path: false,
+            });
+        }
+
+        // 9–11. The aggregate key and the pairing check, as each contract observes them.
+        match flavor {
+            DestinationFlavor::Evm => {
+                // 10. `G1ADD` over the signer points: a point off the curve, then `apk = O`,
+                //     answer `BadCommittee` before `σ` is read as a point.
+                if !signer_keys
+                    .iter()
+                    .zip(ys)
+                    .all(|(key, y)| signer_point_is_on_curve(key, y))
+                {
+                    return Err(DestinationError::BadCommittee);
+                }
+                match signer_point_sum(keys, qc.signers) {
+                    Some(sum) if sum != IDENTITY_KEY => {}
+                    _ => return Err(DestinationError::BadCommittee),
+                }
+                // 11. `PAIRING_CHECK` validates its inputs and sees the aggregate key only.
+                let compressed = <&[u8; EVM_SIGNATURE_LEN]>::try_from(signature)
+                    .ok()
+                    .and_then(|limbs| signature_from_evm192(limbs).ok())
+                    .ok_or(DestinationError::BadSignature)?;
+                verify_certificate_by_aggregate(
+                    self.consensus_instance,
+                    &certificate.qc,
+                    raw_header,
+                    &compressed,
+                    keys,
+                )
+                .map_err(CertificateError::destination_error)?;
+            }
+            DestinationFlavor::Ton => {
+                // `BLS_FASTAGGREGATEVERIFY` is one verdict (§5.3.4 item 5): a stored key that
+                // is no valid key, an identity aggregate, a `σ` that is no point of G2 and a
+                // failed pairing all throw `BadSignature`.
+                let compressed = <[u8; SIGNATURE_LEN]>::try_from(signature)
+                    .ok()
+                    .filter(|signature| signature_to_evm192(signature).is_some())
+                    .ok_or(DestinationError::BadSignature)?;
+                verify_certificate(
+                    self.consensus_instance,
+                    &certificate.qc,
+                    raw_header,
+                    &compressed,
+                    keys,
+                )
+                .map_err(CertificateError::ton_destination_error)?;
+            }
+        }
+
+        // 12. Report publication to the owner; the caller emits only when the full path ran.
+        Ok(CertificateVerificationV1 {
+            header,
+            checkpoint_id: id,
+            full_path: true,
+        })
+    }
+}
+
 /// `CheckpointRefV1`: the header of a stored checkpoint (§5.1.3 "Using a checkpoint").
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CheckpointRefV1 {
@@ -1089,165 +1313,30 @@ impl Destination {
         certificate: &TairaCertificateV1,
         events: &mut Vec<DestinationEvent>,
     ) -> Result<(SccpFinalityHeaderV1, [u8; 32]), DestinationError> {
-        let cur = &self.state.committee;
-        let flavor = self.deployment.flavor;
-
-        // 1. Exact lengths: `QC_FIXED`, `X`, the signature, and on EVM the committee and
-        //    `signerYs`. TON reads the committee from storage.
-        let qc = QcFixedV1::parse(&certificate.qc).map_err(|_| DestinationError::BadCertificate)?;
-        let raw_header = <&[u8; X_LEN]>::try_from(&certificate.header[..])
-            .map_err(|_| DestinationError::BadHeader)?;
-        let calldata_keys;
-        let (keys, signature, ys): (&[[u8; KEY_LEN]], &[u8], &[[u8; FP_LEN]]) = match flavor {
-            DestinationFlavor::Evm => {
-                if certificate.signature.len() != EVM_SIGNATURE_LEN {
-                    return Err(DestinationError::BadCertificate);
-                }
-                calldata_keys =
-                    committee_keys(&certificate.committee).ok_or(DestinationError::BadCommittee)?;
-                let (ys, rest) = certificate.signer_ys.as_chunks::<FP_LEN>();
-                if !rest.is_empty() || Some(ys.len()) != quorum(calldata_keys.len()) {
-                    return Err(DestinationError::BadCertificate);
-                }
-                (
-                    calldata_keys.as_slice(),
-                    certificate.signature.as_slice(),
-                    ys,
-                )
-            }
-            DestinationFlavor::Ton => {
-                if certificate.ton_signature.len() != SIGNATURE_LEN {
-                    return Err(DestinationError::BadCertificate);
-                }
-                (
-                    self.state.keys.as_deref().unwrap_or_default(),
-                    certificate.ton_signature.as_slice(),
-                    <&[[u8; FP_LEN]]>::default(),
-                )
-            }
+        // These keys were bound to the root by deployment or an authenticated rotation.
+        let authority = CertificateAuthorityV1 {
+            flavor: self.deployment.flavor,
+            taira_network_id: &self.deployment.taira_network_id,
+            consensus_instance: &self.deployment.consensus_instance,
+            committee: &self.state.committee,
+            ton_keys: self.state.keys.as_deref(),
         };
-
-        // 2. `X` is a header of this Taira network with `ACTIVE` set.
-        let header = SccpFinalityHeaderV1::parse(raw_header)
-            .ok()
-            .filter(|header| {
-                header.network_id() == self.deployment.taira_network_id && header.is_active()
-            })
-            .ok_or(DestinationError::BadHeader)?;
-
-        // 3. Classification: only a certificate of the current generation goes on.
-        if !cur.is_current(&header) {
-            return Err(DestinationError::CommitteeNotAccepted);
+        let checked = authority.verify(certificate, |height| {
+            self.state.checkpoints.get(&height).copied()
+        })?;
+        if checked.full_path {
+            events.push(DestinationEvent::Certificate {
+                height: checked.header.height(),
+                generation: checked.header.generation(),
+                qc: certificate.qc.clone(),
+                header: certificate.header.clone(),
+                signature: match self.deployment.flavor {
+                    DestinationFlavor::Evm => certificate.signature.clone(),
+                    DestinationFlavor::Ton => certificate.ton_signature.clone(),
+                },
+            });
         }
-
-        // 4. EVM: the calldata committee is the current one.
-        if flavor == DestinationFlavor::Evm && committee_root(keys) != Some(cur.root) {
-            return Err(DestinationError::BadCommittee);
-        }
-
-        // 5. The signer set: no spare bit and exactly `q` signers.
-        check_signers(qc.signers, keys.len()).map_err(CertificateError::destination_error)?;
-        let indices =
-            signer_indices(qc.signers, keys.len()).ok_or(DestinationError::BadCertificate)?;
-        let signer_keys: Vec<[u8; KEY_LEN]> = indices.iter().map(|index| keys[*index]).collect();
-
-        // 6. Encodings, before the cheap path and before any curve operation. Both flavours
-        //    refuse the identity signature first. EVM then requires every signer `y` below
-        //    `p`, every limb of `σ` below `p`, and for every signer key its flags, an `x`
-        //    below `p` and coordinates other than `(0, 0)`.
-        match flavor {
-            DestinationFlavor::Evm => {
-                if *signature == IDENTITY_SIGNATURE_EVM {
-                    return Err(DestinationError::BadSignature);
-                }
-                if !ys.iter().all(fp_is_canonical) {
-                    return Err(DestinationError::BadCommittee);
-                }
-                let (limbs, _) = signature.as_chunks::<FP_LEN>();
-                if !limbs.iter().all(fp_is_canonical) {
-                    return Err(DestinationError::BadSignature);
-                }
-                if !signer_keys.iter().zip(ys).all(|(key, y)| {
-                    signer_key_flags_match(key, y) && signer_coordinates_name_a_finite_point(key, y)
-                }) {
-                    return Err(DestinationError::BadCommittee);
-                }
-            }
-            DestinationFlavor::Ton => {
-                if *signature == IDENTITY_SIGNATURE {
-                    return Err(DestinationError::BadSignature);
-                }
-            }
-        }
-
-        // 7. The checkpoint id. `R` belongs to the full path.
-        let id = checkpoint_id(raw_header);
-
-        // 8. Cheap path (mandatory): a stored `X` is already certified, so its signature is
-        //    not checked and it is not published again.
-        if self.state.checkpoints.get(&header.height()) == Some(&id) {
-            return Ok((header, id));
-        }
-
-        // 9–11. The aggregate key and the pairing check, as each contract observes them.
-        match flavor {
-            DestinationFlavor::Evm => {
-                // 10. `G1ADD` over the signer points: a point off the curve, then `apk = O`,
-                //     answer `BadCommittee` before `σ` is read as a point.
-                if !signer_keys
-                    .iter()
-                    .zip(ys)
-                    .all(|(key, y)| signer_point_is_on_curve(key, y))
-                {
-                    return Err(DestinationError::BadCommittee);
-                }
-                match signer_point_sum(keys, qc.signers) {
-                    Some(sum) if sum != IDENTITY_KEY => {}
-                    _ => return Err(DestinationError::BadCommittee),
-                }
-                // 11. `PAIRING_CHECK` validates its inputs and sees the aggregate key only.
-                let compressed = <&[u8; EVM_SIGNATURE_LEN]>::try_from(signature)
-                    .ok()
-                    .and_then(|limbs| signature_from_evm192(limbs).ok())
-                    .ok_or(DestinationError::BadSignature)?;
-                verify_certificate_by_aggregate(
-                    &self.deployment.consensus_instance,
-                    &certificate.qc,
-                    raw_header,
-                    &compressed,
-                    keys,
-                )
-                .map_err(CertificateError::destination_error)?;
-            }
-            DestinationFlavor::Ton => {
-                // `BLS_FASTAGGREGATEVERIFY` is one verdict (§5.3.4 item 5): a stored key that
-                // is no valid key, an identity aggregate, a `σ` that is no point of G2 and a
-                // failed pairing all throw `BadSignature`.
-                let compressed = <[u8; SIGNATURE_LEN]>::try_from(signature)
-                    .ok()
-                    .filter(|signature| signature_to_evm192(signature).is_some())
-                    .ok_or(DestinationError::BadSignature)?;
-                verify_certificate(
-                    &self.deployment.consensus_instance,
-                    &certificate.qc,
-                    raw_header,
-                    &compressed,
-                    keys,
-                )
-                .map_err(CertificateError::ton_destination_error)?;
-            }
-        }
-
-        // 12. Publish the certificate: every successful full-path verification, whatever
-        //     follows. A call that later reverts drops the event with its other effects.
-        events.push(DestinationEvent::Certificate {
-            height: header.height(),
-            generation: header.generation(),
-            qc: certificate.qc.clone(),
-            header: certificate.header.clone(),
-            signature: signature.to_vec(),
-        });
-        Ok((header, id))
+        Ok((checked.header, checked.checkpoint_id))
     }
 
     /// Record `checkpoint[height] = id` if the height is absent. TON keeps three entries: a
@@ -1539,7 +1628,10 @@ fn void_frozen_last_nonce(flavor: DestinationFlavor, first_nonce: u64, count: u6
 ///
 /// The certified block itself is named with its own root and count and no history path. An
 /// older block is proven through the history accumulator of the header.
-fn check_block_ref(
+///
+/// # Errors
+/// Returns `BadProof` when the block reference is not included in the supplied verified header.
+pub fn check_block_ref(
     block: &BlockRefV1,
     header: &SccpFinalityHeaderV1,
 ) -> Result<(), DestinationError> {
@@ -1569,9 +1661,11 @@ fn check_block_ref(
     }
 }
 
-/// A leaf against the block reference that holds it (path of at most 9 siblings);
-/// `BadProof` otherwise.
-fn check_leaf(
+/// A leaf against the block reference that holds it (path of at most 9 siblings).
+///
+/// # Errors
+/// Returns `BadProof` for a malformed or non-matching inclusion path.
+pub fn check_leaf(
     leaf: &[u8; 32],
     leaf_index: u32,
     path: &[[u8; 32]],
@@ -5892,5 +5986,165 @@ mod tests {
                 text(scenario, "name")
             );
         }
+    }
+    #[test]
+    fn borrowed_certificate_authority_matches_full_and_cached_destination_paths() {
+        let world = World::new();
+        let cert = world.cert(1010);
+        for flavor in FLAVORS {
+            let destination = world.destination(flavor);
+            let authority = CertificateAuthorityV1::new(
+                flavor,
+                &NETWORK,
+                &INSTANCE,
+                &destination.state.committee,
+                destination.state.keys.as_deref(),
+            )
+            .unwrap();
+            let full = authority
+                .verify(&cert, |height| {
+                    assert_eq!(height, 1010);
+                    None
+                })
+                .unwrap();
+            assert!(full.full_path);
+            assert_eq!(full.header, world.x(1010));
+            assert_eq!(destination.verify_certificate(&cert, NOW), Ok(()));
+            let mut events = Vec::new();
+            assert_eq!(
+                destination.verify(&cert, &mut events),
+                Ok((full.header, full.checkpoint_id))
+            );
+            assert_eq!(events.len(), 1);
+            assert!(matches!(
+                &events[0],
+                DestinationEvent::Certificate { height: 1010, .. }
+            ));
+            // A different valid signature is not a signature of this QC. Stored X takes the
+            // mandatory cheap path; an absent or different checkpoint still checks pairing.
+            let mut invalid = cert.clone();
+            let wrong = world.cert(1011);
+            invalid.signature = wrong.signature;
+            invalid.ton_signature = wrong.ton_signature;
+            assert_eq!(
+                authority.verify(&invalid, |_| None),
+                Err(DestinationError::BadSignature)
+            );
+            assert_eq!(
+                authority.verify(&invalid, |_| Some([9; 32])),
+                Err(DestinationError::BadSignature)
+            );
+            let cheap = authority
+                .verify(&invalid, |height| {
+                    assert_eq!(height, 1010);
+                    Some(full.checkpoint_id)
+                })
+                .unwrap();
+            assert!(!cheap.full_path);
+            assert_eq!(cheap.header, full.header);
+            let mut stored = destination;
+            stored.state.checkpoints.insert(1010, full.checkpoint_id);
+            let mut events = Vec::new();
+            assert_eq!(
+                stored.verify(&invalid, &mut events),
+                Ok((full.header, full.checkpoint_id))
+            );
+            assert!(events.is_empty());
+            invalid.signature = IDENTITY_SIGNATURE_EVM.to_vec();
+            invalid.ton_signature = IDENTITY_SIGNATURE.to_vec();
+            assert_eq!(
+                stored.verify(&invalid, &mut events),
+                Err(DestinationError::BadSignature)
+            );
+            assert!(events.is_empty());
+        }
+    }
+
+    #[test]
+    fn borrowed_ton_authority_binds_original_stored_keys_before_verification() {
+        let world = World::new();
+        let destination = world.destination(TON);
+        let keys = destination.state.keys.as_deref().unwrap();
+        let authority = CertificateAuthorityV1::new(
+            TON,
+            &NETWORK,
+            &INSTANCE,
+            &destination.state.committee,
+            Some(keys),
+        )
+        .unwrap();
+        assert!(core::ptr::eq(
+            authority.ton_keys.unwrap().as_ptr(),
+            keys.as_ptr()
+        ));
+        assert_eq!(
+            authority
+                .verify(&world.cert(1010), |_| None)
+                .unwrap()
+                .header,
+            world.x(1010)
+        );
+        let other = world.k1.keys();
+        let mut reversed = keys.to_vec();
+        reversed.reverse();
+        for supplied in [
+            None,
+            Some(other.as_slice()),
+            Some(reversed.as_slice()),
+            Some(&keys[..3]),
+        ] {
+            assert_eq!(
+                CertificateAuthorityV1::new(
+                    TON,
+                    &NETWORK,
+                    &INSTANCE,
+                    &destination.state.committee,
+                    supplied
+                )
+                .unwrap_err(),
+                DestinationError::BadCommittee
+            );
+        }
+        let mut changed = destination.state.committee;
+        changed.root = [9; 32];
+        assert_eq!(
+            CertificateAuthorityV1::new(TON, &NETWORK, &INSTANCE, &changed, Some(keys))
+                .unwrap_err(),
+            DestinationError::BadCommittee
+        );
+        let mut changed = destination.state.committee;
+        changed.generation += 1;
+        let authority =
+            CertificateAuthorityV1::new(TON, &NETWORK, &INSTANCE, &changed, Some(keys)).unwrap();
+        assert_eq!(
+            authority.verify(&world.cert(1010), |_| None),
+            Err(DestinationError::CommitteeNotAccepted)
+        );
+        let wrong_instance = [9; 32];
+        let authority = CertificateAuthorityV1::new(
+            TON,
+            &NETWORK,
+            &wrong_instance,
+            &destination.state.committee,
+            Some(keys),
+        )
+        .unwrap();
+        assert_eq!(
+            authority.verify(&world.cert(1010), |_| None),
+            Err(DestinationError::BadSignature)
+        );
+        let wrong_network = [9; 32];
+        let authority = CertificateAuthorityV1::new(
+            TON,
+            &wrong_network,
+            &INSTANCE,
+            &destination.state.committee,
+            Some(keys),
+        )
+        .unwrap();
+        assert_eq!(
+            authority.verify(&world.cert(1010), |_| None),
+            Err(DestinationError::BadHeader)
+        );
     }
 }

@@ -1,6 +1,6 @@
 //! The execution result `R` of a block (`specs/sumeragi.md` §4.1; option R1 of the integration
-//! plan): the sole `R` is raw SHA-256 over the fixed native SCCP header `X` and the
-//! domain-separated digest of the canonical execution body. Its stored preimage is `X ‖ body`.
+//! plan): `R = SHA-256(RESULT_TAG ‖ X ‖ H(RESULT_BODY_TAG ‖ body))`. The stored
+//! preimage is the original sealed finality header `X` followed by the canonical Norito body.
 //!
 //! [`ExecutionResultCommitment`] binds:
 //! - the [`ExecutionCommitment`]: the complete World state roots before and after the block's
@@ -63,9 +63,9 @@ use iroha_allocation::{AllocationBudget, ChargedBuffer, ChargedBufferError, Reta
 use iroha_data_model::sumeragi_finality::NativeLaneStateProof;
 
 pub use iroha_data_model::sumeragi_finality::{
-    CertifiedResultScope, CertifiedResultV1, CommitmentError, ExecutionCommitment,
-    ExecutionResultCommitment, MAX_RESULT_BODY_BYTES, MAX_RESULT_PREIMAGE_BYTES, RESULT_TAG,
-    SccpFinalityHeaderV1, chain_hash, result_of_preimage,
+    CertifiedResultError, CertifiedResultScope, CertifiedResultV1, CommitmentError,
+    ExecutionCommitment, ExecutionResultCommitment, MAX_RESULT_BODY_BYTES,
+    MAX_RESULT_PREIMAGE_BYTES, SccpFinalityHeaderV1, chain_hash, result_of_preimage,
 };
 
 /// The complete-World part of one block's execution (`specs/sumeragi.md` §4.1, Appendix E,
@@ -163,18 +163,19 @@ pub(crate) fn execution_result(
     transition: &WorldStateTransition,
     inputs: RetainedPayload<NativeExecutionInputs>,
     native_lanes: NativeLaneStateProof,
-    sccp_finality_header: SccpFinalityHeaderV1,
-) -> Result<RetainedPayload<CertifiedResultV1>, CommitmentError> {
+    header: SccpFinalityHeaderV1,
+    scope: CertifiedResultScope,
+) -> Result<RetainedPayload<CertifiedResultV1>, CertifiedResultError> {
     let height = executed.header().height().get();
     let execution = witness.prepare_native_execution(executed, transition)?;
     // SAFETY: only the two original canonical fields move, without clone, growth, sharing or
-    // extraction. The new height, slim execution commitment, fixed context proof and inline
-    // 221-byte SCCP header contain no owned allocations.
+    // extraction. The new height, slim execution commitment and fixed context proof contain
+    // no owned allocations; the original sealed X is an inline fixed-size array.
     // The original allocation ledger follows the whole R owner through publication and drop.
     let commitment = unsafe {
         inputs.map_payload(|inputs| {
             CertifiedResultV1::from_parts_unvalidated(
-                sccp_finality_header,
+                header,
                 ExecutionResultCommitment {
                     height,
                     execution,
@@ -185,14 +186,10 @@ pub(crate) fn execution_result(
             )
         })
     };
-    commitment
-        .get()
-        .validate(CertifiedResultScope::TairaGlobal)
-        .map_err(result_error)?;
-    commitment
-        .get()
-        .check_block(height, executed.header().creation_time_ms)
-        .map_err(result_error)?;
+    commitment.get().validate(scope)?;
+    let timestamp_ms = u64::try_from(executed.header().creation_time().as_millis())
+        .map_err(|_| CommitmentError::Encoding("block time exceeds u64 milliseconds".into()))?;
+    commitment.get().check_block(height, timestamp_ms)?;
     if commitment
         .get()
         .commitment()
@@ -202,20 +199,11 @@ pub(crate) fn execution_result(
             Some(pulse.finalized_chain_anchor.block_hash) != executed.header().prev_block_hash()
         })
     {
-        return Err(CommitmentError::Beacon(
-            "pulse anchor differs from executed parent".into(),
-        ));
+        return Err(
+            CommitmentError::Beacon("pulse anchor differs from executed parent".into()).into(),
+        );
     }
     Ok(commitment)
-}
-
-fn result_error(
-    error: iroha_data_model::sumeragi_finality::CertifiedResultError,
-) -> CommitmentError {
-    match error {
-        iroha_data_model::sumeragi_finality::CertifiedResultError::Body(original) => original,
-        other => CommitmentError::Encoding(other.to_string()),
-    }
 }
 
 /// A result preimage could not be encoded; resource refusal is local and preserves the result.
@@ -264,24 +252,26 @@ pub(crate) fn encode_result_preimage(
     if !commitment.belongs_to(budget) {
         return Err(ResultPreimageError::ForeignBudget);
     }
-    let body = commitment.get().commitment();
-    let body_length = norito::canonical_frame_len(body)?;
-    if body_length > MAX_RESULT_BODY_BYTES {
-        return Err(ResultPreimageError::PreimageLength(
-            iroha_data_model::sumeragi_finality::certified_result::X_LEN
-                .saturating_add(body_length),
-        ));
+    let result = commitment.get();
+    let body_len = norito::canonical_frame_len(result.commitment())?;
+    let length = result
+        .header()
+        .as_bytes()
+        .len()
+        .checked_add(body_len)
+        .ok_or(ResultPreimageError::PreimageLength(usize::MAX))?;
+    if body_len > MAX_RESULT_BODY_BYTES || length > MAX_RESULT_PREIMAGE_BYTES {
+        return Err(ResultPreimageError::PreimageLength(length));
     }
-    let length = iroha_data_model::sumeragi_finality::certified_result::X_LEN + body_length;
-    let mut output = ChargedBuffer::new(length, budget)?;
-    output
-        .append(commitment.get().header().as_bytes())
-        .map_err(|_| norito::Error::LengthMismatch)?;
-    norito::core::write_canonical_to_writer(body, &mut ResultPreimageWriter(&mut output))?;
-    if output.as_slice().len() != length {
+    let mut buffer = ChargedBuffer::new(length, budget)?;
+    let mut writer = ResultPreimageWriter(&mut buffer);
+    std::io::Write::write_all(&mut writer, result.header().as_bytes())
+        .map_err(norito::Error::from)?;
+    norito::core::write_canonical_to_writer(result.commitment(), &mut writer)?;
+    if buffer.as_slice().len() != length {
         return Err(ResultPreimageError::Encoding(norito::Error::LengthMismatch));
     }
-    Ok(output)
+    Ok(buffer)
 }
 
 /// An immutable consensus artifact whose canonical frame is carried by a certificate.
@@ -456,7 +446,7 @@ mod tests {
         executed: &SignedBlock,
         schedule: ScheduleOutcome,
         beacon: Option<FinalizedGlobalThresholdBeaconPulseV1>,
-    ) -> Result<(ExecutionResultCommitment, Vec<u8>, Hash32), CommitmentError> {
+    ) -> Result<(ExecutionResultCommitment, Vec<u8>, Hash32), CertifiedResultError> {
         let height = executed.header().height().get();
         let witness = with_context_write(witness.clone(), schedule.current.network_id, height);
         let native_lanes = context_proof(&witness);
@@ -467,21 +457,24 @@ mod tests {
             beacon,
             native_lanes,
         )?;
-        let header = SccpFinalityHeaderV1::inactive(
-            *commitment.schedule.current.network_id.as_bytes(),
-            height,
-            executed.header().creation_time_ms,
-        )
-        .map_err(|error| CommitmentError::Encoding(error.to_string()))?;
-        let certified = CertifiedResultV1::new(
-            header,
-            commitment.clone(),
-            CertifiedResultScope::TairaGlobal,
-        )
-        .map_err(result_error)?;
-        let preimage = certified.preimage().map_err(result_error)?;
-        let result = result_of_preimage(&preimage).expect("canonical checked X and body");
+        let full = fixture_certified_result(&commitment, executed);
+        full.validate(CertifiedResultScope::TairaGlobal)?;
+        let preimage = full.preimage()?;
+        let result = result_of_preimage(&preimage).expect("fixture encoded current result");
         Ok((commitment, preimage, result))
+    }
+
+    fn fixture_certified_result(
+        body: &ExecutionResultCommitment,
+        block: &SignedBlock,
+    ) -> CertifiedResultV1 {
+        let header = SccpFinalityHeaderV1::inactive(
+            *body.schedule.current.network_id.as_bytes(),
+            body.height,
+            u64::try_from(block.header().creation_time().as_millis()).unwrap(),
+        )
+        .unwrap();
+        CertifiedResultV1::from_parts_unvalidated(header, body.clone())
     }
 
     fn members(bytes: &[u8]) -> Vec<(PublicKey, Vec<u8>)> {
@@ -558,20 +551,33 @@ mod tests {
         assert_eq!(preimage, second_preimage);
         assert_eq!(result, second_result);
         assert_eq!(result_of_preimage(&preimage), Some(result));
-        let decoded =
-            CertifiedResultV1::decode(&preimage, CertifiedResultScope::TairaGlobal).unwrap();
-        assert_eq!(decoded.result().unwrap(), result);
-        assert_eq!(decoded.commitment(), &first);
+        assert_eq!(
+            fixture_certified_result(&first, &block).result().unwrap(),
+            result
+        );
+        assert_eq!(
+            CertifiedResultV1::decode(&preimage, CertifiedResultScope::TairaGlobal)
+                .unwrap()
+                .commitment(),
+            &first
+        );
         assert!(
             CertifiedResultV1::decode(&preimage[1..], CertifiedResultScope::TairaGlobal).is_err()
         );
-        assert!(
-            CertifiedResultV1::decode(
-                &first.preimage().unwrap(),
-                CertifiedResultScope::TairaGlobal
+        let header = SccpFinalityHeaderV1::parse(
+            &preimage[..iroha_data_model::sumeragi_finality::certified_result::X_LEN],
+        )
+        .unwrap();
+        assert_eq!(
+            result,
+            iroha_data_model::sumeragi_finality::certified_result::outer_result(
+                &header,
+                &iroha_data_model::sumeragi_finality::certified_result::body_digest(
+                    &preimage[iroha_data_model::sumeragi_finality::certified_result::X_LEN..]
+                )
             )
-            .is_err()
         );
+        // R is raw SHA-256: the retired chain-hash marker is not applied.
     }
 
     #[test]
@@ -932,7 +938,7 @@ mod tests {
         let header = SccpFinalityHeaderV1::inactive(
             *value.schedule.current.network_id.as_bytes(),
             value.height,
-            17,
+            0,
         )
         .unwrap();
         let value = CertifiedResultV1::from_parts_unvalidated(header, value);
@@ -970,7 +976,7 @@ mod tests {
         let budget = AllocationBudget::new(MAX_RESULT_PREIMAGE_BYTES);
         let owner = allocation_free_encoding_owner(&budget);
         let pointer = std::ptr::from_ref(owner.get());
-        let length = iroha_data_model::sumeragi_finality::certified_result::X_LEN
+        let length = owner.get().header().as_bytes().len()
             + norito::canonical_frame_len(owner.get().commitment()).unwrap();
         budget.set_limit_bytes(length);
         let occupied = ChargedBuffer::<u8>::new(1, &budget).unwrap();
@@ -1229,16 +1235,18 @@ mod tests {
         independent.execution.executed_block_wire_len = wire.len() as u64;
         independent.execution.executed_block_wire_hash = Hash::new(&wire);
         assert_eq!(independent, result);
-        let header = SccpFinalityHeaderV1::inactive(
-            *independent.schedule.current.network_id.as_bytes(),
-            independent.height,
-            original.header().creation_time_ms,
-        )
-        .unwrap();
-        let independent =
-            CertifiedResultV1::new(header, independent, CertifiedResultScope::TairaGlobal).unwrap();
-        assert_eq!(independent.preimage().unwrap(), preimage);
-        assert_eq!(independent.result().unwrap(), digest);
+        assert_eq!(
+            fixture_certified_result(&independent, &original)
+                .preimage()
+                .unwrap(),
+            preimage
+        );
+        assert_eq!(
+            fixture_certified_result(&independent, &original)
+                .result()
+                .unwrap(),
+            digest
+        );
     }
 
     #[test]
@@ -1395,14 +1403,19 @@ mod tests {
         assert_eq!(
             result_of_preimage(b"p"),
             None,
-            "a body-only input cannot name R"
+            "body-only bytes are not a current result"
         );
         let budget = AllocationBudget::new(MAX_RESULT_PREIMAGE_BYTES);
         let owner = allocation_free_encoding_owner(&budget);
         let bytes = owner.get().preimage().unwrap();
         let body_digest =
             iroha_data_model::sumeragi_finality::certified_result::body_digest(&bytes[221..]);
-        let input = [RESULT_TAG, &bytes[..221], body_digest.as_slice()].concat();
+        let input = [
+            iroha_data_model::sumeragi_finality::RESULT_TAG,
+            &bytes[..221],
+            body_digest.as_slice(),
+        ]
+        .concat();
         assert_eq!(
             result_of_preimage(&bytes).unwrap().0,
             iroha_crypto::sha256(input)

@@ -906,18 +906,47 @@ def test_native_owner_reconciliation_preserves_unfinished_relations() -> None:
     """New native source names must not turn unfinished functionality into completion."""
     registration = entry(CENSUS, "sccp.qualification")
     assert registration["status"] == "out_of_plan"
-    assert "unconditionally returns NativeAuthorityUnavailable" in registration["note"]
-    assert ["crates/iroha_core/src/smartcontracts/isi/sccp/governance.rs",
-            "qualification", "readiness", 9] in registration["sites"]
+    assert registration["symbol"] == "fn register_route(register:"
+    assert "RegisterRoute remains fail-closed" in registration["note"]
+    assert "incomplete authenticated committee pin and deployment checks" in registration["note"]
+    # The retired readiness name is absent; its underlying incomplete relation remains.
+    assert registration["sites"] == []
+    governance = (ROOT / registration["path"]).read_text(encoding="utf-8")
+    assert "if !parliament_iface::parliament_binding_ballot_available() {" in governance
+    assert "authenticated committee pin and deployment checks are incomplete" in governance
+    parliament = (ROOT / "crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs").read_text(encoding="utf-8")
+    assert "pub const fn parliament_binding_ballot_available() -> bool {\n    false\n}" in parliament
     unavailable = entry(CENSUS, "sccp.unavailable")
-    assert "control_proof always refuses" in unavailable["note"]
+    assert unavailable["status"] == "out_of_plan"
+    assert "request-funded original receipt acquisition" in unavailable["note"]
     assert "absent archive custody" in unavailable["note"]
+    assert "Generation/anchor retirement still awaits actual Pending forgery State" in unavailable["note"]
+    torii = (ROOT / unavailable["path"]).read_text(encoding="utf-8")
+    assert "fn proof_unavailable() -> Response {\n    error(\n        StatusCode::SERVICE_UNAVAILABLE," in torii
+    assert torii.count("\n    proof_unavailable()\n}") == 2
+    # The native producer exists: HTTP acquisition is the gap, not a missing control relation.
+    control = (ROOT / "crates/iroha_core/src/smartcontracts/isi/sccp/read/control.rs").read_text(encoding="utf-8")
+    assert "pub fn control_proof_from_native(" in control
+    assert "let source = NativeProofSource::new(view, native)?;" in control
     features = entry(CENSUS, "feature.zk_halo2_family")
     assert features["status"] == "open"
     assert features["symbol"] == "zk-ipa-native = []"
     assert "semantic parity" in features["open_reason"]
     assert CENSUS["features"]["iroha_core"]["zk-preverify"]["class"] == "validity_gate"
     assert "zk-halo2" not in CENSUS["features"]["iroha_core"]
+
+
+def test_current_sccp_incomplete_entries_reject_stale_anchors_and_false_completion(tree_scan) -> None:
+    """Current source evidence must survive detector-name retirement without becoming done."""
+    stale = edited(lambda census: entry(census, "sccp.qualification").update(
+        symbol="fn route_registration_readiness()"))
+    assert_fails(tree_scan, stale, "symbol 'fn route_registration_readiness()' does not occur")
+    absent = edited(lambda census: entry(census, "sccp.unavailable")["anchors"][0].update(
+        path="crates/iroha_core/src/smartcontracts/isi/sccp/read/absent_control.rs"))
+    assert_fails(tree_scan, absent, "absent_control.rs")
+    for identifier in ("sccp.qualification", "sccp.unavailable"):
+        done = edited(lambda census: entry(census, identifier).update(status="done"))
+        assert_fails(tree_scan, done, f"entry {identifier}: a done entry names a test or a removed construct")
 
 
 def test_source_lookup_and_phone_key_checks_have_distinct_authorities() -> None:

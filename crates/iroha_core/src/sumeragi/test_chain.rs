@@ -479,8 +479,8 @@ impl CertifiedTestChain {
         .map_err(|error| invalid(format!("original prepared manifest: {error:#}")))?;
         let genesis = validated_genesis.block().clone();
         let chain_id = manifest.chain_id().clone();
-        let epoch = super::epoch::authenticated_genesis(&genesis)
-            .map(|genesis| genesis.into_parts().0)
+        let (epoch, root_scope) = super::epoch::authenticated_genesis(&genesis)
+            .map(|genesis| genesis.into_parts())
             .map_err(|error| {
                 match crate::execution_attempt::genesis_read_attempt_error(error, |error| {
                     invalid(error.to_string())
@@ -575,6 +575,7 @@ impl CertifiedTestChain {
             Arc::clone(&kura),
             shared,
             GENESIS_HEIGHT,
+            root_scope,
             staging.clone(),
             state.ivm_execution_budget(),
             Arc::clone(&availability),
@@ -595,6 +596,7 @@ impl CertifiedTestChain {
             events,
             genesis_account: genesis_account.clone(),
             consensus_mode: consensus_mode.into(),
+            root_scope,
             applied: (GENESIS_HEIGHT, tip.block_hash),
             crypto: Some(Arc::clone(&crypto)),
             applied_watch: Arc::new(crate::sumeragi::lanes::global::AppliedWatch::new(
@@ -626,6 +628,15 @@ impl CertifiedTestChain {
             clock,
             lane_blocks,
         })
+    }
+
+    /// Original immutable scope from the independently validated signed genesis bundle.
+    #[must_use]
+    pub fn root_scope(&self) -> iroha_data_model::block::consensus::SumeragiRootScope {
+        self.validated_genesis
+            .consensus_metadata()
+            .sumeragi_context
+            .root_scope
     }
 
     /// Replay the exact certified suffix of another chain through startup's native executor.
@@ -1279,7 +1290,8 @@ impl CertifiedTestChain {
                 vote.sig = self
                     .signer_for_member(&context.committee[signer as usize].validator)
                     .expect("provisioned exact scheduled BLS custody")
-                    .sign(&vote.preimage());
+                    .sign(&vote.preimage())
+                    .unwrap();
                 vote
             })
             .collect::<Vec<_>>();
@@ -1308,7 +1320,8 @@ impl CertifiedTestChain {
                     block_hash,
                     result,
                     signers: signers_bitmap,
-                    agg_sig: iroha_sumeragi::crypto::Crypto::aggregate(&*self.crypto, &sigs),
+                    agg_sig: iroha_sumeragi::crypto::Crypto::aggregate(&*self.crypto, &sigs)
+                        .expect("genuine fixture signatures aggregate"),
                 }
             }
         }
@@ -1373,6 +1386,8 @@ impl CertifiedTestChain {
                 &view.zk().gas,
                 draft.payload(),
                 created_ms,
+                crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                    .expect("original committed fixture time"),
                 self.height() + 1,
                 Some(dataspace_id),
             )
@@ -1784,14 +1799,22 @@ fn validate_fixture_genesis_policy(
     attempt: u8,
 ) -> Result<Option<(iroha_crypto::Hash, iroha_crypto::Hash)>, Box<crate::block::BlockValidationError>>
 {
-    let validation = crate::block::ValidBlock::validate_signed_genesis(
-        genesis,
-        topology,
-        account,
-        &TimeSource::new_system(),
-        state,
-        mode,
-    )
+    let validation = {
+        let selected_genesis = genesis;
+        let selected_scope = crate::sumeragi::epoch::authenticated_genesis(&selected_genesis)
+            .expect("signed fixture root scope")
+            .into_parts()
+            .1;
+        crate::block::ValidBlock::validate_signed_genesis(
+            selected_genesis,
+            topology,
+            account,
+            &TimeSource::new_system(),
+            state,
+            mode,
+            selected_scope,
+        )
+    }
     .unpack(|_| {});
     match validation {
         Ok((valid, overlay)) => {
@@ -2451,14 +2474,23 @@ mod tests {
                 if hash == HashOf::new(&expected) && actual == Some(HashOf::new(&wrong_policy))
         ));
         {
-            let validation = crate::block::ValidBlock::validate_signed_genesis(
-                wrong,
-                &topology,
-                &AccountId::new(key.public_key().clone()),
-                &TimeSource::new_system(),
-                &prepared.state,
-                ConsensusMode::Permissioned,
-            )
+            let validation = {
+                let selected_genesis = wrong;
+                let selected_scope =
+                    crate::sumeragi::epoch::authenticated_genesis(&selected_genesis)
+                        .expect("signed fixture root scope")
+                        .into_parts()
+                        .1;
+                crate::block::ValidBlock::validate_signed_genesis(
+                    selected_genesis,
+                    &topology,
+                    &AccountId::new(key.public_key().clone()),
+                    &TimeSource::new_system(),
+                    &prepared.state,
+                    ConsensusMode::Permissioned,
+                    selected_scope,
+                )
+            }
             .unpack(|_| {});
             let (rejected, error) = match validation {
                 Ok(_) => panic!("signed policy outside the configured catalog must be rejected"),

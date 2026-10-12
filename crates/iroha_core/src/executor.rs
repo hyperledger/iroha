@@ -15,10 +15,11 @@ use crate::{
     status::{self, NexusFeeEvent, NexusFeePayer},
 };
 use base64::Engine as _;
+#[cfg(test)]
+use core::str::FromStr;
 use core::{
     convert::TryFrom,
     ops::{Deref, DerefMut},
-    str::FromStr,
 };
 use derive_more::Debug;
 use iroha_config::parameters::actual::{ConfidentialGas, NexusFees, Pipeline};
@@ -1560,11 +1561,16 @@ fn fee_exempt_payload(
     nexus: &iroha_config::parameters::actual::Nexus,
     payload: &TransactionPayload,
     observation_time_ms: u64,
+    sccp_committed_time_ms: Option<u64>,
 ) -> Result<bool, crate::execution_attempt::ExecutionDeferred> {
     Ok(private_fees::permits_public_exemption(world)?
         && (nexus_fee_exempt_payload(payload)
             || successful_claim_fee_exempt_payload(world, nexus, payload, observation_time_ms)?
-            || crate::smartcontracts::isi::sccp::fees::exempt_on_success(world, payload)))
+            || crate::smartcontracts::isi::sccp::fees::exempt_on_success(
+                world,
+                payload,
+                sccp_committed_time_ms,
+            )))
 }
 /// Return whether `transaction` skips the Nexus fee when it succeeds, judged against the
 /// committed `world` the next block executes on (queue admission). Execution uses
@@ -1574,6 +1580,7 @@ fn fee_exempt_transaction(
     nexus: &iroha_config::parameters::actual::Nexus,
     transaction: &SignedTransaction,
     observation_time_ms: u64,
+    sccp_committed_time_ms: Option<u64>,
 ) -> Result<bool, crate::execution_attempt::ExecutionDeferred> {
     // `world` is the committed parent World, the one SCCP eligibility is judged against.
     Ok(private_fees::permits_public_exemption(world)?
@@ -1587,6 +1594,7 @@ fn fee_exempt_transaction(
             || crate::smartcontracts::isi::sccp::fees::exempt_on_success(
                 world,
                 transaction.payload(),
+                sccp_committed_time_ms,
             )))
 }
 /// Return how the Nexus fee applies to `transaction` executing in `state_transaction`, with
@@ -1604,10 +1612,12 @@ fn transaction_fee_exemption(
         ExecutionFeeExemption,
         Option<crate::smartcontracts::isi::sccp::admission::SccpExemptClassV1>,
     ),
-    crate::execution_attempt::ExecutionDeferred,
+    crate::execution_attempt::ExecutionAttemptError<ValidationFail>,
 > {
     let world = &state_transaction.world;
-    if !private_fees::permits_public_exemption(world)? {
+    if !private_fees::permits_public_exemption(world)
+        .map_err(crate::execution_attempt::ExecutionAttemptError::Deferred)?
+    {
         return Ok((ExecutionFeeExemption::Charged, None));
     }
     if nexus_fee_exempt_transaction(transaction)
@@ -1616,7 +1626,8 @@ fn transaction_fee_exemption(
             &state_transaction.nexus,
             transaction,
             state_transaction.block_unix_timestamp_ms(),
-        )?
+        )
+        .map_err(crate::execution_attempt::ExecutionAttemptError::Deferred)?
     {
         return Ok((ExecutionFeeExemption::Exempt, None));
     }
@@ -1624,7 +1635,12 @@ fn transaction_fee_exemption(
         match crate::smartcontracts::isi::sccp::fees::exempt_class_in_block(
             state_transaction,
             transaction.payload(),
-        ) {
+        )
+        .map_err(|error| {
+            crate::execution_attempt::ExecutionAttemptError::Rejected(
+                ValidationFail::InternalError(error.to_string()),
+            )
+        })? {
             Some(class) => (ExecutionFeeExemption::ExemptOnSuccess, Some(class)),
             None => (ExecutionFeeExemption::Charged, None),
         },
@@ -3297,7 +3313,10 @@ fn prepare_contract_argument_record_from_json(
     schema: Option<&ivm::EntrypointArgumentSchemaV1>,
     payload: Option<&Json>,
     gas_limit: u64,
-) -> Result<Option<ivm::PreparedArgumentRecord>, ValidationFail> {
+) -> Result<
+    Option<ivm::PreparedArgumentRecord>,
+    crate::execution_attempt::ExecutionAttemptError<ValidationFail>,
+> {
     let canonical = encode_contract_argument_record(schema, payload)?;
     match (schema, canonical) {
         (None, None) => Ok(None),
@@ -3305,29 +3324,37 @@ fn prepare_contract_argument_record_from_json(
             ivm::prepare_argument_record_with_gas_limit(schema, Arc::from(canonical), gas_limit)
                 .map(Some)
                 .map_err(|error| {
-                    ValidationFail::NotPermitted(format!(
-                        "failed to prepare canonical contract arguments: {error}"
-                    ))
+                    crate::execution_attempt::vm_attempt_error(error, |error| {
+                        ValidationFail::NotPermitted(format!(
+                            "failed to prepare canonical contract arguments: {error}"
+                        ))
+                    })
                 })
         }
         _ => Err(ValidationFail::InternalError(
             "contract argument schema and canonical record diverged".to_owned(),
-        )),
+        )
+        .into()),
     }
 }
 fn prepare_validated_contract_argument_record(
     schema: Option<&ivm::EntrypointArgumentSchemaV1>,
     arguments: Option<&[u8]>,
     gas_limit: u64,
-) -> Result<Option<ivm::PreparedArgumentRecord>, ValidationFail> {
+) -> Result<
+    Option<ivm::PreparedArgumentRecord>,
+    crate::execution_attempt::ExecutionAttemptError<ValidationFail>,
+> {
     match (schema, arguments) {
         (None, None) => Ok(None),
         (None, Some(_)) => Err(ValidationFail::NotPermitted(
             "zero-parameter entrypoint must not carry an argument record".to_owned(),
-        )),
+        )
+        .into()),
         (Some(_), None) => Err(ValidationFail::NotPermitted(
             "parameterized entrypoint requires an argument record".to_owned(),
-        )),
+        )
+        .into()),
         (Some(schema), Some(arguments)) => ivm::prepare_argument_record_with_gas_limit(
             schema,
             Arc::<[u8]>::from(arguments),
@@ -3335,7 +3362,9 @@ fn prepare_validated_contract_argument_record(
         )
         .map(Some)
         .map_err(|error| {
-            ValidationFail::NotPermitted(format!("invalid contract argument record: {error}"))
+            crate::execution_attempt::vm_attempt_error(error, |error| {
+                ValidationFail::NotPermitted(format!("invalid contract argument record: {error}"))
+            })
         }),
     }
 }
@@ -3579,7 +3608,10 @@ impl ContractDispatchSource<'_> {
 pub(crate) fn parse_contract_call_execution_context(
     metadata: &Metadata,
     bytecode: &[u8],
-) -> Result<Option<ContractCallExecutionContext>, ValidationFail> {
+) -> Result<
+    Option<ContractCallExecutionContext>,
+    crate::execution_attempt::ExecutionAttemptError<ValidationFail>,
+> {
     parse_contract_call_execution_context_from_source(
         metadata,
         ContractDispatchSource::Bytecode(bytecode),
@@ -3591,7 +3623,10 @@ pub(crate) fn parse_prepared_contract_call_execution_context(
     metadata: &Metadata,
     contract: &ivm::PreparedContract,
     gas_limit: u64,
-) -> Result<Option<ContractCallExecutionContext>, ValidationFail> {
+) -> Result<
+    Option<ContractCallExecutionContext>,
+    crate::execution_attempt::ExecutionAttemptError<ValidationFail>,
+> {
     parse_contract_call_execution_context_from_source(
         metadata,
         ContractDispatchSource::Prepared(contract),
@@ -3910,7 +3945,10 @@ pub(crate) fn parse_prepared_trigger_call_execution_context(
     contract: &ivm::PreparedContract,
     event_args: &Json,
     gas_limit: u64,
-) -> Result<ContractCallExecutionContext, ValidationFail> {
+) -> Result<
+    ContractCallExecutionContext,
+    crate::execution_attempt::ExecutionAttemptError<ValidationFail>,
+> {
     parse_contract_call_execution_context_from_source(
         metadata,
         ContractDispatchSource::Prepared(contract),
@@ -3922,6 +3960,7 @@ pub(crate) fn parse_prepared_trigger_call_execution_context(
             "self-describing IVM trigger action did not resolve a callback".to_owned(),
         )
     })
+    .map_err(Into::into)
 }
 /// Bind a deployed trigger callback to its firing event using the signed schema.
 ///
@@ -3934,12 +3973,16 @@ pub(crate) fn parse_prepared_trigger_invocation_execution_context(
     contract_subject: AccountId,
     event_args: &Json,
     gas_limit: u64,
-) -> Result<ContractCallExecutionContext, ValidationFail> {
+) -> Result<
+    ContractCallExecutionContext,
+    crate::execution_attempt::ExecutionAttemptError<ValidationFail>,
+> {
     if invocation.arguments.is_some() {
         return Err(ValidationFail::NotPermitted(
             "trigger callbacks must take arguments from the firing event, not a fixed call record"
                 .to_owned(),
-        ));
+        )
+        .into());
     }
     let selector = invocation.entrypoint.as_str();
     let (entrypoint_pc, entrypoint_authorization, argument_schema) =
@@ -3965,7 +4008,7 @@ pub(crate) fn parse_prepared_trigger_invocation_execution_context(
 pub(crate) fn validate_trigger_call_execution_context(
     metadata: &Metadata,
     bytecode: &[u8],
-) -> Result<(), ValidationFail> {
+) -> Result<(), crate::execution_attempt::ExecutionAttemptError<ValidationFail>> {
     parse_contract_call_execution_context_from_source(
         metadata,
         ContractDispatchSource::Bytecode(bytecode),
@@ -3984,7 +4027,10 @@ fn parse_contract_call_execution_context_from_source(
     source: ContractDispatchSource<'_>,
     argument_source: ContractArgumentSource<'_>,
     gas_limit: u64,
-) -> Result<Option<ContractCallExecutionContext>, ValidationFail> {
+) -> Result<
+    Option<ContractCallExecutionContext>,
+    crate::execution_attempt::ExecutionAttemptError<ValidationFail>,
+> {
     let contract_address = requested_contract_address(metadata)?;
     let contract_alias = requested_contract_alias(metadata)?;
     let entrypoint = requested_contract_entrypoint(metadata)?;
@@ -3993,7 +4039,7 @@ fn parse_contract_call_execution_context_from_source(
         return Err(ValidationFail::NotPermitted(
             "IVM trigger actions must take arguments from the triggering event, not contract_payload metadata"
                 .to_owned(),
-        ));
+        ).into());
     }
     let (entrypoint, entrypoint_pc, entrypoint_authorization, argument_schema) =
         if let Some(selector) = entrypoint.as_deref() {
@@ -4011,7 +4057,8 @@ fn parse_contract_call_execution_context_from_source(
             return Err(ValidationFail::NotPermitted(
                 "self-describing contract calls require explicit contract_entrypoint metadata"
                     .to_owned(),
-            ));
+            )
+            .into());
         } else if metadata_payload.is_none() {
             return Ok(None);
         } else {
@@ -4056,12 +4103,16 @@ pub(crate) fn parse_contract_invocation_execution_context(
     bytecode: &[u8],
     contract_alias: Option<iroha_data_model::smart_contract::ContractAlias>,
     contract_subject: AccountId,
-) -> Result<ContractCallExecutionContext, ValidationFail> {
+) -> Result<
+    ContractCallExecutionContext,
+    crate::execution_attempt::ExecutionAttemptError<ValidationFail>,
+> {
     let selector = invocation.entrypoint.trim();
     if selector.is_empty() {
         return Err(ValidationFail::NotPermitted(
             "contract entrypoint must not be empty".to_owned(),
-        ));
+        )
+        .into());
     }
     let (entrypoint_pc, entrypoint_authorization, argument_schema) =
         resolve_callable_contract_entrypoint(
@@ -4092,12 +4143,16 @@ pub(crate) fn parse_prepared_contract_invocation_execution_context(
     contract_alias: Option<iroha_data_model::smart_contract::ContractAlias>,
     contract_subject: AccountId,
     gas_limit: u64,
-) -> Result<ContractCallExecutionContext, ValidationFail> {
+) -> Result<
+    ContractCallExecutionContext,
+    crate::execution_attempt::ExecutionAttemptError<ValidationFail>,
+> {
     let selector = invocation.entrypoint.trim();
     if selector.is_empty() {
         return Err(ValidationFail::NotPermitted(
             "contract entrypoint must not be empty".to_owned(),
-        ));
+        )
+        .into());
     }
     let (entrypoint_pc, entrypoint_authorization, argument_schema) =
         resolve_prepared_contract_entrypoint(contract, selector)?;
@@ -4534,6 +4589,10 @@ fn evaluate_nexus_fee_admission_payload(
 /// result remains identical after the payload is signed. The supplied intent must already contain
 /// adequate signature-bound charge limits. Protocol and successful-claim exemptions return an
 /// accepted zero-component quote because execution skips the same exact signed payloads.
+/// `sccp_committed_time_ms` must come from the same original committed source as `world`
+/// ([`crate::smartcontracts::isi::sccp::hold::committed_time_ms`]); it is distinct from the
+/// fee observation horizon. `None` represents an empty predecessor and cannot expire a pause.
+#[allow(clippy::too_many_arguments)] // Separate fee horizon and original SCCP ledger time.
 pub fn quote_nexus_fee_admission_payload(
     world: &impl WorldReadOnly,
     nexus: &iroha_config::parameters::actual::Nexus,
@@ -4541,6 +4600,7 @@ pub fn quote_nexus_fee_admission_payload(
     zk_gas: &ConfidentialGas,
     payload: &TransactionPayload,
     observation_time_ms: u64,
+    sccp_committed_time_ms: Option<u64>,
     next_block_height: u64,
     route_dataspace_id: Option<DataSpaceId>,
 ) -> Result<
@@ -4548,8 +4608,14 @@ pub fn quote_nexus_fee_admission_payload(
     crate::execution_attempt::ExecutionAttemptError<NexusFeeAdmissionError>,
 > {
     require_direct_fee_settlement(nexus)?;
-    if fee_exempt_payload(world, nexus, payload, observation_time_ms)
-        .map_err(crate::execution_attempt::ExecutionAttemptError::Deferred)?
+    if fee_exempt_payload(
+        world,
+        nexus,
+        payload,
+        observation_time_ms,
+        sccp_committed_time_ms,
+    )
+    .map_err(crate::execution_attempt::ExecutionAttemptError::Deferred)?
     {
         return Ok(fee_exempt_admission_quote(payload));
     }
@@ -4617,6 +4683,9 @@ fn fee_exempt_admission_quote(payload: &TransactionPayload) -> FeeAdmissionQuote
 /// the limits themselves contribute to the canonical byte fee, then returns the exact
 /// [`FeePaymentIntent`] to place in the payload before signing. Exempt payloads canonicalize
 /// directly to empty charge limits. Queue admission intentionally uses the strict quote API.
+/// Supply the original parent's SCCP time separately from the fee observation horizon, as
+/// required by [`quote_nexus_fee_admission_payload`].
+#[allow(clippy::too_many_arguments)] // Separate fee horizon and original SCCP ledger time.
 pub fn quote_nexus_fee_admission_draft(
     world: &impl WorldReadOnly,
     nexus: &iroha_config::parameters::actual::Nexus,
@@ -4624,6 +4693,7 @@ pub fn quote_nexus_fee_admission_draft(
     zk_gas: &ConfidentialGas,
     payload: &TransactionPayload,
     observation_time_ms: u64,
+    sccp_committed_time_ms: Option<u64>,
     next_block_height: u64,
     route_dataspace_id: Option<DataSpaceId>,
 ) -> Result<
@@ -4631,8 +4701,14 @@ pub fn quote_nexus_fee_admission_draft(
     crate::execution_attempt::ExecutionAttemptError<NexusFeeAdmissionError>,
 > {
     require_direct_fee_settlement(nexus)?;
-    if fee_exempt_payload(world, nexus, payload, observation_time_ms)
-        .map_err(crate::execution_attempt::ExecutionAttemptError::Deferred)?
+    if fee_exempt_payload(
+        world,
+        nexus,
+        payload,
+        observation_time_ms,
+        sccp_committed_time_ms,
+    )
+    .map_err(crate::execution_attempt::ExecutionAttemptError::Deferred)?
     {
         // TODO(ws31): an SCCP payload is exempt on success only, and a failure is charged
         // only within its signed limits (`specs/sccp.md` §4.19). Recommend the ordinary
@@ -4688,6 +4764,7 @@ pub fn quote_nexus_fee_admission_draft(
 ///
 /// This is the queue/admission wrapper around
 /// [`quote_nexus_fee_admission_payload`]; signatures do not affect fee bytes.
+#[allow(clippy::too_many_arguments)] // Separate fee horizon and original SCCP ledger time.
 pub fn quote_nexus_fee_admission(
     world: &impl WorldReadOnly,
     nexus: &iroha_config::parameters::actual::Nexus,
@@ -4695,6 +4772,7 @@ pub fn quote_nexus_fee_admission(
     zk_gas: &ConfidentialGas,
     transaction: &SignedTransaction,
     observation_time_ms: u64,
+    sccp_committed_time_ms: Option<u64>,
     next_block_height: u64,
     route_dataspace_id: Option<DataSpaceId>,
 ) -> Result<
@@ -4708,6 +4786,7 @@ pub fn quote_nexus_fee_admission(
         zk_gas,
         transaction.payload(),
         observation_time_ms,
+        sccp_committed_time_ms,
         next_block_height,
         route_dataspace_id,
     )
@@ -4753,6 +4832,7 @@ pub(crate) mod sorafs_admission_hash_probe {
 pub(crate) fn is_initial_genesis_context(state_transaction: &StateTransaction<'_, '_>) -> bool {
     state_transaction._curr_block.is_genesis() && state_transaction.block_hashes.is_empty()
 }
+#[allow(clippy::too_many_arguments)] // Preserve the same explicit quote inputs.
 pub(crate) fn quote_external_nexus_fee_admission(
     world: &impl WorldReadOnly,
     nexus: &iroha_config::parameters::actual::Nexus,
@@ -4760,14 +4840,21 @@ pub(crate) fn quote_external_nexus_fee_admission(
     zk_gas: &ConfidentialGas,
     transaction: &SignedTransaction,
     observation_time_ms: u64,
+    sccp_committed_time_ms: Option<u64>,
     next_block_height: u64,
     route_dataspace_id: Option<DataSpaceId>,
 ) -> Result<
     Option<FeeAdmissionQuote>,
     crate::execution_attempt::ExecutionAttemptError<NexusFeeAdmissionError>,
 > {
-    if fee_exempt_transaction(world, nexus, transaction, observation_time_ms)
-        .map_err(crate::execution_attempt::ExecutionAttemptError::Deferred)?
+    if fee_exempt_transaction(
+        world,
+        nexus,
+        transaction,
+        observation_time_ms,
+        sccp_committed_time_ms,
+    )
+    .map_err(crate::execution_attempt::ExecutionAttemptError::Deferred)?
     {
         return Ok(None);
     }
@@ -4778,6 +4865,7 @@ pub(crate) fn quote_external_nexus_fee_admission(
         zk_gas,
         transaction,
         observation_time_ms,
+        sccp_committed_time_ms,
         next_block_height,
         route_dataspace_id,
     )
@@ -4795,22 +4883,23 @@ pub(crate) fn validate_transaction_fee_admission(
 ) -> Result<(), ValidationFail> {
     if is_initial_genesis_context(state_transaction)
         || transaction_fee_exemption(state_transaction, transaction)
-            .map_err(|reason| state_transaction.defer_execution(reason))?
+            .map_err(|error| state_transaction.attempt_error_to_validation_fail(error))?
             .0
             .skips_fee_on_success()
     {
         return Ok(());
     }
     Executor::refresh_private_fee_policy(state_transaction)?;
-    quote_nexus_fee_admission(
+    evaluate_nexus_fee_admission_payload(
         &state_transaction.world,
         &state_transaction.nexus,
         &state_transaction.pipeline,
         &state_transaction.zk.gas,
-        transaction,
+        transaction.payload(),
         state_transaction.block_unix_timestamp_ms(),
         state_transaction.block_height(),
         state_transaction.current_dataspace_id,
+        true,
     )
     .map_err(|error| {
         state_transaction.attempt_error_to_validation_fail(
@@ -4900,7 +4989,7 @@ fn charge_fees_for_applied_overlay(
         .sponsor_program()
         .map(|(program_id, _)| program_id.clone());
     let skip_nexus_fee = transaction_fee_exemption(state_transaction, transaction)
-        .map_err(|reason| state_transaction.defer_execution(reason))?
+        .map_err(|error| state_transaction.attempt_error_to_validation_fail(error))?
         .0
         .skips_fee_on_success();
     // Admission captured the governed gas policy before business effects were applied.
@@ -6536,7 +6625,8 @@ impl Executor {
             identity.contract_alias.clone(),
             contract_subject,
             effective_limit,
-        )?;
+        )
+        .map_err(|error| state_transaction.attempt_error_to_validation_fail(error))?;
         let heap_limit = state_transaction
             .world
             .parameters
@@ -7018,7 +7108,7 @@ impl Executor {
             (ExecutionFeeExemption::Exempt, None)
         } else {
             transaction_fee_exemption(state_transaction, &transaction)
-                .map_err(|reason| state_transaction.defer_execution(reason))?
+                .map_err(|error| state_transaction.attempt_error_to_validation_fail(error))?
         };
         let skip_nexus_fee = fee_exemption.skips_fee_on_success();
         // Only an exempt self-claim makes the self-claim fee due at release (§4.12.4).
@@ -7029,15 +7119,16 @@ impl Executor {
         // Quote the predecessor-frozen pipeline fee snapshot shared with block execution.
         let fee_quote = if !skip_nexus_fee {
             Some(
-                quote_nexus_fee_admission(
+                evaluate_nexus_fee_admission_payload(
                     &state_transaction.world,
                     &state_transaction.nexus,
                     &state_transaction.pipeline,
                     &state_transaction.zk.gas,
-                    &transaction,
+                    transaction.payload(),
                     state_transaction.block_unix_timestamp_ms(),
                     state_transaction.block_height(),
                     state_transaction.current_dataspace_id,
+                    true,
                 )
                 .map_err(|error| {
                     state_transaction.attempt_error_to_validation_fail(
@@ -7750,7 +7841,8 @@ impl Executor {
             &md,
             summary.prepared_contract(),
             effective_limit,
-        )?;
+        )
+        .map_err(|error| state_transaction.attempt_error_to_validation_fail(error))?;
         if let Some(context) = contract_call_context.as_mut() {
             context.bind_runtime_identity(runtime_identity, contract_subject);
         }
@@ -15960,14 +16052,22 @@ mod tests {
                 .iter()
                 .map(|key| PeerId::new(key.public_key().clone())),
         );
-        let (valid, block) = crate::block::ValidBlock::validate_signed_genesis(
-            prepared.genesis.block().clone(),
-            &topology,
-            authority,
-            &iroha_primitives::time::TimeSource::new_system(),
-            &prepared.state,
-            iroha_data_model::parameter::system::ConsensusMode::Permissioned,
-        )
+        let (valid, block) = {
+            let selected_genesis = prepared.genesis.block().clone();
+            let selected_scope = crate::sumeragi::epoch::authenticated_genesis(&selected_genesis)
+                .expect("signed fixture root scope")
+                .into_parts()
+                .1;
+            crate::block::ValidBlock::validate_signed_genesis(
+                selected_genesis,
+                &topology,
+                authority,
+                &iroha_primitives::time::TimeSource::new_system(),
+                &prepared.state,
+                iroha_data_model::parameter::system::ConsensusMode::Permissioned,
+                selected_scope,
+            )
+        }
         .unpack(|_| {})
         .expect("execute the exact validated signed fee fixture genesis");
         assert!(
@@ -17306,6 +17406,7 @@ mod tests {
             &crate::gas::DEFAULT_ZK_GAS,
             &payload,
             0,
+            None, /* World-only pre-genesis fee fixture */
             1,
             Some(DataSpaceId::UNIVERSAL),
         )
@@ -17329,6 +17430,7 @@ mod tests {
             &crate::gas::DEFAULT_ZK_GAS,
             &payload,
             0,
+            None, /* World-only pre-genesis fee fixture */
             1,
             Some(DataSpaceId::UNIVERSAL),
         )
@@ -17388,6 +17490,7 @@ mod tests {
             &crate::gas::DEFAULT_ZK_GAS,
             &payload,
             0,
+            None, /* World-only pre-genesis fee fixture */
             1,
             Some(DataSpaceId::UNIVERSAL),
         )
@@ -17563,6 +17666,7 @@ mod tests {
             &crate::gas::DEFAULT_ZK_GAS,
             &payload,
             0,
+            None, /* World-only pre-genesis fee fixture */
             1,
             Some(DataSpaceId::UNIVERSAL),
         )
@@ -23181,6 +23285,7 @@ seiyaku ReviewedValue { permission CanInvokeContractEntrypoint;
             contract_address.subject_id(),
             u64::MAX,
         )
+        .map_err(crate::execution_attempt::expect_completed_rejection)
         .expect_err("top-level transaction dispatch must remain public-only");
         assert!(matches!(
             top_level_err,
@@ -23309,6 +23414,7 @@ seiyaku ReviewedValue { permission CanInvokeContractEntrypoint;
                 Json::new(selector.to_owned()),
             );
             let error = parse_contract_call_execution_context(&metadata, &program)
+                .map_err(crate::execution_attempt::expect_completed_rejection)
                 .expect_err("raw transaction dispatch must not invoke lifecycle hooks");
             assert!(
                 matches!(error, ValidationFail::NotPermitted(message) if message.contains("top-level deployed ContractCall") && message.contains(selector))
@@ -23371,6 +23477,7 @@ seiyaku ReviewedValue { permission CanInvokeContractEntrypoint;
             Json::new("inspect".to_owned()),
         );
         let err = parse_contract_call_execution_context(&metadata, &program)
+            .map_err(crate::execution_attempt::expect_completed_rejection)
             .expect_err("view transaction dispatch must reject");
         assert!(matches!(
             err,
@@ -23383,6 +23490,7 @@ seiyaku ReviewedValue { permission CanInvokeContractEntrypoint;
         let (program, _) = contract_program_with_entrypoint("main", Some("ContractAdmin"));
         let metadata = Metadata::default();
         let err = parse_contract_call_execution_context(&metadata, &program)
+            .map_err(crate::execution_attempt::expect_completed_rejection)
             .expect_err("implicit main dispatch must reject");
         assert!(matches!(
             err,
@@ -23534,6 +23642,7 @@ seiyaku ReviewedValue { permission CanInvokeContractEntrypoint;
         ));
     }
     include!("executor_contract_dispatch_tests.rs");
+    include!("executor/argument_refusal_tests.rs");
 }
 
 #[cfg(test)]

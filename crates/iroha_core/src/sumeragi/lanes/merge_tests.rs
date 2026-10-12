@@ -330,7 +330,10 @@ impl Fixture {
                     signer: u32::try_from(index).unwrap(),
                     sig: Signature([0; SIGNATURE_LEN]),
                 };
-                vote.sig = KeyPairSigner::new(key).unwrap().sign(&vote.preimage());
+                vote.sig = KeyPairSigner::new(key)
+                    .unwrap()
+                    .sign(&vote.preimage())
+                    .unwrap();
                 vote
             })
             .collect::<Vec<_>>();
@@ -823,6 +826,7 @@ fn merged_rejection_event_retains_the_original_native_proposal_header() {
         fixture.chain.genesis_account(),
         cadence,
         ConsensusMode::Permissioned,
+        fixture.chain.root_scope(),
         expansion,
         &header,
         &bytes,

@@ -42,9 +42,16 @@ fn portable_readers_reject_body_only_and_mismatched_header_before_granting_autho
     let proof = fixture.latest();
     let block = decode_framed_signed_block(&proof.block_wire).unwrap();
     let preimage = block.commit_certificate().unwrap().result_preimage();
-    assert!(proof.decode_checked().is_ok());
+    assert!(
+        proof
+            .decode_checked(CertifiedResultScope::TairaGlobal)
+            .is_ok()
+    );
     let bare = replace_preimage(proof, preimage[X_LEN..].to_vec(), false);
-    assert!(bare.decode_checked().is_err());
+    assert!(
+        bare.decode_checked(CertifiedResultScope::TairaGlobal)
+            .is_err()
+    );
     let mut compact = SumeragiCommitCertificateV1::from_verified(
         &fixture.verifier().verify_retained_decision(proof).unwrap(),
     )
@@ -71,7 +78,7 @@ fn portable_readers_reject_body_only_and_mismatched_header_before_granting_autho
         changed.extend_from_slice(&preimage[X_LEN..]);
         let changed = replace_preimage(proof, changed, false);
         let error = changed
-            .decode_checked()
+            .decode_checked(CertifiedResultScope::TairaGlobal)
             .map_err(invalid_read_error)
             .unwrap_err()
             .0;
@@ -108,7 +115,9 @@ fn original_signed_root_scope_controls_active_finality_admission() {
     let active_global = active_proof(&global);
     // Synthetic SCCP data is certified by the real fixture quorum; this is reader evidence,
     // not execution evidence for the SCCP State producer.
-    active_global.decode_checked().unwrap();
+    active_global
+        .decode_checked(CertifiedResultScope::TairaGlobal)
+        .unwrap();
     let mut verifier = SumeragiFinalityVerifier::new(
         global.genesis(),
         global.chain_id(),
@@ -131,7 +140,14 @@ fn original_signed_root_scope_controls_active_finality_admission() {
     let block = private.block_with_submitted_work(private.next_header());
     private.certify(block);
     let active_private = active_proof(&private);
-    active_private.decode_checked().unwrap();
+    active_private
+        .decode_checked(CertifiedResultScope::TairaGlobal)
+        .unwrap();
+    assert!(
+        active_private
+            .decode_checked(CertifiedResultScope::NonGlobal)
+            .is_err()
+    );
     let mut verifier = SumeragiFinalityVerifier::new(
         private.genesis(),
         private.chain_id(),
@@ -206,7 +222,11 @@ fn compact_and_full_original_readers_preserve_local_refusal_after_scope_retireme
     assert_original_reader_refusal(|| {
         SumeragiCommitCheckpointV1::decode_canonical(&selected_bytes).map(|_| ())
     });
-    assert_original_reader_refusal(|| proof.decode_checked().map(|_| ()));
+    assert_original_reader_refusal(|| {
+        proof
+            .decode_checked(CertifiedResultScope::TairaGlobal)
+            .map(|_| ())
+    });
     assert_original_reader_refusal(|| native.verify_retained_decision(proof).map(|_| ()));
     assert_original_reader_refusal(|| native.export_checkpoint(proof).map(|_| ()));
     assert_original_reader_refusal(|| {

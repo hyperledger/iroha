@@ -145,7 +145,211 @@ pub struct SccpTransferPayloadV1 {
     pub route_id: String,
 }
 
+/// Borrowed account field with no allocation or independent ownership.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct PayloadAccountRefV1<'a> {
+    /// Codec tag of the original field.
+    pub codec: u8,
+    /// Bytes borrowed from the original payload.
+    pub bytes: &'a [u8],
+}
+
+/// Strictly decoded transfer payload borrowing every variable field from its original bytes.
+/// The same parser and semantic checks back the owned payload decoder.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SccpTransferPayloadRefV1<'a> {
+    /// Source domain.
+    pub source_domain: u32,
+    /// Destination domain.
+    pub dest_domain: u32,
+    /// Dense outbound nonce.
+    pub nonce: u64,
+    /// Route revision.
+    pub route_revision: u32,
+    /// Destination-time deadline.
+    pub deadline_ms: u64,
+    /// Amount in canonical units.
+    pub amount: u128,
+    /// Sender field.
+    pub sender: PayloadAccountRefV1<'a>,
+    /// Recipient field.
+    pub recipient: PayloadAccountRefV1<'a>,
+    /// Canonical route id text.
+    pub route_id: &'a str,
+}
+
+impl<'a> SccpTransferPayloadRefV1<'a> {
+    /// Source profile, if the domain is known.
+    #[must_use]
+    pub fn source(&self) -> Option<SccpNetworkV1> {
+        network_from_domain(self.source_domain)
+    }
+
+    /// Destination profile, if the domain is known.
+    #[must_use]
+    pub fn target(&self) -> Option<SccpNetworkV1> {
+        network_from_domain(self.dest_domain)
+    }
+
+    /// Whether this is a Taira → external payload.
+    #[must_use]
+    pub fn is_outbound(&self) -> bool {
+        self.source_domain == network::domain(SccpNetworkV1::SoraTaira)
+    }
+
+    /// The external endpoint of a well-formed lane.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PayloadError::BadDomains`] unless exactly one endpoint is Taira and both
+    /// domains are known.
+    pub fn external_network(&self) -> Result<SccpNetworkV1, PayloadError> {
+        let (Some(source), Some(target)) = (self.source(), self.target()) else {
+            return Err(PayloadError::BadDomains);
+        };
+        match (source.is_sora(), target.is_sora()) {
+            (true, false) => Ok(target),
+            (false, true) => Ok(source),
+            _ => Err(PayloadError::BadDomains),
+        }
+    }
+
+    /// Check every §3.1/§3.2 rule except the total length (see [`SccpTransferPayloadV1::encode`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns the first violated [`PayloadError`] in layout order.
+    pub fn validate(&self) -> Result<(), PayloadError> {
+        let external = self.external_network()?;
+        let source = self.source().ok_or(PayloadError::BadDomains)?;
+        let target = self.target().ok_or(PayloadError::BadDomains)?;
+        if self.route_revision == 0 {
+            return Err(PayloadError::ZeroRevision);
+        }
+        if (self.deadline_ms != 0) != source.is_sora() {
+            return Err(PayloadError::DeadlineMismatch);
+        }
+        if self.amount == 0 {
+            return Err(PayloadError::ZeroAmount);
+        }
+        if check_lane_amount(self.amount, source, target).is_err() {
+            return Err(PayloadError::TonAmountBound);
+        }
+        if self.sender.codec != account_codec(source) {
+            return Err(PayloadError::WrongSenderCodec);
+        }
+        if !is_valid_account(self.sender.codec, self.sender.bytes) {
+            return Err(PayloadError::BadSender);
+        }
+        if self.recipient.codec != account_codec(target) {
+            return Err(PayloadError::WrongRecipientCodec);
+        }
+        if !is_valid_account(self.recipient.codec, self.recipient.bytes) {
+            return Err(PayloadError::BadRecipient);
+        }
+        if !is_canonical_text(self.route_id.as_bytes()) {
+            return Err(PayloadError::BadRouteId);
+        }
+        if network::route_id(external) != Some(self.route_id) {
+            return Err(PayloadError::RouteMismatch);
+        }
+        Ok(())
+    }
+
+    /// Strictly decode without allocating or copying variable fields.
+    ///
+    /// # Errors
+    /// Returns the same first violated rule as the owned decoder.
+    pub fn decode(bytes: &'a [u8]) -> Result<Self, PayloadError> {
+        if bytes.len() > MAX_PAYLOAD_BYTES {
+            return Err(PayloadError::TooLong);
+        }
+        let mut reader = Reader { bytes, offset: 0 };
+        if reader.u8()? != PAYLOAD_KIND_TRANSFER {
+            return Err(PayloadError::WrongKind);
+        }
+        if reader.u8()? != PAYLOAD_VERSION {
+            return Err(PayloadError::WrongVersion);
+        }
+        let source_domain = reader.u32()?;
+        let dest_domain = reader.u32()?;
+        let nonce = reader.u64()?;
+        let route_revision = reader.u32()?;
+        let deadline_ms = reader.u64()?;
+        let asset_home_domain = reader.u32()?;
+        let (asset_codec, asset_id) = reader.field()?;
+        if asset_home_domain != 0
+            || asset_codec != CODEC_CANONICAL_TEXT
+            || asset_id != ASSET_ID_XOR.as_bytes()
+        {
+            return Err(PayloadError::BadAsset);
+        }
+        let amount = reader.u128()?;
+        let (sender_codec, sender) = reader.field()?;
+        let (recipient_codec, recipient) = reader.field()?;
+        let (route_codec, route_id) = reader.field()?;
+        if reader.offset != bytes.len() {
+            return Err(PayloadError::TrailingBytes);
+        }
+        if route_codec != CODEC_CANONICAL_TEXT || !is_canonical_text(route_id) {
+            return Err(PayloadError::BadRouteId);
+        }
+        let route_id = core::str::from_utf8(route_id).map_err(|_| PayloadError::BadRouteId)?;
+        let payload = Self {
+            source_domain,
+            dest_domain,
+            nonce,
+            route_revision,
+            deadline_ms,
+            amount,
+            sender: PayloadAccountRefV1 {
+                codec: sender_codec,
+                bytes: sender,
+            },
+            recipient: PayloadAccountRefV1 {
+                codec: recipient_codec,
+                bytes: recipient,
+            },
+            route_id,
+        };
+        payload.validate()?;
+        Ok(payload)
+    }
+
+    /// Validated lane identity under the selected original Taira network.
+    ///
+    /// # Errors
+    /// Returns [`PayloadError::BadDomains`] for an invalid lane.
+    pub fn lane_bytes(&self, taira_network_id: &[u8; 32]) -> Result<[u8; 66], PayloadError> {
+        let source = self.source().ok_or(PayloadError::BadDomains)?;
+        let target = self.target().ok_or(PayloadError::BadDomains)?;
+        network::lane_bytes(source, target, taira_network_id).ok_or(PayloadError::BadDomains)
+    }
+}
+
 impl SccpTransferPayloadV1 {
+    /// Borrow every variable field without copying the payload graph.
+    #[must_use]
+    pub fn as_borrowed(&self) -> SccpTransferPayloadRefV1<'_> {
+        SccpTransferPayloadRefV1 {
+            source_domain: self.source_domain,
+            dest_domain: self.dest_domain,
+            nonce: self.nonce,
+            route_revision: self.route_revision,
+            deadline_ms: self.deadline_ms,
+            amount: self.amount,
+            sender: PayloadAccountRefV1 {
+                codec: self.sender.codec,
+                bytes: &self.sender.bytes,
+            },
+            recipient: PayloadAccountRefV1 {
+                codec: self.recipient.codec,
+                bytes: &self.recipient.bytes,
+            },
+            route_id: &self.route_id,
+        }
+    }
+
     /// Build and validate a Taira → `target` payload (`sender_codec 3`).
     ///
     /// # Errors
@@ -208,19 +412,19 @@ impl SccpTransferPayloadV1 {
     /// Source profile, if the domain is known.
     #[must_use]
     pub fn source(&self) -> Option<SccpNetworkV1> {
-        network_from_domain(self.source_domain)
+        self.as_borrowed().source()
     }
 
     /// Destination profile, if the domain is known.
     #[must_use]
     pub fn target(&self) -> Option<SccpNetworkV1> {
-        network_from_domain(self.dest_domain)
+        self.as_borrowed().target()
     }
 
     /// Whether this is a Taira → external payload.
     #[must_use]
     pub fn is_outbound(&self) -> bool {
-        self.source_domain == network::domain(SccpNetworkV1::SoraTaira)
+        self.as_borrowed().is_outbound()
     }
 
     /// The external endpoint of a well-formed lane.
@@ -230,56 +434,16 @@ impl SccpTransferPayloadV1 {
     /// Returns [`PayloadError::BadDomains`] unless exactly one endpoint is Taira and both
     /// domains are known.
     pub fn external_network(&self) -> Result<SccpNetworkV1, PayloadError> {
-        let (Some(source), Some(target)) = (self.source(), self.target()) else {
-            return Err(PayloadError::BadDomains);
-        };
-        match (source.is_sora(), target.is_sora()) {
-            (true, false) => Ok(target),
-            (false, true) => Ok(source),
-            _ => Err(PayloadError::BadDomains),
-        }
+        self.as_borrowed().external_network()
     }
 
-    /// Check every §3.1/§3.2 rule except the total length (see [`Self::encode`]).
+    /// Check every §3.1/§3.2 rule except the total length (see [`SccpTransferPayloadV1::encode`]).
     ///
     /// # Errors
     ///
     /// Returns the first violated [`PayloadError`] in layout order.
     pub fn validate(&self) -> Result<(), PayloadError> {
-        let external = self.external_network()?;
-        let source = self.source().ok_or(PayloadError::BadDomains)?;
-        let target = self.target().ok_or(PayloadError::BadDomains)?;
-        if self.route_revision == 0 {
-            return Err(PayloadError::ZeroRevision);
-        }
-        if (self.deadline_ms != 0) != source.is_sora() {
-            return Err(PayloadError::DeadlineMismatch);
-        }
-        if self.amount == 0 {
-            return Err(PayloadError::ZeroAmount);
-        }
-        if check_lane_amount(self.amount, source, target).is_err() {
-            return Err(PayloadError::TonAmountBound);
-        }
-        if self.sender.codec != account_codec(source) {
-            return Err(PayloadError::WrongSenderCodec);
-        }
-        if !self.sender.is_valid() {
-            return Err(PayloadError::BadSender);
-        }
-        if self.recipient.codec != account_codec(target) {
-            return Err(PayloadError::WrongRecipientCodec);
-        }
-        if !self.recipient.is_valid() {
-            return Err(PayloadError::BadRecipient);
-        }
-        if !is_canonical_text(self.route_id.as_bytes()) {
-            return Err(PayloadError::BadRouteId);
-        }
-        if network::route_id(external) != Some(self.route_id.as_str()) {
-            return Err(PayloadError::RouteMismatch);
-        }
-        Ok(())
+        self.as_borrowed().validate()
     }
 
     /// Encoded length of this payload.
@@ -337,55 +501,21 @@ impl SccpTransferPayloadV1 {
     ///
     /// Returns the first violated [`PayloadError`].
     pub fn decode(bytes: &[u8]) -> Result<Self, PayloadError> {
-        if bytes.len() > MAX_PAYLOAD_BYTES {
-            return Err(PayloadError::TooLong);
-        }
-        let mut reader = Reader { bytes, offset: 0 };
-        if reader.u8()? != PAYLOAD_KIND_TRANSFER {
-            return Err(PayloadError::WrongKind);
-        }
-        if reader.u8()? != PAYLOAD_VERSION {
-            return Err(PayloadError::WrongVersion);
-        }
-        let source_domain = reader.u32()?;
-        let dest_domain = reader.u32()?;
-        let nonce = reader.u64()?;
-        let route_revision = reader.u32()?;
-        let deadline_ms = reader.u64()?;
-        let asset_home_domain = reader.u32()?;
-        let (asset_codec, asset_id) = reader.field()?;
-        if asset_home_domain != 0
-            || asset_codec != CODEC_CANONICAL_TEXT
-            || asset_id != ASSET_ID_XOR.as_bytes()
-        {
-            return Err(PayloadError::BadAsset);
-        }
-        let amount = reader.u128()?;
-        let (sender_codec, sender) = reader.field()?;
-        let (recipient_codec, recipient) = reader.field()?;
-        let (route_codec, route_id) = reader.field()?;
-        if reader.offset != bytes.len() {
-            return Err(PayloadError::TrailingBytes);
-        }
-        if route_codec != CODEC_CANONICAL_TEXT || !is_canonical_text(route_id) {
-            return Err(PayloadError::BadRouteId);
-        }
-        let route_id = core::str::from_utf8(route_id)
-            .map_err(|_| PayloadError::BadRouteId)?
-            .to_owned();
-        let payload = Self {
-            source_domain,
-            dest_domain,
-            nonce,
-            route_revision,
-            deadline_ms,
-            amount,
-            sender: PayloadAccountV1::new(sender_codec, sender.to_vec()),
-            recipient: PayloadAccountV1::new(recipient_codec, recipient.to_vec()),
-            route_id,
-        };
-        payload.validate()?;
-        Ok(payload)
+        let payload = SccpTransferPayloadRefV1::decode(bytes)?;
+        Ok(Self {
+            source_domain: payload.source_domain,
+            dest_domain: payload.dest_domain,
+            nonce: payload.nonce,
+            route_revision: payload.route_revision,
+            deadline_ms: payload.deadline_ms,
+            amount: payload.amount,
+            sender: PayloadAccountV1::new(payload.sender.codec, payload.sender.bytes.to_vec()),
+            recipient: PayloadAccountV1::new(
+                payload.recipient.codec,
+                payload.recipient.bytes.to_vec(),
+            ),
+            route_id: payload.route_id.to_owned(),
+        })
     }
 
     /// `lane_bytes(source, target)` of this payload.
@@ -526,6 +656,18 @@ mod tests {
             for payload in [outbound(network), inbound(network)] {
                 let encoded = payload.encode().expect("encode");
                 assert_eq!(encoded.len(), payload.encoded_len());
+                let borrowed = SccpTransferPayloadRefV1::decode(&encoded).unwrap();
+                assert_eq!(borrowed, payload.as_borrowed());
+                assert_eq!(borrowed.lane_bytes(&TAIRA), payload.lane_bytes(&TAIRA));
+                for field in [
+                    borrowed.sender.bytes,
+                    borrowed.recipient.bytes,
+                    borrowed.route_id.as_bytes(),
+                ] {
+                    let start = field.as_ptr() as usize;
+                    assert!(start >= encoded.as_ptr() as usize);
+                    assert!(start + field.len() <= encoded.as_ptr() as usize + encoded.len());
+                }
                 assert_eq!(SccpTransferPayloadV1::decode(&encoded), Ok(payload.clone()));
                 assert_eq!(payload.external_network(), Ok(network));
                 let message_id = payload.message_id(&TAIRA).expect("message id");
@@ -534,6 +676,36 @@ mod tests {
                     message_id,
                     hashes::message_id(&lane, &hashes::payload_hash(&encoded))
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn borrowed_and_owned_decoders_preserve_every_refusal_and_original_backing() {
+        for network in network::EXTERNAL_NETWORKS {
+            for payload in [outbound(network), inbound(network)] {
+                let wire = payload.encode().unwrap();
+                let same = |candidate: &[u8]| {
+                    let borrowed = SccpTransferPayloadRefV1::decode(candidate);
+                    let owned = SccpTransferPayloadV1::decode(candidate);
+                    match (borrowed, owned) {
+                        (Ok(borrowed), Ok(owned)) => assert_eq!(borrowed, owned.as_borrowed()),
+                        (Err(borrowed), Err(owned)) => assert_eq!(borrowed, owned),
+                        pair => panic!("borrowed/owned parse differs: {pair:?}"),
+                    }
+                };
+                for length in 0..wire.len() {
+                    same(&wire[..length]);
+                }
+                for offset in 0..wire.len() {
+                    let mut changed = wire.clone();
+                    changed[offset] ^= 0xff;
+                    same(&changed);
+                }
+                let mut trailing = wire.clone();
+                trailing.push(0);
+                same(&trailing);
+                same(&vec![0; MAX_PAYLOAD_BYTES + 1]);
             }
         }
     }

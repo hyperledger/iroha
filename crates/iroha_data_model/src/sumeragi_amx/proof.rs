@@ -13,9 +13,8 @@ use norito::codec::{Decode, Encode};
 
 use super::{AmxError, AmxRecordV1};
 use crate::{
-    DeriveJsonDeserialize, DeriveJsonSerialize,
-    block::CommitCertificate,
-    sumeragi_finality::{CertifiedResultScope, CertifiedResultV1},
+    DeriveJsonDeserialize, DeriveJsonSerialize, block::CommitCertificate,
+    sumeragi_finality::CertifiedResultV1,
 };
 
 /// Depth of the write-set tree.
@@ -310,12 +309,10 @@ impl AmxRecordProofV1 {
         block: AmxCertifiedBlockV1,
         writes: impl IntoIterator<Item = (&'a [u8], &'a [u8])>,
         record: AmxRecordV1,
+        scope: crate::sumeragi_finality::CertifiedResultScope,
     ) -> Result<Self, AmxError> {
-        let commitment =
-            CertifiedResultV1::decode(&block.result_preimage, CertifiedResultScope::TairaGlobal)
-                .map_err(super::certified_result_error)?
-                .into_parts()
-                .1;
+        let commitment = CertifiedResultV1::decode(&block.result_preimage, scope)
+            .map_err(super::certified_result_error)?;
         let key = record.witness_key();
         let (write, value) = AmxWriteProofV1::from_writes(writes, &key)?;
         if value != record.witness_value()? {
@@ -323,7 +320,7 @@ impl AmxRecordProofV1 {
                 "the written value is not the record".into(),
             ));
         }
-        if write.root(&key, &value)? != commitment.execution.ordinary_writes_root {
+        if write.root(&key, &value)? != commitment.commitment().execution.ordinary_writes_root {
             return Err(AmxError::Proof(
                 "the write set differs from the block's ordinary-write root".into(),
             ));

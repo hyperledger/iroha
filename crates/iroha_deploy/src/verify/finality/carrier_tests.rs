@@ -67,7 +67,10 @@ impl HttpTransport for StatementTransport {
 
 // Only real SDK response admission can produce the opaque carrier, even with an injected
 // transport. The native adapter does not construct one from the fixture's raw DTO itself.
-fn native_read(statement: SumeragiFinalityAttestation) -> FinalityAttestation {
+fn native_read(
+    statement: SumeragiFinalityAttestation,
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
+) -> FinalityAttestation {
     let network = statement.body.network_id;
     let identity = statement.body.node_id.clone();
     let height = nz(statement.body.status.committed_height);
@@ -96,6 +99,7 @@ fn native_read(statement: SumeragiFinalityAttestation) -> FinalityAttestation {
         vec![client.clone()],
         vec![(identity.clone(), client)],
         std::time::Instant::now() + Duration::from_secs(30),
+        root_scope,
     )
     .unwrap();
     let mut reads = source.latest_attestations(&[identity], &challenge);
@@ -120,19 +124,21 @@ fn authenticated_carrier_rechecks_the_observations_exact_bindings() {
     let network = chain.anchor.network_id;
     assert!(matches!(
         Read::new(
-            Ok(native_read(statement.clone())),
+            Ok(native_read(statement.clone(), chain.root_scope())),
             &identity,
             &CHALLENGE,
-            network
+            network,
+            chain.root_scope()
         ),
         Read::Claim(_)
     ));
     for challenge in [[0; 32], [8; 32]] {
         let Read::Invalid(error) = Read::new(
-            Ok(native_read(statement.clone())),
+            Ok(native_read(statement.clone(), chain.root_scope())),
             &identity,
             &challenge,
             network,
+            chain.root_scope(),
         ) else {
             panic!("an authenticated carrier cannot change its observation challenge")
         };
@@ -145,10 +151,11 @@ fn authenticated_carrier_rechecks_the_observations_exact_bindings() {
         b"foreign carrier consumer",
     )));
     let Read::Invalid(error) = Read::new(
-        Ok(native_read(statement.clone())),
+        Ok(native_read(statement.clone(), chain.root_scope())),
         &identity,
         &CHALLENGE,
         foreign,
+        chain.root_scope(),
     ) else {
         panic!("an authenticated carrier cannot change its observation network")
     };
@@ -156,9 +163,13 @@ fn authenticated_carrier_rechecks_the_observations_exact_bindings() {
         matches!(*error, FinalityError::WrongNetwork { expected, actual } if expected == foreign && actual == network)
     );
     let other = peer(&chain.epoch(1).keys[1]);
-    let Read::Substituted(actual) =
-        Read::new(Ok(native_read(statement)), &other, &CHALLENGE, network)
-    else {
+    let Read::Substituted(actual) = Read::new(
+        Ok(native_read(statement, chain.root_scope())),
+        &other,
+        &CHALLENGE,
+        network,
+        chain.root_scope(),
+    ) else {
         panic!("an authenticated carrier cannot substitute another selected peer")
     };
     assert_eq!(*actual, identity);
@@ -185,9 +196,13 @@ fn raw_conversion_and_default_batch_cannot_forge_sdk_provenance() {
         let mut reads = source.latest_attestations(std::slice::from_ref(&identity), &CHALLENGE);
         let raw = reads.pop().unwrap().unwrap();
         assert!(matches!(&raw, FinalityAttestation::Raw(_)));
-        let Read::Invalid(error) =
-            Read::new(Ok(raw), &identity, &CHALLENGE, chain.anchor.network_id)
-        else {
+        let Read::Invalid(error) = Read::new(
+            Ok(raw),
+            &identity,
+            &CHALLENGE,
+            chain.anchor.network_id,
+            chain.root_scope(),
+        ) else {
             panic!("default raw-source adapter must fully authenticate structure and signature")
         };
         assert!(matches!(*error, FinalityError::Native(_)));
@@ -199,7 +214,9 @@ fn consuming_sdk_provenance_cannot_authenticate_a_mutated_raw_statement() {
     let chain = Chain::constant(4, 1);
     let statement = chain.attest(&chain.epoch(1).keys[0], 1);
     let identity = statement.body.node_id.clone();
-    let FinalityAttestation::Authenticated(authenticated) = native_read(statement.clone()) else {
+    let FinalityAttestation::Authenticated(authenticated) =
+        native_read(statement.clone(), chain.root_scope())
+    else {
         unreachable!()
     };
     assert_eq!(authenticated.attestation(), &statement);
@@ -210,7 +227,8 @@ fn consuming_sdk_provenance_cannot_authenticate_a_mutated_raw_statement() {
             Ok(raw.into()),
             &identity,
             &CHALLENGE,
-            chain.anchor.network_id
+            chain.anchor.network_id,
+            chain.root_scope()
         ),
         Read::Invalid(_)
     ));
@@ -225,10 +243,11 @@ fn sdk_authenticated_conflicting_decision_still_fails_trusted_prefix_placement()
     let identity = peer(member);
     let statement = chain.attest(member, 3);
     let Read::Claim(valid) = Read::new(
-        Ok(native_read(statement)),
+        Ok(native_read(statement, chain.root_scope())),
         &identity,
         &CHALLENGE,
         chain.anchor.network_id,
+        chain.root_scope(),
     ) else {
         panic!("original SDK-authenticated statement must be admitted")
     };
@@ -245,22 +264,21 @@ fn sdk_authenticated_conflicting_decision_still_fails_trusted_prefix_placement()
 
     let mut proof = chain.proof(3).clone();
     let header = core(&proof);
-    let mut commitment = result(&proof);
+    let mut commitment = result(&proof, chain.root_scope());
     commitment.execution.parent_state_root = Hash::new(b"conflicting certified execution");
     let mut qc = commit_qc(&proof);
-    qc.result = unvalidated_replacement_result(&proof, &commitment)
-        .result()
-        .unwrap();
+    qc.result = preserved_result_hash(&proof, &commitment);
     sign_qc(&mut qc, &chain.epoch(3).keys, &[0, 1, 2]);
     replace_certificate(&mut proof, &header, &qc, &commitment);
     let mut conflict = chain.attest(member, 3);
     conflict.body.finality_proof = proof;
     resign(&mut conflict, member);
     let Read::Claim(conflict) = Read::new(
-        Ok(native_read(conflict)),
+        Ok(native_read(conflict, chain.root_scope())),
         &identity,
         &CHALLENGE,
         chain.anchor.network_id,
+        chain.root_scope(),
     ) else {
         panic!("SDK authentication intentionally does not select a trusted chain")
     };
@@ -287,7 +305,10 @@ fn sdk_authenticated_outsider_cannot_count_as_a_selected_committee_member() {
             assert_eq!(challenge, &CHALLENGE);
             // A custom source may forward a real authenticated carrier for another reader.
             // It cannot turn that selected outsider into any member requested by observe().
-            Ok(native_read(self.0.attest(&key(100), 1)))
+            Ok(native_read(
+                self.0.attest(&key(100), 1),
+                self.0.root_scope(),
+            ))
         }
     }
     let chain = Chain::constant(4, 1);

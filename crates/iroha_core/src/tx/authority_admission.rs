@@ -69,7 +69,9 @@ pub fn allows_unregistered_authority(executable: &Executable, authority: &Accoun
             Executable::Instructions(instructions)
                 if instructions_allow_multisig_envelope_authority(instructions)
         )
-        || crate::smartcontracts::isi::sccp::admission::allows_unregistered_authority(executable)
+        || crate::smartcontracts::isi::sccp::admission::allows_unregistered_authority(
+            executable, authority,
+        )
 }
 
 pub(crate) fn instructions_allow_multisig_envelope_authority(

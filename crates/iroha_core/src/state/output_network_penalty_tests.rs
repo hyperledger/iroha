@@ -212,3 +212,6 @@ fn signed_conflicting_second_ballot_retains_actual_slash_and_rejection_fee() {
         &Quantity::from(1_000_u32)
     );
 }
+
+#[path = "output_network_penalty_refusal_tests.rs"]
+mod refusal;

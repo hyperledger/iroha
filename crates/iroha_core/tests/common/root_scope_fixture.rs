@@ -11,7 +11,7 @@ use iroha_core::state::State;
 use iroha_data_model::{
     block::{
         BlockHeader,
-        consensus::{SumeragiRootScope, ValidatorPower},
+        consensus::{SumeragiGenesisContextParameters, SumeragiRootScope},
     },
     parameter::{
         Parameter,
@@ -27,22 +27,13 @@ use std::num::NonZeroU64;
 
 /// The consensus handshake metadata parameter with a Global root scope.
 pub(crate) fn global_root_scope_parameter() -> Parameter {
-    let validators = iroha_core::sumeragi::test_chain::fixture_validators()
-        .into_iter()
-        .map(|(validator, _)| ValidatorPower {
-            validator,
-            power: 1,
-        })
-        .collect::<Vec<_>>();
-    let context = iroha_core_zk::kagemusha_v1_test_fixtures::genesis_context_parameters();
+    let context = SumeragiGenesisContextParameters::recommended();
     assert_eq!(context.root_scope, SumeragiRootScope::Global);
     let metadata = ConsensusHandshakeMetadata {
         mode: SumeragiConsensusMode::Permissioned,
         block_cadence_ms: NonZeroU64::new(1_000).expect("nonzero cadence"),
         wire_protocol_version: u32::from(iroha_data_model::sumeragi::PROTOCOL_VERSION),
         consensus_fingerprint: ConsensusFingerprint::new([0xA5; 32]),
-        kagemusha_mint_finality:
-            iroha_core_zk::kagemusha_v1_test_fixtures::mint_finality_genesis_parameters(&validators),
         sumeragi_context: context,
     };
     metadata

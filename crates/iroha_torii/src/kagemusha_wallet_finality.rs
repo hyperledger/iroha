@@ -5,7 +5,9 @@ use std::{num::NonZeroU64, time::Instant};
 
 use iroha_allocation::{AllocationBudget, AllocationReservation, ChargedBuffer};
 use iroha_core::{
-    kagemusha_wallet_v1::CommittedLoadReceipts, state::StateView, sumeragi::finality,
+    kagemusha_wallet_v1::CommittedLoadReceipts,
+    state::{StateReadOnly as _, StateView},
+    sumeragi::finality,
 };
 use iroha_crypto::HashOf;
 use iroha_data_model::{
@@ -78,13 +80,11 @@ fn require_selected_data(
     certificate: &SumeragiCommitCertificateV1,
     height: u64,
     boundary: bool,
+    scope: CertifiedResultScope,
 ) -> Result<()> {
     // This compact DATA carrier has no original Iroha block timestamp for C5 and
     // grants no authority. The phone's original genesis-rooted verifier checks its scope.
-    let certified = CertifiedResultV1::decode(
-        &certificate.result_preimage,
-        CertifiedResultScope::TairaGlobal,
-    )?;
+    let certified = CertifiedResultV1::decode(&certificate.result_preimage, scope)?;
     let result = certified.commitment();
     if certificate
         .height()
@@ -148,8 +148,13 @@ fn selected_certificate(
         deadline,
     )
     .map_err(|_| "committed native certificate unavailable")?;
+    let scope = view
+        .native_execution_tip()
+        .ok_or("native execution scope unavailable")?
+        .root_scope()
+        .into();
     certificate_decode(original.certificate(), budget, || {
-        require_selected_data(original.certificate(), height, boundary.is_some())
+        require_selected_data(original.certificate(), height, boundary.is_some(), scope)
     })?;
     if Instant::now() >= deadline {
         return Err("native certificate read deadline expired".into());
@@ -322,11 +327,11 @@ mod tests {
         let mut tampered = original.certificate().clone();
         *tampered.commit_qc.last_mut().unwrap() ^= 1;
         // Shape-matched transport DATA is not an authority capability.
-        require_selected_data(&tampered, 3, false).unwrap();
+        require_selected_data(&tampered, 3, false, chain.root_scope().into()).unwrap();
         assert!(phone.verify(&tampered).is_err());
         let resource_error = norito::with_decode_limits_scope(
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 128),
-            || require_selected_data(original.certificate(), 3, false),
+            || require_selected_data(original.certificate(), 3, false, chain.root_scope().into()),
         )
         .unwrap_err();
         assert!(matches!(
@@ -339,7 +344,7 @@ mod tests {
         body_only
             .result_preimage
             .drain(..iroha_data_model::sumeragi_finality::certified_result::X_LEN);
-        assert!(require_selected_data(&body_only, 3, false).is_err());
+        assert!(require_selected_data(&body_only, 3, false, chain.root_scope().into()).is_err());
         drop(original);
         assert_eq!(budget.reserved_bytes(), 0);
         for (height, boundary, until) in [
@@ -388,7 +393,10 @@ mod tests {
         let decoded = SumeragiCommitCertificateV1::decode_canonical(response.as_slice()).unwrap();
         assert_eq!(&decoded, original.certificate());
         assert_eq!(phone.verify(&decoded).unwrap().height(), 10);
-        assert!(require_selected_data(original.certificate(), 9, true).is_err());
+        assert!(
+            require_selected_data(original.certificate(), 9, true, chain.root_scope().into())
+                .is_err()
+        );
         assert!(selected_certificate(&view, 11, Some(2), &budget, deadline).is_err());
         drop(response);
         drop(original);

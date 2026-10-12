@@ -1,6 +1,9 @@
-//! Admission of fee-exempt SCCP keeper advances and self-claims (`specs/sccp.md` §4.12.4,
-//! §4.13.4, §4.19), with original queued claims and shared parent-state eligibility.
-//! TODO(WP-S3/S6): add native Keepalive and ForgeryEvidence when their authority exists.
+//! Admission of fee-exempt SCCP transactions (`specs/sccp.md` §4.12.4, §4.13.4, §4.19).
+//! Owners: ws41 (keeper advances, self-claims); ws20 implemented the queue-side pending-key
+//! index.
+//!
+//! TODO: WP-S3: the `Keepalive` class (§4.7.4). TODO: WP-S6: the `ForgeryEvidence` class
+//! (§4.9). Both come with their per-class block quotas (§4.19).
 //!
 //! A transaction is SCCP-exempt only when it is eligible ([`super::fees::exempt_class`]): it
 //! has one of the [`SccpExemptClassV1`] shapes ([`exempt_shape`], a pure function of its signed
@@ -40,27 +43,6 @@ use iroha_data_model::{
 use norito::codec::Encode;
 use std::collections::{BTreeMap, BTreeSet};
 
-/// Committed network identity and ledger time used by SCCP inbound admission.
-///
-/// This narrow view supplies the source-proof domain and freshness clock. It supplies no
-/// committee, attestation, or finality authority; those remain with their own verified owners.
-pub trait SccpCommittedContext {
-    /// Return the network identity of the committed state being admitted against.
-    fn taira_network_id(&self) -> iroha_data_model::NetworkId;
-    /// Return the original committed ledger time used for source-proof freshness.
-    fn committed_time_ms(&self) -> u64;
-}
-
-impl<T: StateReadOnly + ?Sized> SccpCommittedContext for T {
-    fn taira_network_id(&self) -> iroha_data_model::NetworkId {
-        *self.network_id()
-    }
-
-    fn committed_time_ms(&self) -> u64 {
-        self.query_ledger_time_ms()
-    }
-}
-
 /// Kinds of fee-exempt SCCP transactions (§4.19). Pending limits are per kind, never across
 /// kinds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Encode)]
@@ -84,9 +66,8 @@ pub struct SccpAdmissionKeysV1 {
     /// one keeper advance per authority and network, one self-claim per authority and per
     /// message).
     pub exclusive: BTreeSet<[u8; 32]>,
-    /// Deduplication keys; a transaction must add at least one key that is not already queued
-    /// (for example the target state of a keeper advance). Empty means
-    /// the transaction is deduplicated by its exclusive keys alone.
+    /// Deduplication keys; a transaction must add at least one key that is not already queued.
+    /// Empty means the transaction is deduplicated by its exclusive keys alone.
     pub content: BTreeSet<[u8; 32]>,
 }
 
@@ -210,20 +191,62 @@ pub fn exempt_shape(payload: &TransactionPayload) -> Option<SccpExemptClassV1> {
 pub fn exempt_class_of_entrypoint(
     world: &(impl WorldReadOnly + ?Sized),
     entrypoint: &TransactionEntrypoint,
+    committed_time_ms: Option<u64>,
+) -> Option<SccpExemptClassV1> {
+    exempt_class_of_entrypoint_from(
+        &super::eligibility::Current(world),
+        entrypoint,
+        committed_time_ms,
+    )
+}
+
+/// Classify the original entrypoint against borrowed current or pre-block facts.
+pub(crate) fn exempt_class_of_entrypoint_from(
+    source: &(impl super::eligibility::EligibilityRead + ?Sized),
+    entrypoint: &TransactionEntrypoint,
+    committed_time_ms: Option<u64>,
 ) -> Option<SccpExemptClassV1> {
     match entrypoint {
         TransactionEntrypoint::External(transaction) => {
-            super::fees::exempt_class(world, transaction.payload())
+            super::fees::exempt_class_from(source, transaction.payload(), committed_time_ms)
         }
-        TransactionEntrypoint::SealedReveal(reveal) => {
-            super::fees::exempt_class(world, reveal.signed_transaction().payload())
-        }
+        TransactionEntrypoint::SealedReveal(reveal) => super::fees::exempt_class_from(
+            source,
+            reveal.signed_transaction().payload(),
+            committed_time_ms,
+        ),
         TransactionEntrypoint::SealedCommitment(_) => None,
     }
 }
 
+/// The committed state that exempt pre-verification reads beyond World: every committed state
+/// view provides it.
+pub trait SccpAdmissionView {
+    /// Return the live Taira `NetworkId`, which message ids bind.
+    fn taira_network_id(&self) -> iroha_data_model::NetworkId;
+    /// Return the Taira time of the latest committed block (admission-time freshness checks).
+    fn committed_time_ms(&self) -> u64;
+    /// Exact original executed time for pause expiry, distinct from fee observation time.
+    ///
+    /// # Errors
+    /// Returns a source failure if the original tip and captured prefix disagree.
+    fn sccp_committed_time_ms(&self) -> Result<Option<u64>, super::hold::SccpCommittedTimeError>;
+}
+
+impl<T: StateReadOnly + ?Sized> SccpAdmissionView for T {
+    fn taira_network_id(&self) -> iroha_data_model::NetworkId {
+        *self.network_id()
+    }
+    fn committed_time_ms(&self) -> u64 {
+        self.query_ledger_time_ms()
+    }
+    fn sccp_committed_time_ms(&self) -> Result<Option<u64>, super::hold::SccpCommittedTimeError> {
+        super::hold::committed_time_ms(self)
+    }
+}
+
 /// Classify `transaction` against committed state (`world` at the next block height
-/// `next_block_height`, the parent World of the next block).
+/// `next_block_height`, the parent World of the next block, and `view` of the same state).
 ///
 /// Returns `Ok(None)` for a transaction that is not eligible for an SCCP exemption
 /// ([`super::fees::exempt_class`]): it pays the ordinary fee and needs no SCCP admission step,
@@ -233,32 +256,37 @@ pub fn exempt_class_of_entrypoint(
 ///
 /// # Errors
 ///
-/// Returns [`SccpAdmissionRejectV1`] when an eligible transaction fails pre-verification.
+/// Returns [`SccpAdmissionRejectV1`] when an eligible transaction fails pre-verification,
+/// or the captured committed history cannot supply a consistent original time.
 pub fn classify(
     world: &(impl WorldReadOnly + ?Sized),
-    context: &(impl SccpCommittedContext + ?Sized),
+    view: &(impl SccpAdmissionView + ?Sized),
     next_block_height: u64,
     transaction: &SignedTransaction,
 ) -> Result<Option<SccpAdmissionKeysV1>, SccpAdmissionRejectV1> {
     let payload = transaction.payload();
-    let Some(class) = super::fees::exempt_class(world, payload) else {
+    if super::store::parameters::get(world).is_none() || exempt_shape(payload).is_none() {
         return Ok(None);
-    };
-    let single = match &payload.instructions {
-        Executable::Instructions(instructions) => match instructions.as_ref() {
-            [only] => Some(only),
-            _ => None,
-        },
-        _ => None,
+    }
+    let committed_time_ms = view
+        .sccp_committed_time_ms()
+        .map_err(|error| SccpAdmissionRejectV1::new(error.to_string()))?;
+    let Some(class) = super::fees::exempt_class(world, payload, committed_time_ms) else {
+        return Ok(None);
     };
     match class {
         SccpExemptClassV1::KeeperAdvance { .. } => {
-            let instruction = single
-                .and_then(downcast::<AdvanceSccpLightClientV1>)
-                .ok_or_else(|| SccpAdmissionRejectV1::new("malformed keeper-advance shape"))?;
+            let instruction = match &payload.instructions {
+                Executable::Instructions(instructions) => match instructions.as_ref() {
+                    [only] => downcast::<AdvanceSccpLightClientV1>(only),
+                    _ => None,
+                },
+                _ => None,
+            }
+            .ok_or_else(|| SccpAdmissionRejectV1::new("malformed keeper-advance shape"))?;
             super::light_clients::preverify_keeper_advance(
                 world,
-                context.committed_time_ms(),
+                view.committed_time_ms(),
                 next_block_height,
                 instruction,
                 &payload.authority,
@@ -267,7 +295,7 @@ pub fn classify(
         }
         SccpExemptClassV1::SelfClaim => super::self_claim::preverify(
             world,
-            context,
+            view,
             next_block_height,
             &payload.authority,
             transaction,
@@ -276,26 +304,27 @@ pub fn classify(
     }
 }
 
-/// Return whether the authority may be absent from state for `executable` because of an SCCP
-/// rule (§4.19):
+/// Return whether `authority` may be absent from state for `executable` because of an SCCP
+/// rule (§4.19): a keeper advance, exactly one `AdvanceSccpLightClientV1` that
+/// [`super::light_clients::keeper_advance_eligible`] accepts, from any authority. This is the
+/// eligibility predicate of [`super::fees::exempt_class`] without its "SCCP exists" gate, which
+/// needs state: where SCCP is absent the advance is not exempt, owes the ordinary fee and fails
+/// closed at execution.
 ///
-/// * a keeper advance: exactly one `AdvanceSccpLightClientV1` that
-///   [`super::light_clients::keeper_advance_eligible`] accepts, from any authority. This is the
-///   eligibility predicate of [`super::fees::exempt_class`] without its "SCCP exists" gate,
-///   which needs state: where SCCP is absent the advance is not exempt, owes the ordinary fee
-///   and fails closed at execution.
+/// The keeper-advance rule does not read `_authority`: any key may advance.
+///
+/// TODO: WP-S3: admit a `Keepalive` from an unregistered Ed25519 authority (§4.7.4); that rule
+/// reads the authority. TODO: WP-S6: admit forgery evidence from an unregistered authority.
 #[must_use]
-pub fn allows_unregistered_authority(executable: &Executable) -> bool {
+pub fn allows_unregistered_authority(executable: &Executable, _authority: &AccountId) -> bool {
     let Executable::Instructions(instructions) = executable else {
         return false;
     };
     let [only] = instructions.as_ref() else {
         return false;
     };
-    if let Some(advance) = downcast::<AdvanceSccpLightClientV1>(only) {
-        return super::light_clients::keeper_advance_eligible(advance);
-    }
-    false
+    downcast::<AdvanceSccpLightClientV1>(only)
+        .is_some_and(super::light_clients::keeper_advance_eligible)
 }
 
 /// Return the per-block cap on fee-exempt SCCP transactions, or `None` when SCCP does not
@@ -477,8 +506,15 @@ impl SccpExemptBlockBudgetV1 {
     /// transaction is then exempt).
     #[must_use]
     pub fn new(world: &(impl WorldReadOnly + ?Sized)) -> Self {
+        Self::from_parameters(super::store::parameters::get(world).as_ref())
+    }
+
+    /// Use original borrowed parameters from the acquired block preimage.
+    pub(crate) fn from_parameters(
+        parameters: Option<&iroha_data_model::sccp::params::SccpParametersV1>,
+    ) -> Self {
         Self {
-            remaining: exempt_cap(world),
+            remaining: parameters.map(|params| params.max_exempt_transactions_per_block),
             advanced_networks: BTreeSet::new(),
         }
     }
@@ -512,30 +548,55 @@ mod tests {
         test_support::{blank_state, header, sample_signed_transaction},
     };
     use iroha_data_model::sccp::params::SccpParametersV1;
+    use iroha_sccp::light_client::{
+        ethereum::{EthereumHeaderSegmentV1, EthereumLcAdvanceV1},
+        proof::{SccpLcAdvanceV1, SccpLcSegmentV1},
+    };
 
     fn entry(seed: u8) -> HashOf<TransactionEntrypoint> {
         HashOf::from_untyped_unchecked(Hash::prehashed([seed; 32]))
     }
 
-    // Synthetic content keys exercise the generic index; real SelfClaim preverification
-    // owns only authority/message exclusive keys.
-    fn self_claim_keys(authority: u8, entries: &[(u64, u8)]) -> SccpAdmissionKeysV1 {
+    /// Keys of one claim of `authority` over `entries`: one exclusive key (the pending limit)
+    /// and one content key per entry (deduplication).
+    fn claim(authority: u8, entries: &[(u64, u8)]) -> SccpAdmissionKeysV1 {
         entries.iter().fold(
             SccpAdmissionKeysV1::new(SccpExemptClassV1::SelfClaim).with_exclusive(&authority),
             |keys, entry| keys.with_content(entry),
         )
     }
 
+    fn frame(advance: &SccpLcAdvanceV1) -> AdvanceSccpLightClientV1 {
+        AdvanceSccpLightClientV1 {
+            network: SccpNetworkV1::EthereumMainnet,
+            expected_state_hash: None,
+            advance: advance.to_bytes().expect("bounded advance"),
+        }
+    }
+
+    /// A decodable Ethereum advance that proves nothing: eligible, and invalid at
+    /// pre-verification.
+    fn eligible_advance() -> AdvanceSccpLightClientV1 {
+        frame(&SccpLcAdvanceV1::Ethereum(EthereumLcAdvanceV1 {
+            updates: Vec::new(),
+        }))
+    }
+
+    /// A `Backfill`, which pays the ordinary fee.
+    fn backfill() -> AdvanceSccpLightClientV1 {
+        frame(&SccpLcAdvanceV1::Backfill {
+            segment: SccpLcSegmentV1::Ethereum(EthereumHeaderSegmentV1 {
+                headers: Vec::new(),
+            }),
+        })
+    }
+
     #[test]
     fn derived_keys_are_domain_separated_by_class_and_role() {
+        let advance = |network| SccpExemptClassV1::KeeperAdvance { network };
+        let ethereum = advance(SccpNetworkV1::EthereumMainnet);
         let a = SccpAdmissionKeysV1::derive_key(SccpExemptClassV1::SelfClaim, "content", &7_u64);
-        let b = SccpAdmissionKeysV1::derive_key(
-            SccpExemptClassV1::KeeperAdvance {
-                network: SccpNetworkV1::BscMainnet,
-            },
-            "content",
-            &7_u64,
-        );
+        let b = SccpAdmissionKeysV1::derive_key(ethereum, "content", &7_u64);
         let c = SccpAdmissionKeysV1::derive_key(SccpExemptClassV1::SelfClaim, "exclusive", &7_u64);
         let d = SccpAdmissionKeysV1::derive_key(SccpExemptClassV1::SelfClaim, "content", &8_u64);
         assert_eq!(
@@ -545,7 +606,6 @@ mod tests {
         assert_ne!(a, b);
         assert_ne!(a, c);
         assert_ne!(a, d);
-        let advance = |network| SccpExemptClassV1::KeeperAdvance { network };
         assert_ne!(
             SccpAdmissionKeysV1::derive_key(advance(SccpNetworkV1::BscMainnet), "e", &1_u8),
             SccpAdmissionKeysV1::derive_key(advance(SccpNetworkV1::TonMainnet), "e", &1_u8)
@@ -557,66 +617,62 @@ mod tests {
         let mut index = SccpPendingIndexV1::default();
         assert!(index.is_empty());
         index
-            .claim(entry(1), self_claim_keys(1, &[(10, 0), (11, 0)]))
-            .expect("first batch");
+            .claim(entry(1), claim(1, &[(10, 0), (11, 0)]))
+            .expect("first claim");
         assert_eq!(
             index.class_of(&entry(1)),
             Some(SccpExemptClassV1::SelfClaim)
         );
         // Same authority: the per-kind pending limit is held.
         assert_eq!(
-            index.claim(entry(2), self_claim_keys(1, &[(12, 0)])),
+            index.claim(entry(2), claim(1, &[(12, 0)])),
             Err(SccpPendingClaimErrorV1::ExclusiveHeld { holder: entry(1) })
         );
         // Another authority whose entries are all queued adds nothing.
         assert_eq!(
-            index.claim(entry(3), self_claim_keys(2, &[(10, 0), (11, 0)])),
+            index.claim(entry(3), claim(2, &[(10, 0), (11, 0)])),
             Err(SccpPendingClaimErrorV1::NothingNew)
         );
         // One new entry is enough.
         index
-            .claim(entry(3), self_claim_keys(2, &[(10, 0), (12, 1)]))
+            .claim(entry(3), claim(2, &[(10, 0), (12, 1)]))
             .expect("adds a new entry");
         assert_eq!(
-            index.claim(entry(3), self_claim_keys(3, &[(13, 0)])),
+            index.claim(entry(3), claim(3, &[(13, 0)])),
             Err(SccpPendingClaimErrorV1::EntrypointClaimed)
         );
-        // A keeper advance never competes with a self-claim of the same account.
-        let binding = SccpAdmissionKeysV1::new(SccpExemptClassV1::KeeperAdvance {
+        // A different kind never competes with a self-claim of the same account.
+        let advance = SccpAdmissionKeysV1::new(SccpExemptClassV1::KeeperAdvance {
             network: SccpNetworkV1::EthereumMainnet,
         })
         .with_exclusive(&1_u8);
-        index.claim(entry(4), binding).expect("per-kind limits");
+        index.claim(entry(4), advance).expect("per-kind limits");
         assert_eq!(index.len(), 3);
     }
 
     #[test]
     fn released_claims_free_their_keys() {
         let mut index = SccpPendingIndexV1::default();
+        index.claim(entry(1), claim(1, &[(10, 0)])).expect("claim");
         index
-            .claim(entry(1), self_claim_keys(1, &[(10, 0)]))
-            .expect("claim");
-        index
-            .claim(entry(2), self_claim_keys(2, &[(10, 0), (11, 0)]))
+            .claim(entry(2), claim(2, &[(10, 0), (11, 0)]))
             .expect("claim");
         assert!(index.release(&entry(1)).is_some());
         assert!(index.release(&entry(1)).is_none(), "release is idempotent");
         // (10, 0) is still queued by entry 2.
         assert_eq!(
-            index.validate_claim(&entry(5), &self_claim_keys(5, &[(10, 0)])),
+            index.validate_claim(&entry(5), &claim(5, &[(10, 0)])),
             Err(SccpPendingClaimErrorV1::NothingNew)
         );
         // The authority-1 limit is free again.
         index
-            .validate_claim(&entry(6), &self_claim_keys(1, &[(20, 0)]))
+            .validate_claim(&entry(6), &claim(1, &[(20, 0)]))
             .expect("limit released");
         index.release(&entry(2));
         index
-            .validate_claim(&entry(5), &self_claim_keys(5, &[(10, 0)]))
+            .validate_claim(&entry(5), &claim(5, &[(10, 0)]))
             .expect("content released");
-        index
-            .claim(entry(7), self_claim_keys(7, &[(1, 0)]))
-            .expect("claim");
+        index.claim(entry(7), claim(7, &[(1, 0)])).expect("claim");
         index.clear();
         assert!(index.is_empty());
         assert_eq!(index.class_of(&entry(7)), None);
@@ -628,9 +684,7 @@ mod tests {
         let mut block = state.block(header(2));
         let mut stx = block.transaction();
         let mut unbounded = SccpExemptBlockBudgetV1::new(&*stx.world);
-        assert!(unbounded.admit(Some(SccpExemptClassV1::KeeperAdvance {
-            network: SccpNetworkV1::BscMainnet
-        })));
+        assert!(unbounded.admit(Some(SccpExemptClassV1::SelfClaim)));
         assert!(unbounded.admit(None));
         let mut parameters = SccpParametersV1::taira_default();
         parameters.max_exempt_transactions_per_block = 2;
@@ -711,6 +765,7 @@ mod tests {
             vec![I::inbound().into(), I::advance().into()],
             vec![I::advance().into(), I::advance().into()],
             vec![I::settle().into(), I::settle().into()],
+            vec![I::initialize().into()],
             vec![I::record().into()],
             vec![I::void().into()],
             vec![I::equivocation().into()],
@@ -723,48 +778,52 @@ mod tests {
 
     #[test]
     fn entrypoint_classes_cover_external_and_sealed_reveal_transactions() {
-        use crate::smartcontracts::isi::sccp::test_support::SampleInstructions as I;
         use iroha_data_model::transaction::signed::SealedTransactionReveal;
         let state = blank_state();
         let mut block = state.block(header(2));
         let mut stx = block.transaction();
-        let advance = signed(
-            0x63,
-            vec![I::eligible_advance(SccpNetworkV1::BscMainnet).into()],
-        );
+        let class = Some(SccpExemptClassV1::KeeperAdvance {
+            network: SccpNetworkV1::EthereumMainnet,
+        });
+        let advance = signed(0x63, vec![eligible_advance().into()]);
         let external = TransactionEntrypoint::External(advance.clone());
         assert_eq!(
-            exempt_class_of_entrypoint(&*stx.world, &external),
+            exempt_class_of_entrypoint(&*stx.world, &external, None),
             None,
             "nothing is eligible without SCCP"
         );
         store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
         assert_eq!(
-            exempt_class_of_entrypoint(&*stx.world, &external),
-            Some(SccpExemptClassV1::KeeperAdvance {
-                network: SccpNetworkV1::BscMainnet
-            })
+            exempt_class_of_entrypoint(&*stx.world, &external, None),
+            class
         );
         let reveal = SealedTransactionReveal::new(Hash::new(b"commitment"), advance, [7; 32]);
         assert_eq!(
-            exempt_class_of_entrypoint(&*stx.world, &TransactionEntrypoint::SealedReveal(reveal)),
-            Some(SccpExemptClassV1::KeeperAdvance {
-                network: SccpNetworkV1::BscMainnet
-            }),
+            exempt_class_of_entrypoint(
+                &*stx.world,
+                &TransactionEntrypoint::SealedReveal(reveal),
+                None
+            ),
+            class,
             "a sealed reveal counts like the transaction it reveals"
         );
         assert_eq!(
             exempt_class_of_entrypoint(
                 &*stx.world,
-                &TransactionEntrypoint::External(sample_signed_transaction())
+                &TransactionEntrypoint::External(sample_signed_transaction()),
+                None
             ),
             None
         );
-        let paid_advance = signed(0x63, vec![I::advance().into()]);
+        let paid_backfill = signed(0x63, vec![backfill().into()]);
         assert_eq!(
-            exempt_class_of_entrypoint(&*stx.world, &TransactionEntrypoint::External(paid_advance)),
+            exempt_class_of_entrypoint(
+                &*stx.world,
+                &TransactionEntrypoint::External(paid_backfill),
+                None
+            ),
             None,
-            "a malformed advance shape pays and is not counted"
+            "a keeper-advance shape that is not eligible pays and is not counted"
         );
     }
 
@@ -799,15 +858,11 @@ mod tests {
 
     #[test]
     fn classification_is_gated_by_eligibility_and_rejects_only_invalid_eligible_transactions() {
-        use crate::smartcontracts::isi::sccp::test_support::SampleInstructions as I;
         let state = blank_state();
         let mut block = state.block(header(2));
         let mut stx = block.transaction();
-        let paid_advance = signed(0x64, vec![I::advance().into()]);
-        let advance = signed(
-            0x64,
-            vec![I::eligible_advance(SccpNetworkV1::BscMainnet).into()],
-        );
+        let advance = signed(0x64, vec![eligible_advance().into()]);
+        let paid_backfill = signed(0x64, vec![backfill().into()]);
         let ordinary = sample_signed_transaction();
         assert_eq!(
             classify(&*stx.world, &stx, 3, &advance),
@@ -816,19 +871,35 @@ mod tests {
         );
         store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
         assert_eq!(
-            classify(&*stx.world, &stx, 3, &paid_advance),
+            classify(&*stx.world, &stx, 3, &paid_backfill),
             Ok(None),
-            "a malformed advance is ineligible and pays the ordinary fee"
+            "a keeper-advance shape that is not eligible pays the ordinary fee"
         );
         assert_eq!(
             classify(&*stx.world, &stx, 3, &ordinary),
             Ok(None),
             "an unshaped transaction is never pre-verified"
         );
-        assert!(
-            classify(&*stx.world, &stx, 3, &advance).is_err(),
-            "an eligible advance without an installed light client is rejected"
+        let rejection = classify(&*stx.world, &stx, 3, &advance)
+            .expect_err("an eligible advance of an uninstalled light client is rejected");
+        assert!(rejection.reason.contains("not installed"), "{rejection}");
+    }
+
+    #[test]
+    fn the_admission_view_reads_the_network_id_and_committed_time_of_a_state() {
+        let state = blank_state();
+        let view = state.view();
+        assert_eq!(
+            SccpAdmissionView::taira_network_id(&view),
+            *view.network_id()
         );
+        assert_eq!(
+            SccpAdmissionView::committed_time_ms(&view),
+            view.query_ledger_time_ms()
+        );
+        // The queue holds it as a trait object.
+        let object: &dyn SccpAdmissionView = &view;
+        assert_eq!(object.taira_network_id(), *view.network_id());
     }
 
     #[test]
@@ -837,46 +908,28 @@ mod tests {
         let view = state.world_view();
         let transaction = sample_signed_transaction();
         assert_eq!(classify(&view, &state.view(), 1, &transaction), Ok(None));
-        assert!(!allows_unregistered_authority(transaction.instructions()));
-        assert!(block_exempt_cap_ok(
-            &view,
-            &[SccpExemptClassV1::KeeperAdvance {
-                network: SccpNetworkV1::BscMainnet
-            }]
+        assert!(!allows_unregistered_authority(
+            transaction.instructions(),
+            transaction.authority()
         ));
+        assert!(block_exempt_cap_ok(&view, &[SccpExemptClassV1::SelfClaim]));
         assert_eq!(exempt_cap(&view), None);
     }
 
     #[test]
     fn an_eligible_keeper_advance_admits_an_absent_authority() {
         use crate::smartcontracts::isi::sccp::test_support::SampleInstructions as I;
-        use iroha_sccp::light_client::{
-            ethereum::{EthereumHeaderSegmentV1, EthereumLcAdvanceV1},
-            proof::{SccpLcAdvanceV1, SccpLcSegmentV1},
-        };
-        let frame = |advance: SccpLcAdvanceV1| AdvanceSccpLightClientV1 {
-            network: SccpNetworkV1::EthereumMainnet,
-            expected_state_hash: None,
-            advance: advance.to_bytes().expect("bounded advance"),
-        };
-        let advance = frame(SccpLcAdvanceV1::Ethereum(EthereumLcAdvanceV1 {
-            updates: Vec::new(),
-        }));
-        let backfill = frame(SccpLcAdvanceV1::Backfill {
-            segment: SccpLcSegmentV1::Ethereum(EthereumHeaderSegmentV1 {
-                headers: Vec::new(),
-            }),
-        });
+        let advance = eligible_advance();
         let admits = |seed: u8, instructions: Vec<InstructionBox>| {
             let transaction = signed(seed, instructions);
-            allows_unregistered_authority(transaction.instructions())
+            allows_unregistered_authority(transaction.instructions(), transaction.authority())
         };
         // The rule does not look at the authority: any key may advance.
         for seed in [0x65, 0x66] {
             assert!(admits(seed, vec![advance.clone().into()]));
         }
         assert!(
-            !admits(0x65, vec![backfill.into()]),
+            !admits(0x65, vec![backfill().into()]),
             "a Backfill pays the ordinary fee"
         );
         assert!(

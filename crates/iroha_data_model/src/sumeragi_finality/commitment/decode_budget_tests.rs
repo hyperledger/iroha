@@ -277,11 +277,11 @@ fn widest_bond() -> Quantity {
     Quantity::try_from_numeric(Numeric::try_new(mantissa, XOR_QUANTITY_SCALE).unwrap()).unwrap()
 }
 
-fn merkle_commitment<T>(label: &[u8], leaves: u64) -> Option<MerkleTreeCommitment<T>> {
-    Some(MerkleTreeCommitment::new(
+fn merkle_commitment<T>(label: &[u8], leaves: u64) -> MerkleTreeCommitment<T> {
+    MerkleTreeCommitment::new(
         HashOf::from_untyped_unchecked(Hash::new(label)),
         NonZeroU64::new(leaves).unwrap(),
-    ))
+    )
 }
 
 /// The largest result body the validation rules admit for `seats` validators.
@@ -383,11 +383,11 @@ fn maximal_boundary_result(seats: usize) -> ExecutionResultCommitment {
             ordinary_writes_root: root,
             parent_world_state_root: Hash::new(b"fixture parent world"),
             world_state_root: Hash::new(b"fixture world"),
-            event_commitment: merkle_commitment(b"events", u64::MAX),
+            event_commitment: Some(merkle_commitment(b"events", u64::MAX)),
             executed_block_wire_len: MAX_EXECUTED_BLOCK_WIRE_BYTES,
             executed_block_wire_hash: Hash::new(b"synthetic codec result, not executed World"),
-            transaction_input_commitment: merkle_commitment(b"inputs", u64::MAX),
-            transaction_output_commitment: merkle_commitment(b"outputs", u64::MAX),
+            transaction_input_commitment: Some(merkle_commitment(b"inputs", u64::MAX)),
+            transaction_output_commitment: Some(merkle_commitment(b"outputs", u64::MAX)),
         },
         ScheduleOutcome {
             height,

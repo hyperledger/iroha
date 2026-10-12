@@ -1249,6 +1249,9 @@ fn preexecute_genesis_on_current_thread(
     let core_topology = CoreTopology::new(topology.to_vec());
     let time_source = TimeSource::new_system();
     let consensus_mode = signed_genesis_consensus_mode(block)?;
+    let root_scope = iroha_genesis::signed_genesis_consensus_metadata(&block.0)?
+        .sumeragi_context
+        .root_scope;
     let validation = ValidBlock::validate_signed_genesis(
         block.0.clone(),
         &core_topology,
@@ -1256,6 +1259,7 @@ fn preexecute_genesis_on_current_thread(
         &time_source,
         &state,
         consensus_mode,
+        root_scope,
     )
     .unpack(|_| {});
     let (valid_block, state_block) = match validation {

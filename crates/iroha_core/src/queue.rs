@@ -1135,8 +1135,9 @@ struct EagerAdmissionStateAccess<'view, W: WorldReadOnly> {
     nexus: &'view Nexus,
     pipeline: &'view Pipeline,
     zk_gas: &'view ConfidentialGas,
-    /// The committed network domain and source-proof freshness clock.
-    sccp_context: &'view dyn crate::smartcontracts::isi::sccp::admission::SccpCommittedContext,
+    /// Committed state SCCP exempt pre-verification reads beyond World: the live `NetworkId`
+    /// and the committed block time.
+    sccp_view: &'view dyn crate::smartcontracts::isi::sccp::admission::SccpAdmissionView,
     next_block_height: u64,
     ledger_time_ms: u64,
 }
@@ -1146,7 +1147,7 @@ impl<W: WorldReadOnly> EagerAdmissionStateAccess<'_, W> {
         nexus: &'view Nexus,
         pipeline: &'view Pipeline,
         zk_gas: &'view ConfidentialGas,
-        sccp_context: &'view dyn crate::smartcontracts::isi::sccp::admission::SccpCommittedContext,
+        sccp_view: &'view dyn crate::smartcontracts::isi::sccp::admission::SccpAdmissionView,
         next_block_height: u64,
         ledger_time_ms: u64,
     ) -> EagerAdmissionStateAccess<'view, W> {
@@ -1155,7 +1156,7 @@ impl<W: WorldReadOnly> EagerAdmissionStateAccess<'_, W> {
             nexus,
             pipeline,
             zk_gas,
-            sccp_context,
+            sccp_view,
             next_block_height,
             ledger_time_ms,
         }
@@ -1191,7 +1192,7 @@ impl<W: WorldReadOnly> QueueAdmissionStateAccess for EagerAdmissionStateAccess<'
     ) -> Result<Option<SccpAdmissionKeysV1>, SccpAdmissionRejectV1> {
         crate::smartcontracts::isi::sccp::admission::classify(
             self.world,
-            self.sccp_context,
+            self.sccp_view,
             self.next_block_height,
             transaction,
         )
@@ -1222,6 +1223,11 @@ impl<W: WorldReadOnly> QueueAdmissionStateAccess for EagerAdmissionStateAccess<'
             self.zk_gas,
             self.next_block_height,
             route_dataspace_id,
+            self.sccp_view
+                .sccp_committed_time_ms()
+                .map_err(|error| Error::AdmissionInvariant {
+                    reason: error.to_string(),
+                })?,
         )
     }
     fn extract_lane_identity_metadata(
@@ -2739,6 +2745,7 @@ impl Queue {
             }
         }
     }
+    #[allow(clippy::too_many_arguments)] // Original SCCP time is distinct from the fee horizon.
     fn recheck_external_nexus_fee_admission(
         &self,
         tx: &AcceptedTransaction<'static>,
@@ -2748,6 +2755,7 @@ impl Queue {
         zk_gas: &ConfidentialGas,
         next_block_height: u64,
         route_dataspace_id: Option<DataSpaceId>,
+        sccp_committed_time_ms: Option<u64>,
     ) -> Result<Option<FeeAdmissionReservation>, Error> {
         let Some(transaction) = tx.external() else {
             return Ok(None);
@@ -2760,6 +2768,7 @@ impl Queue {
             zk_gas,
             transaction,
             observation_time_ms,
+            sccp_committed_time_ms,
             next_block_height,
             route_dataspace_id,
         )
@@ -2994,6 +3003,8 @@ impl Queue {
         state_view: &StateView<'_>,
         max_scan: NonZeroUsize,
     ) -> Option<Vec<AcceptedTransaction<'static>>> {
+        let sccp_committed_time_ms =
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(state_view).ok()?;
         let _ = self.cull_expired_entries_if_due();
         if self.admission_faulted() {
             return None;
@@ -3050,6 +3061,7 @@ impl Queue {
                         crate::smartcontracts::isi::sccp::admission::exempt_class_of_entrypoint(
                             state_view.world(),
                             tx.as_accepted().entrypoint(),
+                            sccp_committed_time_ms,
                         ),
                     )
                     .then(|| tx.value().clone())
@@ -9075,9 +9087,9 @@ pub mod tests {
     }
     #[test]
     fn bounded_pending_snapshot_caps_fee_exempt_sccp_transactions() {
-        use crate::{
-            smartcontracts::isi::sccp::admission::{self, SccpExemptClassV1},
-            sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
+        use crate::smartcontracts::isi::sccp::{
+            admission::{self, SccpExemptClassV1},
+            test_support::sample_route,
         };
         use iroha_data_model::{
             IntoKeyValue,
@@ -9085,86 +9097,70 @@ pub mod tests {
             bridge::SccpNetworkV1,
             isi::sccp::SettleSccpV1,
             sccp::{
-                deployment::{SccpDeploymentV1, SccpEvmDeploymentV1},
-                escrow::sccp_xor_route_escrow_account_id_v1,
                 inbound::{
                     SccpInboundRecordV1, SccpInboundStatusV1, SccpPendingReasonV1,
                     SccpSourceLocatorV1,
                 },
-                registry::{SccpRouteActivationV1, SccpRouteRevisionV1, SccpRouteV1},
+                registry::SccpRouteActivationV1,
             },
         };
         use iroha_sccp::v1::payload::SccpTransferPayloadV1;
-        let claimants: Vec<_> = [1_u8, 2]
-            .into_iter()
-            .map(|seed| {
-                KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519).expect("claimant")
-            })
-            .collect();
+
+        const NETWORK: SccpNetworkV1 = SccpNetworkV1::EthereumMainnet;
+        /// 10 XOR in Taira units, above the self-claim fee.
+        const AMOUNT: u128 = 10_000_000_000;
+        // Two recipients each hold one pending inbound message that can settle, so each
+        // recipient's own settle is an eligible fee-exempt self-claim (`specs/sccp.md` §4.12.4).
+        let recipients = [0x71_u8, 0x72].map(|seed| {
+            KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519).expect("recipient key")
+        });
+        let message_ids = [[0x71_u8; 32], [0x72; 32]];
         let mut world = world_with_test_domains();
-        for key in claimants.iter().chain([&*ALICE_KEYPAIR]) {
-            let account = AccountId::new(key.public_key().clone());
+        let alice = AccountId::new(ALICE_KEYPAIR.public_key().clone());
+        for account in recipients
+            .iter()
+            .map(|keys| AccountId::new(keys.public_key().clone()))
+            .chain([alice])
+        {
             let (id, value) = Account::new(account.clone())
                 .build(&account)
                 .into_key_value();
             world.accounts.insert(id, value);
         }
-        let chain =
-            CertifiedTestChain::start(TestChainConfig::new(world, 0)).expect("signed genesis");
-        let state = chain.state();
-        let network = SccpNetworkV1::EthereumMainnet;
-        let amount = 10_000_000_000_u128;
-        let mut message_ids = Vec::new();
         {
-            // Seed already-proven pending monetary records in the committed parent fixture.
-            // Queue admission below uses the real self-claim classifier and retains its keys.
-            let mut world = state.world.block();
             let mut parameters = iroha_data_model::sccp::params::SccpParametersV1::taira_default();
             parameters.max_exempt_transactions_per_block = 1;
+            let mut world = world.block();
             *world.sccp_parameters.get_mut() = Some(parameters);
-            let escrow = sccp_xor_route_escrow_account_id_v1(&state.network_id, network)
-                .expect("escrow identity");
-            let mut route = SccpRouteV1::empty(network, escrow).expect("external route");
-            let mut revision = SccpRouteRevisionV1::staged(
-                1,
-                SccpDeploymentV1::Evm(SccpEvmDeploymentV1 {
-                    address: [0x33; 20],
-                    runtime_code_hash: [0x34; 32],
-                }),
-                amount * 2,
-                1,
-            );
+            let mut route = sample_route(NETWORK);
+            let revision = route.revisions.get_mut(&1).expect("revision 1");
             revision.activation = SccpRouteActivationV1::Bidirectional;
-            revision.liability = amount * 2;
-            route.revisions.insert(1, revision);
-            world.sccp_routes.insert(network, route);
-            for (nonce, claimant) in claimants.iter().enumerate() {
-                let nonce = u64::try_from(nonce).expect("two fixture claimants fit u64");
-                let account = AccountId::new(claimant.public_key().clone());
-                let recipient = AccountAddress::from_account_id(&account)
-                    .and_then(|address| address.canonical_bytes())
-                    .expect("recipient");
+            revision.liability = 2 * AMOUNT;
+            world.sccp_routes.insert(NETWORK, route);
+            for (keys, message_id) in recipients.iter().zip(message_ids) {
+                let recipient =
+                    AccountAddress::from_account_id(&AccountId::new(keys.public_key().clone()))
+                        .and_then(|address| address.canonical_bytes())
+                        .expect("recipient address");
                 let payload = SccpTransferPayloadV1::inbound(
-                    network,
-                    nonce,
+                    NETWORK,
+                    u64::from(message_id[0]),
                     1,
-                    amount,
+                    AMOUNT,
                     vec![0x44; 20],
                     recipient,
                 )
-                .expect("payload");
-                let message_id = payload
-                    .message_id(state.network_id.as_bytes())
-                    .expect("message identity");
+                .and_then(|payload| payload.encode())
+                .expect("inbound payload");
                 world.sccp_inbound_messages.insert(
                     message_id,
                     SccpInboundRecordV1 {
-                        network,
+                        network: NETWORK,
                         revision: 1,
-                        payload: payload.encode().expect("payload encoding"),
+                        payload,
                         source_locator: SccpSourceLocatorV1 {
-                            source_height: nonce + 100,
-                            block_hash: [0x55; 32],
+                            source_height: 7,
+                            block_hash: message_id,
                             index_in_block: 0,
                         },
                         proven_at_height: 1,
@@ -9172,12 +9168,13 @@ pub mod tests {
                         status: SccpInboundStatusV1::pending(SccpPendingReasonV1::Disabled),
                     },
                 );
-                message_ids.push(message_id);
             }
-            world.sccp_pending_counts.insert((network, 1), (2, 0));
             world.commit();
         }
-        let (_time_handle, time_source) = TimeSource::new_mock(Duration::from_millis(4_000));
+        let kura = Kura::blank_kura_for_testing();
+        let query_handle = LiveQueryStore::start_test();
+        let state = State::new(world, kura, query_handle);
+        let (_time_handle, time_source) = TimeSource::new_mock(Duration::default());
         let queue = Arc::new(Queue::test(config_factory(), &time_source));
         let accepted = |keypair: &KeyPair, instructions: Vec<InstructionBox>| {
             let transaction = TransactionBuilder::new_with_time_source(
@@ -9199,13 +9196,15 @@ pub mod tests {
             )
             .expect("signed queue input accepted")
         };
+        // Concurrent claims come from distinct recipients; an account may retain only one
+        // pending self-claim under the SCCP admission contract.
         let transactions = vec![
             accepted(
-                &claimants[0],
+                &recipients[0],
                 vec![SettleSccpV1::inbound(message_ids[0]).into()],
             ),
             accepted(
-                &claimants[1],
+                &recipients[1],
                 vec![SettleSccpV1::inbound(message_ids[1]).into()],
             ),
             accepted(
@@ -9245,7 +9244,12 @@ pub mod tests {
         let classes = snapshot
             .iter()
             .filter_map(|transaction| {
-                admission::exempt_class_of_entrypoint(view.world(), transaction.entrypoint())
+                admission::exempt_class_of_entrypoint(
+                    view.world(),
+                    transaction.entrypoint(),
+                    crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                        .expect("original fixture time"),
+                )
             })
             .collect::<Vec<_>>();
         assert_eq!(classes, vec![SccpExemptClassV1::SelfClaim]);

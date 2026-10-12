@@ -9164,18 +9164,16 @@ fn decode_world_fields(
         // SCCP v1 state is restored from its own snapshot envelope after `parse_world`.
         sccp_parameters: Cell::default(),
         sccp_reset_nonce: Cell::default(),
-        sccp_committee_generations: CommitteeStorage::try_new_admitted(execution_budget.clone())?,
-        sccp_committee_current: scalar_cell_custody::initialize(0, execution_budget)?,
-        sccp_liability_clock: scalar_cell_custody::initialize(0, execution_budget)?,
-        sccp_degraded_run: mv::cell::CellInitialization::<u32>::try_reserve(execution_budget)
-            .map(|owner| owner.initialize(0, None))
-            .map_err(scalar_cell_custody::admission_error)?,
-        sccp_anchor_open: mv::cell::CellInitialization::<RetainedSccpAnchorOpen>::try_reserve(
-            execution_budget,
-        )
-        .map(|owner| owner.initialize(RetainedSccpAnchorOpen::empty(execution_budget), None))
-        .map_err(scalar_cell_custody::admission_error)?,
-        sccp_anchor_chunks: AnchorStorage::try_new_admitted(execution_budget.clone())?,
+        sccp_committee_generations: initial_world_field!(
+            sccp_committee_generations,
+            execution_budget
+        ),
+        sccp_destination_pending_generations: Storage::default(),
+        sccp_committee_current: initial_world_field!(sccp_committee_current, execution_budget),
+        sccp_liability_clock: initial_world_field!(sccp_liability_clock, execution_budget),
+        sccp_degraded_run: initial_world_field!(sccp_degraded_run, execution_budget),
+        sccp_anchor_open: initial_world_field!(sccp_anchor_open, execution_budget),
+        sccp_anchor_chunks: initial_world_field!(sccp_anchor_chunks, execution_budget),
         sccp_block_leaves: Storage::default(),
         sccp_block_commitments: Storage::default(),
         sccp_history: Cell::default(),
@@ -9183,6 +9181,10 @@ fn decode_world_fields(
         sccp_outbound_messages: Storage::default(),
         sccp_outbound_by_nonce: Storage::default(),
         sccp_control_messages: Storage::default(),
+        sccp_fast_pauses: Storage::default(),
+        sccp_fast_pause_suspended_until_ms: Storage::default(),
+        sccp_fast_pause_rounds: Storage::default(),
+        sccp_pause_panel: Cell::default(),
         sccp_routes: Storage::default(),
         sccp_destination_words: Storage::default(),
         sccp_governance_revisions: Storage::default(),

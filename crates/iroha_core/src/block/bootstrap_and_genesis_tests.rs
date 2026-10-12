@@ -422,14 +422,21 @@ async fn genesis_public_key_is_checked() {
     // Invalid genesis authority must be rejected before any execution or commit.
     let block: SignedBlock = unverified_block.into();
     let (_handle, time_source) = TimeSource::new_mock(block.header().creation_time());
-    let (_, error) = ValidBlock::validate_signed_genesis(
-        block,
-        &topology,
-        &genesis_correct_account_id,
-        &time_source,
-        &state,
-        iroha_data_model::block::consensus::ConsensusMode::Permissioned,
-    )
+    let (_, error) = {
+        let selected_genesis = block;
+        let selected_scope =
+            iroha_data_model::sumeragi_finality::test_fixtures::NativeFinalityFixture::new()
+                .root_scope();
+        ValidBlock::validate_signed_genesis(
+            selected_genesis,
+            &topology,
+            &genesis_correct_account_id,
+            &time_source,
+            &state,
+            iroha_data_model::block::consensus::ConsensusMode::Permissioned,
+            selected_scope,
+        )
+    }
     .unpack(|_| {})
     .err()
     .expect("genesis with an unexpected authority must fail validation");

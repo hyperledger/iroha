@@ -37,7 +37,7 @@ impl Kagemusha<'_> {
 
     /// Retrieve one boundary certificate without granting epoch authority.
     ///
-    /// Select the boundary from authenticated native progress and verify its CommitQC
+    /// Select the boundary from authenticated native progress and verify its `CommitQC`
     /// before accepting the successor committee.
     /// # Errors
     /// Returns the asynchronous read failure or a blocking-runtime rejection.

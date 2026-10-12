@@ -410,26 +410,29 @@ fn submit_transaction(
     let iroha_core::queue::RoutingPlan::Single(route) = route else {
         eyre::bail!("SCCP submission requires one resolved route");
     };
-    let latest_header = state.latest_block_header_fast();
-    let observation_time_ms = latest_header
-        .as_ref()
-        .map_or(0, |header| header.creation_time_ms);
-    let next_block_height = latest_header
-        .as_ref()
-        .map_or(1, |header| header.height().get().saturating_add(1));
+    let quote_view = state.query_view();
+    let sccp_committed_time_ms =
+        iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&quote_view)
+            .map_err(|error| eyre::eyre!("fee quote has invalid committed time: {error:?}"))?;
+    let observation_time_ms = sccp_committed_time_ms.unwrap_or(0);
+    let next_block_height = u64::try_from(quote_view.height())?
+        .checked_add(1)
+        .ok_or_else(|| eyre::eyre!("fee quote committed height overflow"))?;
     let quote = {
-        let world = state.world_view();
         quote_nexus_fee_admission_draft(
-            &world,
-            &state.nexus_snapshot(),
-            &state.pipeline_snapshot(),
+            quote_view.world(),
+            quote_view.nexus(),
+            quote_view.pipeline(),
+            &quote_view.zk().gas,
             &payload,
             observation_time_ms,
+            sccp_committed_time_ms,
             next_block_height,
             Some(route.route.dataspace_id),
         )
     }
     .map_err(|error| eyre::eyre!("quote SCCP transaction: {error:?}"))?;
+    drop(quote_view);
     eyre::ensure!(
         quote.quote.charges.is_empty(),
         "the SCCP keeper submits only fee-exempt transactions"

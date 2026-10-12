@@ -511,6 +511,35 @@ mod tests {
     }
 
     #[test]
+    fn wire_schema_hash_binds_fixed_result_header_and_outer_hash_contract() {
+        let abi = ivm::syscalls::compute_abi_hash(ivm::SyscallPolicy::AbiV1);
+        let [block, consensus, execution] = covered_wire_roots();
+        let roots = [&block, &consensus, &execution];
+        use iroha_data_model::sumeragi_finality::certified_result::wire_identity;
+        let schemas = iroha_data_model::wire_schema::wire_schema_hash_of(&roots, &[], abi);
+        let contract = wire_identity::descriptor();
+        let bind = |contract: &[u8]| {
+            iroha_data_model::wire_schema::wire_schema_hash_of(
+                &roots,
+                &[(wire_identity::FORMAT_NAME, contract)],
+                abi,
+            )
+        };
+        assert_ne!(
+            wire_schema_hash(),
+            schemas,
+            "body-only schemas omit X and the result hash contract"
+        );
+        assert_eq!(wire_schema_hash(), bind(&contract));
+        assert_eq!(contract, wire_identity::descriptor());
+        for index in 0..contract.len() {
+            let mut changed = contract.clone();
+            changed[index] ^= 1;
+            assert_ne!(wire_schema_hash(), bind(&changed));
+        }
+    }
+
+    #[test]
     fn wire_schema_hash_binds_compiled_wire_and_ivm_abi_v1() {
         let abi = ivm::syscalls::compute_abi_hash(ivm::SyscallPolicy::AbiV1);
         let [block, consensus, execution] = covered_wire_roots();

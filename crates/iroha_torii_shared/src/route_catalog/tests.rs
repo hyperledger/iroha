@@ -872,6 +872,45 @@ mod tests {
         }));
     }
     #[test]
+    fn sccp_catalog_retires_attestation_routes_and_preserves_committed_reads() {
+        assert_eq!(
+            sccp::CURRENT_COMMITTEE.path(),
+            "/v1/sccp/committees/current"
+        );
+        assert_eq!(sccp::COMMITTEE.path(), "/v1/sccp/committees/{generation}");
+        assert!(sccp::ROUTES.contains(&sccp::CURRENT_COMMITTEE));
+        assert!(sccp::ROUTES.contains(&sccp::COMMITTEE));
+        assert_eq!(sccp::COMMITTEE_ROTATIONS.path(), "/v1/sccp/committees/rotations");
+        assert!(sccp::ROUTES.contains(&sccp::COMMITTEE_ROTATIONS));
+        for route in CATALOGED_ROUTES {
+            for retired in [
+                "/v1/sccp/rosters",
+                "/v1/sccp/attestations",
+                "/v1/sccp/bridge-keys",
+            ] {
+                assert!(!route.path().starts_with(retired), "{}", route.path());
+            }
+            assert!(!route.stable_route_id().starts_with("sccp.roster."));
+        }
+        for route in sccp::ROUTES {
+            assert!(CATALOGED_ROUTES.contains(route));
+            assert_eq!(route.method(), HttpMethod::Get);
+            assert_eq!(route.effect(), RouteEffect::ReadOnly);
+            assert_eq!(route.admission(), AdmissionPolicy::Public);
+            assert_eq!(route.surface(), ApiSurface::Public);
+        }
+        for route in [
+            sccp::MESSAGE_PROOF,
+            sccp::CONTROL_PROOF,
+            sccp::HISTORY,
+            sccp::OUTBOUND_BY_NONCE,
+            sccp::CONTROLS,
+            sccp::LIGHT_CLIENT_CHECKPOINTS,
+        ] {
+            assert!(sccp::ROUTES.contains(&route));
+        }
+    }
+    #[test]
     fn sccp_governance_descriptor_uses_the_canonical_uri() {
         assert_eq!(
             runtime_governance::GOV_PROPOSE_SCCP.path(),

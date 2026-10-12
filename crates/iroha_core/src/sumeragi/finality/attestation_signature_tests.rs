@@ -42,12 +42,14 @@ fn original_finish_attestation(
         status,
         finality_proof: proofs.tip,
     };
-    body.validate_consistency()
+    body.validate_consistency(chain.root_scope().into())
         .map_err(attestation_body_read_error)?;
     let signature = SignatureOf::try_from_hash(signer.private_key(), body.signing_hash())
         .map_err(|error| Error::Signing(error.to_string()))?;
     let attestation = SumeragiFinalityAttestation { body, signature };
-    attestation.verify().map_err(attestation_body_read_error)?;
+    attestation
+        .verify(chain.root_scope().into())
+        .map_err(attestation_body_read_error)?;
     Ok(attestation)
 }
 
@@ -114,7 +116,11 @@ fn check_retired_body_refusal(chain: &CertifiedTestChain) {
     let refused = {
         let budget = DecodeBudgetContext::new(limits(0));
         budget
-            .with(|| original.body.validate_consistency())
+            .with(|| {
+                original
+                    .body
+                    .validate_consistency(chain.root_scope().into())
+            })
             .unwrap_err()
     };
     assert!(matches!(
@@ -132,11 +138,14 @@ fn check_retired_body_refusal(chain: &CertifiedTestChain) {
     ));
     assert_eq!(unrelated.consumed_allocated_bytes(), 0);
     assert_eq!(original, before);
-    original.verify().unwrap();
+    original.verify(chain.root_scope().into()).unwrap();
 
     let mut invalid = original;
     invalid.body.challenge = [0; 32];
-    let completed = invalid.body.validate_consistency().unwrap_err();
+    let completed = invalid
+        .body
+        .validate_consistency(chain.root_scope().into())
+        .unwrap_err();
     assert!(matches!(completed, FinalityReadError::Invalid(_)));
     assert!(matches!(
         attestation_body_read_error(completed),
@@ -162,7 +171,9 @@ fn check_signature_and_order(chain: &CertifiedTestChain) {
     assert_eq!(fresh.body.finality_proof, original.body.finality_proof);
     assert_eq!(fresh.body.challenge, [52; 32]);
     assert_ne!(fresh.signature, original.signature);
-    fresh.verify().unwrap();
+    fresh
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+        .unwrap();
     let wrong_signer = KeyPair::from_seed(vec![0xD1; 32], Algorithm::BlsNormal);
     assert_ne!(wrong_signer.public_key(), signer.public_key());
     for challenge in [[53; 32], [0; 32]] {
@@ -181,7 +192,7 @@ fn check_signature_and_order(chain: &CertifiedTestChain) {
     }
     finish_selected(&view, chain, &original, [54; 32], &signer, false)
         .unwrap()
-        .verify()
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
         .unwrap();
 }
 
@@ -214,7 +225,9 @@ fn check_body_witness_refusals(chain: &CertifiedTestChain) {
         original.body.genesis_finality_proof
     );
     assert_eq!(restored.body.finality_proof, original.body.finality_proof);
-    restored.verify().unwrap();
+    restored
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+        .unwrap();
 }
 
 #[test]
@@ -238,8 +251,12 @@ fn check_active_original_recipe(chain: &CertifiedTestChain) {
     let actual = actual_budget
         .with(|| finish_selected(&view, chain, &original, [59; 32], &signer, false))
         .unwrap();
-    expected.verify().unwrap();
-    actual.verify().unwrap();
+    expected
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+        .unwrap();
+    actual
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+        .unwrap();
     for budget in [&expected_budget, &actual_budget] {
         assert!(budget.consumed_allocated_bytes() > 1);
         assert!(budget.consumed_allocated_bytes() <= CEILING as u64);
@@ -273,7 +290,7 @@ fn check_active_original_recipe(chain: &CertifiedTestChain) {
     }
     finish_selected(&view, chain, &original, [61; 32], &signer, false)
         .unwrap()
-        .verify()
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
         .unwrap();
     assert_eq!(pool.reserved_bytes(), reserved);
 }

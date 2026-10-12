@@ -14,7 +14,7 @@
 //! attempt creation and enactment.
 
 use super::{
-    deployment::SccpDeploymentV1,
+    deployment::{SccpCommitteePinV1, SccpDeploymentV1},
     light_client::{
         SCCP_LC_BOOTSTRAP_MAX_BYTES_V1, SCCP_LC_GENESIS_PROFILE_VERSION_V1, SccpLcBootstrapV1,
         SccpLcCheckpointDataV1, SccpLcInitExpectationV1, SccpLightClientParamsError,
@@ -87,8 +87,8 @@ pub enum SccpGovernanceSubjectV1 {
 
 /// `RegisterRoute`: stage a new revision bound to one destination deployment.
 ///
-/// TODO: WP-S4: add `initial_committee: SccpCommitteePinV1` (§4.14.3 P1 to P5). Until the action
-/// carries the pin, Core refuses its enactment, so no route can be registered.
+/// The required pin is checked against authenticated retained generations at enactment.
+/// Static checks validate only its shape; Core keeps registration fail-closed until P0–P5 are complete.
 #[derive(
     Debug,
     Clone,
@@ -116,6 +116,8 @@ pub struct SccpRegisterRouteActionV1 {
     pub revision: u32,
     /// Deployed destination contract.
     pub deployment: SccpDeploymentV1,
+    /// Immutable committee pin of the deployed destination; authenticated at enactment.
+    pub initial_committee: SccpCommitteePinV1,
     /// Supply cap in Taira units (equal to token units); equals the contract cap.
     #[norito(json = "crate::json_helpers::u128_string")]
     pub max_wrapped_supply: u128,
@@ -602,6 +604,12 @@ pub enum SccpGovernanceStaticError {
         /// Index of the offending action.
         action: usize,
     },
+    /// `RegisterRoute` carries a zero generation, root, start height or trust deadline.
+    #[error("action {action} registers a malformed initial_committee")]
+    InvalidInitialCommittee {
+        /// Index of the offending action.
+        action: usize,
+    },
     /// A TON `RegisterRoute` carries `max_wrapped_supply ≥ 2^96`.
     #[error("action {action} registers a TON max_wrapped_supply of 2^96 or more")]
     TonMaxWrappedSupplyTooLarge {
@@ -766,8 +774,21 @@ impl SccpGovernanceActionV1 {
                 action.checkpoint.first_json_u64_violation(maximum)
             }
             Self::SetParameters(action) => action.next.first_json_u64_violation(maximum),
-            Self::RegisterRoute(_)
-            | Self::ActivateRevision(_)
+            Self::RegisterRoute(action) => {
+                let pin = action.initial_committee;
+                if pin.generation > maximum {
+                    Some("SCCP initial_committee.generation exceeds the exact JSON integer maximum")
+                } else if pin.start_height > maximum {
+                    Some(
+                        "SCCP initial_committee.start_height exceeds the exact JSON integer maximum",
+                    )
+                } else if pin.until_ms > maximum {
+                    Some("SCCP initial_committee.until_ms exceeds the exact JSON integer maximum")
+                } else {
+                    None
+                }
+            }
+            Self::ActivateRevision(_)
             | Self::SwitchRevision(_)
             | Self::DeactivateOutbound(_)
             | Self::RetireRevision(_)
@@ -796,6 +817,9 @@ impl SccpGovernanceActionV1 {
         match self {
             Self::RegisterRoute(register) => {
                 nonzero(register.revision)?;
+                if !register.initial_committee.is_well_formed() {
+                    return Err(SccpGovernanceStaticError::InvalidInitialCommittee { action });
+                }
                 if register.max_wrapped_supply == 0 {
                     return Err(SccpGovernanceStaticError::ZeroMaxWrappedSupply { action });
                 }

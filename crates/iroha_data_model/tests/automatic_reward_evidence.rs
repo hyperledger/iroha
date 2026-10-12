@@ -569,7 +569,7 @@ fn prove(
             },
         );
         let root = finality
-            .decode_checked()
+            .decode_checked(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
             .unwrap()
             .execution()
             .ordinary_writes_root;
@@ -612,7 +612,7 @@ fn fee_evidence_checked_verification_preserves_decode_refusal_and_exact_retry() 
     let block = &window.blocks[0];
     let root = block
         .finality
-        .decode_checked()
+        .decode_checked(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
         .unwrap()
         .execution()
         .ordinary_writes_root;

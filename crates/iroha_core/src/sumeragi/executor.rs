@@ -155,6 +155,8 @@ pub struct ExecutorContext {
     pub genesis_account: AccountId,
     /// The chain's consensus mode.
     pub consensus_mode: ConsensusMode,
+    /// Immutable execution scope from this root's independently authenticated signed genesis.
+    pub root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
     /// The applied tip: its height and core block hash.
     pub applied: (u64, Hash32),
     /// The driver's cryptography: the keys of each newly scheduled committee are admitted
@@ -1655,6 +1657,7 @@ impl<'s> Worker<'s> {
             .expect("original completed proposal transfers to validation");
         let genesis_account = &self.context.genesis_account;
         let consensus_mode = self.context.consensus_mode;
+        let root_scope = self.context.root_scope;
         let state = self.state;
         let attempt = self
             .signature_decode
@@ -1696,6 +1699,7 @@ impl<'s> Worker<'s> {
                 genesis_account,
                 cadence,
                 consensus_mode,
+                root_scope,
                 expansion,
                 block.header(),
                 block.payload().as_slice(),
@@ -1907,10 +1911,14 @@ impl<'s> Worker<'s> {
         }
         self.finishing.as_mut().unwrap().world_cut_refusal = None;
         let original = self.finishing.as_mut().unwrap();
-        let sccp_finality_header = original
+        let header = original
             .overlay
-            .sccp_finality_header()
-            .map_err(PublicationError::RecoveryRequired)?;
+            .sealed_sccp_finality_header(original.valid.as_ref())
+            .map_err(|error| {
+                let reason = format!("original sealed finality header requires recovery: {error}");
+                self.recovery = Some(reason.clone());
+                PublicationError::RecoveryRequired(reason)
+            })?;
         let FinishingPhase::ContextProof { inputs, .. } =
             std::mem::replace(&mut original.phase, FinishingPhase::Consuming)
         else {
@@ -1922,7 +1930,8 @@ impl<'s> Worker<'s> {
             &transition,
             inputs,
             proof,
-            sccp_finality_header,
+            header,
+            self.context.root_scope.into(),
         )
         .map_err(|error| {
             let reason = format!("original result requires recovery: {error}");
@@ -2031,9 +2040,9 @@ impl<'s> Worker<'s> {
             }
         };
         let result = result_of_preimage(preimage.as_slice()).ok_or_else(|| {
-            PublicationError::RecoveryRequired(
-                "original certified result preimage is malformed".into(),
-            )
+            let reason = "original encoded result is malformed".to_owned();
+            self.recovery = Some(reason.clone());
+            PublicationError::RecoveryRequired(reason)
         })?;
         let original = self.finishing.take().unwrap();
         let FinishingPhase::Ready(commitment) = original.phase else {
@@ -2676,6 +2685,7 @@ impl<'s> Worker<'s> {
                     .expect("original prepared telemetry origin"),
                 state: std::ptr::from_ref(self.state) as usize,
                 tip: crate::state::native_execution_tip::NativeExecutionTipRecord {
+                    root_scope: self.context.root_scope,
                     height: live.header.height,
                     creation_time_ms: u64::try_from(
                         committed.as_ref().header().creation_time().as_millis(),
@@ -2911,6 +2921,7 @@ impl<'s> Worker<'s> {
             Err(error) => {
                 if let crate::execution_attempt::ExecutionAttemptError::Deferred(reason) = &error {
                     self.routing_refusal = Some(reason.clone());
+                    return Err(preparation::producer_deferral(reason.clone().into()));
                 }
                 let reason = format!("lane storage during payload selection: {error}");
                 if matches!(
@@ -3008,9 +3019,8 @@ impl<'s> Worker<'s> {
                 selected
             }
             Err(reason) => {
-                let message = reason.to_string();
-                self.routing_refusal = Some(reason);
-                return Err(PublicationError::Retryable(message));
+                self.routing_refusal = Some(reason.clone());
+                return Err(preparation::producer_deferral(reason.into()));
             }
         };
         iroha_logger::debug!(
@@ -3053,13 +3063,12 @@ impl<'s> Worker<'s> {
                         self.routing_refusal = None;
                         block
                     }
-                    Err(payload::PayloadError::RoutingDeferred(reason)) => {
-                        let message = reason.to_string();
-                        self.routing_refusal = Some(reason);
-                        return Err(PublicationError::Retryable(message));
-                    }
                     Err(error) => {
                         match &error {
+                            payload::PayloadError::RoutingDeferred(reason)
+                            | payload::PayloadError::DecodeResource(reason) => {
+                                self.routing_refusal = Some(reason.clone());
+                            }
                             payload::PayloadError::StakingPreparation(
                                 crate::state::EvidencePreparationError::Admission(refusal),
                             ) => {
@@ -3071,6 +3080,9 @@ impl<'s> Worker<'s> {
                                 self.payload_refusal = Some(error.clone());
                             }
                             _ => {}
+                        }
+                        if let Some(original) = preparation::payload_failure(&error) {
+                            return Err(original);
                         }
                         iroha_logger::warn!(height, %error, "sumeragi: payload assembly failed");
                         return Err(PublicationError::Retryable(format!(
@@ -3554,6 +3566,7 @@ mod native_execution_authorization_tests {
             telemetry_origin: CommitTelemetryOrigin::Forward,
             state: std::ptr::from_ref(&original) as usize,
             tip: crate::state::native_execution_tip::NativeExecutionTipRecord {
+                root_scope: iroha_data_model::block::consensus::SumeragiRootScope::Global,
                 height: 1,
                 creation_time_ms: 0,
                 iroha_hash: iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::new(

@@ -124,6 +124,7 @@ pub struct KuraBlockStore {
     kura: Arc<Kura>,
     hasher: SharedCrypto,
     genesis_height: u64,
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
     staging: Staging,
     execution_budget: AllocationBudget,
     schedule: Arc<dyn AvailabilitySchedule>,
@@ -137,6 +138,7 @@ impl KuraBlockStore {
         kura: Arc<Kura>,
         hasher: SharedCrypto,
         genesis_height: u64,
+        root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
         staging: Staging,
         execution_budget: AllocationBudget,
         schedule: Arc<dyn AvailabilitySchedule>,
@@ -145,6 +147,7 @@ impl KuraBlockStore {
             kura,
             hasher,
             genesis_height,
+            root_scope,
             staging,
             execution_budget,
             schedule,
@@ -210,6 +213,7 @@ impl KuraBlockStore {
                 self.execution_budget.clone(),
                 self.hasher.clone(),
                 self.schedule.clone(),
+                self.root_scope,
             ));
         }
         match slot
@@ -324,6 +328,7 @@ impl BodyReader for KuraBlockStore {
             self.execution_budget.clone(),
             self.hasher.clone(),
             self.schedule.clone(),
+            self.root_scope,
         )))
     }
 }

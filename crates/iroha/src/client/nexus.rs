@@ -663,13 +663,11 @@ mod tests {
                 .await
                 .unwrap_err();
             if canonical_failure {
-                let Error::CanonicalDecode {
-                    operation: PREPARE,
-                    source,
-                } = &failure
-                else {
+                let Error::CanonicalDecode(decoded) = &failure else {
                     panic!("original canonical decoder failure: {failure:?}");
                 };
+                assert_eq!(decoded.operation, PREPARE);
+                let source = &decoded.source;
                 assert_eq!(source.kind(), norito::core::DecodeAttemptErrorKind::Invalid);
                 assert!(std::error::Error::source(&failure).is_some());
             } else {
@@ -696,9 +694,10 @@ mod tests {
             || decode_response(response.clone()),
         )
         .unwrap_err();
-        let Error::CanonicalDecode { source, .. } = &failure else {
+        let Error::CanonicalDecode(decoded) = &failure else {
             panic!("original resource refusal: {failure:?}");
         };
+        let source = &decoded.source;
         assert_eq!(source.kind(), DecodeAttemptErrorKind::EnclosingLimit);
         let original_scope = std::error::Error::source(source)
             .unwrap()
@@ -712,13 +711,11 @@ mod tests {
             "unrelated.dispatch",
             eyre::Report::new(failure).wrap_err("staking preparation context"),
         );
-        let Error::CanonicalDecode {
-            operation: PREPARE,
-            source,
-        } = &failure
-        else {
+        let Error::CanonicalDecode(decoded) = &failure else {
             panic!("original staking operation and decoder owner: {failure:?}");
         };
+        assert_eq!(decoded.operation, PREPARE);
+        let source = &decoded.source;
         assert_eq!(source.kind(), DecodeAttemptErrorKind::EnclosingLimit);
         let retained = std::error::Error::source(source)
             .unwrap()

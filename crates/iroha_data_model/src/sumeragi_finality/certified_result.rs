@@ -20,9 +20,10 @@
 //! never passes through `Hash::prehashed`, `HashOf` or any type that checks or sets the marker
 //! bit.
 //!
-#[cfg(test)]
-use iroha_crypto::keccak256;
-use iroha_crypto::{Algorithm, Hash, keccak256_from_chunks};
+//! Native producers retain this exact header and body together; all stored root results
+//! use this preimage and hash contract. Lane-instance results retain their separate lane tag.
+
+use iroha_crypto::{Algorithm, Hash, try_keccak256_from_chunks};
 use iroha_sumeragi::types::Hash32;
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
@@ -483,37 +484,38 @@ fn split_preimage(preimage: &[u8]) -> Result<(SccpFinalityHeaderV1, &[u8]), Cert
 /// for any other list: an empty one, or one of more than 255 keys.
 #[must_use]
 pub fn committee_root(keys: &[[u8; 48]]) -> Option<[u8; 32]> {
-    let count = u8::try_from(keys.len()).ok().filter(|count| *count != 0)?;
-    Some(keccak256_from_chunks(&[
-        COMMITTEE_TAG,
-        &[count],
-        keys.as_flattened(),
-    ]))
+    let count = [u8::try_from(keys.len()).ok().filter(|count| *count != 0)?];
+    try_keccak256_from_chunks([
+        Ok::<_, core::convert::Infallible>(COMMITTEE_TAG),
+        Ok(count.as_slice()),
+        Ok(keys.as_flattened()),
+    ])
+    .ok()
 }
 
-/// [`committee_root`] of an epoch context's committee, in the context's own (canonical) order.
+/// [`committee_root`] of an epoch context's committee, in the context's own canonical order.
 ///
-/// Producers and readers derive the root an active `X` must carry through this one function.
-/// Returns `None` when a member is not a 48-byte BLS-normal key, or when the committee has
-/// no root (no member, or more than 255); a validated context is never either.
+/// Borrow each checked BLS-normal payload directly from the original context. No key graph
+/// or preimage buffer is allocated. A validated context has 4, 7, …, 31 members; this root
+/// function accepts only the same nonempty u8-sized domain as [`committee_root`].
 #[must_use]
 pub fn context_committee_root(context: &ValidatorEpochContextV1) -> Option<[u8; 32]> {
-    let count = u8::try_from(context.committee.len())
+    let count = [u8::try_from(context.committee.len())
         .ok()
-        .filter(|count| *count != 0)?;
-    let count_bytes = [count];
-    // Fixed protocol-wide maximum, including the tag and count; no key bytes are copied.
-    let mut chunks: [&[u8]; 257] = [&[]; 257];
-    chunks[0] = COMMITTEE_TAG;
-    chunks[1] = &count_bytes;
-    for (index, member) in context.committee.iter().enumerate() {
-        let (algorithm, key) = member.validator.public_key().try_to_bytes().ok()?;
+        .filter(|count| *count != 0)?];
+    let prefix = [Ok(COMMITTEE_TAG), Ok(count.as_slice())];
+    let keys = context.committee.iter().map(|member| {
+        let (algorithm, key) = member
+            .validator
+            .public_key()
+            .try_to_bytes()
+            .map_err(|_| ())?;
         if algorithm != Algorithm::BlsNormal || key.len() != 48 {
-            return None;
+            return Err(());
         }
-        chunks[index + 2] = key;
-    }
-    Some(keccak256_from_chunks(&chunks[..usize::from(count) + 2]))
+        Ok(key)
+    });
+    try_keccak256_from_chunks(prefix.into_iter().chain(keys)).ok()
 }
 
 /// Which root a stored result preimage belongs to.
@@ -538,6 +540,15 @@ pub enum CertifiedResultScope {
     /// Every other root that uses [`ExecutionResultCommitment`] (dataspace roots, private
     /// developer anchors). Its `X` must be inactive.
     NonGlobal,
+}
+
+impl From<crate::block::consensus::SumeragiRootScope> for CertifiedResultScope {
+    fn from(scope: crate::block::consensus::SumeragiRootScope) -> Self {
+        match scope {
+            crate::block::consensus::SumeragiRootScope::Global => Self::TairaGlobal,
+            crate::block::consensus::SumeragiRootScope::Dataspace { .. } => Self::NonGlobal,
+        }
+    }
 }
 
 /// Why `X ‖ body` is not a certified result of its scope, or of the block a reader holds.

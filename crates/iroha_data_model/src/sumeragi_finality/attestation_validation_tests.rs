@@ -67,8 +67,12 @@ fn independent(body: &SumeragiFinalityAttestationBody) -> Result<(), FinalityRea
             && body.status.applied_height == body.status.committed_height,
         "attestation challenge, identity or durable-tip binding differs",
     )?;
-    let genesis = body.genesis_finality_proof.decode_checked()?;
-    let tip = body.finality_proof.decode_checked()?;
+    let genesis = body
+        .genesis_finality_proof
+        .decode_checked(CertifiedResultScope::TairaGlobal)?;
+    let tip = body
+        .finality_proof
+        .decode_checked(CertifiedResultScope::TairaGlobal)?;
     if let Some(header) = tip.header.as_ref() {
         need(
             header.instance.0 == body.status.instance,
@@ -78,7 +82,7 @@ fn independent(body: &SumeragiFinalityAttestationBody) -> Result<(), FinalityRea
         need(
             tip.core_hash == genesis.core_hash
                 && tip.result == genesis.result
-                && tip.commitment == genesis.commitment,
+                && tip.certified_result == genesis.certified_result,
             "height-one attestation carries different genesis execution",
         )?;
     }
@@ -147,7 +151,9 @@ fn attestation_epoch_work_is_one_statement_and_preserves_signed_bytes() {
     assert!(!norito::core::decode_limits_active());
     for _ in 0..2 {
         let before = validation_counts::calls();
-        attestation.verify().unwrap();
+        attestation
+            .verify(CertifiedResultScope::TairaGlobal)
+            .unwrap();
         assert_eq!(validation_counts::calls() - before, 1);
         assert_eq!(norito::encode_canonical(&attestation).unwrap(), wire);
     }
@@ -157,8 +163,15 @@ fn attestation_epoch_work_is_one_statement_and_preserves_signed_bytes() {
     assert_eq!(validation_counts::calls() - before, original_count);
     let mut changed_signature = attestation.clone();
     changed_signature.body.build_fingerprint = Hash::new(b"another executable");
-    changed_signature.body.validate_consistency().unwrap();
-    assert!(changed_signature.verify().is_err());
+    changed_signature
+        .body
+        .validate_consistency(CertifiedResultScope::TairaGlobal)
+        .unwrap();
+    assert!(
+        changed_signature
+            .verify(CertifiedResultScope::TairaGlobal)
+            .is_err()
+    );
 
     let mut genesis_only = attestation.body.clone();
     genesis_only.finality_proof = fixture.first.clone();
@@ -166,13 +179,21 @@ fn attestation_epoch_work_is_one_statement_and_preserves_signed_bytes() {
     genesis_only.status.applied_height = 1;
     assert_eq!(
         genesis_only
-            .validate_consistency()
+            .validate_consistency(CertifiedResultScope::TairaGlobal)
             .map_err(invalid_read_error),
         independent(&genesis_only).map_err(invalid_read_error)
     );
-    signed(&fixture, genesis_only.clone()).verify().unwrap();
+    signed(&fixture, genesis_only.clone())
+        .verify(CertifiedResultScope::TairaGlobal)
+        .unwrap();
     let mut different_genesis = genesis_only;
-    let mut result = fixture.first.decode_checked().unwrap().commitment;
+    let mut result = fixture
+        .first
+        .decode_checked(CertifiedResultScope::TairaGlobal)
+        .unwrap()
+        .certified_result
+        .into_parts()
+        .1;
     result.execution.parent_state_root = Hash::new(b"different genesis parent state");
     replace_result(&mut different_genesis.finality_proof, &result);
     let expected = independent(&different_genesis)
@@ -180,14 +201,14 @@ fn attestation_epoch_work_is_one_statement_and_preserves_signed_bytes() {
         .unwrap_err();
     assert_eq!(
         different_genesis
-            .validate_consistency()
+            .validate_consistency(CertifiedResultScope::TairaGlobal)
             .map_err(invalid_read_error)
             .unwrap_err(),
         expected
     );
     assert_eq!(
         signed(&fixture, different_genesis)
-            .verify()
+            .verify(CertifiedResultScope::TairaGlobal)
             .map_err(invalid_read_error)
             .unwrap_err(),
         expected
@@ -195,17 +216,23 @@ fn attestation_epoch_work_is_one_statement_and_preserves_signed_bytes() {
     let mut alternate = attestation.body;
     alternate.finality_proof = fixture.alternate();
     assert_eq!(
-        alternate.validate_consistency().map_err(invalid_read_error),
+        alternate
+            .validate_consistency(CertifiedResultScope::TairaGlobal)
+            .map_err(invalid_read_error),
         independent(&alternate).map_err(invalid_read_error)
     );
-    signed(&fixture, alternate).verify().unwrap();
+    signed(&fixture, alternate)
+        .verify(CertifiedResultScope::TairaGlobal)
+        .unwrap();
 }
 
 #[test]
 fn attestation_rechecks_every_proof_and_preserves_first_error_order() {
     let fixture = Fixture::new();
     let original = body(&fixture);
-    original.validate_consistency().unwrap();
+    original
+        .validate_consistency(CertifiedResultScope::TairaGlobal)
+        .unwrap();
     for mutation in 0..9 {
         let mut changed = original.clone();
         match mutation {
@@ -225,7 +252,7 @@ fn attestation_rechecks_every_proof_and_preserves_first_error_order() {
             .unwrap_err();
         assert_eq!(
             changed
-                .validate_consistency()
+                .validate_consistency(CertifiedResultScope::TairaGlobal)
                 .map_err(invalid_read_error)
                 .unwrap_err(),
             expected,
@@ -233,31 +260,33 @@ fn attestation_rechecks_every_proof_and_preserves_first_error_order() {
         );
         assert_eq!(
             signed(&fixture, changed.clone())
-                .verify()
+                .verify(CertifiedResultScope::TairaGlobal)
                 .map_err(invalid_read_error)
                 .unwrap_err(),
             expected
         );
         assert_eq!(norito::encode_canonical(&changed).unwrap(), bytes);
-        original.validate_consistency().unwrap();
+        original
+            .validate_consistency(CertifiedResultScope::TairaGlobal)
+            .unwrap();
     }
     let mut both = original.clone();
     both.genesis_finality_proof.block_wire.push(0);
     corrupt_qc(&mut both.finality_proof);
     let genesis_error = both
         .genesis_finality_proof
-        .decode_checked()
+        .decode_checked(CertifiedResultScope::TairaGlobal)
         .map_err(invalid_read_error)
         .unwrap_err();
     assert_ne!(
         genesis_error,
         both.finality_proof
-            .decode_checked()
+            .decode_checked(CertifiedResultScope::TairaGlobal)
             .map_err(invalid_read_error)
             .unwrap_err()
     );
     assert_eq!(
-        both.validate_consistency()
+        both.validate_consistency(CertifiedResultScope::TairaGlobal)
             .map_err(invalid_read_error)
             .unwrap_err(),
         genesis_error
@@ -266,7 +295,7 @@ fn attestation_rechecks_every_proof_and_preserves_first_error_order() {
     let binding_error = independent(&both).map_err(invalid_read_error).unwrap_err();
     assert_ne!(binding_error, genesis_error);
     assert_eq!(
-        both.validate_consistency()
+        both.validate_consistency(CertifiedResultScope::TairaGlobal)
             .map_err(invalid_read_error)
             .unwrap_err(),
         binding_error
@@ -277,8 +306,16 @@ fn attestation_rechecks_every_proof_and_preserves_first_error_order() {
 fn attestation_epoch_reuse_requires_complete_context_and_current_certificate() {
     let fixture = Fixture::new();
     let original = body(&fixture);
-    let result = fixture.second.decode_checked().unwrap().commitment;
-    original.validate_consistency().unwrap();
+    let result = fixture
+        .second
+        .decode_checked(CertifiedResultScope::TairaGlobal)
+        .unwrap()
+        .certified_result
+        .into_parts()
+        .1;
+    original
+        .validate_consistency(CertifiedResultScope::TairaGlobal)
+        .unwrap();
     for mutation in 0..4 {
         let mut changed_result = result.clone();
         let current = &mut changed_result.schedule.current;
@@ -311,7 +348,7 @@ fn attestation_epoch_reuse_requires_complete_context_and_current_certificate() {
         let before = validation_counts::calls();
         assert_eq!(
             changed
-                .validate_consistency()
+                .validate_consistency(CertifiedResultScope::TairaGlobal)
                 .map_err(invalid_read_error)
                 .unwrap_err(),
             expected,
@@ -323,12 +360,14 @@ fn attestation_epoch_reuse_requires_complete_context_and_current_certificate() {
         // A new node signature cannot authenticate a changed native certificate or context.
         assert_eq!(
             signed(&fixture, changed)
-                .verify()
+                .verify(CertifiedResultScope::TairaGlobal)
                 .map_err(invalid_read_error)
                 .unwrap_err(),
             expected
         );
-        original.validate_consistency().unwrap();
+        original
+            .validate_consistency(CertifiedResultScope::TairaGlobal)
+            .unwrap();
     }
 }
 
@@ -377,13 +416,15 @@ fn active_attestation_keeps_both_original_decodes_charges_and_refusals() {
     let fixture = Fixture::new();
     let body = body(&fixture);
     // Warm the inactive entry first; the later caller still owns two original decodes.
-    body.validate_consistency().unwrap();
+    body.validate_consistency(CertifiedResultScope::TairaGlobal)
+        .unwrap();
     let expected = under_caller(TEST_ALLOCATION_CEILING, || independent(&body));
     assert!(expected.0.is_ok());
     assert!(expected.1 > 1);
     assert!(expected.2 > 1);
     assert_eq!(
-        under_caller(TEST_ALLOCATION_CEILING, || body.validate_consistency()),
+        under_caller(TEST_ALLOCATION_CEILING, || body
+            .validate_consistency(CertifiedResultScope::TairaGlobal)),
         expected
     );
     let charge = usize::try_from(expected.1).unwrap();
@@ -397,7 +438,8 @@ fn active_attestation_keeps_both_original_decodes_charges_and_refusals() {
             );
         }
         assert_eq!(
-            under_caller(cap, || body.validate_consistency()),
+            under_caller(cap, || body
+                .validate_consistency(CertifiedResultScope::TairaGlobal)),
             expected,
             "cap {cap}"
         );
@@ -406,12 +448,14 @@ fn active_attestation_keeps_both_original_decodes_charges_and_refusals() {
     corrupt_qc(&mut changed.finality_proof);
     for cap in [1, charge, TEST_ALLOCATION_CEILING] {
         assert_eq!(
-            under_caller(cap, || changed.validate_consistency()),
+            under_caller(cap, || changed
+                .validate_consistency(CertifiedResultScope::TairaGlobal)),
             under_caller(cap, || independent(&changed))
         );
     }
     assert!(!norito::core::decode_limits_active());
     let before = validation_counts::calls();
-    body.validate_consistency().unwrap();
+    body.validate_consistency(CertifiedResultScope::TairaGlobal)
+        .unwrap();
     assert_eq!(validation_counts::calls() - before, 1);
 }

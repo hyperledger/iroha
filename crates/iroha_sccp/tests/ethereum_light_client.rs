@@ -66,9 +66,8 @@ use iroha_sccp::{
         ton::{BitsV1, CellArenaV1, SyntheticTonChainV1, SyntheticTonEventV1},
     },
     v1::{
-        constants::{
-            CODEC_EVM_ADDRESS20, CODEC_TAIRA_ACCOUNT, TOPIC_TRANSFER_TO_TAIRA, TOPIC_VOIDED,
-        },
+        constants::{CODEC_EVM_ADDRESS20, CODEC_TAIRA_ACCOUNT},
+        destination_abi::{TOPIC_TRANSFER_TO_TAIRA, TOPIC_VOIDED},
         evm_abi::{AbiError, TransferToTairaLogV1},
         hashes::{keccak256, to_hex},
         network::account_codec,

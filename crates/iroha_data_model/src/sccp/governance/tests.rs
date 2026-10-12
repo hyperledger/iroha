@@ -52,6 +52,12 @@ fn register(network: SccpNetworkV1, deployment: SccpDeploymentV1) -> SccpGoverna
         network,
         revision: 1,
         deployment,
+        initial_committee: crate::sccp::deployment::SccpCommitteePinV1 {
+            generation: 1,
+            committee_root: [0x44; 32],
+            start_height: 1,
+            until_ms: 1_801_209_600_000,
+        },
         max_wrapped_supply: 21_000_000_000_000_000,
     })
 }
@@ -449,6 +455,12 @@ fn register_route_cap_and_deployment_are_checked() {
             network,
             revision: 1,
             deployment,
+            initial_committee: crate::sccp::deployment::SccpCommitteePinV1 {
+                generation: 1,
+                committee_root: [0x44; 32],
+                start_height: 1,
+                until_ms: 1_801_209_600_000,
+            },
             max_wrapped_supply: cap,
         })
     };
@@ -819,7 +831,7 @@ fn json_u64_invariant_is_exact_at_two_to_the_fifty_three() {
             "{field}"
         );
     }
-    // Actions without u64 fields never report a violation.
+    // Every unchanged fixture keeps each u64 inside the exact JSON range.
     for action in every_action() {
         assert_eq!(action.first_json_u64_violation(), None, "{action:?}");
     }
@@ -967,8 +979,7 @@ fn clear_bridge_key_fault_and_its_subject_do_not_decode() {
 }
 
 #[test]
-fn register_route_names_no_committee_until_the_pin_lands() {
-    // TODO: WP-S4: replace with the `initial_committee` pin checks (§4.14.3 P1 to P5).
+fn register_route_requires_a_current_committee_pin_and_rejects_retired_fields() {
     let action = register(ETH, evm([0x22; 20]));
     let mut value = norito::json::to_value(&action).expect("value");
     let payload = value
@@ -980,7 +991,13 @@ fn register_route_names_no_committee_until_the_pin_lands() {
     let fields: Vec<&str> = payload.keys().map(String::as_str).collect();
     assert_eq!(
         fields,
-        ["deployment", "max_wrapped_supply", "network", "revision"]
+        [
+            "deployment",
+            "initial_committee",
+            "max_wrapped_supply",
+            "network",
+            "revision"
+        ]
     );
     assert_eq!(action.first_json_u64_violation(), None);
     // The retired roster pin is not a field of the action.
@@ -990,6 +1007,107 @@ fn register_route_names_no_committee_until_the_pin_lands() {
     );
     let hostile = norito::json::to_json(&value).expect("json");
     assert!(norito::json::from_json::<SccpGovernanceActionV1>(&hostile).is_err());
+}
+
+#[test]
+fn register_route_pin_is_mandatory_closed_and_roundtrips() {
+    let action = register(ETH, evm([0x22; 20]));
+    roundtrip(&action);
+    let valid = norito::json::to_value(&action).unwrap();
+    for field in ["generation", "committee_root", "start_height", "until_ms"] {
+        let mut missing = valid.clone();
+        missing
+            .as_object_mut()
+            .unwrap()
+            .get_mut("payload")
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .get_mut("initial_committee")
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+        assert!(
+            norito::json::from_value::<SccpGovernanceActionV1>(missing).is_err(),
+            "{field}"
+        );
+    }
+    let mut missing = valid.clone();
+    missing
+        .as_object_mut()
+        .unwrap()
+        .get_mut("payload")
+        .unwrap()
+        .as_object_mut()
+        .unwrap()
+        .remove("initial_committee");
+    assert!(norito::json::from_value::<SccpGovernanceActionV1>(missing).is_err());
+    let mut unknown = valid;
+    unknown
+        .as_object_mut()
+        .unwrap()
+        .get_mut("payload")
+        .unwrap()
+        .as_object_mut()
+        .unwrap()
+        .get_mut("initial_committee")
+        .unwrap()
+        .as_object_mut()
+        .unwrap()
+        .insert(
+            "retired_digest".to_owned(),
+            norito::json::Value::from(1_u64),
+        );
+    assert!(norito::json::from_value::<SccpGovernanceActionV1>(unknown).is_err());
+}
+
+#[test]
+fn register_route_pin_shape_and_each_json_integer_bound_are_checked() {
+    type PinIntegerSetter = fn(&mut SccpCommitteePinV1, u64);
+
+    let SccpGovernanceActionV1::RegisterRoute(original) = register(ETH, evm([0x22; 20])) else {
+        unreachable!()
+    };
+    for edit in [
+        |pin: &mut SccpCommitteePinV1| pin.generation = 0,
+        |pin: &mut SccpCommitteePinV1| pin.committee_root = [0; 32],
+        |pin: &mut SccpCommitteePinV1| pin.start_height = 0,
+        |pin: &mut SccpCommitteePinV1| pin.until_ms = 0,
+    ] {
+        let mut candidate = original;
+        edit(&mut candidate.initial_committee);
+        assert_eq!(
+            validate(vec![SccpGovernanceActionV1::RegisterRoute(candidate)]),
+            Err(SccpGovernanceStaticError::InvalidInitialCommittee { action: 0 })
+        );
+    }
+    let updates: [(&str, PinIntegerSetter); 3] = [
+        ("generation", |p: &mut SccpCommitteePinV1, v| {
+            p.generation = v
+        }),
+        ("start_height", |p: &mut SccpCommitteePinV1, v| {
+            p.start_height = v
+        }),
+        ("until_ms", |p: &mut SccpCommitteePinV1, v| p.until_ms = v),
+    ];
+    for (field, update) in updates {
+        let mut candidate = original;
+        update(&mut candidate.initial_committee, JSON_MAX);
+        let at = SccpGovernanceActionV1::RegisterRoute(candidate);
+        assert_eq!(at.first_json_u64_violation(), None);
+        assert_eq!(validate(vec![at]), Ok(()));
+        for value in [JSON_MAX + 1, u64::MAX] {
+            update(&mut candidate.initial_committee, value);
+            let beyond = SccpGovernanceActionV1::RegisterRoute(candidate);
+            let detail = beyond.first_json_u64_violation().unwrap();
+            assert!(detail.contains(field));
+            assert_eq!(
+                validate(vec![beyond]),
+                Err(SccpGovernanceStaticError::ExceedsJsonSafeInteger { detail })
+            );
+        }
+    }
 }
 
 #[test]

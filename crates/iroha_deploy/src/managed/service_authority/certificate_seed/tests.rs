@@ -459,7 +459,7 @@ fn alternate_certificate(
 ) -> FinalityVerifier {
     use iroha_core::sumeragi::test_chain::Signers;
     use iroha_data_model::block::{CommitCertificate, decode_framed_signed_block};
-    use iroha_data_model::sumeragi_finality::{CertifiedResultScope, CertifiedResultV1};
+    use iroha_data_model::sumeragi_finality::CertifiedResultV1;
 
     let verified = original.verified_tip_ref().unwrap();
     let mut proof = original.checkpoint().tip().clone();
@@ -470,8 +470,7 @@ fn alternate_certificate(
     // The verified original determines X; a conflicting body never rebuilds it from
     // current state or substitutes an inactive header for an active generation.
     let original_result =
-        CertifiedResultV1::decode(old.result_preimage(), CertifiedResultScope::TairaGlobal)
-            .unwrap();
+        CertifiedResultV1::decode(old.result_preimage(), native.chain.root_scope().into()).unwrap();
     original_result
         .check_block(
             block.header().height().get(),
@@ -486,23 +485,26 @@ fn alternate_certificate(
             verified.execution().world_state_root
         );
     }
-    let result = CertifiedResultV1::new(
+    let certified_result = CertifiedResultV1::new(
         finality_header,
         commitment,
-        CertifiedResultScope::TairaGlobal,
+        native.chain.root_scope().into(),
     )
     .unwrap();
-    assert_eq!(result.header().as_bytes(), finality_header.as_bytes());
+    assert_eq!(
+        certified_result.header().as_bytes(),
+        finality_header.as_bytes()
+    );
     let qc = native.chain.commit_qc(
         verified.height(),
         verified.core_hash(),
-        result.result().unwrap(),
+        certified_result.result().unwrap(),
         Signers::LastThree,
     );
     block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
         header,
         norito::encode_canonical(&qc).unwrap(),
-        result.preimage().unwrap(),
+        certified_result.preimage().unwrap(),
         availability,
     )));
     proof.block_wire = block.encode_wire().unwrap();

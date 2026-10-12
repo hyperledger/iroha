@@ -3173,6 +3173,7 @@ pub(crate) mod valid {
         Sumeragi {
             block_cadence: Duration,
             consensus_mode: iroha_data_model::parameter::system::ConsensusMode,
+            root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
             supplied_pulse:
                 Option<iroha_data_model::consensus::FinalizedGlobalThresholdBeaconPulseV1>,
             /// The block's lane step input (`specs/sumeragi_lanes.md` §4.3).
@@ -3184,6 +3185,7 @@ pub(crate) mod valid {
         /// The sole signed genesis path; installs the native consensus schedule and lane step.
         SumeragiGenesis {
             consensus_mode: iroha_data_model::parameter::system::ConsensusMode,
+            root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
         },
     }
     impl ConsensusValidationProfile {
@@ -3252,6 +3254,10 @@ pub(crate) mod valid {
                     SccpHeightSourceV1::SumeragiSchedule {
                         genesis_height,
                         mode: self.authoritative_consensus_mode(),
+                        root_scope: match self {
+                            Self::Sumeragi { root_scope, .. }
+                            | Self::SumeragiGenesis { root_scope, .. } => *root_scope,
+                        },
                     }
                 })
         }
@@ -3261,7 +3267,7 @@ pub(crate) mod valid {
         ) -> iroha_data_model::parameter::system::ConsensusMode {
             match self {
                 Self::Sumeragi { consensus_mode, .. }
-                | Self::SumeragiGenesis { consensus_mode } => *consensus_mode,
+                | Self::SumeragiGenesis { consensus_mode, .. } => *consensus_mode,
             }
         }
     }
@@ -4541,6 +4547,7 @@ pub(crate) mod valid {
             time_source: &TimeSource,
             state: &'state State,
             consensus_mode: iroha_data_model::parameter::system::ConsensusMode,
+            root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
         ) -> WithEvents<Result<(ValidBlock, Box<StateBlock<'state>>), Error>> {
             if !block.header().is_genesis() {
                 return WithEvents::new(Err((
@@ -4559,7 +4566,10 @@ pub(crate) mod valid {
                 false,
                 None,
                 false,
-                ConsensusValidationProfile::SumeragiGenesis { consensus_mode },
+                ConsensusValidationProfile::SumeragiGenesis {
+                    consensus_mode,
+                    root_scope,
+                },
                 false,
                 None,
                 None,
@@ -4576,6 +4586,7 @@ pub(crate) mod valid {
             genesis_account: &AccountId,
             block_cadence: Duration,
             consensus_mode: iroha_data_model::parameter::system::ConsensusMode,
+            root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
             expansion: crate::sumeragi::lanes::merge::Expansion<'state>,
             native_header: &iroha_sumeragi::message::BlockHeader,
             native_payload: &[u8],
@@ -4587,6 +4598,7 @@ pub(crate) mod valid {
                 genesis_account,
                 block_cadence,
                 consensus_mode,
+                root_scope,
                 expansion,
                 native_header,
                 native_payload,
@@ -4603,6 +4615,7 @@ pub(crate) mod valid {
             genesis_account: &AccountId,
             block_cadence: Duration,
             consensus_mode: iroha_data_model::parameter::system::ConsensusMode,
+            root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
             expansion: crate::sumeragi::lanes::merge::Expansion<'state>,
             native_header: &iroha_sumeragi::message::BlockHeader,
             native_payload: &[u8],
@@ -4657,6 +4670,7 @@ pub(crate) mod valid {
                 ConsensusValidationProfile::Sumeragi {
                     block_cadence,
                     consensus_mode,
+                    root_scope,
                     supplied_pulse: source.pulse,
                     lanes,
                     expected_pulse_context: source.expected_context,
@@ -5612,27 +5626,40 @@ pub(crate) mod valid {
             block: &SignedBlock,
             state_block: &StateBlock<'_>,
         ) -> Result<(), BlockValidationError> {
-            // SCCP is initialized only in genesis, so a block whose own state has no SCCP
-            // parameters has no SCCP parent either; skip the parent view entirely.
-            if !crate::smartcontracts::isi::sccp::params::exists(&state_block.world) {
+            use crate::smartcontracts::isi::sccp::eligibility::EligibilityRead as _;
+            let parent =
+                crate::smartcontracts::isi::sccp::eligibility::BlockParent(&state_block.world);
+            if parent.parameters().is_none() {
                 return Ok(());
             }
-            Self::validate_sccp_exempt_cap_against(block, &state_block.sccp_parent_world_view())
+            let committed_time_ms =
+                crate::smartcontracts::isi::sccp::hold::committed_time_ms(state_block)
+                    .map_err(|error| Self::execution_context_error(error.to_string()))?;
+            Self::validate_sccp_exempt_cap_against(block, &parent, committed_time_ms)
         }
         /// Check the per-block SCCP exemption caps of `block` against the `parent` World.
         fn validate_sccp_exempt_cap_against(
             block: &SignedBlock,
-            parent: &(impl crate::state::WorldReadOnly + ?Sized),
+            parent: &(impl crate::smartcontracts::isi::sccp::eligibility::EligibilityRead + ?Sized),
+            committed_time_ms: Option<u64>,
         ) -> Result<(), BlockValidationError> {
-            use crate::smartcontracts::isi::sccp::{admission, params};
-            if !params::exists(parent) {
+            use crate::smartcontracts::isi::sccp::admission;
+            if parent.parameters().is_none() {
                 return Ok(());
             }
             let classes = block
                 .network_entrypoints()
-                .filter_map(|entrypoint| admission::exempt_class_of_entrypoint(parent, entrypoint))
+                .filter_map(|entrypoint| {
+                    admission::exempt_class_of_entrypoint_from(
+                        parent,
+                        entrypoint,
+                        committed_time_ms,
+                    )
+                })
                 .collect::<Vec<_>>();
-            if admission::block_exempt_cap_ok(parent, &classes) {
+            let mut budget =
+                admission::SccpExemptBlockBudgetV1::from_parameters(parent.parameters());
+            if classes.iter().all(|class| budget.admit(Some(*class))) {
                 Ok(())
             } else {
                 Err(Self::execution_context_error(format!(
@@ -6949,7 +6976,7 @@ pub(crate) mod valid {
                 )
                 .unwrap_err(),
             ] {
-                let expected = original.error().decode_resource_error().unwrap();
+                let expected = original.local_refusal().unwrap();
                 let mapped = ValidBlock::amx_deadline_error(AmxError::Resource(original));
                 assert!(matches!(
                     &mapped,
@@ -8092,6 +8119,7 @@ pub(crate) mod valid {
             assert_eq!(
                 ConsensusValidationProfile::SumeragiGenesis {
                     consensus_mode: ConsensusMode::Npos,
+                    root_scope: iroha_data_model::sumeragi_finality::test_fixtures::NativeFinalityFixture::new().root_scope(),
                 }
                 .authoritative_consensus_mode(),
                 ConsensusMode::Npos,
@@ -8614,14 +8642,23 @@ pub(crate) mod valid {
                     .iter()
                     .map(|key| PeerId::new(key.public_key().clone())),
             );
-            let (valid, overlay) = ValidBlock::validate_signed_genesis(
-                genesis.clone(),
-                &topology,
-                &account,
-                &TimeSource::new_system(),
-                &prepared.state,
-                iroha_data_model::parameter::system::ConsensusMode::Permissioned,
-            )
+            let (valid, overlay) = {
+                let selected_genesis = genesis.clone();
+                let selected_scope =
+                    crate::sumeragi::epoch::authenticated_genesis(&selected_genesis)
+                        .expect("signed fixture root scope")
+                        .into_parts()
+                        .1;
+                ValidBlock::validate_signed_genesis(
+                    selected_genesis,
+                    &topology,
+                    &account,
+                    &TimeSource::new_system(),
+                    &prepared.state,
+                    iroha_data_model::parameter::system::ConsensusMode::Permissioned,
+                    selected_scope,
+                )
+            }
             .unpack(|_| {})
             .expect("ordered original signed genesis executes in a disposable overlay");
             assert_eq!(

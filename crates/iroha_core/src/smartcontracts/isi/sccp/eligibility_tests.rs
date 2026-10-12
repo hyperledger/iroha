@@ -160,13 +160,11 @@ fn parent() -> Parent {
         {
             let mut stx = block.transaction();
             // Fee quoting needs the explicit immutable root scope of the network.
-            stx.world
-                .parameters
-                .get_mut()
-                .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+            stx.world.parameters.get_mut().set_parameter(
+                crate::sumeragi::lanes::routing::test_support::metadata(
                     iroha_data_model::block::consensus::SumeragiRootScope::Global,
-                ))
-                .expect("valid fixture parameters");
+                ),
+            );
             install_value_route(
                 &mut stx,
                 ETH,
@@ -417,12 +415,22 @@ fn every_inbound_shape_and_authority_is_classified_quoted_counted_and_executed_a
         let payload = transaction.payload();
         // Eligibility.
         assert_eq!(
-            fees::exempt_class(world, payload),
+            fees::exempt_class(
+                world,
+                payload,
+                crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                    .expect("original parent time")
+            ),
             expected.class(),
             "{name}: eligibility"
         );
         assert_eq!(
-            fees::exempt_on_success(world, payload),
+            fees::exempt_on_success(
+                world,
+                payload,
+                crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                    .expect("original parent time")
+            ),
             expected.class().is_some(),
             "{name}: exemption on success"
         );
@@ -449,6 +457,8 @@ fn every_inbound_shape_and_authority_is_classified_quoted_counted_and_executed_a
             &view.zk().gas,
             payload,
             0,
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                .expect("original committed fixture time"),
             3,
             Some(DataSpaceId::UNIVERSAL),
         );
@@ -462,6 +472,8 @@ fn every_inbound_shape_and_authority_is_classified_quoted_counted_and_executed_a
         if let Some(class) = admission::exempt_class_of_entrypoint(
             world,
             &TransactionEntrypoint::External(transaction),
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                .expect("original parent time"),
         ) {
             counted.push(class);
         }
@@ -484,7 +496,8 @@ fn every_inbound_shape_and_authority_is_classified_quoted_counted_and_executed_a
     for (name, signer, instructions, expected) in cases {
         let transaction = signed(&signer, instructions);
         assert_eq!(
-            fees::exempt_class_in_block(&stx, transaction.payload()),
+            fees::exempt_class_in_block(&stx, transaction.payload())
+                .expect("original parent source"),
             expected.class(),
             "{name}: execution"
         );
@@ -596,6 +609,8 @@ fn a_relayer_proof_is_charged_once_and_owes_no_self_claim_fee() {
         &view.zk().gas,
         transaction.payload(),
         0,
+        crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+            .expect("original committed fixture time"),
         3,
         Some(DataSpaceId::UNIVERSAL),
     )
@@ -609,7 +624,7 @@ fn a_relayer_proof_is_charged_once_and_owes_no_self_claim_fee() {
     let mut block = parent.state.block(header(3));
     let stx = block.transaction();
     assert_eq!(
-        fees::exempt_class_in_block(&stx, transaction.payload()),
+        fees::exempt_class_in_block(&stx, transaction.payload()).expect("original parent source"),
         None,
         "execution charges the ordinary fee and marks no exempt self-claim"
     );
@@ -627,7 +642,10 @@ fn only_an_eligible_advance_admits_an_absent_authority() {
     );
     let admits = |instructions: Vec<InstructionBox>| {
         let transaction = signed(&ed25519(KEEPER), instructions);
-        let sccp = admission::allows_unregistered_authority(transaction.instructions());
+        let sccp = admission::allows_unregistered_authority(
+            transaction.instructions(),
+            transaction.authority(),
+        );
         // The SCCP rule is the only one that can admit these shapes.
         assert_eq!(
             crate::tx::allows_unregistered_authority(
@@ -655,20 +673,224 @@ fn only_an_eligible_advance_admits_an_absent_authority() {
 }
 
 #[test]
-fn an_ordinary_secp256k1_account_has_no_special_sccp_exemption() {
-    let key = KeyPair::try_from_seed(vec![0x31; 32], Algorithm::Secp256k1).expect("key");
+fn self_claim_pause_eligibility_uses_parent_time_not_fee_observation_horizon() {
+    use super::test_support::install_consumer_fast_pause;
     let parent = parent();
-    let transaction = signed(&key, vec![SettleSccpV1::inbound(parent.settleable).into()]);
-    let view = parent.state.view();
+    let mut block = parent.state.block(header(2));
+    let mut stx = block.transaction();
+    let now = stx.block_unix_timestamp_ms();
+    install_consumer_fast_pause(&mut stx, ETH, true, vec![2], now + 1);
+    let transaction = signed(
+        &ed25519(RECIPIENT),
+        vec![SettleSccpV1::inbound(parent.settleable).into()],
+    );
+    let payload = transaction.payload();
+    let world = &*stx.world;
+    let entry = TransactionEntrypoint::External(transaction.clone());
+    // Controlled original-time inputs to the pure World classifier. Full native source
+    // binding is independently exercised by hold::tests; no proof authority is fabricated.
+    for (parent_time, expected) in [
+        (Some(now), None),
+        (None, None),
+        (Some(now + 1), Some(SccpExemptClassV1::SelfClaim)),
+    ] {
+        assert_eq!(fees::exempt_class(world, payload, parent_time), expected);
+        assert_eq!(
+            admission::exempt_class_of_entrypoint(world, &entry, parent_time),
+            expected
+        );
+        for fee_observation_ms in [0, now, now + 1, u64::MAX] {
+            let quote = crate::executor::quote_nexus_fee_admission_payload(
+                world,
+                &nexus(),
+                &iroha_config::parameters::actual::Pipeline::default(),
+                &stx.zk.gas,
+                payload,
+                fee_observation_ms,
+                parent_time,
+                3,
+                Some(DataSpaceId::UNIVERSAL),
+            );
+            assert_eq!(
+                matches!(quote, Ok(quote) if quote.charges.is_empty()),
+                expected.is_some(),
+                "fee horizon must not expire a committed pause"
+            );
+        }
+    }
+    let proof = signed(
+        &ed25519(RECIPIENT),
+        vec![submit(
+            ETH,
+            10 * ONE_XOR,
+            address_bytes(&account(RECIPIENT)),
+        )],
+    );
     assert_eq!(
-        fees::exempt_class(view.world(), transaction.payload()),
+        fees::exempt_class(world, proof.payload(), Some(now)),
+        Some(SccpExemptClassV1::SelfClaim),
+        "hold preserves proof admission eligibility; verification is still required"
+    );
+    let keeper = signed(&ed25519(KEEPER), vec![advance(false)]);
+    assert_eq!(
+        fees::exempt_class(world, keeper.payload(), Some(now)),
+        Some(SccpExemptClassV1::KeeperAdvance { network: ETH })
+    );
+}
+
+#[test]
+fn charged_parent_self_claim_is_not_reclassified_by_expired_executing_world() {
+    use super::test_support::install_consumer_fast_pause;
+    let parent = parent();
+    let execution_time = u64::try_from(header(3).creation_time().as_millis()).unwrap();
+    {
+        let mut block = parent.state.block(header(2));
+        let mut stx = block.transaction();
+        install_consumer_fast_pause(&mut stx, ETH, true, vec![2], execution_time);
+        stx.apply();
+        block
+            .commit_world_overlay_for_testing()
+            .expect("component parent precondition");
+    }
+    let mut block = parent.state.block(header(3));
+    let mut stx = block.transaction();
+    stx.nexus.fees = nexus().fees;
+    stx.nexus.fees.fee_asset_id =
+        iroha_data_model::sccp::escrow::sccp_taira_xor_asset_definition_id().canonical_address();
+    let transaction = signed(
+        &ed25519(RECIPIENT),
+        vec![SettleSccpV1::inbound(parent.settleable).into()],
+    );
+    assert_eq!(
+        fees::exempt_class_in_block(&stx, transaction.payload()).expect("original empty source"),
+        None,
+        "this independent World fixture has no native committed time and cannot expire its parent's pause"
+    );
+    assert_eq!(
+        fees::exempt_class(
+            &*stx.world,
+            transaction.payload(),
+            Some(stx.block_unix_timestamp_ms())
+        ),
+        Some(SccpExemptClassV1::SelfClaim),
+        "the executing time has reached expiry"
+    );
+    let before = store::inbound_messages::get(&*stx.world, &parent.settleable)
+        .unwrap()
+        .clone();
+    crate::executor::validate_transaction_fee_admission(&mut stx, &transaction)
+        .expect_err("charged parent decision must enforce signed fee limits instead of quoting zero against the executing World");
+    assert_eq!(
+        store::inbound_messages::get(&*stx.world, &parent.settleable),
+        Some(&before)
+    );
+    assert_eq!(stx.sccp_exempt_self_claim, None);
+}
+
+#[test]
+fn original_eligibility_preimages_survive_siblings_rollback_and_replacement() {
+    use super::eligibility::{BlockParent, Current, TransactionParent};
+    use iroha_data_model::sccp::outbound::SccpStatusHeightV1;
+    let parent = parent();
+    let budget = parent.state.view().execution_budget();
+    let transaction = signed(
+        &ed25519(RECIPIENT),
+        vec![SettleSccpV1::inbound(parent.settleable).into()],
+    );
+    let expected = Some(SccpExemptClassV1::SelfClaim);
+    let check = |source: &dyn super::eligibility::EligibilityRead| {
+        assert!(
+            source.parameters().unwrap().enabled,
+            "eligibility must retain the original pre-block parameters through local and sibling writes"
+        );
+        assert!(
+            source
+                .parameters()
+                .unwrap()
+                .max_exempt_transactions_per_block
+                > 0
+        );
+        assert_eq!(
+            source.route(ETH).unwrap().revisions[&1].activation,
+            SccpRouteActivationV1::Bidirectional
+        );
+        assert!(
+            source
+                .inbound(&parent.settleable)
+                .unwrap()
+                .status
+                .is_pending()
+        );
+        assert!(source.pause(ETH).is_none());
+        assert_eq!(
+            fees::exempt_class_from(source, transaction.payload(), None),
+            expected
+        );
+    };
+    check(&Current(&parent.state.world_view()));
+    let mut block = parent
+        .state
+        .world
+        .try_block(&budget)
+        .expect("original World admission");
+    for apply in [false, true] {
+        let mut tx = block.transaction_without_telemetry(Default::default(), 0);
+        let parameters = tx.sccp_parameters.get_mut().as_mut().unwrap();
+        parameters.enabled = false;
+        parameters.max_exempt_transactions_per_block = 0;
+        tx.sccp_routes
+            .get_mut(&ETH)
+            .unwrap()
+            .revisions
+            .get_mut(&1)
+            .unwrap()
+            .activation = SccpRouteActivationV1::Paused;
+        tx.sccp_inbound_messages
+            .get_mut(&parent.settleable)
+            .unwrap()
+            .status = SccpInboundStatusV1::Released(SccpStatusHeightV1 { height: 2 });
+        let pause = super::pause_record::RetainedSccpFastPause::admit(
+            &super::test_support::sample_fast_pause(1),
+            &budget,
+        )
+        .unwrap();
+        tx.sccp_fast_pauses.insert(ETH, pause);
+        assert_eq!(fees::exempt_class(&*tx, transaction.payload(), None), None);
+        check(&TransactionParent(&tx));
+        if apply {
+            tx.apply();
+        } else {
+            drop(tx);
+        }
+        check(&BlockParent(&block));
+    }
+    assert_eq!(
+        fees::exempt_class(&block, transaction.payload(), None),
         None
     );
-    assert!(!admission::allows_unregistered_authority(
-        transaction.instructions()
-    ));
+    block.commit();
     assert_eq!(
-        admission::classify(view.world(), &view, 3, &transaction),
-        Ok(None)
+        fees::exempt_class(&parent.state.world_view(), transaction.payload(), None),
+        None,
+        "the still-published successor is held"
+    );
+    // A replacement's exact baseline is the reverted predecessor, not a fresh view of the
+    // held successor above. No native receipt/authority is invented by this World-only test.
+    let mut replacement = parent
+        .state
+        .world
+        .try_block_and_revert(&budget)
+        .expect("original replacement admission");
+    check(&BlockParent(&replacement));
+    let mut tx = replacement.transaction_without_telemetry(Default::default(), 0);
+    tx.sccp_parameters.get_mut().as_mut().unwrap().enabled = false;
+    check(&TransactionParent(&tx));
+    drop(tx);
+    check(&BlockParent(&replacement));
+    drop(replacement);
+    assert_eq!(
+        fees::exempt_class(&parent.state.world_view(), transaction.payload(), None),
+        None,
+        "dropping replacement preserves the original committed successor"
     );
 }
