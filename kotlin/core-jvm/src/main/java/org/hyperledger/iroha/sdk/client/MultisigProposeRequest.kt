@@ -1,6 +1,7 @@
 package org.hyperledger.iroha.sdk.client
 
 import java.nio.charset.StandardCharsets
+import org.hyperledger.iroha.sdk.address.requireCanonicalI105Address
 import org.hyperledger.iroha.sdk.core.model.InstructionBox
 import org.hyperledger.iroha.sdk.core.model.FeePaymentIntent
 import org.hyperledger.iroha.sdk.core.model.NetworkId
@@ -9,8 +10,7 @@ import org.hyperledger.iroha.sdk.tx.norito.NoritoJavaCodecAdapter
 
 /** Request payload for Torii `/v1/multisig/propose`. */
 class MultisigProposeRequest @JvmOverloads constructor(
-    val multisigAccountId: String? = null,
-    val multisigAccountAlias: String? = null,
+    val multisigAccountId: String,
     val signerAccountId: String,
     val proposalNonce: String,
     instructions: List<ByteArray>,
@@ -26,9 +26,7 @@ class MultisigProposeRequest @JvmOverloads constructor(
 
     init {
         require(Regex("[0-9a-f]{64}").matches(proposalNonce) && proposalNonce.any { it != '0' }) { "proposalNonce must be nonzero canonical 32-byte hex" }
-        require((multisigAccountId == null) != (multisigAccountAlias == null)) {
-            "Exactly one multisig account identity is required"
-        }
+        requireCanonicalI105Address(multisigAccountId, "multisigAccountId")
         require(instructionSnapshot.isNotEmpty() && instructionSnapshot.all { it.isNotEmpty() }) {
             "Multisig instructions must be nonempty canonical instruction frames"
         }
@@ -66,8 +64,7 @@ class MultisigProposeRequest @JvmOverloads constructor(
         @JvmStatic
         @JvmOverloads
         fun fromInstructionBoxes(
-            multisigAccountId: String? = null,
-            multisigAccountAlias: String? = null,
+            multisigAccountId: String,
             signerAccountId: String,
             proposalNonce: String,
             instructions: List<InstructionBox>,
@@ -79,7 +76,6 @@ class MultisigProposeRequest @JvmOverloads constructor(
             validationFeeAssessment: JsonValue? = null,
         ): MultisigProposeRequest = MultisigProposeRequest(
             multisigAccountId = multisigAccountId,
-            multisigAccountAlias = multisigAccountAlias,
             signerAccountId = signerAccountId,
             proposalNonce = proposalNonce,
             instructions = instructions.map { NoritoJavaCodecAdapter.encodeInstructionBox(it) },

@@ -1757,9 +1757,7 @@ class HttpClientTransport private constructor(
             requestPayload.getValue("signer_account_id") as String,
             "signerAccountId",
         )
-        (requestPayload["multisig_account_id"] as? String)?.let {
-            requireCanonicalI105Address(it, "multisigAccountId")
-        }
+        requireCanonicalI105Address(requestSnapshot.multisigAccountId, "multisigAccountId")
         val proposalInstructions =
             NoritoJavaCodecAdapter.canonicalMultisigProposalInstructionBoxes(requestSnapshot)
         val expectedMetadata = canonicalMultisigMetadata(requestPayload)
@@ -3415,19 +3413,9 @@ class HttpClientTransport private constructor(
         }
 
         @JvmStatic internal fun buildMultisigProposePayload(request: MultisigProposeRequest): Map<String, Any> {
-            val hasAccountId = request.multisigAccountId != null
-            val hasAlias = request.multisigAccountAlias != null
-            require(hasAccountId != hasAlias) { "Exactly one of multisigAccountId or multisigAccountAlias must be provided" }
             require(request.instructions.isNotEmpty()) { "instructions must not be empty" }
-
             val payload = LinkedHashMap<String, Any>()
-            val accountId = request.multisigAccountId
-            val accountAlias = request.multisigAccountAlias
-            if (accountId != null) {
-                payload["multisig_account_id"] = normalizeNonBlank(accountId, "multisigAccountId")
-            } else {
-                payload["multisig_account_alias"] = normalizeNonBlank(accountAlias!!, "multisigAccountAlias")
-            }
+            payload["multisig_account_id"] = requireCanonicalI105Address(request.multisigAccountId, "multisigAccountId")
             payload["signer_account_id"] = normalizeNonBlank(request.signerAccountId, "signerAccountId")
             payload["proposal_nonce"] = request.proposalNonce
             if (request.publicKeyHex != null) {
@@ -3481,10 +3469,7 @@ class HttpClientTransport private constructor(
             ) {
                 "multisig response proposal hash does not match the exact requested instructions"
             }
-            val requestedMultisigAccount = requestPayload["multisig_account_id"] as? String
-                ?: throw IllegalStateException(
-                    "multisig aliases require a caller-trusted resolved account",
-                )
+            val requestedMultisigAccount = request.multisigAccountId
             check(response.resolvedMultisigAccountId == requestedMultisigAccount) {
                 "multisig response resolved account does not match the requested account"
             }

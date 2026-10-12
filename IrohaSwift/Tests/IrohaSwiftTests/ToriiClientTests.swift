@@ -16353,6 +16353,43 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
         waitForExpectations(timeout: 1)
     }
 
+    func testGetMultisigSpecBindsTheSelectedConcreteAccount() {
+        let expectation = expectation(description: "multisig spec concrete account binding")
+        expectation.expectedFulfillmentCount = 2
+        let resolvedAccount = "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"
+        let otherAccount = "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200,
+                                           httpVersion: nil,
+                                           headerFields: ["Content-Type": "application/json"])!
+            let body = """
+            {"resolved_multisig_account_id":"\(resolvedAccount)","spec":{"quorum":2,"transaction_ttl_ms":60000}}
+            """.data(using: .utf8)!
+            return (response, body)
+        }
+        for selected in [resolvedAccount, otherAccount] {
+            let request = ToriiMultisigSpecRequest(
+                selector: ToriiMultisigAccountSelector(multisigAccountId: selected)
+            )
+            makeClient().getMultisigSpec(request, canonicalAuth: canonicalReadAuth) { result in
+                switch result {
+                case .success(let response):
+                    XCTAssertEqual(selected, resolvedAccount)
+                    XCTAssertEqual(response.resolvedMultisigAccountId, selected)
+                case .failure(let error):
+                    XCTAssertEqual(selected, otherAccount)
+                    guard case ToriiClientError.invalidPayload = error else {
+                        XCTFail("Expected account binding rejection, got \(error)")
+                        expectation.fulfill()
+                        return
+                    }
+                }
+                expectation.fulfill()
+            }
+        }
+        waitForExpectations(timeout: 1)
+    }
+
     func testGetMultisigSpecAcceptsDomainScopedAlias() {
         let expectation = expectation(description: "multisig spec with domain-scoped alias")
         StubURLProtocol.handler = { request in

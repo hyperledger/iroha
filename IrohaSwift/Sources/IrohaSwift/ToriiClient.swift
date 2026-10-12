@@ -22212,7 +22212,12 @@ public final class ToriiClient: ToriiTransactionEntrypointSubmitting, @unchecked
                                       body: body,
                                       canonicalAuth: canonicalAuth)
         let data = try await data(for: request)
-        return try decodeJSON(ToriiMultisigSpecResponse.self, from: data)
+        let response = try decodeJSON(ToriiMultisigSpecResponse.self, from: data)
+        if let account = try requestBody.selector.normalizedPayload(field: "multisig spec selector").multisigAccountId,
+           response.resolvedMultisigAccountId != account {
+            throw ToriiClientError.invalidPayload("Multisig spec changed the selected account.")
+        }
+        return response
     }
 
     public func queryMultisigProposals(_ requestBody: ToriiMultisigProposalsQueryRequest, canonicalAuth: ToriiCanonicalRequestAuth) async throws -> ToriiMultisigProposalsQueryResponse {

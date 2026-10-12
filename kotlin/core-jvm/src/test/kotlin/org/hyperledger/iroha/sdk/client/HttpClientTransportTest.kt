@@ -1754,48 +1754,59 @@ class HttpClientTransportTest {
     }
 
     @Test
-    fun proposeMultisigRejectsUnsignedAliasResolutionEcho() {
-        val networkId = TestNetworkIds.fromSeed(0x43L)
-        val resolvedAccount = testMultisigAccountId()
-        val signerAccount = testAccountId(0x43)
-        val instruction = canonicalTestInstruction(3)
+    fun proposeMultisigRejectsConsistentReplacementAccountAndOccurrence() {
+        val network = TestNetworkIds.fromSeed(0x43L)
+        val requestedAccount = testMultisigAccountId()
+        val replacementAccount = testAccountId(0x44)
+        val signer = testAccountId(0x43)
+        val instructions = listOf(canonicalTestInstruction(3))
         val request = MultisigProposeRequest(
+            multisigAccountId = requestedAccount,
+            signerAccountId = signer,
             proposalNonce = "07".repeat(32),
-            multisigAccountAlias = "treasury@wonderland",
-            signerAccountId = signerAccount,
-            instructions = listOf(instruction),
+            instructions = instructions,
             creationTimeMs = 888_000L,
             feePayment = testFeePayment(),
         )
-        val proposalInstructions =
-            NoritoJavaCodecAdapter.canonicalMultisigProposalInstructionBoxes(request)
-        val proposalHashHex = hex(
-            NoritoJavaCodecAdapter.hashCanonicalInstructionBoxes(proposalInstructions),
-        ).lowercase()
         val payload = TransactionPayload(
-            networkId = networkId,
-            authority = signerAccount,
+            networkId = network,
+            authority = signer,
             creationTimeMs = 888_000L,
-            executable = Executable.instructions(
-                listOf(multisigProposeInstruction(resolvedAccount, proposalInstructions)),
-            ),
+            executable = Executable.instructions(listOf(multisigProposeInstruction(replacementAccount, instructions))),
             feePayment = testFeePayment(),
         )
-        val transport = HttpClientTransport(
-            StubResponseExecutor(
-                200,
-                multisigDraftResponse(payload, resolvedAccount, proposalHashHex),
-            ),
-            ClientConfig.builder()
-                .setBaseUri(URI.create("https://torii.example"))
-                .setLocalSigningContext(LocalSigningContext(networkId))
-                .build(),
-        )
+        val response = multisigDraftResponse(payload, replacementAccount,
+            hex(NoritoJavaCodecAdapter.hashCanonicalInstructionBoxes(instructions)).lowercase())
+        val transport = HttpClientTransport(StubResponseExecutor(200, response), ClientConfig.builder()
+            .setLocalSigningContext(LocalSigningContext(network)).build())
+        val failure = assertFailsWith<CompletionException> { transport.proposeMultisig(request).join() }
+        assertContains(failure.cause?.message.orEmpty(), "resolved account does not match")
+    }
 
-        val error = assertFailsWith<CompletionException> {
-            transport.proposeMultisig(request).join()
+    @Test
+    fun proposeMultisigRejectsInvalidConcreteAccountsBeforeDispatch() {
+        var dispatches = 0
+        val executor = object : HttpTransportExecutor {
+            override fun execute(request: TransportRequest): CompletableFuture<TransportResponse> {
+                dispatches += 1
+                error("invalid account reached dispatch")
+            }
+            override fun close() {}
         }
-        assertContains(error.cause?.message.orEmpty(), "caller-trusted resolved account")
+        val transport = HttpClientTransport(executor, ClientConfig.builder()
+            .setLocalSigningContext(LocalSigningContext(TestNetworkIds.fromSeed(0x43L))).build())
+        for (account in listOf("", " ", "treasury@wonderland", "aid:multisig", " ${testMultisigAccountId()}")) {
+            assertFailsWith<IllegalArgumentException> {
+                transport.proposeMultisig(MultisigProposeRequest(
+                    multisigAccountId = account,
+                    signerAccountId = testAccountId(0x43),
+                    proposalNonce = "07".repeat(32),
+                    instructions = listOf(canonicalTestInstruction(3)),
+                    feePayment = testFeePayment(),
+                ))
+            }
+        }
+        assertEquals(0, dispatches)
     }
 
     @Test
@@ -1828,7 +1839,7 @@ class HttpClientTransportTest {
                 MultisigProposeRequest(
                     proposalNonce = "07".repeat(32),
                     feePayment = testFeePayment(),
-                    multisigAccountAlias = "cbdc@banka",
+                    multisigAccountId = testMultisigAccountId(),
                     signerAccountId = "alice",
                     instructions = listOf(byteArrayOf()),
                 )
@@ -1839,28 +1850,6 @@ class HttpClientTransportTest {
     @Test
     fun proposeMultisigRejectsAdversarialRequestShapes() {
         val instruction = byteArrayOf(1)
-        assertFailsWith<IllegalArgumentException> {
-            HttpClientTransport.buildMultisigProposePayload(
-                MultisigProposeRequest(
-                    proposalNonce = "07".repeat(32),
-                    feePayment = testFeePayment(),
-                    multisigAccountId = "aid:multisig",
-                    multisigAccountAlias = "cbdc@banka",
-                    signerAccountId = "alice",
-                    instructions = listOf(instruction),
-                )
-            )
-        }
-        assertFailsWith<IllegalArgumentException> {
-            HttpClientTransport.buildMultisigProposePayload(
-                MultisigProposeRequest(
-                    proposalNonce = "07".repeat(32),
-                    feePayment = testFeePayment(),
-                    signerAccountId = "alice",
-                    instructions = listOf(instruction),
-                )
-            )
-        }
         val canonicalSignature = Base64.getEncoder().encodeToString(ByteArray(64) { 0x01 })
         for (signatureB64 in listOf(" $canonicalSignature", noncanonicalStandardBase64PadBitAlias(canonicalSignature))) {
             assertFailsWith<IllegalArgumentException> {
@@ -1868,7 +1857,7 @@ class HttpClientTransportTest {
                     MultisigProposeRequest(
                         proposalNonce = "07".repeat(32),
                         feePayment = testFeePayment(),
-                        multisigAccountAlias = "cbdc@banka",
+                        multisigAccountId = testMultisigAccountId(),
                         signerAccountId = "alice",
                         instructions = listOf(instruction),
                         signatureB64 = signatureB64,
@@ -1881,7 +1870,7 @@ class HttpClientTransportTest {
                 MultisigProposeRequest(
                     proposalNonce = "07".repeat(32),
                     feePayment = testFeePayment(),
-                    multisigAccountAlias = "cbdc@banka",
+                    multisigAccountId = testMultisigAccountId(),
                     signerAccountId = "alice",
                     instructions = listOf(instruction),
                     signatureB64 = "not base64",
@@ -1893,7 +1882,7 @@ class HttpClientTransportTest {
                 MultisigProposeRequest(
                     proposalNonce = "07".repeat(32),
                     feePayment = testFeePayment(),
-                    multisigAccountAlias = "cbdc@banka",
+                    multisigAccountId = testMultisigAccountId(),
                     signerAccountId = "alice",
                     instructions = listOf(instruction),
                     publicKeyHex = "aa",
@@ -1905,7 +1894,7 @@ class HttpClientTransportTest {
                 MultisigProposeRequest(
                     proposalNonce = "07".repeat(32),
                     feePayment = testFeePayment(),
-                    multisigAccountAlias = "cbdc@banka",
+                    multisigAccountId = testMultisigAccountId(),
                     signerAccountId = "alice",
                     instructions = listOf(instruction),
                     creationTimeMs = -1,
@@ -1916,7 +1905,7 @@ class HttpClientTransportTest {
             assertFailsWith<IllegalArgumentException> {
                 MultisigProposeRequest(
                     proposalNonce = "07".repeat(32),
-                    feePayment = testFeePayment(), multisigAccountAlias = "cbdc@banka",
+                    feePayment = testFeePayment(), multisigAccountId = testMultisigAccountId(),
                     signerAccountId = "alice", instructions = listOf(instruction),
                     validationFeeAssessment = JsonValue.parse(invalid),
                 )
@@ -1949,7 +1938,7 @@ class HttpClientTransportTest {
                 MultisigProposeRequest(
                     proposalNonce = "07".repeat(32),
                     feePayment = testFeePayment(),
-                    multisigAccountAlias = "cbdc@banka",
+                    multisigAccountId = testMultisigAccountId(),
                     signerAccountId = "alice",
                     instructions = listOf(byteArrayOf(1)),
                     publicKeyHex = ed25519IdentityKeyHex,
