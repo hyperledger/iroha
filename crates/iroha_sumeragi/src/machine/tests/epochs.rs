@@ -69,7 +69,7 @@ fn det_s43_every_signature_binds_epoch_and_complete_context() {
         };
         for (original, different) in preimages(&epoch).iter().zip(preimages(&changed)) {
             let signer = &h.signers[0];
-            let signature = signer.sign(original);
+            let signature = signer.sign(original).expect("fixture signing succeeds");
             assert!(h.v.crypto.verify(signer.public_key(), original, &signature));
             assert!(
                 !h.v.crypto
@@ -378,7 +378,7 @@ fn retained_key_probe_cannot_anchor_a_different_epoch_context() {
     for (epoch, accepted) in [(old, false), (current, true)] {
         let sig = h
             .signer_of(&key)
-            .sign(&preimage::echo_preimage(&I, &epoch, h.nonce, 4));
+            .sign(&preimage::echo_preimage(&I, &epoch, h.nonce, 4)).expect("fixture signing succeeds");
         let message = Status {
             instance: I,
             height: 4,

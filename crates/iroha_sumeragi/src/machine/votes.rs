@@ -170,8 +170,21 @@ impl Core {
         if votes.len() != self.cfg.committee.q() {
             return;
         }
-        let Ok(qc) = form_qc(&*self.crypto, self.n(), &votes) else {
-            return;
+        let qc = match form_qc(&*self.crypto, self.n(), &votes) {
+            Ok(qc) => qc,
+            Err(crate::crypto::FormError::AggregationFailed(error)) => {
+                self.local_fault(crate::api::LocalFault::AggregationFailed {
+                    kind: match x.kind {
+                        VoteKind::Prepare => crate::api::CertificateKind::Prepare,
+                        VoteKind::Commit => crate::api::CertificateKind::Commit,
+                    },
+                    height: x.height,
+                    view: x.view,
+                    error,
+                });
+                return;
+            }
+            Err(_) => return,
         };
         self.cache_cert_qc(&qc);
         match qc.kind {
@@ -308,7 +321,13 @@ impl Core {
         kind: VoteKind,
         (bh, result): (Hash32, Hash32),
     ) -> Option<Vote> {
-        let mut vote = Vote {
+        let signing_kind = match kind {
+            VoteKind::Prepare => crate::api::SigningKind::Prepare,
+            VoteKind::Commit => crate::api::SigningKind::Commit,
+        };
+        let preimage = crate::preimage::vote_preimage(kind, &self.instance, &self.cfg.epoch.id, self.height, self.view, &bh, &result);
+        let sig = self.sign(me.slot, signing_kind, self.height, self.view, &preimage)?;
+        let vote = Vote {
             kind,
             instance: self.instance,
             epoch: self.cfg.epoch.id,
@@ -317,10 +336,8 @@ impl Core {
             block_hash: bh,
             result,
             signer: me.index,
-            sig: crate::types::Signature([0; crate::types::SIGNATURE_LEN]),
+            sig,
         };
-        // Only the fully signed object enters custody below; failure retains no vote.
-        vote.sig = self.sign(me, &vote.preimage())?;
         match kind {
             VoteKind::Prepare => self.mine.prepare = Some(vote),
             VoteKind::Commit => self.mine.commit = Some(vote),

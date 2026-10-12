@@ -67,7 +67,12 @@ impl super::Nexus<'_> {
                 block_count: 256,
                 allocated_bytes: 64 * 1024 * 1024,
             })
-            .map_err(|source| crate::Error::NativeFinalityDecode { operation, source })?;
+            .map_err(|source| {
+                crate::Error::NativeFinalityDecode(Box::new(crate::NativeFinalityDecodeFailure {
+                    operation,
+                    source,
+                }))
+            })?;
         if status.network_id != self.client.network_id
             || target_epoch.is_some_and(|epoch| status.target_epoch != epoch)
             || status.target_epoch == 0

@@ -82,7 +82,7 @@ use iroha_crypto::{
 use iroha_model_base::peer::PeerId;
 use iroha_sumeragi::{
     availability::AvailabilityFrame,
-    crypto::Crypto,
+    crypto::{AggregationError, Crypto},
     message::{BlockHeader as CoreHeader, Qc, VoteKind},
     preimage::{committee_digest_preimage, payload_hash},
     types::{AggregateSignature, Committee, Hash32, PublicKey as CoreKey, Signature},
@@ -1499,18 +1499,19 @@ impl Crypto for ProofCrypto {
         };
         iroha_crypto::bls::consensus::verify_public_key(key, &digest, &signature.0)
     }
-    fn aggregate(&self, signatures: &[Signature]) -> AggregateSignature {
+    fn aggregate(&self, signatures: &[Signature]) -> Result<AggregateSignature, AggregationError> {
         let slices: Vec<&[u8]> = signatures
             .iter()
             .map(|signature| signature.0.as_slice())
             .collect();
-        AggregateSignature(
-            bls_normal_aggregate_signatures(&slices)
-                .ok()
-                .and_then(|bytes| bytes.try_into().ok())
-                .unwrap_or([0; 96]),
-        )
+        let bytes =
+            bls_normal_aggregate_signatures(&slices).map_err(|_| AggregationError::Refused)?;
+        let bytes = bytes
+            .try_into()
+            .map_err(|_| AggregationError::InvalidInput)?;
+        Ok(AggregateSignature(bytes))
     }
+
     fn verify_aggregate(
         &self,
         keys: &[&CoreKey],

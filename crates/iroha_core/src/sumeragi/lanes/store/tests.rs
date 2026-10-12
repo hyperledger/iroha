@@ -173,9 +173,9 @@ pub(super) fn alternative(qc: &Qc, crypto: &dyn Crypto) -> Qc {
     other.agg_sig = crypto.aggregate(
         &signers[1..]
             .iter()
-            .map(|s| s.sign(&other.preimage()))
+            .map(|s| s.sign(&other.preimage()).unwrap())
             .collect::<Vec<_>>(),
-    );
+    ).unwrap();
     other
 }
 
@@ -368,9 +368,9 @@ fn startup_authenticates_signature_and_requires_exact_commit_quorum() {
             .unwrap();
             let signatures: Vec<_> = signers[..signer_count]
                 .iter()
-                .map(|signer| signer.sign(&qc.preimage()))
+                .map(|signer| signer.sign(&qc.preimage()).unwrap())
                 .collect();
-            qc.agg_sig = crypto.aggregate(&signatures);
+            qc.agg_sig = crypto.aggregate(&signatures).unwrap();
             let keys: Vec<_> = signers[..signer_count]
                 .iter()
                 .map(Signer::public_key)
@@ -548,9 +548,9 @@ fn at_height(
     qc.agg_sig = crypto.aggregate(
         &signers[..3]
             .iter()
-            .map(|s| s.sign(&qc.preimage()))
+            .map(|s| s.sign(&qc.preimage()).unwrap())
             .collect::<Vec<_>>(),
-    );
+    ).unwrap();
     (body, qc)
 }
 
@@ -761,9 +761,9 @@ fn append_rejects_body_from_another_committee_even_with_a_valid_store_commit_qc(
     qc.agg_sig = crypto.aggregate(
         &members[..3]
             .iter()
-            .map(|signer| signer.sign(&qc.preimage()))
+            .map(|signer| signer.sign(&qc.preimage()).unwrap())
             .collect::<Vec<_>>(),
-    );
+    ).unwrap();
     assert!(
         Verifier::new(
             &crypto,

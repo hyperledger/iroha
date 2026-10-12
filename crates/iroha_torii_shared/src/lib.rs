@@ -1693,7 +1693,7 @@ mod tests {
         );
         for incomplete in [
             format!(r#"{{"key":{key_json}}}"#),
-            format!(r#"{{"enrollment":null}}"#),
+            r#"{"enrollment":null}"#.to_owned(),
             format!(r#"{{"key":{key_json},"enrollment":null,"extra":true}}"#),
             format!(r#"{{"key":{key_json},"enrollment":null,"enrollment":null}}"#),
         ] {

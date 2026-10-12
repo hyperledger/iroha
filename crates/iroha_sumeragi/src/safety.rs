@@ -19,6 +19,19 @@ use crate::{
 /// Largest accepted record encoding (a record at `n = 1024` stays far below this).
 pub const MAX_RECORD_BYTES: usize = 1 << 20;
 
+// Current protocol identities, not negotiated versions. A changed suite or certified-result
+// contract must change its identity here; records from another identity are never migrated.
+const SIGNATURE_SUITE: &[u8] = b"sumeragi/safety/signature-suite/v1\0SHA-256(preimage)\0BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_\0consensus-and-rs16-allowlist/v1";
+const CERTIFIED_RESULT_CONTRACT: &[u8] = b"sumeragi/safety/certified-result/v1\0SHA-256(RESULT_TAG||SccpFinalityHeaderV1||H_iroha(RESULT_BODY_TAG||ExecutionResultCommitment))";
+
+/// Current-only durable envelope. The checksum covers the identities and the entire record.
+#[derive(norito::Encode, norito::Decode)]
+struct RecordEnvelope {
+    signature_suite: Hash32,
+    certified_result_contract: Hash32,
+    record: SafetyRecord,
+}
+
 /// `(view, block_hash, justify)` of the last proposal signed at the record's height.
 #[derive(Clone, PartialEq, Eq, Debug, norito::Encode, norito::Decode)]
 pub struct RecordedProposal {
@@ -107,19 +120,27 @@ impl SafetyRecord {
         }
     }
 
-    /// Encoding for the durable file: the canonical Norito frame followed by `H(frame)`.
+    /// Encoding for the durable file: the current protocol envelope as a canonical Norito
+    /// frame followed by `H(frame)`. The envelope binds the signature suite and the
+    /// certified-result contract, including the SCCP finality header.
     ///
     /// # Errors
     /// Propagates a Norito serialization failure.
     pub fn encode(&self, crypto: &dyn Crypto) -> Result<Vec<u8>, RecordError> {
-        let mut bytes = norito::encode_canonical(self).map_err(|_| RecordError::Encode)?;
+        let envelope = RecordEnvelope {
+            signature_suite: crypto.hash(SIGNATURE_SUITE),
+            certified_result_contract: crypto.hash(CERTIFIED_RESULT_CONTRACT),
+            record: self.clone(),
+        };
+        let mut bytes = norito::encode_canonical(&envelope).map_err(|_| RecordError::Encode)?;
         let checksum = crypto.hash(&bytes);
         bytes.extend_from_slice(checksum.as_bytes());
         Ok(bytes)
     }
 
     /// Decode and check a record read from disk: size, checksum `H(frame)`, canonical Norito
-    /// frame, size limits and internal consistency (R1). Never panics.
+    /// envelope, current protocol identities, size limits and internal consistency (R1).
+    /// Other identities and bare records are refused without migration. Never panics.
     ///
     /// # Errors
     /// [`RecordError`] describing the corruption.
@@ -132,7 +153,15 @@ impl SafetyRecord {
         if crypto.hash(frame).as_bytes()[..] != checksum[..] {
             return Err(RecordError::Checksum);
         }
-        let record: Self = norito::decode_canonical(frame).map_err(|_| RecordError::Decode)?;
+        let envelope: RecordEnvelope =
+            norito::decode_canonical(frame).map_err(|_| RecordError::Decode)?;
+        if !cfg!(sumeragi_mutation = "MS56")
+            && (envelope.signature_suite != crypto.hash(SIGNATURE_SUITE)
+                || envelope.certified_result_contract != crypto.hash(CERTIFIED_RESULT_CONTRACT))
+        {
+            return Err(RecordError::WrongProtocol);
+        }
+        let record = envelope.record;
         record.check_consistency()?;
         Ok(record)
     }
@@ -217,6 +246,8 @@ pub enum RecordError {
     Checksum,
     /// The frame is not a canonical Norito encoding of a record.
     Decode,
+    /// The checksummed envelope belongs to another signature suite or result contract.
+    WrongProtocol,
     /// Decoded, but contradicts itself.
     Inconsistent,
     /// Belongs to another instance.
@@ -538,6 +569,46 @@ mod tests {
     }
 
     #[test]
+    fn det_s56_safety_record_refuses_other_protocol_identity() {
+        let v = FakeValidators::new(4, 1, None);
+        let record = full_record(&v, 10);
+        for different_suite in [true, false] {
+            let envelope = RecordEnvelope {
+                signature_suite: v.crypto.hash(if different_suite {
+                    b"another consensus signature suite"
+                } else {
+                    SIGNATURE_SUITE
+                }),
+                certified_result_contract: v.crypto.hash(if different_suite {
+                    CERTIFIED_RESULT_CONTRACT
+                } else {
+                    b"another certified-result contract"
+                }),
+                record: record.clone(),
+            };
+            let mut bytes = norito::encode_canonical(&envelope).unwrap();
+            bytes.extend_from_slice(v.crypto.hash(&bytes.clone()).as_bytes());
+            let state = RecordState::Present(bytes.clone());
+            assert_eq!(
+                read_record(&v.crypto, &I, &record.key, &state),
+                Err(RecordError::WrongProtocol)
+            );
+            assert_eq!(
+                state,
+                RecordState::Present(bytes),
+                "refused bytes stay intact"
+            );
+        }
+        // The pre-envelope format is not a second accepted on-disk representation.
+        let mut bare = norito::encode_canonical(&record).unwrap();
+        bare.extend_from_slice(v.crypto.hash(&bare.clone()).as_bytes());
+        assert_eq!(
+            SafetyRecord::decode(&v.crypto, &bare),
+            Err(RecordError::Decode)
+        );
+    }
+
+    #[test]
     fn record_corruption_detected() {
         let v = FakeValidators::new(4, 1, None);
         let bytes = full_record(&v, 10).encode(&v.crypto).unwrap();
@@ -571,8 +642,7 @@ mod tests {
             Err(RecordError::Decode)
         );
         // Appended trailing data inside the checksummed frame is non-canonical.
-        let record = full_record(&v, 10);
-        let mut frame = norito::encode_canonical(&record).unwrap();
+        let mut frame = bytes[..bytes.len() - 32].to_vec();
         frame.push(0);
         let checksum = v.crypto.hash(&frame);
         frame.extend_from_slice(checksum.as_bytes());

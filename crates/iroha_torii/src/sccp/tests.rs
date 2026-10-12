@@ -11,7 +11,7 @@ use iroha_core::{
     kura::Kura,
     query::store::LiveQueryStore,
     smartcontracts::isi::sccp::{commitment, light_clients},
-    state::{State, StateTransaction, World, WorldReadOnly},
+    state::{State, StateTransaction, World},
 };
 use iroha_crypto::{Algorithm, KeyPair};
 use iroha_data_model::{
@@ -1010,8 +1010,15 @@ async fn proof_routes_reject_malformed_queries_before_unavailable_record_lookup(
 
 #[tokio::test]
 async fn committee_routes_report_current_records_and_reject_zero_or_absent_generation() {
-    use iroha_core::smartcontracts::isi::sccp::generation_record::RetainedSccpGeneration;
-    use iroha_data_model::sccp::generation::{SccpCommitteeGenerationV1, SccpGenerationCauseV1};
+    use iroha_core::sumeragi::test_chain::{CertifiedTestChain, TestChainConfig};
+    use iroha_data_model::{
+        isi::sccp::InitializeSccpV1,
+        parameter::{
+            Parameter,
+            system::{SumeragiConsensusMode, SumeragiNposParameters},
+        },
+        sccp::params::SccpParametersV1,
+    };
     use iroha_sccp::api::SccpGenerationV1;
     let state = blank_state();
     assert_eq!(
@@ -1022,10 +1029,35 @@ async fn committee_routes_report_current_records_and_reject_zero_or_absent_gener
         committee_response(&state.view(), Some(0), None).status(),
         StatusCode::BAD_REQUEST
     );
-    let mut keys = (1..=4)
-        .map(|seed| {
-            iroha_crypto::KeyPair::from_seed(vec![seed; 32], iroha_crypto::Algorithm::BlsNormal)
-                .public_key()
+    // Core owns generation admission: obtain the retained record by executing the
+    // public initializer against its original signed NPoS genesis context.
+    let parameters = SccpParametersV1::taira_default();
+    let mut config = TestChainConfig::new(World::new(), 1_000);
+    config.consensus_mode = SumeragiConsensusMode::Npos;
+    config.genesis_parameters.push(Parameter::Custom(
+        SumeragiNposParameters::default().into_custom_parameter(),
+    ));
+    config.genesis_block_cadence_ms = NonZeroU64::new(1_000).unwrap();
+    let mut nexus = iroha_config::parameters::actual::Nexus::default();
+    nexus.staking.unbonding_delay = std::time::Duration::from_millis(
+        parameters.committee_validity_ms + parameters.forgery_evidence_grace_ms,
+    );
+    nexus.staking.max_slash_bps = 10_000;
+    config.nexus = Some(nexus);
+    config.genesis_instructions.push(
+        InitializeSccpV1 {
+            parameters,
+            reset_nonce: [0x5a; 32],
+        }
+        .into(),
+    );
+    let chain = CertifiedTestChain::start(config).expect("initialize genuine SCCP genesis");
+    let state = chain.state();
+    let mut keys = chain
+        .validators()
+        .iter()
+        .map(|(peer, _)| {
+            peer.public_key()
                 .try_to_bytes()
                 .unwrap()
                 .1
@@ -1034,24 +1066,9 @@ async fn committee_routes_report_current_records_and_reject_zero_or_absent_gener
         })
         .collect::<Vec<[u8; 48]>>();
     keys.sort();
-    let record = SccpCommitteeGenerationV1 {
-        generation: 1,
-        committee_root: iroha_sccp::v1::committee::committee_root(&keys).unwrap(),
-        keys,
-        members: vec![None; 4],
-        cause: SccpGenerationCauseV1::Genesis,
-        start_height: 1,
-        start_timestamp_ms: 1000,
-        start_lc: 1000,
-        validity_ms: 1000,
-        deadline_ms: 2000,
-        grace_ms: 1000,
-        progress_cap_ms: 1000,
-        liable_until_lc: 3000,
-        dest_cleared_lc: None,
-        end: None,
-    };
-    let budget = state.ivm_execution_budget();
+    let view = state.view();
+    let record = store::committee_generations::get(view.world(), &1).unwrap();
+    let liability_clock = record.liable_until_lc + 1;
     let mut block = state.block(BlockHeader::new(
         NonZeroU64::new(30).unwrap(),
         None,
@@ -1060,14 +1077,7 @@ async fn committee_routes_report_current_records_and_reject_zero_or_absent_gener
         0,
     ));
     let mut stx = block.transaction();
-    store::committee_generations::insert(
-        &mut stx,
-        1,
-        RetainedSccpGeneration::admit(&record, &budget).unwrap(),
-    )
-    .unwrap();
-    store::committee_current::set(&mut stx, 1);
-    store::liability_clock::set(&mut stx, 4001);
+    store::liability_clock::set(&mut stx, liability_clock);
     let current: SccpGenerationV1 =
         decode(committee_response(&stx, None, Some(&norito_accept()))).await;
     let explicit: SccpGenerationV1 = norito::json::from_slice(
@@ -1075,16 +1085,22 @@ async fn committee_routes_report_current_records_and_reject_zero_or_absent_gener
     )
     .unwrap();
     assert_eq!(current, explicit);
-    assert_eq!(current.keys, record.keys);
-    assert_eq!(current.committee_root, record.committee_root);
+    assert_eq!(current.keys, keys);
+    assert_eq!(
+        current.committee_root,
+        iroha_sccp::v1::committee::committee_root(&keys).unwrap()
+    );
     assert!(current.liable, "the current generation remains liable");
     assert_eq!(
         committee_response(&stx, Some(2), None).status(),
         StatusCode::NOT_FOUND
     );
     let capabilities = read::capabilities(&stx);
-    assert_eq!(capabilities.current_generation.unwrap().deadline_ms, 2000);
-    assert_eq!(capabilities.liability_clock, 4001);
+    assert_eq!(
+        capabilities.current_generation.unwrap().deadline_ms,
+        chain.genesis().header().creation_time_ms + parameters.committee_validity_ms
+    );
+    assert_eq!(capabilities.liability_clock, liability_clock);
 }
 
 #[tokio::test]

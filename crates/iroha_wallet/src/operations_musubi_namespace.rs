@@ -102,9 +102,10 @@ pub(super) fn instructions(
     );
     plan.instructions(config)
 }
+#[derive(Clone, Copy)]
 pub(super) struct MusubiNamespaceExpectation<'a>(pub(super) &'a MusubiNamespaceBindingRequest);
 impl MusubiNamespaceExpectation<'_> {
-    pub(super) fn verify(&self, record: &preparation::Selection<'_>) -> Result<()> {
+    pub(super) fn verify(self, record: &preparation::Selection<'_>) -> Result<()> {
         let NativeOperation::MusubiNamespaceBinding { plan, terms } = record.operation else {
             eyre::bail!("journal differs from selected initial namespace binding purpose");
         };

@@ -474,16 +474,22 @@ fn alternate_certificate(
             verified.execution().world_state_root
         );
     }
+    let certified_result = iroha_data_model::sumeragi_finality::CertifiedResultV1::new(
+        *verified.certified_result().header(),
+        commitment,
+        native.chain.root_scope().into(),
+    )
+    .unwrap();
     let qc = native.chain.commit_qc(
         verified.height(),
         verified.core_hash(),
-        commitment.result().unwrap(),
+        certified_result.result().unwrap(),
         Signers::LastThree,
     );
     block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
         header,
         norito::encode_canonical(&qc).unwrap(),
-        commitment.preimage().unwrap(),
+        certified_result.preimage().unwrap(),
         availability,
     )));
     proof.block_wire = block.encode_wire().unwrap();

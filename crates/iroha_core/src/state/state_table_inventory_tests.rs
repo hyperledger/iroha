@@ -7326,6 +7326,7 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
         account(b"typed-owner"),
         BTreeSet::from([domain()])
     );
+    typed_derived!(sccp_destination_pending_generations, 7_u64, ());
     typed_derived!(rwas_by_frozen, true, BTreeSet::new());
     typed_derived!(confidential_policy_transition_counts, 7_u64, 1_u32);
     typed_derived!(validation_fee_proposal_index, (7_u64, [2_u8; 32]), ());
@@ -7340,7 +7341,7 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
             .unwrap_or_else(|| panic!("{id} is not inventoried"));
         assert_eq!(row.commitment, expected, "{id}");
     }
-    assert_eq!(covered.len(), 32);
+    assert_eq!(covered.len(), 33);
 }
 
 /// Canonical State-level fields reach no certified root: the truth that open defect

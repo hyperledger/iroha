@@ -390,16 +390,27 @@ passes.
   nullifier proof, and no ballot custodian. No proof profile is selected,
   nothing is qualified and the ballot is not implemented in Core.
   Binding-governance mainnet launch is no-go. The
-  [profile record](specs/parliament_ballot_proof_profile.md) states the decided
-  construction: a two-SHAKE proof of selection from the sealed credential
-  list, whose bytes are published at seal, in a VOLE-in-the-head backend
-  derived from FAEST v3.0. A standalone experimental backend
-  (`crates/iroha_zkp_vole`) and ballot relations
-  (`crates/iroha_parliament_ballot_proof`) are in progress, wired into nothing
-  and unmeasured. Selection is blocked until every section 5 gate has a
-  complete written argument and the concrete-security ledger meets the
-  2^128 quantum-query contract; neither holds, so schemas and Core integration
-  have not started. The epoch-seated fast pause
+  [profile record](specs/parliament_ballot_proof_profile.md) states the
+  construction under development: a two-SHAKE proof of selection from the
+  sealed credential list, whose bytes are published at seal, with a
+  registration authorization value, in a VOLE-in-the-head backend derived
+  from FAEST v3.0. The standalone experimental backend
+  (`crates/iroha_zkp_vole`) reproduces the official FAEST v3.0.2 component
+  vectors for its parameters, fields, PRG, hash oracles and universal hashes.
+  Its vector commitment, VOLE layer, constraint check and plain-FAEST
+  signatures are incomplete, the ballot relations
+  (`crates/iroha_parliament_ballot_proof`) are a skeleton, nothing is wired
+  in and no measurement exists. Selection is blocked: the arguments for
+  section 5 gates 1, 2, 5 and 8 have missing steps and no complete
+  concrete-security ledger or attack-cost assessment exists. The
+  second-opinion review recalibrated the security contract to a complete
+  proven bound below 1/2 at 2^64 quantum queries plus an independently
+  assessed attack cost of at least 2^128 gates. That weakens the earlier
+  2^128-query floor, awaits restatement in the owner's qualification record,
+  and is not shown to be met. Until selection only standalone
+  implementation, measurement and proof work proceeds; schemas, Core
+  integration and timed-OVN retirement have not started. The epoch-seated
+  fast pause
   panel is specified, not implemented. Availability isolation (ballot design
   section 9) is implemented in `iroha_core` and `irohad`: no Parliament state
   creates pulse demand, vetoes a pulse or block, or gates startup; a sortition

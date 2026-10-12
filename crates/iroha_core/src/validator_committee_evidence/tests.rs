@@ -194,7 +194,7 @@ fn certify(keys: &[KeyPair], header: &BlockHeader, bytes: &[u8]) -> iroha_sumera
             };
             vote.sig = KeyPairSigner::new(&keys[index as usize])
                 .unwrap()
-                .sign(&vote.preimage());
+                .sign(&vote.preimage()).unwrap();
             vote
         })
         .collect::<Vec<_>>();

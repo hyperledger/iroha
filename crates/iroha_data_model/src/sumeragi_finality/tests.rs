@@ -1743,7 +1743,7 @@ fn proof_crypto_accepts_only_current_consensus_suite_in_every_relation() {
             .unwrap(),
     );
     for (signature, valid) in [(current, true), (retired, false)] {
-        let aggregate = crypto.aggregate(&[signature]);
+        let aggregate = crypto.aggregate(&[signature]).unwrap();
         assert_eq!(crypto.verify(&key, &message, &signature), valid);
         assert_eq!(
             crypto.verify_aggregate(&[&key], &message, &aggregate),
@@ -1783,7 +1783,7 @@ fn proof_crypto_accepts_only_current_consensus_suite_in_every_relation() {
             )
         })
         .collect();
-    let aggregate = crypto.aggregate(&shares);
+    let aggregate = crypto.aggregate(&shares).unwrap();
     assert!(crypto.verify_aggregate_multi(
         &[
             (vec![&key], messages[0].clone()),

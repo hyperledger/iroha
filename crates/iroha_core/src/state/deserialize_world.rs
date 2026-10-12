@@ -9163,6 +9163,7 @@ fn decode_world_fields(
         sccp_parameters: Cell::default(),
         sccp_reset_nonce: Cell::default(),
         sccp_committee_generations: Storage::default(),
+        sccp_destination_pending_generations: Storage::default(),
         sccp_committee_current: Cell::default(),
         sccp_liability_clock: Cell::default(),
         sccp_degraded_run: Cell::default(),

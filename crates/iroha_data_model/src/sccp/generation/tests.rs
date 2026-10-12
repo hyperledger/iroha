@@ -16,7 +16,7 @@ fn generation() -> SccpCommitteeGenerationV1 {
                 .unwrap()
         })
         .collect();
-    keys.sort();
+    keys.sort_unstable();
     let account = AccountId::new(
         KeyPair::try_from_seed(vec![9; 32], Algorithm::Ed25519)
             .unwrap()

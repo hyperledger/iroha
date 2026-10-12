@@ -253,9 +253,9 @@ impl Fixture {
         let preimage = self.qc.preimage();
         let signatures = self.keys[..count]
             .iter()
-            .map(|key| KeyPairSigner::new(key).unwrap().sign(&preimage))
+            .map(|key| KeyPairSigner::new(key).unwrap().sign(&preimage).unwrap())
             .collect::<Vec<_>>();
-        self.qc.agg_sig = BlsCrypto::new().aggregate(&signatures);
+        self.qc.agg_sig = BlsCrypto::new().aggregate(&signatures).unwrap();
     }
     fn replace_payload(&mut self, bytes: &[u8], config: &HeightConfig) {
         let crypto = BlsCrypto::new();

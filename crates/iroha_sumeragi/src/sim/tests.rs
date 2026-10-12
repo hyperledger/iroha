@@ -925,10 +925,10 @@ fn o_cert_requires_exactly_q_signers() {
                         None,
                         world.log.clone(),
                     )
-                    .sign(&qc.preimage())
+                    .sign(&qc.preimage()).expect("fixture signing succeeds")
                 })
                 .collect();
-            qc.agg_sig = crypto.aggregate(&signatures);
+            qc.agg_sig = crypto.aggregate(&signatures).expect("fixture aggregation succeeds");
             assert_eq!(
                 world.cert_qc(0, &qc).is_ok(),
                 count == q,
@@ -945,7 +945,7 @@ fn o_cert_requires_exactly_q_signers() {
                     None,
                     world.log.clone(),
                 )
-                .sign(&preimage)
+                .sign(&preimage).expect("fixture signing succeeds")
             })
             .collect();
         let tc = TimeoutCert {
@@ -960,7 +960,7 @@ fn o_cert_requires_exactly_q_signers() {
                     hq: None,
                 })
                 .collect(),
-            agg_sig: crypto.aggregate(&signatures),
+            agg_sig: crypto.aggregate(&signatures).expect("fixture aggregation succeeds"),
             high_pqc: None,
         };
         assert_eq!(world.cert_tc(0, &tc).is_ok(), count == q, "count={count}");

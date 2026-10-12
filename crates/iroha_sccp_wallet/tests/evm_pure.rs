@@ -757,7 +757,7 @@ fn control_bundles_of_another_revision_or_network_fail() {
 }
 #[test]
 fn a_lagging_destination_replays_seventeen_generations_in_two_calls() {
-    let f = support::Fixture::new();
+    let f = support::Fixture::default();
     let context = DestinationContextV1 {
         taira_network_id: support::NETWORK,
         consensus_instance: support::INSTANCE,

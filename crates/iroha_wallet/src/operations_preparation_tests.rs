@@ -219,7 +219,7 @@ fn changed_request_fee_network_and_payload_refuse_without_http() {
             .is_err()
     );
     let journal = Journal::open(&path).unwrap();
-    let mut payload: Payload = journal.read_native(NativeRecord::Payload).unwrap().unwrap();
+    let mut payload: EncodedPayload = journal.read_native(NativeRecord::Payload).unwrap().unwrap();
     let request_record: Request = journal.read_native(NativeRecord::Request).unwrap().unwrap();
     let mut wire = payload.verify(&request_record, &service.config).unwrap();
     wire.nonce =
@@ -509,7 +509,7 @@ fn payload_request_quote_and_signed_stage_substitutions_refuse_before_network() 
     let directory = iroha_fs::PrivateDirectory::open(&path).unwrap();
     let before = transport.requests.load(Ordering::SeqCst);
     for change in 0..4 {
-        let mut payload: Payload = norito::json::from_slice(&original).unwrap();
+        let mut payload: EncodedPayload = norito::json::from_slice(&original).unwrap();
         match change {
             0 => payload.request_sha256 = "00".repeat(32),
             1 => {
@@ -572,7 +572,7 @@ fn unknown_native_child_material_refuses_every_retained_phase_before_http() {
         .read_native(NativeRecord::Request)
         .unwrap()
         .unwrap();
-    let retained_payload: Payload = original
+    let retained_payload: EncodedPayload = original
         .read_native(NativeRecord::Payload)
         .unwrap()
         .unwrap();

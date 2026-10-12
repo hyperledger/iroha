@@ -71,6 +71,24 @@ fn admit_generations(
     Ok(Storage::from_snapshot_parts(current, undo))
 }
 
+/// Rebuild the destination-work index from the canonical current and exact undo records.
+/// This index carries no independent authority and never requires a historical scan per block.
+fn destination_pending_index(
+    generations: &Storage<u64, RetainedSccpGeneration>,
+) -> Storage<u64, ()> {
+    let snapshot = generations.snapshot();
+    let pending = |record: &RetainedSccpGeneration| {
+        record.end.is_some() && record.dest_cleared_lc.is_none()
+    };
+    let current = snapshot.current().iter()
+        .filter_map(|(id, record)| pending(record).then_some((*id, ())))
+        .collect();
+    let undo = snapshot.revert_map().iter()
+        .map(|(id, record)| (*id, record.as_ref().filter(|record| pending(record)).map(|_| ())))
+        .collect();
+    Storage::from_snapshot_parts(current, undo)
+}
+
 /// Preserve exact predecessor presence while admitting both actual anchor allocations.
 /// TODO: fund the enclosing Cell EBR allocations at the State cell owner.
 fn admit_anchors(
@@ -565,6 +583,8 @@ impl SnapshotSccpState {
         )?;
         let panel = admit_panel(&self.sccp_pause_panel, budget, &mut reservation)?;
         debug_assert_eq!(reservation.remaining_bytes(), 0);
+        let destination_pending_generations = destination_pending_index(&committee_generations);
+        world.sccp_destination_pending_generations = destination_pending_generations;
         world.sccp_parameters = self.sccp_parameters;
         world.sccp_reset_nonce = self.sccp_reset_nonce;
         world.sccp_committee_generations = committee_generations;

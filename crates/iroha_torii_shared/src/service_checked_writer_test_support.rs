@@ -57,7 +57,7 @@ impl JsonWriteSink for Probe {
 }
 
 /// Compare original bytes and every output-prefix/actual entry refusal at inherited depth.
-pub(crate) fn audit(
+pub fn audit(
     expected: &str,
     write: impl Fn(&mut dyn JsonWriteSink) -> Result<(), BoundedJsonError>,
 ) {
@@ -120,7 +120,7 @@ pub(crate) fn audit(
 }
 
 /// Preserve the actual manual/input error after entering a supported owning writer.
-pub(crate) fn error(
+pub fn error(
     expected: BoundedJsonError,
     write: impl Fn(&mut dyn JsonWriteSink) -> Result<(), BoundedJsonError>,
 ) {
@@ -133,7 +133,7 @@ pub(crate) fn error(
 }
 
 /// Refuse before any retained manual leaf is visited.
-pub(crate) fn byte_refusal(write: impl Fn(&mut dyn JsonWriteSink) -> Result<(), BoundedJsonError>) {
+pub fn byte_refusal(write: impl Fn(&mut dyn JsonWriteSink) -> Result<(), BoundedJsonError>) {
     let mut refused = Probe::new(0, None);
     assert_eq!(write(&mut refused), Err(BoundedJsonError::BodyTooLarge));
     assert_eq!(
@@ -142,8 +142,8 @@ pub(crate) fn byte_refusal(write: impl Fn(&mut dyn JsonWriteSink) -> Result<(), 
     );
 }
 
-/// A real manual JsonSerialize leaf with neither FastJsonWrite nor Clone.
-pub(crate) struct RefusingLeaf {
+/// A real manual `JsonSerialize` leaf with neither `FastJsonWrite` nor `Clone`.
+pub struct RefusingLeaf {
     /// Exact visits to this retained leaf; ordinary fallback is forbidden.
     pub(crate) visits: Cell<usize>,
 }

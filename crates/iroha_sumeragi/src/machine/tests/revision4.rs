@@ -534,7 +534,7 @@ fn det_r4_probe_statuses_and_echoes() {
             &crate::testing::TEST_EPOCH.id,
             h.nonce,
             height,
-        ));
+        )).expect("fixture signing succeeds");
         WireMessage::Status(Box::new(Status {
             instance: I,
             height,
@@ -563,7 +563,7 @@ fn det_r4_probe_statuses_and_echoes() {
         &crate::testing::TEST_EPOCH.id,
         h.nonce,
         2,
-    ));
+    )).expect("fixture signing succeeds");
     let foreign = WireMessage::Status(Box::new(Status {
         instance: I,
         height: 2,

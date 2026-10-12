@@ -219,9 +219,9 @@ impl Fixture {
         qc.agg_sig = crypto.aggregate(
             &signers[..3]
                 .iter()
-                .map(|signer| signer.sign(&qc.preimage()))
+                .map(|signer| signer.sign(&qc.preimage()).unwrap())
                 .collect::<Vec<_>>(),
-        );
+        ).unwrap();
         let directory = tempfile::tempdir().unwrap();
         let store = FileLaneBlockStore::begin_open(
             directory.path(),

@@ -306,7 +306,7 @@ fn pruning_requires_explicit_pending_set_preserves_inclusive_liability_and_eight
                 successor_validity_ms: params.committee_validity_ms,
             });
         }
-        stx.world.sccp_committee_generations.insert(id, record);
+        publish_record(&mut stx, record);
     }
     let boundary = store::committee_generations::get(&*stx.world, &1)
         .unwrap()
@@ -377,7 +377,7 @@ fn destination_progress_is_strict_and_bounded_and_never_rewrites_clearance() {
             next_committee_root: committee.root,
             successor_validity_ms: parameters.committee_validity_ms,
         });
-        stx.world.sccp_committee_generations.insert(id, record);
+        publish_record(&mut stx, record);
     }
     store::liability_clock::set(&mut stx, 2_000);
     let network = SccpNetworkV1::EthereumMainnet;

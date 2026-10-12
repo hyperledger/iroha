@@ -31,7 +31,7 @@ const MAX_PLAN_BYTES: usize = 224 * 1024;
 /// Independently selected immutable identities and explicit native credit CAS.
 ///
 /// Fields are caller intent, never proof of permission, policy, reserve backing or current state.
-/// The credit authority is independent of reserve policy roles; native CanUpsert permission owns
+/// The credit authority is independent of reserve policy roles; native `CanUpsert` permission owns
 /// admission. No omitted/default expectation or inference from a candidate row authorizes signing.
 #[derive(Clone, Debug, norito::Encode, norito::Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_wallet::operations::ProviderCreditUpsertSelection")]
@@ -77,7 +77,7 @@ pub struct ProviderCreditUpsertRequest {
     pub policy: ReserveAuthorityPolicyV1,
     /// Complete claimed reserve partition, retained without projecting its policy digest.
     pub partition: ReserveProviderAccountV1,
-    /// Complete claimed existing credit row, or explicit absence; must match expected_current.
+    /// Complete claimed existing credit row, or explicit absence; must match `expected_current`.
     pub current_credit: Option<ProviderCreditRecord>,
     /// Complete exact desired native record, with no inferred or silently merged fields.
     pub record: ProviderCreditRecord,
@@ -232,9 +232,10 @@ pub(super) fn instructions(
     Ok(vec![plan.instruction(config)?])
 }
 
+#[derive(Clone, Copy)]
 pub(super) struct ProviderCreditExpectation<'a>(pub(super) &'a ProviderCreditUpsertRequest);
 impl ProviderCreditExpectation<'_> {
-    pub(super) fn verify(&self, record: &preparation::Selection<'_>) -> Result<()> {
+    pub(super) fn verify(self, record: &preparation::Selection<'_>) -> Result<()> {
         let NativeOperation::ProviderCreditUpsert { plan, terms } = record.operation else {
             eyre::bail!("provider credit journal differs from selected upsert purpose");
         };

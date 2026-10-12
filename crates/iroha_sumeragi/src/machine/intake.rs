@@ -346,19 +346,17 @@ impl Core {
         {
             return;
         }
-        peer.echoed_at = Some(now);
         let mut status = self.status_message();
         let msg = preimage::echo_preimage(&self.instance, &epoch.id, nonce, status.height);
-        let Some(key) = self.keys.get(slot) else {
+        let key = self.keys[slot].pk.clone();
+        let Some(sig) = self.sign(slot, crate::api::SigningKind::Echo, status.height, self.view, &msg) else {
             return;
         };
-        let Some(sig) = key.signer.as_ref().map(|signer| signer.sign(&msg)) else {
-            return;
-        };
+        self.peer_entry(to).echoed_at = Some(now);
         status.echo = Some(Echo {
             epoch: epoch.id,
             nonce,
-            key: key.pk.clone(),
+            key,
             sig,
         });
         self.send(to.clone(), WireMessage::Status(Box::new(status)));

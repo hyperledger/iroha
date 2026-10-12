@@ -229,9 +229,9 @@ impl Fixture {
         qc.agg_sig = crypto.aggregate(
             &signers[..3]
                 .iter()
-                .map(|s| s.sign(&qc.preimage()))
+                .map(|s| s.sign(&qc.preimage()).unwrap())
                 .collect::<Vec<_>>(),
-        );
+        ).unwrap();
         let source =
             AvailabilitySource::new(instance, 1, qc.block_hash, old_source.config().clone())
                 .unwrap();

@@ -17,6 +17,8 @@
 
 use thiserror::Error;
 
+use crate::crt::{CrtError, CrtTables};
+
 /// Bits of the initialisation vector `iv` and of `iv_pre`.
 pub const IV_BITS: usize = 128;
 /// Bytes of the initialisation vector `iv` and of `iv_pre`.
@@ -249,6 +251,16 @@ impl VoleParams {
     /// Number `n_mult` of AND-gate corrections per mask.
     pub const fn n_mult(&self) -> usize {
         self.n_mult
+    }
+
+    /// The embedded CRT and VOLE-multiplication tables of this row
+    /// ([`crate::crt::tables_for`]).
+    ///
+    /// # Errors
+    /// [`CrtError::NoEmbeddedTables`] unless the row has the `(lambda, tau, w_grind)`
+    /// of one of the eight standard table sets and that set's `n_mult`.
+    pub fn crt_tables(&self) -> Result<&'static CrtTables<'static>, CrtError> {
+        crate::crt::tables_for(self)
     }
 
     /// `n_Delta = lambda - w_grind`, the challenge bits that select `Delta`.
@@ -1110,6 +1122,50 @@ mod tests {
         assert!(expected < 1 << 31);
         assert_eq!(wide(proof.signature_bits()), expected);
         assert!(!proof.within_proven_hash_bounds());
+    }
+
+    #[test]
+    fn every_standard_row_has_the_gate_count_of_its_crt_tables() {
+        let narrow = |value: u32| usize::try_from(value).expect("small");
+        for set in FAEST_PARAMETER_SETS {
+            let vole = set.vole();
+            let tables = vole.crt_tables().expect("standard row");
+            assert_eq!(vole.n_mult(), narrow(tables.n_mult()), "{}", set.name());
+            assert_eq!(vole.lambda().bits(), narrow(tables.lambda()));
+            assert_eq!(vole.tau(), narrow(tables.tau()), "{}", set.name());
+            assert_eq!(vole.w_grind(), narrow(tables.w_grind()), "{}", set.name());
+            assert_eq!(vole.n_delta(), narrow(tables.n_delta()), "{}", set.name());
+            // The tree moduli are one per small-VOLE instance, of its bit length.
+            for i in 0..vole.tau() {
+                assert_eq!(vole.depth(i), tables.tree_degree(i).map(narrow));
+            }
+        }
+        // The Even-Mansour rows at 128 and 256 bits share the tables of the AES rows.
+        for (em, aes) in [
+            (FAEST_EM_128S, FAEST_128S),
+            (FAEST_EM_128F, FAEST_128F),
+            (FAEST_EM_256S, FAEST_256S),
+            (FAEST_EM_256F, FAEST_256F),
+        ] {
+            assert!(std::ptr::eq(
+                em.vole().crt_tables().expect("standard row"),
+                aes.vole().crt_tables().expect("standard row")
+            ));
+        }
+        // The Even-Mansour rows at 192 bits have tables of their own.
+        for (em, aes) in [(FAEST_EM_192S, FAEST_192S), (FAEST_EM_192F, FAEST_192F)] {
+            assert_ne!(em.vole().crt_tables(), aes.vole().crt_tables());
+        }
+        let custom = VoleParams::new(L128, 12, 7, 102, 3, D_ZK, 312).expect("valid row");
+        assert_eq!(
+            custom.crt_tables(),
+            Err(CrtError::NoEmbeddedTables {
+                lambda: 128,
+                tau: 12,
+                w_grind: 7,
+                n_mult: 312
+            })
+        );
     }
 
     #[test]

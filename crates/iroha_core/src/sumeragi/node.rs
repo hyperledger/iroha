@@ -2614,10 +2614,10 @@ mod tests {
                     .expect("original validator custody");
                 KeyPairSigner::new(key)
                     .expect("original BLS signer")
-                    .sign(&preimage)
+                    .sign(&preimage).unwrap()
             })
             .collect::<Vec<_>>();
-        forged.agg_sig = crypto.aggregate(&signatures);
+        forged.agg_sig = crypto.aggregate(&signatures).unwrap();
         let error = executor
             .replay(&body, &forged)
             .expect_err("a differing certified result");

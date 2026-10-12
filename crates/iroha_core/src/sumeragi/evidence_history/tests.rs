@@ -286,10 +286,10 @@ fn original_history_refuses_false_parent_qc_reports_and_preserves_signed_safety_
                 .map(|index| {
                     KeyPairSigner::new(&keys[index as usize])
                         .unwrap()
-                        .sign(&qc.preimage())
+                        .sign(&qc.preimage()).unwrap()
                 })
                 .collect::<Vec<_>>(),
-        );
+        ).unwrap();
     };
     let report = |qc, defect| {
         let mut proposal = Proposal {
@@ -316,7 +316,7 @@ fn original_history_refuses_false_parent_qc_reports_and_preserves_signed_safety_
         };
         proposal.sig = KeyPairSigner::new(&keys[leader as usize])
             .unwrap()
-            .sign(&proposal.signing_preimage(&crypto));
+            .sign(&proposal.signing_preimage(&crypto)).unwrap();
         Evidence::InvalidProposal {
             proposal: Box::new(proposal),
             defect,

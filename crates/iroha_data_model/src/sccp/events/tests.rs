@@ -447,7 +447,11 @@ fn every_native_degradation_reason_is_copyable_closed_and_roundtrips() {
         let (original, copied) = copy_value(reason);
         assert_eq!(original, copied);
         roundtrip(&reason);
-        assert!(reason.encode().starts_with(&(index as u32).encode()));
+        assert!(
+            reason
+                .encode()
+                .starts_with(&u32::try_from(index).unwrap().encode())
+        );
         let event = SccpFinalityDegradedV1 { height: 3, reason };
         roundtrip(&SccpEvent::FinalityDegraded(event));
         assert_eq!(copy_value(event), (event, event));

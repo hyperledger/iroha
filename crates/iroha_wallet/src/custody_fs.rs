@@ -7,7 +7,7 @@ use std::{
 };
 use zeroize::Zeroizing;
 
-pub(crate) use iroha_fs::PrivateDirectory;
+pub use iroha_fs::PrivateDirectory;
 
 /// Resolve the existing platform prefix, retaining only normal missing path components.
 pub fn resolved_target(path: &Path) -> Result<PathBuf> {
@@ -57,7 +57,7 @@ pub fn read_external(path: &Path, maximum: usize, private: bool) -> Result<Zeroi
 }
 
 /// Remove only an exact unpublished wallet child and its three recognized private files.
-pub(crate) fn remove_pending(parent: &PrivateDirectory, temporary: PrivateDirectory) -> Result<()> {
+pub fn remove_pending(parent: &PrivateDirectory, temporary: PrivateDirectory) -> Result<()> {
     if temporary.path().parent() != Some(parent.path())
         || !temporary
             .path()

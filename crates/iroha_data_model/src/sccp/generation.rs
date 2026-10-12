@@ -66,7 +66,7 @@ pub enum SccpGenerationCauseV1 {
 }
 
 record! {
-    /// Immutable NPoS registration bound to one consensus key at generation creation (G6).
+    /// Immutable `NPoS` registration bound to one consensus key at generation creation (G6).
     #[norito_schema(name = "iroha_data_model::sccp::generation::SccpGenerationMemberV1")]
     pub struct SccpGenerationMemberV1 {
         /// Lane whose staking registration supplied the key.
@@ -160,7 +160,7 @@ impl SccpCommitteeGenerationV1 {
             && self
                 .keys
                 .iter()
-                .all(|key| iroha_crypto::bls::consensus::key_validate(key))
+                .all(iroha_crypto::bls::consensus::key_validate)
             && self.committee_root != [0; 32]
             && committee_root(&self.keys) == Some(self.committee_root)
             && (1..=MAX_VALIDITY_MS).contains(&self.validity_ms)

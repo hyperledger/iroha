@@ -148,10 +148,10 @@ fn rotation_bounds_signatures_and_successor_keys_are_enforced() {
                 error: BundleError::Certificate(DestinationError::BadSignature)
             })
         );
-        let mut plain = steps[0].clone();
-        plain.certificate = first.certify(first.fields(101));
+        let mut non_rotation = steps[0].clone();
+        non_rotation.certificate = first.certify(first.fields(101));
         assert_eq!(
-            verify_rotation_steps(&[plain], &selected, 2),
+            verify_rotation_steps(&[non_rotation], &selected, 2),
             Err(RotationChainError::Step {
                 index: 0,
                 error: BundleError::Shape(ApiShapeError::BadRotation)

@@ -419,15 +419,17 @@ async fn load_read_requires_one_canonical_binary_frame_and_media_type() {
             Duration::ZERO,
             Duration::ZERO,
         );
-        assert!(matches!(
-            client
-                .account_client()
-                .unwrap()
-                .kagemusha()
-                .load_issuance(&value.scheme_id, &value.wallet_id, &REQUEST)
-                .await,
-            Err(Error::Decode { operation: OP, .. } | Error::CanonicalDecode { operation: OP, .. })
-        ));
+        let error = client
+            .account_client()
+            .unwrap()
+            .kagemusha()
+            .load_issuance(&value.scheme_id, &value.wallet_id, &REQUEST)
+            .await
+            .expect_err("malformed issuance response");
+        assert!(
+            matches!(&error, Error::Decode { operation: OP, .. })
+                || matches!(&error, Error::CanonicalDecode(failure) if failure.operation == OP)
+        );
         assert_eq!(requests.lock().unwrap().len(), 1);
     }
 }

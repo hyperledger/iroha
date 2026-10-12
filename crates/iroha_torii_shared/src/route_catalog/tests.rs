@@ -880,8 +880,8 @@ mod tests {
         assert_eq!(sccp::COMMITTEE.path(), "/v1/sccp/committees/{generation}");
         assert!(sccp::ROUTES.contains(&sccp::CURRENT_COMMITTEE));
         assert!(sccp::ROUTES.contains(&sccp::COMMITTEE));
-        assert_eq!(sccp::ROTATIONS.path(), "/v1/sccp/committees/rotations");
-        assert!(sccp::ROUTES.contains(&sccp::ROTATIONS));
+        assert_eq!(sccp::COMMITTEE_ROTATIONS.path(), "/v1/sccp/committees/rotations");
+        assert!(sccp::ROUTES.contains(&sccp::COMMITTEE_ROTATIONS));
         for route in CATALOGED_ROUTES {
             for retired in [
                 "/v1/sccp/rosters",

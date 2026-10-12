@@ -181,11 +181,30 @@ impl Core {
         if self.awaiting {
             return;
         }
+        // Retry local refusals at the existing cadence, always through the durable reservation.
+        let height = self.height;
+        if self.mine.proposal.is_none() {
+            self.resend_recorded_proposal();
+        }
+        self.try_prepare();
+        if !self.same_height(height) {
+            return;
+        }
+        self.try_commit();
+        if !self.same_height(height) {
+            return;
+        }
+        if self.timeout_view == Some(self.view) && self.mine.timeout.is_none() {
+            self.sign_timeout(self.view);
+        }
+        if !self.same_height(height) {
+            return;
+        }
         #[cfg(not(sumeragi_mutation = "MS9"))]
         let resent = self.mine.timeout.clone();
         // MS9: the timeout of the view is re-signed with the current lock instead of re-sent.
         #[cfg(sumeragi_mutation = "MS9")]
-        let resent = (self.mine.timeout.as_ref())
+        let resent = self.mine.timeout.clone()
             .filter(|_| self.timeout_view == Some(self.view))
             .and_then(|_| self.signer())
             .and_then(|me| self.build_timeout(me, self.view, self.high_pqc.clone()));

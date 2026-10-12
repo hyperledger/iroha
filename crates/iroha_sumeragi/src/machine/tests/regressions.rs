@@ -263,7 +263,7 @@ fn anchoring_is_checked_when_the_next_configuration_is_known() {
             &crate::testing::TEST_EPOCH.id,
             h.nonce,
             3,
-        ));
+        )).expect("fixture signing succeeds");
         let msg = WireMessage::Status(Box::new(Status {
             instance: I,
             height: 3,

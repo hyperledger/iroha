@@ -88,7 +88,7 @@ pub struct StreamTokenCustodyEnrollRequest {
 #[derive(Clone, norito::Encode, norito::Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_wallet::operations::stream_token_custody::Action")]
 enum Action {
-    Configure(SignerCustodyPolicyV1),
+    Configure(Box<SignerCustodyPolicyV1>),
     Enroll {
         anchor: SignerCustodyAnchorV1,
         anchor_observed_at_unix_ms: u64,
@@ -130,9 +130,9 @@ impl StreamTokenCustodySelection {
             }
             Some(record) => {
                 eyre::ensure!(
-                    record.provider_id == self.provider_id
+                    (record.provider_id, record.revision)
+                        == (self.provider_id, self.expected_revision)
                         && record.revision > 0
-                        && record.revision == self.expected_revision
                         && (record.revision == 1) == (record.predecessor_digest == [0; 32])
                         && record.request_digest != [0; 32]
                         && record.execution_height > 0
@@ -193,7 +193,7 @@ impl Plan {
             "custody operation has no original finite UTC interval"
         );
         let policy = match &self.action {
-            Action::Configure(policy) => policy,
+            Action::Configure(policy) => policy.as_ref(),
             Action::Enroll { .. } => {
                 &current
                     .as_ref()
@@ -208,12 +208,13 @@ impl Plan {
         );
         let action = match &self.action {
             Action::Configure(policy) => {
-                let policy_bytes = encode_bounded(policy, SIGNER_CUSTODY_CONTROL_MAX_BYTES_V1)?;
+                let policy_bytes =
+                    encode_bounded(policy.as_ref(), SIGNER_CUSTODY_CONTROL_MAX_BYTES_V1)?;
                 eyre::ensure!(
                     policy.binding == self.selection.binding,
                     "custody policy differs from selected signer"
                 );
-                configure_signer_custody_policy_v1(current.as_ref(), policy.clone())?;
+                configure_signer_custody_policy_v1(current.as_ref(), policy.as_ref().clone())?;
                 SorafsStreamTokenCustodyActionV1::Configure(policy_bytes)
             }
             Action::Enroll {
@@ -313,7 +314,7 @@ impl CustodyExpectation<'_> {
                 encode_bounded(&request.policy, SIGNER_CUSTODY_CONTROL_MAX_BYTES_V1)?;
                 (
                     &request.selection,
-                    Action::Configure(request.policy.clone()),
+                    Action::Configure(Box::new(request.policy.clone())),
                     request.deadline_unix_ms,
                 )
             }

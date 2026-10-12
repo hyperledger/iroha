@@ -46,6 +46,11 @@ pub struct Fixture {
     /// Checkpoint observations of the destination.
     pub checkpoints: BTreeMap<u64, [u8; 32]>,
 }
+impl Default for Fixture {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl Fixture {
     /// Deterministic canonical four-validator fixture with actual consensus signatures.
     pub fn new() -> Self {

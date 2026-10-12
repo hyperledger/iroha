@@ -45,7 +45,7 @@ fn genuine_private_anchor_payload_prefix_recovers_exact_wire_without_another_quo
         .encode_wire_v1()
         .unwrap();
     let original: Request = held.read_native(NativeRecord::Request).unwrap().unwrap();
-    let payload: Payload = held.read_native(NativeRecord::Payload).unwrap().unwrap();
+    let payload: EncodedPayload = held.read_native(NativeRecord::Payload).unwrap().unwrap();
     let payload_bytes = std::fs::read(original_path.join("payload.json")).unwrap();
     drop(held);
     let quotes = transport.quote_count.load(Ordering::SeqCst);

@@ -725,10 +725,10 @@ fn det_s16_cross_instance_replay_core() {
     let signers = h.others(3, &[]);
     let sigs: Vec<Signature> = signers
         .iter()
-        .map(|i| h.signer_of(&h.key_at(*i)).sign(&msg))
+        .map(|i| h.signer_of(&h.key_at(*i)).sign(&msg).expect("fixture signing succeeds"))
         .collect();
     let mut qc = h.qc(VoteKind::Commit, 0, &b, &signers);
-    qc.agg_sig = h.v.crypto.aggregate(&sigs);
+    qc.agg_sig = h.v.crypto.aggregate(&sigs).expect("fixture aggregation succeeds");
     qc_msg(&mut h, qc.clone());
     assert_eq!(h.core.tip.height, 0);
     // The unmodified foreign certificate is dropped at intake.
@@ -819,7 +819,7 @@ fn det_s19_wrong_parent_rejected() {
             0,
             &bh,
             &ad,
-        ));
+        )).expect("fixture signing succeeds");
     let out = h.deliver(leader, WireMessage::Proposal(Box::new(p)));
     assert!(matches!(
         &evidence(&out)[..],
@@ -957,7 +957,7 @@ fn det_s21_forged_commitqc_via_parent_qc() {
                         0,
                         &bh,
                         &ad,
-                    )),
+                    )).expect("fixture signing succeeds"),
             },
         }
     };
@@ -1116,7 +1116,7 @@ fn det_s24_local_cqc_not_exposed_before_durable() {
 /// `echo_preimage(h.nonce, height)` (a forgery when `signer ≠ key`).
 fn echo_status(h: &H, key: &PublicKey, signer: &PublicKey, height: u64) -> WireMessage {
     let msg = preimage::echo_preimage(&I, &crate::testing::TEST_EPOCH.id, h.nonce, height);
-    let sig = h.signer_of(signer).sign(&msg);
+    let sig = h.signer_of(signer).sign(&msg).expect("fixture signing succeeds");
     WireMessage::Status(Box::new(Status {
         instance: I,
         height,

@@ -194,11 +194,12 @@ pub(super) fn instructions(
     Ok(vec![plan.instruction(config)?])
 }
 
+#[derive(Clone, Copy)]
 pub(super) struct ReserveMovementDecisionExpectation<'a>(
     pub(super) &'a ReserveMovementDecisionRequest,
 );
 impl ReserveMovementDecisionExpectation<'_> {
-    pub(super) fn verify(&self, record: &preparation::Selection<'_>) -> Result<()> {
+    pub(super) fn verify(self, record: &preparation::Selection<'_>) -> Result<()> {
         let NativeOperation::ReserveMovementDecision { plan, terms } = record.operation else {
             eyre::bail!("reserve journal differs from selected movement-decision purpose");
         };

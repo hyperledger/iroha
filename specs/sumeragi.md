@@ -76,7 +76,7 @@ and wire definitions below describe that candidate, not a claim of release or li
    application when a key enters a committee, so rogue-key attacks are excluded. Collision-resistant
    `H`. The simulator uses a fake scheme with identical interfaces and provenance tracking (§13).
 
-   **Consensus signing suite (application binding; target, not yet implemented).** Production
+   **Consensus signing suite (application binding).** Production
    signatures of kinds `0x01`–`0x05` (§3.3) and of the RS16 availability statements (§12.8) are
    made and checked only through the consensus API `iroha_crypto::bls::consensus`. It signs
    `m = SHA-256(P)` for an allowlisted preimage `P`, as `sk · hash_to_G2(m, DST_SIG)` with
@@ -91,6 +91,13 @@ and wire definitions below describe that candidate, not a claim of release or li
    | Timeout | `TAG_SIG ‖ 0x04` | 102 (byte 101 = `0x00`) or 110 (byte 101 = `0x01`) |
    | Echo | `TAG_SIG ‖ 0x05` | 101 |
    | RS16 manifest / row (§12.8) | `"sumeragi/availability/sign" ‖ 0x00` / `0x01` | 179 / 219 |
+
+   Signing and aggregation are fallible local operations. A refusal produces a typed local
+   fault, never a signature, certificate, evidence, or block-invalid verdict. Failed signing
+   publishes, pools, records-as-sent and caches nothing for Proposal, Prepare, Commit, Timeout,
+   Echo, RS16 manifest or row. Any preceding durable sign-once reservation remains binding:
+   a retry may sign only its identical preimage. Failed certificate aggregation retains the
+   verified input votes and emits no certificate.
 
    A preimage that is not allowlisted is refused: signing returns an error, which the driver
    handles like any signing failure, and verification returns `false`. The production
@@ -1756,9 +1763,18 @@ struct SafetyRecord {
     high_tc: Option<TimeoutCert>,                    // high_tc at write time (the certificate that justified the view)
 }
 ```
-Norito-encoded, followed by `H(encoding)`; the driver keeps one file per `(instance, key)` and
-writes it atomically (temp file, fsync, rename, fsync dir). Size ≤ ~3 KB at n = 31. Nothing else is
-persisted by the core; the block bodies it relies on are written by the driver on `StoreBody`.
+A current-only canonical Norito envelope binds the consensus signature-suite identity and the
+certified-result contract identity together with this record; `H(envelope encoding)` checksums
+both identities and all retained data. The driver keeps one file per `(instance, key)` and writes
+it atomically (temp file, fsync, rename, fsync dir). An envelope of any other identity, a retired
+layout, or a bad checksum is a local startup fault. Startup refuses the record without deleting,
+refreshing, or reinterpreting it. Before installing any retained lock or certificate cache, it
+verifies every retained and nested QC and TC under the authenticated committee for that
+certificate's height and the current suite, including the parent CommitQC (required above
+`g + 1`). A failed verification refuses the record in the same way. An ahead record remains
+untrusted and abstaining until its height's authenticated configuration is available. Size is
+bounded by the envelope and certificate limits. Nothing else is persisted by the core; the block
+bodies it relies on are written by the driver on `StoreBody`.
 Votes, pools, pacemaker level and routing stage are re-derived or re-fetched.
 
 **Body durability.** Every body the core accepts is handed to `StoreBody`, and a `PersistSafety`
@@ -2801,12 +2817,15 @@ pub enum Action {
     LocalFault(LocalFault),
     Halt(HaltReason),
 }
-pub trait Signer: Send + Sync { fn public_key(&self) -> &PublicKey; fn sign(&self, preimage: &[u8]) -> Signature; } // deterministic
+pub trait Signer: Send + Sync {
+    fn public_key(&self) -> &PublicKey;
+    fn sign(&self, preimage: &[u8]) -> Result<Signature, SigningError>;
+} // deterministic; SigningError is owned by iroha_sumeragi, independent of the backend
 pub trait Crypto {                                  // pure; BLS in production, fake in the simulator
     fn hash_chunks(&self, chunks: &[&[u8]]) -> Hash32; // required; exact concatenation without bulk copy
     fn hash(&self, bytes: &[u8]) -> Hash32 { self.hash_chunks(&[bytes]) }
     fn verify(&self, pk: &PublicKey, msg: &[u8], sig: &Signature) -> bool;
-    fn aggregate(&self, sigs: &[Signature]) -> AggregateSignature;
+    fn aggregate(&self, sigs: &[Signature]) -> Result<AggregateSignature, AggregationError>;
     fn verify_aggregate(&self, pks: &[&PublicKey], msg: &[u8], agg: &AggregateSignature) -> bool;
     fn verify_aggregate_multi(&self, groups: &[(Vec<&PublicKey>, Vec<u8>)], agg: &AggregateSignature) -> bool;
 }
@@ -3004,7 +3023,8 @@ epoch_length }` arrive in `HeightConfig` (§10.1); `demotion_window` arrives in
 ### 12.5 Error policy
 
 The core halts an instance (`Action::Halt`, then emits nothing but serving) **only** on:
-1. a corrupt local safety record, a recorded parent CommitQC that does not verify (R1, R5), or a
+1. a corrupt or incompatible local safety envelope, any retained or nested certificate that
+   fails verification under its authenticated height committee and current suite (R1, R5), or a
    committed body that does not extend the committed parent (§6.9 rule 6, local corruption);
 2. a detected safety violation (§7.6: a valid CommitQC conflicting with a committed block);
 3. `ApplyDiverged` — the local state or executor disagrees with a certified result, so the node
@@ -3016,6 +3036,15 @@ The core halts an instance (`Action::Halt`, then emits nothing but serving) **on
    visible, or was lost. The driver suppresses queued consensus effects and stops executor
    scheduling immediately. Pending safety-record writes retain their ordering and serving
    continues; only explicit recovery/restart may resume this instance.
+
+A signer refusal yields `Action::LocalFault(LocalFault::SigningFailed { kind, height, view,
+error })` and no signature or associated effect. This applies to Proposal, Prepare, Commit,
+Timeout, Echo, RS16 manifest and row; a durable reservation survives failure and permits only an
+identical-preimage retry. `form_qc` and `form_tc` return `FormError::AggregationFailed` on
+aggregation refusal, retain verified votes for retry and report `LocalFault::AggregationFailed`
+without publishing or locally trusting a certificate. `SigningError` and `AggregationError` are
+object-safe Sumeragi-owned errors; no crypto-backend dependency enters the sans-IO crate. These
+failures are local faults, never evidence or `Invalid` execution verdicts.
 
 Everything else is drop / evidence / abstain / backoff: malformed or badly signed messages are
 dropped; signed misbehaviour becomes `ReportEvidence`; proposals with signed-content defects, and

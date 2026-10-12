@@ -149,6 +149,11 @@ get fun `test void expired consumes the nonce and emits sccp_voided`() {
     expect(body.messageId).toEqual(d.messageId);
     expect(body.firstNonce).toEqual(3);
     expect(body.count).toEqual(1);
+    // sccp_voided#5343564f message_id:uint256 first_nonce:uint64 count:uint16 (§5.3.3)
+    val raw = eventVoided(d.messageId, 3, 1).beginParse();
+    expect(raw.preloadUint(32)).toEqual(0x5343564f);
+    expect(raw.remainingBitsCount()).toEqual(32 + 256 + 64 + 16);
+    expect(raw.remainingRefsCount()).toEqual(0);
     expect(isConsumedAt(env, 3)).toBeTrue();
     expect(isConsumedAt(env, 2)).toBeFalse();
     val state = env.minter.getSccpState();
@@ -687,6 +692,51 @@ get fun `test bounced sccp_consume of a void leaves the supply untouched`() {
     expect(isConsumedAt(env, 0)).toBeFalse();
 }
 
+get fun `test a void in flight when the latch fires still completes`() {
+    // §5.3.4 item 6 cancels a mint in flight only: the bucket reply of a void
+    // is counted and published whatever happened to the minter meanwhile
+    val env = setupEnv();
+    val alice = testing.treasury("alice").address;
+    val d = expiredDelivery(env, 0, alice);
+    testing.setNow(T0 + 101);
+    val step = testing.processSingleTraceStep(
+        env.deployer,
+        createMessage({
+            bounce: BounceMode.Only256BitsOfBody,
+            value: env.minter.voidRequiredValue(0),
+            dest: env.minter.address,
+            body: SccpVoidExpired {
+                queryId: 1,
+                response: env.deployer,
+                nonce: 0,
+                cert: d.cert as Cell<TairaCert>,
+                message: d.proof as Cell<MessageProof>,
+            },
+        }),
+    );
+    // after the two events: the activation of bucket 0, then the consume
+    val outs = step.outMessages.size();
+    expect(outs).toEqual(4);
+    latch(env);
+    net.send(env.minter.address, forwardOut(step, outs - 2));
+    val res = net.send(env.minter.address, forwardOut(step, outs - 1));
+    expect(res).toHaveSuccessfulTx<SccpConsumed>({ to: env.minter.address });
+    expect(res).toHaveSuccessfulTx<ReturnExcessesBack>({ to: env.deployer });
+    expect(res).toHaveAllSuccessfulTxs();
+    expectEvents(res, [eventVoided(d.messageId, 0, 1)]);
+    expect(isConsumedAt(env, 0)).toBeTrue();
+    val state = env.minter.getSccpState();
+    expect(state.equivocated).toBeTrue();
+    expect(state.opCount).toEqual(1);
+    expect(state.pendingSupply).toEqual(0);
+    // a new expired void is refused at its `Live` check
+    val second = expiredDelivery(env, 1, alice);
+    expectOutcome(
+        sendVoidExpired(env, env.deployer, 1, second, env.minter.voidRequiredValue(1)),
+        SccpErrors.Equivocated,
+    );
+}
+
 get fun `test opCount saturates at the top of u64 under a void`() {
     val env = setupEnv();
     val alice = testing.treasury("alice").address;
@@ -799,6 +849,9 @@ get fun `test void frozen range rules`() {
     val env = setupEnv();
     val alice = testing.treasury("alice").address;
     finalizeOk(env, 10, 1, alice);
+    // `max_void_frozen_range_ton` of the fixture: one bucket
+    expect(SCCP_MAX_VOID_FROZEN_RANGE).toEqual(VEC_MAX_VOID_FROZEN_RANGE);
+    expect(SCCP_MAX_VOID_FROZEN_RANGE).toEqual(SCCP_BUCKET_BITS);
     // The range is judged first, on a Live minter too: no nonce, more than a
     // bucket, and ranges that cross a bucket boundary.
     val bad: array<[int, int]> = [

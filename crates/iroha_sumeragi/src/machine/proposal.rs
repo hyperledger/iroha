@@ -473,9 +473,9 @@ impl Core {
             return;
         }
         // Condition 2: sign-once.
-        if self.safety.as_ref().is_none_or(|r| {
-            r.prepare.is_some_and(|v| v.view >= view) && !cfg!(sumeragi_mutation = "MS2")
-        }) {
+        if self.safety.is_none()
+            || (self.mine.prepare.is_some() && !cfg!(sumeragi_mutation = "MS2"))
+        {
             return;
         }
         // Conditions 3–4: the held proposal of this view, its body, its valid result.
@@ -493,6 +493,13 @@ impl Core {
         let Some(ExecState::Valid(result)) = self.exec.get(&bh).copied() else {
             return;
         };
+        // A failed attempt keeps its durable sign-once reservation. Retry only that value.
+        if self.safety.as_ref().and_then(|r| r.prepare).is_some_and(|reserved| {
+            reserved.view > view || (reserved.view == view &&
+                (reserved.block_hash != bh || reserved.result != result))
+        }) && !cfg!(sumeragi_mutation = "MS2") {
+            return;
+        }
         if self.certified_results(bh).iter().any(|e| *e != result) {
             return;
         }

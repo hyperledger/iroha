@@ -46,6 +46,7 @@ macro_rules! storage_map {
     (
         $(#[$meta:meta])* $module:ident => $field:ident: $key:ty => $value:ty,
         valid($key_pattern:pat, $value_pattern:pat) => $rule:expr
+        $(, index($index:ident, $indexed_value:ident) => $indexed:expr)?
     ) => {
         $(#[$meta])*
         pub mod $module {
@@ -95,6 +96,14 @@ macro_rules! storage_map {
                         .into(),
                     ));
                 }
+                $(
+                    let $indexed_value = &value;
+                    if $indexed {
+                        state_transaction.world.$index.insert(key, ());
+                    } else {
+                        state_transaction.world.$index.remove(key);
+                    }
+                )?
                 Ok(state_transaction.world.$field.insert(key, value))
             }
 
@@ -103,6 +112,7 @@ macro_rules! storage_map {
                 state_transaction: &mut StateTransaction<'_, '_>,
                 key: $key,
             ) -> Option<$value> {
+                $(state_transaction.world.$index.remove(key);)?
                 state_transaction.world.$field.remove(key)
             }
 
@@ -168,7 +178,8 @@ cell_value! {
 storage_map! {
     /// Immutable committee trust and liability records (§4.2).
     committee_generations => sccp_committee_generations: u64 => crate::smartcontracts::isi::sccp::generation_record::RetainedSccpGeneration,
-    valid(generation, record) => *generation == record.generation && record.is_well_formed()
+    valid(generation, record) => *generation == record.generation && record.is_well_formed(),
+    index(sccp_destination_pending_generations, record) => record.end.is_some() && record.dest_cleared_lc.is_none()
 }
 cell_value! {
     /// Current committee generation; zero before initialization.

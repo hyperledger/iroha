@@ -401,7 +401,7 @@ mod tests {
         header.availability_digest = content_digest(&keys.crypto, &bytes);
         let bh = header.hash(&keys.crypto);
         let (preimage, used) = statement(header, bh, None);
-        bytes.extend_from_slice(&keys.signer(header.proposer).sign(&preimage[..used]).0);
+        bytes.extend_from_slice(&keys.signer(header.proposer).sign(&preimage[..used]).expect("fixture signing succeeds").0);
         for (index, hash) in hashes.iter().enumerate() {
             let row = if let Some((selected, declared_index, declared_length)) = wrong_row
                 && selected == index
@@ -415,7 +415,7 @@ mod tests {
                 )
             };
             let (preimage, used) = statement(header, bh, Some(row));
-            bytes.extend_from_slice(&keys.signer(header.proposer).sign(&preimage[..used]).0);
+            bytes.extend_from_slice(&keys.signer(header.proposer).sign(&preimage[..used]).expect("fixture signing succeeds").0);
         }
         admit(bytes, budget)
     }
@@ -936,7 +936,7 @@ mod tests {
         fn public_key(&self) -> &crate::types::PublicKey {
             self.inner.public_key()
         }
-        fn sign(&self, bytes: &[u8]) -> Signature {
+        fn sign(&self, bytes: &[u8]) -> Result<Signature, crate::crypto::SigningError> {
             self.calls
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             self.inner.sign(bytes)

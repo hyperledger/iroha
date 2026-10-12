@@ -69,7 +69,7 @@ const TON_MAX_BOC_BYTES: usize = 256 * 1024;
 const TON_MAX_BOC_CELLS: usize = 8_192;
 const TON_MAX_REFS: usize = 4;
 /// Maximum cell depth admitted by TON's reference cell traits.
-pub(crate) const TON_MAX_CELL_DEPTH: u16 = 1_024;
+pub const TON_MAX_CELL_DEPTH: u16 = 1_024;
 const TON_MAX_VALIDATORS: usize = 1_024;
 const TON_MAX_SIGNATURES: usize = 1_024;
 const TON_MAX_TOTAL_VALIDATOR_WEIGHT: u64 = 1_u64 << 61;
@@ -4703,9 +4703,12 @@ mod encoder_tests {
                 .iter()
                 .enumerate()
                 .map(|(index, refs)| TonBocCell {
-                    descriptor: refs.len() as u8,
+                    descriptor: u8::try_from(refs.len())
+                        .expect("fixture cell reference count fits u8"),
                     data_descriptor: 2,
-                    data: vec![index as u8],
+                    data: vec![
+                        u8::try_from(index).expect("fixture cell index fits its one-byte marker"),
+                    ],
                     refs: refs.to_vec(),
                     exotic: false,
                 })

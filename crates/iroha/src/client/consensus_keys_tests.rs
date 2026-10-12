@@ -50,8 +50,9 @@ fn consensus_keys_reader_requires_operator_auth_and_bounded_canonical_records() 
         let error = result.expect_err("invalid observation must fail");
         if case == 2 {
             assert!(matches!(error.downcast_ref::<crate::Error>(),
-                Some(crate::Error::CanonicalDecode { operation: "sumeragi.consensus_keys.read", source })
-                    if source.kind() == norito::core::DecodeAttemptErrorKind::Invalid));
+                Some(crate::Error::CanonicalDecode(failure))
+                    if failure.operation == "sumeragi.consensus_keys.read"
+                        && failure.source.kind() == norito::core::DecodeAttemptErrorKind::Invalid));
         }
     }
     let (result, requests) = capture_requests(empty_response(StatusCode::OK), |transport| {

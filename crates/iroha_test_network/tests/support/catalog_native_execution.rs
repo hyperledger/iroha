@@ -128,7 +128,7 @@ fn authenticated_local_execution(
         block_wire: bytes.to_vec(),
         committee: validators.to_vec(),
     }
-    .decode_checked()?;
+    .decode_checked(verified.root_scope().into())?;
     // Different valid quorum witnesses are allowed; execution identity excludes only
     // the certificate. The current verifier authenticates every result and wire binding.
     let canonical = block.with_commit_certificate(None).encode_wire()?;

@@ -388,9 +388,11 @@ impl Core {
             &bh,
             &ad,
         );
-        let Some(sig) = self.sign(me, &msg) else {
+        let Some(sig) = self.sign(me.slot, crate::api::SigningKind::Proposal, self.height, self.view, &msg) else {
+            self.resend_recorded = Some(bh);
             return;
         };
+        self.resend_recorded = None;
         let proposal = Proposal {
             instance: self.instance,
             height: self.height,

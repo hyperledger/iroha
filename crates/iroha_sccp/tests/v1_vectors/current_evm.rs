@@ -104,11 +104,12 @@ fn call_json(label: &str, function: &str, calldata: &[u8]) -> Value {
     ])
 }
 
+/// Construct the current signed native-certificate EVM conformance scenario.
 #[allow(
     clippy::too_many_lines,
     reason = "one coherent signed scenario pins every current entry point and view"
 )]
-pub(super) fn fixture() -> Value {
+pub fn fixture() -> Value {
     let g7 = Committee::new(7);
     let g8 = Committee::new(8);
     let destination = eth_destination();

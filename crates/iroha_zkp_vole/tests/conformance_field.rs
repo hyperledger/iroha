@@ -34,27 +34,39 @@ fn encode(poly: u32, bits: usize) -> Vec<u8> {
     poly.to_le_bytes()[..bits.div_ceil(8)].to_vec()
 }
 
-/// The tree moduli of FAEST v3.0 Appendix B: for the `tau_1` instances of bit length
-/// `k` the smallest irreducible polynomials of degree `k`, then for the `tau_0`
-/// instances of bit length `k - 1` the smallest of degree `k - 1`.
+/// The tree moduli of the CRT tables of a row (`params.TREE_MODULI` of the
+/// reference implementation), each with its degree.
 ///
-/// The reference implementation reads these from its generated CRT tables
-/// (`params.TREE_MODULI`), which belong to the CRT stage of this crate. Until that
-/// stage lands they are derived here from the rule of the specification; the
-/// official vectors below confirm both the rule and the integer ordering.
+/// They are also derived here from the rule of FAEST v3.0 Appendix B: for the
+/// `tau_1` instances of bit length `k` the smallest irreducible polynomials of
+/// degree `k`, then for the `tau_0` instances of bit length `k - 1` the smallest of
+/// degree `k - 1`. The tables must agree with the rule; the official vectors below
+/// confirm both and the integer ordering.
 fn tree_moduli(vole: &VoleParams) -> Vec<(u32, usize)> {
     let degree = |d: usize| u32::try_from(d).expect("small degree");
-    let mut moduli = Vec::new();
+    let mut rule = Vec::new();
     for poly in smallest_irreducibles(degree(vole.k()), vole.tau1()).expect("enough moduli") {
-        moduli.push((poly, vole.k()));
+        rule.push((poly, vole.k()));
     }
     for poly in smallest_irreducibles(degree(vole.k() - 1), vole.tau0()).expect("enough moduli") {
-        moduli.push((poly, vole.k() - 1));
+        rule.push((poly, vole.k() - 1));
     }
+    let tables = vole.crt_tables().expect("standard row");
+    let moduli: Vec<(u32, usize)> = (0..vole.tau())
+        .map(|i| {
+            let modulus = tables.tree_modulus(i).expect("one modulus per instance");
+            let bits = tables.tree_degree(i).expect("one modulus per instance");
+            (u32::from(modulus), usize::try_from(bits).expect("small"))
+        })
+        .collect();
+    assert_eq!(tables.tree_moduli().len(), vole.tau());
+    assert_eq!(moduli, rule);
     moduli
 }
 
-/// `M_tree`, the product of the tree moduli, with `n_Delta + 1` coefficients.
+/// `M_tree` of the CRT tables of a row (`params.M_TREE` of the reference
+/// implementation), with `n_Delta + 1` coefficients. It must be the product of the
+/// tree moduli.
 fn m_tree(vole: &VoleParams) -> Vec<u8> {
     let mut product = vec![1u8];
     let mut bits = 1;
@@ -72,7 +84,15 @@ fn m_tree(vole: &VoleParams) -> Vec<u8> {
         bits += degree;
     }
     assert_eq!(bits, vole.n_delta() + 1);
-    product
+    let tables = vole.crt_tables().expect("standard row");
+    let embedded: Vec<u8> = tables
+        .m_tree()
+        .iter()
+        .flat_map(|word| word.to_le_bytes())
+        .collect();
+    assert_eq!(embedded[..product.len()], product[..]);
+    assert!(embedded[product.len()..].iter().all(|byte| *byte == 0));
+    embedded[..bits.div_ceil(8)].to_vec()
 }
 
 #[test]

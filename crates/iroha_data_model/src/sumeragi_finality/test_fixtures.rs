@@ -24,7 +24,7 @@ use iroha_allocation::{AllocationBudget, ChargedBuffer};
 use iroha_crypto::{KeyPair, bls_normal_pop_prove};
 use iroha_sumeragi::{
     availability::{PayloadAuthoring, PayloadBytes},
-    crypto::Signer,
+    crypto::{Signer, SigningError},
     types::{Bitmap, ChainParams},
 };
 use std::{num::NonZeroU64, time::Duration};
@@ -38,10 +38,10 @@ impl Signer for FixtureSigner<'_> {
     fn public_key(&self) -> &CoreKey {
         &self.public
     }
-    fn sign(&self, preimage: &[u8]) -> Signature {
-        Signature(
-            iroha_crypto::bls::consensus::sign_preimage(self.key.private_key(), preimage).unwrap(),
-        )
+    fn sign(&self, preimage: &[u8]) -> Result<Signature, SigningError> {
+        iroha_crypto::bls::consensus::sign_preimage(self.key.private_key(), preimage)
+            .map(Signature)
+            .map_err(|_| SigningError::Refused)
     }
 }
 

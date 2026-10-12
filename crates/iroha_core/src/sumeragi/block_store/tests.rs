@@ -894,9 +894,9 @@ fn merged_execution_fixture() -> Fixture {
     qc.signers = Bitmap::from_indices(4, [0, 1, 2]).unwrap();
     let shares: Vec<_> = signers[..3]
         .iter()
-        .map(|signer| signer.sign(&qc.preimage()))
+        .map(|signer| signer.sign(&qc.preimage()).unwrap())
         .collect();
-    qc.agg_sig = f.store.hasher.aggregate(&shares);
+    qc.agg_sig = f.store.hasher.aggregate(&shares).unwrap();
     let certificate = commit_certificate(
         authored.body.header(),
         &qc,

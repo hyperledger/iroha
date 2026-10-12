@@ -86,6 +86,7 @@ therefore publishes votes and keeps account identity out of the ballot.
 | `Q` | Quorum, `ceil(2*S/3)` |
 | `sk` | A voter's credential master secret, generated on the voter's device |
 | `C` | Credential commitment registered for one seat |
+| `auth` | Registration authorization value published with `C` (section 3.2) |
 | `L` | Sealed credential list: the `S` sealed commitments in strictly increasing bytewise order |
 | `R` | Sealed-list digest: the digest of the ordered list `L` (section 3.3) |
 | `body_context` | `(network_id, governance_attempt_id, election_attempt_id, body_role)` |
@@ -113,6 +114,7 @@ functions under the gate in section 5:
 ```text
 B       = BodyContextDigest_P(body_context)
 C       = CredentialCommit_P(body_context, sk)
+auth    = RegistrationAuth_P(sk, D_reg)
 nf      = NullifierPRF_P(sk, scope)
 R       = SealedListDigest_P(B, S, L)
 pi_reg  = Registration_P(sk; C, m_reg)
@@ -121,8 +123,11 @@ pi_vote = Ballot_P(sk, selector; B, L, m)
 
 `sk` is one high-entropy secret. Derived secrets are domain-separated
 derivations of `sk`, and each relation constrains all of them. An unconstrained
-second secret would permit repeated voting. The registration proof and the
-ballot proof use distinct transcript domain tags.
+second secret would permit repeated voting. Fresh proof coins that a profile
+carries inside its witness are not credential secrets: no commitment,
+authorization value or nullifier depends on them. `D_reg` is the profile's
+digest of the registration statement (section 3.2). The registration proof and
+the ballot proof use distinct transcript domain tags.
 
 The membership contract is fixed and does not depend on the proof backend.
 `pi_vote` proves selection of one entry of the sealed ordered list `L`. The
@@ -133,27 +138,45 @@ entry or path witness. A verifier of `pi_vote` needs the list, not only `R`
 ### 3.2 Credential registration at seat acceptance
 
 For a binding-jury body, `RecordInvitationResponse` with `Accept` carries the
-credential commitment `C` and a registration proof `pi_reg`. Acceptance for a
-binding body is invalid without them. Core derives the member and assignment
-from the transaction authority, as it does today (`record_invitation_response`
+credential commitment `C`, the public authorization value `auth` and a
+registration proof `pi_reg`. Acceptance for a binding body is invalid without
+all three. Core derives the member and assignment from the transaction
+authority, as it does today (`record_invitation_response`
 in `crates/iroha_core/src/governance/parliament/reducer_sortition.rs`).
 
 - **Registration authorization.** `pi_reg` is a message-bound, post-quantum
   registration-authorization proof for
-  `C = CredentialCommit_P(body_context, sk)`. It satisfies adaptive multi-user
-  credential-origin unforgeability jointly with ballot proving, and is zero
-  knowledge jointly with every ballot proof. Observing an honest commitment or
-  registration or ballot proofs must not authorize a fresh registration message
-  for that uncorrupted credential. Core separately enforces registration
-  uniqueness.
+  `C = CredentialCommit_P(body_context, sk)` and
+  `auth = RegistrationAuth_P(sk, D_reg)` under the same `sk`. It satisfies
+  adaptive multi-user credential-origin unforgeability jointly with ballot
+  proving, and is zero knowledge jointly with every ballot proof. Observing an
+  honest commitment, authorization value or registration or ballot proofs must
+  not authorize a fresh registration message for that uncorrupted credential.
+  Core separately enforces registration uniqueness.
   The registration message is `m_reg = (network_id, authority, assignment_id,
-  governance_attempt_id, election_attempt_id, body_role, B, C, profile_id)`.
+  governance_attempt_id, election_attempt_id, body_role, B, C, auth,
+  profile_id)`.
   Without `pi_reg`, an invited attacker could copy an honest candidate's
   pending commitment and register it first. Core checks registration
   authority, invitation and assignment eligibility, freshness, uniqueness and
   the sealed subset itself; `pi_reg` does not prove them. Section 5 gates
   `pi_reg` together with the ballot proof, and keeps the knowledge requirement
   of its item 1 as a separate obligation.
+- **Authorization value.** `auth` is a public value of the registration
+  statement, 64 bytes in the construction under development and defined in
+  [parliament_ballot_proof_profile.md](parliament_ballot_proof_profile.md)
+  section 6. It binds `sk` to the digest `D_reg` of the complete registration
+  statement other than `auth` itself: the profile descriptor, the
+  authoritative body context, `network_id`, `authority`, `assignment_id`,
+  `governance_attempt_id`, `election_attempt_id`, `body_role`, `B` and `C`.
+  `D_reg` excludes the proof bytes and the prover's randomness. `pi_reg`
+  proves that `auth` was computed from the `sk` that opens `C`, and the
+  complete `m_reg`, `auth` included, is bound into the proof transcript. A
+  registration whose `auth` does not verify under `pi_reg` is invalid. The
+  ballot carries no analogous value. `auth` supports the argument for
+  section 5 item 8; it does not establish that item. It is not a Core check
+  and replaces none: duplicate-commitment rejection and the authority,
+  invitation, eligibility and freshness checks are unchanged.
 - **Uniqueness.** One credential per seat. Core rejects a commitment already
   registered for any seat of the same election attempt.
 - **Freshness.** Credentials are fresh per body. A Confirmation Jury registers
@@ -172,8 +195,9 @@ in `crates/iroha_core/src/governance/parliament/reducer_sortition.rs`).
     rejected as a duplicate;
   - recompute the nullifier, revealing the seat's participation and vote;
   - hand a briber a receipt.
-- **Public mapping.** The account-to-commitment mapping and `pi_reg` are public
-  state. Anonymity comes from the ballot proof hiding which commitment was used.
+- **Public mapping.** The account-to-commitment mapping, `auth` and `pi_reg`
+  are public state. Anonymity comes from the ballot proof hiding which
+  commitment was used.
 - **Authentication.** Acceptance is authenticated by the account's transaction
   signature. Unless that account uses a post-quantum scheme, seat registration
   is only classically authenticated (section 4).
@@ -579,7 +603,8 @@ beyond what the functionality publishes:
   scope, its vote, an opaque per-credential and per-scope handle that preserves
   nullifier equality, and its observable inclusion or rejection status and
   canonical block position where one exists;
-- `R`, `S`, the sealed list `L` and the account-to-commitment registrations;
+- `R`, `S`, the sealed list `L` and the account-to-commitment registrations
+  with their authorization values;
 - the closure record and outcome;
 - whatever the corrupted credentials themselves know, including their own
   ballots.
@@ -654,15 +679,33 @@ qualification. The profile covers both `pi_reg` and `pi_vote`.
    deterministic for a credential and scope, independent of the vote.
 4. **Cross-scope unlinkability and non-frameability.** Observing other scopes
    cannot identify or impersonate an honest credential holder.
-5. **Full quantum zero knowledge and anonymity.** A multi-theorem definition
-   covering the complete transcripts of `pi_reg` and `pi_vote` under the same
-   `sk`, adaptive queries, public registrations and corrupt credentials. It
-   states exactly which later credential disclosures are excluded.
-6. **Concrete security.** At least 128-bit effective post-quantum security,
-   including Fiat–Shamir losses, grinding, hash attacks and lifetime
-   multi-target use. Statistical soundness error and its accumulation are
-   quantified separately. Hash output lengths follow the actual reduction;
-   256-bit outputs are not assumed adequate for every role.
+5. **Full quantum zero knowledge and anonymity.** Two requirements, each
+   with its own game.
+   - *Joint zero knowledge.* An adaptive multi-theorem definition covering the
+     complete transcripts of `pi_reg` and `pi_vote` under the same `sk`,
+     adaptive queries, public registrations with their authorization values,
+     and corrupt credentials. It holds for arbitrary application witnesses
+     (`sk` for `pi_reg`; `sk` and the selected position for `pi_vote`) and
+     arbitrary auxiliary information about them, the witness itself included.
+     It is not restricted to honestly generated, undisclosed credentials. The
+     honest prover samples the proof's own coins fresh for every proof. Those
+     coins are excluded from disclosure, and a prover that accepts
+     adversarially fixed or disclosed coins is outside the claim.
+   - *Anonymity.* A separate left-or-right game. The two challenge credentials
+     are honest and uncorrupted and sit in the same sealed list and body.
+     Identified vote or nullifier queries for either candidate at the
+     challenge scope are forbidden, earlier ones included. Later disclosure
+     of either candidate is excluded. Several challenges must show the same
+     nullifier-equality pattern in both worlds. The definition states exactly
+     these exclusions; zero knowledge alone does not give anonymity, because
+     the public commitments, authorization values and nullifiers under one
+     `sk` must also be shown unlinkable.
+6. **Concrete security.** A complete proven deployment-wide bound and an
+   independently assessed attack cost, as read below, including Fiat–Shamir
+   losses, grinding, hash attacks and lifetime multi-target use. Statistical
+   soundness error and its accumulation are quantified separately. Hash output
+   lengths follow the actual reduction; 256-bit outputs are not assumed
+   adequate for every role.
 7. **Deterministic bounded verification.** Fixed encodings, maximum
    allocations, bounded hash and field work, defined malformed-proof behaviour
    and identical results across hardware.
@@ -670,9 +713,10 @@ qualification. The profile covers both `pi_reg` and `pi_vote`.
    credential-origin unforgeability in the QROM against malicious registrations
    and corrupt credentials, with access to both honest proof types. An
    adversary cannot authorize an uncorrupted honest credential under a fresh
-   registration message, including recontextualization into another body. Joint
-   zero knowledge is required. Simulation-extractability is sufficient but is
-   not required by this item.
+   registration message, including recontextualization into another body. The
+   registration message is the complete `m_reg` of section 3.2, the
+   authorization value included. Joint zero knowledge is required.
+   Simulation-extractability is sufficient but is not required by this item.
 
 **The item 8 game.** It must:
 
@@ -704,7 +748,11 @@ argument must apply to the actual protocol and its reduction.
 | Quantity | Requirement |
 | --- | ---: |
 | Computational break | Forgery success ≥ 1/2, or anonymity distinguishing gap ≥ 1/2 |
-| Required work for a break | At least 2^128 total quantum queries to modeled primitives and oracles |
+| Proven bound | Every required computational game has a complete, applicable deployment-wide bound below 1/2 at an adversary budget of 2^64 quantum queries |
+| Scope of the proven bound | Both relations, all lifetime ceilings, concrete primitive terms, and the actual simulator and extractor query and time overhead |
+| Recorded thresholds | The largest budgets the complete ledger justifies at advantage 2^-64 and at advantage 1/2 |
+| Attack cost | Independent cryptanalysis finds no break below 2^128 total elementary gates |
+| Attack-cost accounting | Classical and quantum work, preprocessing, memory access (coherent lookup, QRAM construction and use) and all parallel processors; primitive evaluations expanded into circuits; queries, depth and memory reported separately |
 | Accounting | Deployment-wide, including reduction overhead and all targets |
 | Archive horizon | 100 years per network and profile instance |
 | Body scopes | At most 2^24 |
@@ -718,10 +766,22 @@ argument must apply to the actual protocol and its reduction.
 Repeated transmission of identical proof bytes is not a new prover transcript.
 The ceilings are analysis ceilings, not consensus lifetime counters. Exceeding
 one requires reassessment. Changing profiles does not erase archived privacy
-exposure. The metric counts queries through the actual reduction. A gate-depth
-metric does not replace it without the corresponding reversible-circuit,
-parallelism, depth and reduction analysis. No parameter row is certified under
-this contract today.
+exposure.
+
+This contract weakens the earlier one, which required at least 2^128 total
+quantum queries for a break, counted through the actual reduction. The split
+into a 2^64-query proven bound and a 2^128-gate attack cost is a policy
+decision of the second-opinion review
+([parliament_ballot_proof_profile.md](parliament_ballot_proof_profile.md)
+section 8.8), not a theorem and not an equivalent restatement, and the owner's
+qualification record must restate it. The statistical budget and the lifetime
+ceilings are unchanged.
+
+The proven bound counts queries through the actual reduction. The attack-cost
+requirement is additional and never replaces it. Comparison formulas, omitted
+terms, incomplete reductions and nominal primitive security levels satisfy
+neither requirement. Compliance is unestablished for every parameter row: no
+complete proven bound and no complete attack-cost assessment exists today.
 
 **Admissible primitives.** Arithmetisation-oriented hashes are not admissible
 in this profile, in its commitments or its transcript. Algebraic universal
@@ -744,6 +804,17 @@ framing. The shared seal and list evidence is separate: the list-context
 object is capped at 160 KiB. The envelope limit is therefore not a claim that
 every cold verification input fits in 256 KiB; the total cold input is
 disclosed with the measurements.
+
+For the construction under development, the raw proof is 159,588 B for
+`pi_reg` and 159,852 B for `pi_vote` on the row carried as the integration
+candidate, and 109,114 B and 109,290 B on the comparison row. These are the
+second-opinion review's figures, recomputed here from its size formulas
+(`11,748 + 33·ℓ/8` and `10,554 + 22·ℓ/8` bytes for witness lengths `ℓ` of
+35,840 and 35,904 bits); none is measured. The largest is 61% of the envelope
+limit before the public fields, the 64-byte `auth` of a registration, the
+stamp and the framing. No size conflicts with the 256 KiB or 160 KiB cap.
+Envelope compliance is unestablished until the complete envelope is measured
+against the exact schema.
 
 The hardware baselines are:
 
@@ -776,10 +847,11 @@ and the security metric is never weakened to meet one.
 The evaluation is recorded in
 [parliament_ballot_proof_profile.md](parliament_ballot_proof_profile.md). No
 profile is selected and nothing is qualified. That record states the
-construction under development, a two-SHAKE proof over the sealed list in a
-VOLE-in-the-head backend, and why no section 5 gate is discharged for it:
-gates 1, 2, 5, 6 and 8 need new proof work or a ledger, gates 3 and 4 are
-conditional on them, and gate 7 needs implementation evidence. Selection
+construction under development, a two-SHAKE proof over the sealed list with a
+registration authorization value in a VOLE-in-the-head backend, and why no
+section 5 gate is discharged for it: gates 1, 2, 5 and 8 have missing proof
+steps, gate 6 has no complete ledger or attack-cost assessment, gates 3 and 4
+are conditional on them, and gate 7 needs implementation evidence. Selection
 follows section 12.2 step 2.
 
 Repository reference components are not qualified profiles:
@@ -1186,7 +1258,14 @@ Keep beacon machinery still required for consensus or sortition.
    1. one exact construction and parameter row are frozen, and no relation or
       transcript choice is unresolved;
    2. every section 5 gate has a complete written argument;
-   3. the actual lifetime ledger meets the section 5 reading of item 6;
+   3. the complete deployment-wide ledger meets the section 5 reading of
+      item 6: every required computational game has advantage below 1/2 at
+      2^64 adversarial quantum queries with every primitive and reduction
+      cost included, the independent attack assessment meets the 2^128-gate
+      requirement, the unconditional statistical budget stays at most 2^-128,
+      and the ledger's thresholds at advantages 2^-64 and 1/2 are recorded.
+      Comparison formulas, omitted terms, incomplete reductions and nominal
+      primitive security levels do not satisfy this condition;
    4. the standalone prover and verifier implement that exact protocol and
       pass meaningful adversarial and component checks;
    5. complete envelope sizes, deterministic work and allocation bounds, and
@@ -1222,12 +1301,34 @@ Keep beacon machinery still required for consensus or sortition.
 
    A performance experiment may continue to investigate such a blocker,
    labelled experimental. Do not begin integration around a placeholder
-   relation. Conditions 2 and 3 do not hold today, so steps 3 and 4 have not
-   started. Activation qualification is step 5 together with the owner's
+   relation.
+
+   Until `P` is selected, only standalone work on this step is permitted:
+   - completing the backend, its conformance with the official plain-FAEST
+     vectors, and the exact experimental ballot prover and verifier;
+   - the profile-local relation encodings and codecs needed to specify and
+     test that standalone protocol;
+   - adversarial tests, independent relation checks, deterministic parity
+     checks, resource accounting and measurements at `S = 3`, 500 and 1,000;
+   - writing and reviewing the missing cryptographic arguments.
+
+   Not permitted before selection: production schemas, a Core verifier
+   bridge, signerless envelope integration, sealed-list or nullifier state
+   transitions, Torii or SDK paths, and retirement of any section 12.1 item.
+   That retirement stays in step 4, in the candidate that carries the
+   replacement. The launch gate being false does not remove the selection
+   precondition.
+
+   Conditions 2 and 3 do not hold today, so steps 3 and 4 have not started:
+   the arguments for knowledge extraction (item 1), adaptive authorization
+   over a list that mixes honest and adversarial credentials (item 2), joint
+   simulation and anonymity (item 5) and registration origin (item 8) have
+   missing steps, and no complete ledger or attack-cost assessment exists.
+   Activation qualification is step 5 together with the owner's
    qualification record; `parliament_binding_ballot_available()` stays false
    through selection, implementation and review until the owner records it.
 3. **Specify the schemas.** The Norito stored and wire forms are:
-   - the credential registration and `pi_reg`;
+   - the credential registration, `auth` and `pi_reg`;
    - `SealedCredentialListV1` and the registration-mapping digest;
    - the scope;
    - the signerless ballot envelope;
@@ -1237,9 +1338,10 @@ Keep beacon machinery still required for consensus or sortition.
    - ballot events and queries.
 
    `P` defines the canonical list encoding and the canonical preimage
-   encodings of `B`, `R`, `scope`, `policy_hash`, `m_reg` and `m`. It fixes
-   layout flags, field order and length bounds, and rejects alternative
-   encodings, trailing bytes and non-canonical values. A preimage definition
+   encodings of `B`, `R`, `scope`, `policy_hash`, `D_reg`, `m_reg` and `m`.
+   It fixes layout flags, field order and length bounds, and rejects
+   alternative encodings, trailing bytes and non-canonical values. A preimage
+   definition
    is not an alternative wire codec: stored and wire records stay header-framed
    Norito. There are no in-relation tree encodings. Anonymous records and
    events omit account and session identifiers.
@@ -1269,7 +1371,8 @@ These are obligations for the implementation, not tests this document passed.
 | Case | Required observation |
 | --- | --- |
 | Copied registration commitment or `pi_reg` | Rejected; the honest registrant is unaffected |
-| `pi_reg` replayed for another seat, body or account | Rejected |
+| `auth` or `pi_reg` replayed for another seat, body or account | Rejected |
+| `auth` that is not the value `pi_reg` proves for the registered `C` and statement | Rejected |
 | Accepted but unseated alternate | Its credential is absent from the sealed list and from `R` |
 | Two equal commitments among the sealed assignments | Sealing rejects the list |
 | Accepted roster of 1 or 2 seats | `NoRoster`, then the section 10 retry generation; no seal |

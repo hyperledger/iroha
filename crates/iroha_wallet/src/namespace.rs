@@ -83,9 +83,8 @@ pub fn prepare_private_dataspace_request(
         remaining.min(config.torii_request_timeout),
     )?;
     let capabilities = discovery.capabilities()?;
-    if capabilities.network_id != config.network_id
-        || capabilities.network_prefix != config.account_chain_discriminant
-    {
+    let matches_account_profile = capabilities.network_prefix == config.account_chain_discriminant;
+    if capabilities.network_id != config.network_id || !matches_account_profile {
         return Err(eyre!(
             "private dataspace endpoint changed the selected network/profile"
         ));
@@ -111,7 +110,7 @@ pub fn prepare_private_dataspace_request(
     )?;
     let quote = quote_private_dataspace(
         &policy,
-        selector,
+        &selector,
         config.account.clone(),
         status.observed_at_ms,
         config.transaction_ttl,
@@ -163,7 +162,7 @@ fn private_dataspace_selector(alias: &str) -> Result<NameSelectorV1> {
 #[allow(clippy::too_many_arguments)]
 fn quote_private_dataspace(
     policy: &SuffixPolicyV1,
-    selector: NameSelectorV1,
+    selector: &NameSelectorV1,
     owner: AccountId,
     observed_at_ms: u64,
     ttl: Duration,
@@ -204,7 +203,7 @@ fn quote_private_dataspace(
     let valid_until_ms = observed_at_ms
         .checked_add(lifetime_ms)
         .ok_or_else(|| eyre!("namespace quote deadline overflow"))?;
-    let price = quote_lease_price(policy, &selector, 1, None)?;
+    let price = quote_lease_price(policy, selector, 1, None)?;
     if account_alias
         != resolve_private_owner_alias(alias, account_alias.canonical_name.label.as_ref())?
     {

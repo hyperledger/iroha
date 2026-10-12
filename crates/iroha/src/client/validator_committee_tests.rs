@@ -179,9 +179,9 @@ mod validator_committee_capability {
                 match mutation {
                     0 | 1 | 5 => matches!(error, Error::ResponseBinding { .. }),
                     2 => matches!(error, Error::Decode { .. }),
-                    4 => matches!(&error, Error::NativeFinalityDecode {
-                        source: iroha_data_model::sumeragi::finality::NativeFinalityDecodeError::Malformed(source), ..
-                    } if source.kind() == norito::core::DecodeAttemptErrorKind::Invalid),
+                    4 => matches!(&error, Error::NativeFinalityDecode(failure)
+                        if matches!(&failure.source, iroha_data_model::sumeragi::finality::NativeFinalityDecodeError::Malformed(source)
+                            if source.kind() == norito::core::DecodeAttemptErrorKind::Invalid)),
                     3 => matches!(error, Error::Http { status: 404, .. }),
                     _ => unreachable!(),
                 },
@@ -356,13 +356,12 @@ mod validator_committee_capability {
     fn original_decode(error: &Error) -> &norito::core::DecodeAttemptError {
         use iroha_data_model::sumeragi::finality::NativeFinalityDecodeError;
         match error {
-            Error::CanonicalDecode { source, .. }
-            | Error::NativeFinalityDecode {
-                source:
-                    NativeFinalityDecodeError::Resource(source)
-                    | NativeFinalityDecodeError::Malformed(source),
-                ..
-            } => source,
+            Error::CanonicalDecode(failure) => &failure.source,
+            Error::NativeFinalityDecode(failure) => match &failure.source {
+                NativeFinalityDecodeError::Resource(source)
+                | NativeFinalityDecodeError::Malformed(source) => source,
+                other => panic!("expected original decode attempt: {other:?}"),
+            },
             other => panic!("expected original decode attempt: {other:?}"),
         }
     }
@@ -427,10 +426,8 @@ mod validator_committee_capability {
         );
         assert!(matches!(
             &failure,
-            Error::CanonicalDecode {
-                operation: "nexus.validator_committee.read",
-                ..
-            }
+            Error::CanonicalDecode(failure)
+                if failure.operation == "nexus.validator_committee.read"
         ));
         let observed: ValidatorCommitteeStatusV1 = Client::decode_canonical_norito_response(
             &response,
@@ -521,7 +518,7 @@ mod validator_committee_capability {
             runtime.block_on(client.nexus().validator_committee(Some(7)))
         })
         .unwrap_err();
-        assert!(matches!(&outer, Error::CanonicalDecode { .. }));
+        assert!(matches!(&outer, Error::CanonicalDecode(_)));
         assert_eq!(
             original_decode(&outer).kind(),
             DecodeAttemptErrorKind::EnclosingLimit
@@ -537,10 +534,8 @@ mod validator_committee_capability {
         .unwrap_err();
         assert!(matches!(
             &native,
-            Error::NativeFinalityDecode {
-                source: NativeFinalityDecodeError::Resource(_),
-                ..
-            }
+            Error::NativeFinalityDecode(failure)
+                if matches!(&failure.source, NativeFinalityDecodeError::Resource(_))
         ));
         assert_eq!(
             original_decode(&native).kind(),
@@ -644,9 +639,10 @@ mod validator_committee_capability {
         );
         let client = crate::blocking::Client::from_client(client).unwrap();
         let error = client.nexus().validator_committee(Some(7)).unwrap_err();
-        assert!(matches!(&error, Error::NativeFinalityDecode {
-            operation: "nexus.validator_committee.read", source: NativeFinalityDecodeError::Malformed(source)
-        } if source.kind() == norito::core::DecodeAttemptErrorKind::Invalid));
+        assert!(matches!(&error, Error::NativeFinalityDecode(failure)
+            if failure.operation == "nexus.validator_committee.read"
+                && matches!(&failure.source, NativeFinalityDecodeError::Malformed(source)
+                    if source.kind() == norito::core::DecodeAttemptErrorKind::Invalid)));
         assert_eq!(requests.lock().unwrap().len(), 1);
     }
 }

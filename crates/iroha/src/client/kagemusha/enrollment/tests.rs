@@ -323,15 +323,17 @@ async fn rejects_invalid_response_frames_original_bounds_and_media_types() {
     }
     for reply in replies {
         let (client, requests, _) = attach(reply, Duration::ZERO, Duration::ZERO);
-        assert!(matches!(
-            client
-                .account_client()
-                .unwrap()
-                .kagemusha()
-                .enrollment(&request(Action::PreKey))
-                .await,
-            Err(Error::Decode { operation: OP, .. } | Error::CanonicalDecode { operation: OP, .. })
-        ));
+        let error = client
+            .account_client()
+            .unwrap()
+            .kagemusha()
+            .enrollment(&request(Action::PreKey))
+            .await
+            .expect_err("malformed enrollment response");
+        assert!(
+            matches!(&error, Error::Decode { operation: OP, .. })
+                || matches!(&error, Error::CanonicalDecode(failure) if failure.operation == OP)
+        );
         assert_eq!(requests.lock().unwrap().len(), 1);
     }
 }

@@ -1064,6 +1064,8 @@ fn register_route_pin_is_mandatory_closed_and_roundtrips() {
 
 #[test]
 fn register_route_pin_shape_and_each_json_integer_bound_are_checked() {
+    type PinIntegerSetter = fn(&mut SccpCommitteePinV1, u64);
+
     let SccpGovernanceActionV1::RegisterRoute(original) = register(ETH, evm([0x22; 20])) else {
         unreachable!()
     };
@@ -1080,7 +1082,7 @@ fn register_route_pin_shape_and_each_json_integer_bound_are_checked() {
             Err(SccpGovernanceStaticError::InvalidInitialCommittee { action: 0 })
         );
     }
-    let updates: [(&str, fn(&mut SccpCommitteePinV1, u64)); 3] = [
+    let updates: [(&str, PinIntegerSetter); 3] = [
         ("generation", |p: &mut SccpCommitteePinV1, v| {
             p.generation = v
         }),

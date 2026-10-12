@@ -1290,7 +1290,7 @@ impl CertifiedTestChain {
                 vote.sig = self
                     .signer_for_member(&context.committee[signer as usize].validator)
                     .expect("provisioned exact scheduled BLS custody")
-                    .sign(&vote.preimage());
+                    .sign(&vote.preimage()).unwrap();
                 vote
             })
             .collect::<Vec<_>>();

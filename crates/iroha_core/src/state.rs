@@ -1410,6 +1410,7 @@ macro_rules! with_world_overlay_fields {
             sccp_parameters,
             sccp_reset_nonce,
             sccp_committee_generations,
+            sccp_destination_pending_generations,
             sccp_committee_current,
             sccp_liability_clock,
             sccp_degraded_run,
@@ -4600,6 +4601,9 @@ pub struct WorldData {
     /// Current committee generation; zero before initialization.
     #[norito(skip)]
     pub(crate) sccp_committee_current: Cell<u64>,
+    /// Derived ordered index of ended generations awaiting destination clearance.
+    #[norito(skip)]
+    pub(crate) sccp_destination_pending_generations: Storage<u64, ()>,
     /// Bounded liability clock of the executing block (§4.8 S0).
     #[norito(skip)]
     pub(crate) sccp_liability_clock: Cell<u64>,
@@ -5617,6 +5621,9 @@ pub struct WorldBlockFields<'world> {
     >,
     /// Current committee generation; zero before initialization.
     pub(crate) sccp_committee_current: CellField<'world, u64>,
+    /// Derived ordered index of ended generations awaiting destination clearance.
+    #[norito(skip)]
+    pub(crate) sccp_destination_pending_generations: StorageField<'world, u64, ()>,
     /// Bounded liability clock of the executing block (§4.8 S0).
     pub(crate) sccp_liability_clock: CellField<'world, u64>,
     /// Consecutive heights missing authenticated SCCP inputs (§4.6).
@@ -7236,6 +7243,8 @@ pub struct WorldTransaction<'block, 'world> {
     >,
     /// Current committee generation; zero before initialization.
     pub(crate) sccp_committee_current: CellTransaction<'block, 'world, u64>,
+    /// Derived ordered index of ended generations awaiting destination clearance.
+    pub(crate) sccp_destination_pending_generations: StorageTransaction<'block, u64, ()>,
     /// Bounded liability clock of the executing block (§4.8 S0).
     pub(crate) sccp_liability_clock: CellTransaction<'block, 'world, u64>,
     /// Consecutive heights missing authenticated SCCP inputs (§4.6).
@@ -9065,6 +9074,8 @@ pub struct WorldView<'world> {
     >,
     /// Current committee generation; zero before initialization.
     pub(crate) sccp_committee_current: CellView<'world, u64>,
+    /// Derived ordered index of ended generations awaiting destination clearance.
+    pub(crate) sccp_destination_pending_generations: StorageView<'world, u64, ()>,
     /// Bounded liability clock of the executing block (§4.8 S0).
     pub(crate) sccp_liability_clock: CellView<'world, u64>,
     /// Consecutive heights missing authenticated SCCP inputs (§4.6).
@@ -20998,6 +21009,8 @@ macro_rules! world_ro_accessors {
             storage sccp_committee_generations: u64 => crate::smartcontracts::isi::sccp::generation_record::RetainedSccpGeneration;
             /// Current committee generation; zero before initialization.
             cell_ref sccp_committee_current: u64;
+            /// Derived ordered index of ended generations awaiting destination clearance.
+            storage sccp_destination_pending_generations: u64 => ();
             /// Bounded liability clock of the executing block (§4.8 S0).
             cell_ref sccp_liability_clock: u64;
             /// Consecutive heights missing authenticated SCCP inputs (§4.6).
@@ -24545,6 +24558,7 @@ impl WorldTransaction<'_, '_> {
             sccp_reset_nonce: _,
             sccp_committee_generations: _,
             sccp_committee_current: _,
+            sccp_destination_pending_generations: _,
             sccp_liability_clock: _,
             sccp_degraded_run: _,
             sccp_anchor_open: _,
@@ -24858,6 +24872,7 @@ impl WorldTransaction<'_, '_> {
         self.sccp_reset_nonce.apply();
         self.sccp_committee_generations.apply();
         self.sccp_committee_current.apply();
+        self.sccp_destination_pending_generations.apply();
         self.sccp_liability_clock.apply();
         self.sccp_degraded_run.apply();
         self.sccp_anchor_open.apply();
