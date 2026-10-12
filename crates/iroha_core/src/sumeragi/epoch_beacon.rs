@@ -1,4 +1,8 @@
-//! Native epoch/Parliament pulse demand and original-prestate witness admission.
+//! Consensus-native epoch pulse demand and original-prestate witness admission.
+//!
+//! Demand is consensus-native only: a root that owns global control requires the pulse at the
+//! `NPoS` pre-boundary height and nowhere else. Governance state creates no pulse obligation;
+//! a Parliament sortition waits governance-locally for the native pulse of its frozen slot.
 //!
 //! The producer supplies the canonical pulse independently of transaction bytes after real
 //! work is selected. Followers verify that exact signed witness; local aggregation timing
@@ -47,7 +51,9 @@ impl VerifiedEpochPulse {
 }
 
 /// Whether this signed root owns the global control plane. Private roots use one
-/// permissioned committee and cannot acquire parent Parliament or beacon custody.
+/// permissioned committee and cannot acquire parent epoch or beacon custody: a Dataspace
+/// root in another mode, under an installed beacon binding, with an active global beacon
+/// key session or with any stored pulse is refused. Governance rows are not consulted.
 fn owns_global_control(
     scope: SumeragiRootScope,
     world: &impl WorldReadOnly,
@@ -59,20 +65,19 @@ fn owns_global_control(
     }
     if current.mode != ConsensusMode::Permissioned
         || current.authorization.beacon != BeaconEpochBindingV1::Bootstrap
-        || world
-            .parliament_required_beacon_pulse_slots()
-            .iter()
-            .next()
-            .is_some()
         || world.active_global_beacon_key_session().is_some()
         || world.global_beacon_pulses().iter().next().is_some()
     {
-        return Err("private root cannot own global epoch, Parliament, or beacon control".into());
+        return Err("private root cannot own global epoch or beacon control".into());
     }
     Ok(false)
 }
 
 /// Whether this authenticated root requests mandatory native control work at the given height.
+///
+/// True exactly at the `NPoS` pre-boundary height of a root that owns global control. No
+/// governance state takes part: a pending Parliament slot never makes a pulse mandatory and
+/// never blocks a block that carries none.
 pub(crate) fn required(
     scope: SumeragiRootScope,
     world: &impl WorldReadOnly,
@@ -82,12 +87,20 @@ pub(crate) fn required(
     if !owns_global_control(scope, world, current)? {
         return Ok(false);
     }
-    Ok((current.mode == ConsensusMode::Npos
-        && height.checked_add(1) == Some(current.authorization.last_height))
-        || world
-            .parliament_required_beacon_pulse_slots()
-            .get(&(BeaconSessionId::for_network_v1(&current.network_id), height))
-            .is_some_and(|attempts| !attempts.is_empty()))
+    let native = current.mode == ConsensusMode::Npos
+        && height.checked_add(1) == Some(current.authorization.last_height);
+    #[cfg(all(test, sumeragi_core_mutation = "HC224"))]
+    {
+        Ok(native
+            || world
+                .parliament_required_beacon_pulse_slots()
+                .get(&(BeaconSessionId::for_network_v1(&current.network_id), height))
+                .is_some_and(|attempts| !attempts.is_empty()))
+    }
+    #[cfg(not(all(test, sumeragi_core_mutation = "HC224")))]
+    {
+        Ok(native)
+    }
 }
 
 /// Verify presence/absence and actual threshold proof at the immutable committed cut.
@@ -233,11 +246,7 @@ fn validate_pending_slot(
     height: u64,
 ) -> Result<(), String> {
     let slot = (BeaconSessionId::for_network_v1(&current.network_id), height);
-    if world
-        .parliament_unavailable_beacon_pulse_slots()
-        .get(&slot)
-        .is_some_and(|attempts| !attempts.is_empty())
-        || world.global_beacon_pulse_slots().get(&slot).is_some()
+    if world.global_beacon_pulse_slots().get(&slot).is_some()
         || world.global_beacon_pulse_slots().iter().count()
             != world.global_beacon_pulses().iter().count()
     {
@@ -310,8 +319,11 @@ mod root_scope_tests {
         assert!(required(scope, view.world(), &wrong_mode, 1).is_err());
     }
 
+    /// A retained governance slot row creates no control demand on any root: the private root
+    /// stays a no-control root that admits its witness-free block, and the Global root does
+    /// not request a pulse for the row either. Only the native signals refuse a private root.
     #[test]
-    fn private_root_rejects_retained_parent_parliament_demand_instead_of_signing_it() {
+    fn retained_parliament_slot_row_creates_no_demand_on_private_or_global_root() {
         let scope = SumeragiRootScope::Dataspace {
             parent_network_id: NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
                 Hash::new(b"parent"),
@@ -323,15 +335,39 @@ mod root_scope_tests {
                 .map(|genesis| genesis.into_parts().0)
                 .unwrap();
         let mut world = test_support::world(scope);
-        world.parliament_required_beacon_pulse_slots.insert(
-            (BeaconSessionId::for_network_v1(&epoch.network_id), 7),
-            BTreeSet::from([GovernanceAttemptId::new([7; 32])]),
+        let slot = (BeaconSessionId::for_network_v1(&epoch.network_id), 7);
+        let row = BTreeSet::from([GovernanceAttemptId::new([7; 32])]);
+        world
+            .parliament_required_beacon_pulse_slots
+            .insert(slot, row.clone());
+        let view = world.view();
+        assert_eq!(
+            view.parliament_required_beacon_pulse_slots().get(&slot),
+            Some(&row)
         );
+        assert_eq!(required(scope, &view, &epoch, 7), Ok(false));
+        assert_eq!(
+            required(SumeragiRootScope::Global, &view, &epoch, 7),
+            Ok(false)
+        );
+        assert_eq!(owns_global_control(scope, &view, &epoch), Ok(false));
+        // The private root's witness-free genesis is admitted with the row present, and a
+        // later ordinary height reaches the demand decision instead of a custody refusal.
+        let state = State::new_for_testing(
+            World::new(),
+            crate::kura::Kura::blank_kura_for_testing(),
+            LiveQueryStore::start_test(),
+        );
+        let hashes = state.view();
+        let captured = capture(scope, &view, hashes.block_hashes(), &epoch, 1, None, None).unwrap();
+        assert!(captured.pulse().is_none() && captured.link().is_none());
+        // The native refusal signals are unchanged by the row.
+        let mut wrong_mode = epoch.clone();
+        wrong_mode.mode = ConsensusMode::Npos;
         assert!(
-            required(scope, &world.view(), &epoch, 7)
+            required(scope, &view, &wrong_mode, 7)
                 .unwrap_err()
-                .contains("global epoch, Parliament, or beacon")
+                .contains("global epoch or beacon")
         );
-        assert!(required(SumeragiRootScope::Global, &world.view(), &epoch, 7).unwrap());
     }
 }

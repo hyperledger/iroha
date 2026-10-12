@@ -79,6 +79,8 @@
 //! driven through the production accumulator under its registry identity, and the result
 //! must agree with the inventory.
 
+#[cfg(test)]
+use crate::state::sccp_generation_custody::GenerationFixtureStorage as _;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Write as _,
@@ -1459,6 +1461,7 @@ const CONSTRUCTIONS: &[&str] = &[
     "smt::",
     "ConfidentialTree",
     "HistoryAccumulator",
+    "anchor_node",
 ];
 
 /// File-name endings of path literals, which are not domain literals.
@@ -1504,6 +1507,25 @@ const APPLICATION_ACCUMULATORS: &[ApplicationAccumulator] = &[
             ),
         ],
     },
+    // The inline anchor/generation wrappers are not hash-return types under the signature
+    // rule. This accumulator is detected by the actual anchor_node construction instead.
+    // Its primitive domains live in iroha_sccp, outside the Core/data-model literal scan.
+    ApplicationAccumulator {
+        id: "sccp_anchor_accumulator",
+        fields: &["world.sccp_anchor_open", "world.sccp_anchor_chunks"],
+        statement: "membership of one height's original consensus core hash and certified result in a retained 4096-anchor chunk, checked against its State-committed chunk root; neither a supplied witness nor the accumulator authenticates arbitrary State entries",
+        domains: &[],
+        evidence: &[
+            (
+                "crates/iroha_core/src/smartcontracts/isi/sccp/anchors.rs",
+                "pub fn append_parent(",
+            ),
+            (
+                "crates/iroha_core/src/smartcontracts/isi/sccp/anchors.rs",
+                "pub fn lookup_anchor(",
+            ),
+        ],
+    },
     ApplicationAccumulator {
         id: "sccp_message_accumulator",
         fields: &[
@@ -1512,7 +1534,7 @@ const APPLICATION_ACCUMULATORS: &[ApplicationAccumulator] = &[
             "world.sccp_history",
             "world.sccp_history_leaves",
         ],
-        statement: "inclusion of an SCCP message leaf in the root of its block and of that block root in the history accumulator, for the statements that bridge keys sign",
+        statement: "inclusion of an SCCP message leaf in its block root and of that block root in the history accumulator; these roots are the native finality X fields, with certified-result production and reader binding required separately",
         domains: &[],
         evidence: &[(
             "crates/iroha_core/src/smartcontracts/isi/sccp/commitment.rs",
@@ -1641,6 +1663,11 @@ const CONSTRUCTION_USES: &[ConstructionUse] = &[
         path: "crates/iroha_core/src/receiver_snapshot.rs",
         uses: &[("MerkleTree", 2), ("smt::", 5)],
         owner: UseOwner::Roots(&["execution_witness_roots"]),
+    },
+    ConstructionUse {
+        path: "crates/iroha_core/src/smartcontracts/isi/sccp/anchors.rs",
+        uses: &[("anchor_node", 2)],
+        owner: UseOwner::Accumulator("sccp_anchor_accumulator"),
     },
     ConstructionUse {
         path: "crates/iroha_core/src/smartcontracts/isi/sccp/commitment.rs",
@@ -3034,6 +3061,8 @@ struct WitnessFamily {
 const SCCP_FAMILY: &str = "sccp_state_delta";
 
 const FEE_REWARDS: &str = "crates/iroha_core/src/validation_fee_rewards.rs";
+const REWARD_EXPOSURE: &str = "crates/iroha_core/src/validation_fee_rewards/exposure.rs";
+const REWARD_EXPOSURE_MODEL: &str = "crates/iroha_data_model/src/validation_fee_rewards.rs";
 const CASTING: &str = "crates/iroha_core/src/tle_release/casting.rs";
 const FINALIZED_SOURCE: &str =
     "crates/iroha_core/src/state/fastpq_quantity_capture/commitment_journal/finalized_source.rs";
@@ -3298,6 +3327,7 @@ const WITNESS_FAMILIES: &[WitnessFamily] = &[
         derivation: &[
             (FEE_REWARDS, "pub(crate) fn capture_fee_evidence("),
             (FEE_REWARDS, "fn pending_fee_evidence_records("),
+            (FEE_REWARDS, "fn collect_pending_fee_evidence_records("),
             (
                 "crates/iroha_core/src/validation_fee_rewards/head_tree.rs",
                 "fn read_root(world: &impl WorldReadOnly) -> Result<Option<NodeRef>, ExecutionAttemptError<String>> {",
@@ -3340,6 +3370,41 @@ const WITNESS_FAMILIES: &[WitnessFamily] = &[
             (
                 FEE_REWARDS,
                 "let mut key = vec![FEE_EVIDENCE_RECORD_TAG_V1];",
+            ),
+        ],
+    },
+    WitnessFamily {
+        id: "reward_exposure_archive",
+        tags: &["RewardExposureArchive"],
+        key: "tag byte 0xDC followed by the hash of the protected ExposureArchive StatePath UTF-8 bytes",
+        value: "canonical ValidationFeeExposureArchive row as written, including the chronological stake page and its predecessor reference",
+        reads: false,
+        fields: &[],
+        source: "changed resident reward tails, excluding deleted rows; the reference archive_hash hashes the entire canonical wrapper including its predecessor, and cold reads authenticate the original ordinary_writes_root before following that content hash; no independent table root",
+        derivation: &[(REWARD_EXPOSURE, "pub(super) fn capture_archive(")],
+        accessors: &[(
+            "smart_contract_state",
+            Access::Field("world.smart_contract_state"),
+        )],
+        digests: &[],
+        // Capture copies an existing protected row verbatim. As for AMX and
+        // fee records, its nested row fields are not separately walked here.
+        value_types: &[],
+        hashes: &[],
+        opaque: &[],
+        evidence: &[
+            (FEE_REWARDS, "exposure::capture_archive(block, witness)?;"),
+            (
+                REWARD_EXPOSURE_MODEL,
+                "witness[1..].copy_from_slice(Hash::new(key.as_ref().as_bytes()).as_ref());",
+            ),
+            (
+                REWARD_EXPOSURE,
+                "Some(bytes) if Hash::new(bytes) == reference.archive_hash => {",
+            ),
+            (
+                "crates/iroha_core/src/query/native_receipts/reward_history.rs",
+                "if value.len() > MAX_REWARD_EXPOSURE_ARCHIVE_BYTES || Hash::new(value) != expected_hash {",
             ),
         ],
     },
@@ -3472,11 +3537,11 @@ fn witness_key_tags() -> Vec<String> {
 fn sccp_write_set_fields() -> Vec<String> {
     let text = source("crates/iroha_core/src/state.rs");
     let (_, body) = text
-        .split_once("pub(crate) fn sccp_execution_write_set_bytes(&self) -> Vec<u8> {")
+        .split_once("pub(crate) fn write_sccp_execution_delta<W: std::io::Write>(")
         .expect("State has the SCCP write-set encoder");
     let (body, _) = body
-        .split_once("\n        out\n    }")
-        .expect("the SCCP write-set encoder returns its bytes");
+        .split_once("\n        Ok(())\n    }")
+        .expect("the SCCP write-set encoder completes its exact stream");
     let fields: Vec<String> = body
         .lines()
         .filter_map(|line| line.trim().strip_suffix(','))
@@ -4424,7 +4489,7 @@ const CARRIERS: &[Carrier] = &[
     },
     Carrier {
         id: "execution_result",
-        object: "R = H(RESULT_TAG ‖ norito(ExecutionResultCommitment)), which every commit vote and certificate binds",
+        object: "R = raw SHA-256(RESULT_TAG ‖ X ‖ H_body); X is the fixed 221-byte SCCP header and H_body is the domain-separated hash of canonical ExecutionResultCommitment, which every commit vote and certificate binds",
         types: &[
             (RESULT_MODEL, "pub struct ExecutionResultCommitment {"),
             (RESULT_MODEL, "pub struct ExecutionCommitment {"),
@@ -7001,13 +7066,48 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
         (2_u64, [1_u8; 32])
     );
     typed_table!(
-        sccp_attestation_signatures,
-        (7_u64, 1_u8),
-        [1_u8; 65],
-        [2_u8; 65]
+        sccp_committee_generations,
+        7_u64,
+        crate::smartcontracts::isi::sccp::test_support::sample_generation(7, 5),
+        crate::smartcontracts::isi::sccp::test_support::sample_generation(7, 6)
     );
-    typed_table!(sccp_member_last_signed, [7_u8; 20], 1_u64, 2_u64);
-    typed_table!(sccp_handoff_stalled, 7_u64, 1_u64, 2_u64);
+    typed_table!(sccp_anchor_chunks, 7_u64, [0_u8; 32], [1_u8; 32]);
+    {
+        use crate::state::sccp_forgery_custody::OffenceKey;
+        let mut block = world.block();
+        let parent = WorldStateAccumulator::capture(&block).unwrap();
+        let pool = block.sccp_forgery_offences.allocation_budget().clone();
+        let key = OffenceKey::try_copy(
+            7,
+            iroha_model_base::topology::LaneId::SINGLE,
+            &account(b"typed-offence"),
+            &pool,
+        )
+        .unwrap();
+        block
+            .sccp_forgery_offences
+            .try_insert_admitted(key.clone(), [1; 32])
+            .unwrap();
+        let inserted = parent.apply_block(&block).unwrap();
+        assert_ne!(inserted.root(), parent.root());
+        assert_eq!(inserted.entries(), parent.entries() + 1);
+        assert_eq!(
+            inserted.root(),
+            WorldStateAccumulator::capture(&block).unwrap().root()
+        );
+        block
+            .sccp_forgery_offences
+            .try_insert_admitted(key.clone(), [2; 32])
+            .unwrap();
+        assert_ne!(parent.apply_block(&block).unwrap().root(), inserted.root());
+        block
+            .sccp_forgery_offences
+            .try_remove_admitted(key)
+            .unwrap();
+        assert_eq!(parent.apply_block(&block).unwrap().root(), parent.root());
+        covered.push("world.sccp_forgery_offences");
+    }
+
     typed_table!(
         consensus_keys_by_pk,
         "typed-public-key".to_owned(),
@@ -7064,8 +7164,15 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
     typed_cell!(merge_hint_roots, vec![Hash::new(b"hint")]);
     typed_cell!(merge_global_state_root, Some(Hash::new(b"root")));
     typed_cell!(sccp_reset_nonce, Some([1_u8; 32]));
-    typed_cell!(sccp_roster_current, 4_u64);
-    typed_cell!(sccp_heartbeat_marker, Some(8_u64));
+    typed_cell!(sccp_committee_current, 4_u64);
+    typed_cell!(sccp_forgery_max_generation, Some(7_u64));
+    typed_cell!(sccp_liability_clock, 8_u64);
+    typed_cell!(sccp_degraded_run, 2_u32);
+    typed_cell!(
+        sccp_anchor_open,
+        vec![crate::smartcontracts::isi::sccp::test_support::sample_anchor(1)]
+    );
+    let certified_count = covered.len();
 
     macro_rules! typed_derived {
         ($field:ident, $key:expr, $value:expr) => {{
@@ -7104,14 +7211,14 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
             .iter()
             .find(|row| row.field.id == *id)
             .unwrap_or_else(|| panic!("{id} is not inventoried"));
-        let expected = if position < 26 {
+        let expected = if position < certified_count {
             Commitment::Certified
         } else {
             Commitment::Derived
         };
         assert_eq!(row.commitment, expected, "{id}");
     }
-    assert_eq!(covered.len(), 31);
+    assert_eq!(covered.len(), 34);
 }
 
 /// Canonical State-level fields reach no certified root: the truth that open defect
@@ -7637,11 +7744,6 @@ fn state_hash_function_scan_lists_every_state_reader_that_returns_a_hash() {
     }
     // The functions of the tree that only the whole header matches are listed.
     for (path, name, count) in [
-        (
-            "crates/iroha_core/src/smartcontracts/isi/sccp/subjects.rs",
-            "statement_digest",
-            1,
-        ),
         (
             "crates/iroha_core/src/governance/parliament/planner.rs",
             "verified_pulse",
@@ -8750,7 +8852,12 @@ fn every_listed_commitment_has_one_owner_and_disposition() {
 fn witness_families_cover_every_witness_key_tag() {
     let witnessed = witnessed_fields();
     let tags = witness_key_tags();
-    for tag in ["AmxRecord", "AssetBalance", "FeeRecord"] {
+    for tag in [
+        "AmxRecord",
+        "AssetBalance",
+        "FeeRecord",
+        "RewardExposureArchive",
+    ] {
         assert!(tags.iter().any(|known| known == tag), "{tag}");
     }
     let rows = rows();
@@ -8784,7 +8891,6 @@ fn witness_families_cover_every_witness_key_tag() {
     assert_eq!(
         fields_of("parliament_timed_ovn_casting"),
         [
-            "world.global_beacon_pulses",
             "world.parliament_attempts",
             "world.timed_ovn_evidence",
             "world.tle_key_sessions"
@@ -8798,6 +8904,10 @@ fn witness_families_cover_every_witness_key_tag() {
             "world.parameters",
             "world.smart_contract_state"
         ]
+    );
+    assert_eq!(
+        fields_of("reward_exposure_archive"),
+        ["world.smart_contract_state"]
     );
     let sccp = sccp_write_set_fields();
     assert!(sccp.len() > 1 && sccp.iter().all(|field| field.starts_with("world.sccp_")));
@@ -8917,7 +9027,7 @@ fn witness_families_cover_every_witness_key_tag() {
     );
     assert_eq!(
         sources.into_iter().collect::<Vec<_>>(),
-        ["world.global_beacon_pulses", "world.parliament_attempts"]
+        ["world.parliament_attempts"]
     );
 }
 

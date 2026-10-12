@@ -50,10 +50,11 @@ internal class KagemushaWalletAndroidUnavailableV1 private constructor(
 
     override fun toString(): String = "KagemushaWalletAndroidUnavailableV1($kind, $code)"
 
-    // TODO(G2-bridge): the Rust `KagemushaWalletKeyGenerationV1` has no non-retryable refusal, so
-    // the permanent answers below (PLATFORM_STRONGBOX_UNAVAILABLE, PLATFORM_BACKUP_ENABLED,
-    // PLATFORM_KEYSTORE_UNSUPPORTED) reach enrollment as `Unavailable` and are retried until the
-    // challenge expires. Add a `Refused(reason)` outcome to platform.rs and map these codes to it.
+    // The Rust `KagemushaWalletKeyGenerationV1` has no non-retryable refusal: every answer below
+    // reaches enrollment as `Unavailable`. PLATFORM_STRONGBOX_UNAVAILABLE is answered for the same
+    // spent slot on every retry, and the app abandons that attempt locally (§3.2) and starts a
+    // fresh enrollment. PLATFORM_BACKUP_ENABLED and PLATFORM_KEYSTORE_UNSUPPORTED are holder- or
+    // build-fixable preconditions, not E1 refusals (design §2.4).
     companion object {
         /**
          * Keystore access threw; the entry state is unknown. On keystore2 a permanently
@@ -72,7 +73,11 @@ internal class KagemushaWalletAndroidUnavailableV1 private constructor(
         /** Key generation failed with an unknown outcome; probe again before acting. */
         const val PLATFORM_GENERATION_FAILED: Int = 4
 
-        /** Permanent: the enrollment profile requires StrongBox and the device has none. */
+        /**
+         * StrongBox definitively failed before creating a key (design §2.2). This slot is spent:
+         * its alias is never generated again, so abandon the attempt locally (§3.2). A fresh
+         * enrollment, with a new slot and challenge, generates in the TEE. Never a device verdict.
+         */
         const val PLATFORM_STRONGBOX_UNAVAILABLE: Int = 5
 
         /** Permanent: the app's backup or device-transfer set is not provably empty. */
@@ -106,24 +111,6 @@ internal class KagemushaWalletAndroidUnavailableV1 private constructor(
         /** A platform error named by one of the `PLATFORM_*` constants. */
         @JvmStatic fun platform(code: Int): KagemushaWalletAndroidUnavailableV1 =
             KagemushaWalletAndroidUnavailableV1(Kind.PLATFORM, code)
-    }
-}
-
-/** Hardware key policy of one enrollment; [tag] equals Rust `KagemushaWalletKeyProfileV1::tag`. */
-internal enum class KagemushaWalletAndroidKeyProfileV1(@JvmField val tag: Int) {
-    /** StrongBox only: a device without StrongBox refuses enrollment. */
-    SECURE_ELEMENT(1),
-
-    /** StrongBox when present, otherwise the TEE; a fresh-only attempt never retries its alias. */
-    SECURE_ELEMENT_OR_TEE(2),
-
-    /** Exact TEE-only issuer policy, even on devices that also have StrongBox. */
-    ANDROID_TEE(3),
-    ;
-
-    companion object {
-        /** Profile of a stored tag, or null for an unknown tag. */
-        @JvmStatic fun fromTag(tag: Int): KagemushaWalletAndroidKeyProfileV1? = entries.firstOrNull { it.tag == tag }
     }
 }
 
@@ -174,7 +161,7 @@ internal sealed class KagemushaWalletAndroidKeyGenerationV1 {
         override fun toString(): String = "Generated($securityLevel)"
     }
 
-    /** A key exists or existed under the alias; nothing was generated and the slot is used up. */
+    /** A key exists or existed under the alias, or the alias is spent; nothing was generated and the slot is used up. */
     object AlreadyPresent : KagemushaWalletAndroidKeyGenerationV1() {
         override fun toString(): String = "AlreadyPresent"
     }

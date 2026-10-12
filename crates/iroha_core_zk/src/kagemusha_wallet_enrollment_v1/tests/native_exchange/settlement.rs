@@ -43,7 +43,7 @@ fn confirmation_bytes(value: LedgerProgressV1) -> Vec<u8> {
 #[ignore = "requires same retained C custody plus actual StateExecutor settlement originals from the genuine A→B→C campaign"]
 fn actual_c_confirms_executed_unload_after_process_restart() {
     let output = fresh_output("KAGEMUSHA_NATIVE_SETTLEMENT_CONFIRMATION_OUTPUT");
-    let sources = Sources::admit(&output.join("source-admission"));
+    let sources = Sources::requalify(&output.join("source-admission"));
     let setup = LedgerSetup::read(&sources);
     let f = sources.fixture(&setup, 2);
     let exchange_path = selected_path("KAGEMUSHA_NATIVE_EXCHANGE_RESULT");

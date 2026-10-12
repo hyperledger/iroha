@@ -389,9 +389,16 @@ fn transfer_mint_transfer_keeps_one_accounted_entry_before_d7_relation_activatio
         // Use the actual consuming output seal: it finalizes the owned source
         // inventory, reconciles quotas, and attaches the complete original archive.
         block
-            .seal_execution_outputs::<String>(&mut source, |block, _, routes| {
+            .seal_execution_outputs::<String>(&mut source, |block, original, routes| {
                 assert_eq!(routes.len(), 1);
                 Ok(crate::state::ExecutionOutputSealMetadata {
+                    sccp_finality_header:
+                        iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+                            block.network_id().as_bytes().to_owned(),
+                            original.header().height().get(),
+                            original.header().creation_time_ms,
+                        )
+                        .unwrap(),
                     committed_fragment_count: u64::try_from(block.committed_fragment_count())
                         .unwrap(),
                 })

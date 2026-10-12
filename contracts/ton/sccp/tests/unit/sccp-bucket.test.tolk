@@ -152,8 +152,8 @@ get fun `test a deleted bucket recreated by a third party never accepts flags ag
     expect(
         void.findExternalOutMessage<SccpVoidedEvent>({ from: env.minter.address }) == null,
     ).toBeTrue();
-    // nor through a frozen void once both rosters expired
-    testing.setNow(env.roster.validUntilMs / 1000 + 1);
+    // nor through a frozen void once the committee expired
+    testing.setNow(defaultPin(env.committee).untilMs / 1000 + 1);
     val frozen = sendVoidFrozenRange(env, 0, 512, env.minter.voidFrozenRequiredValue(0));
     expect(frozen).toHaveFailedTx<SccpConsumeRange>({
         to: bucket,
@@ -183,9 +183,8 @@ get fun `test a forced failure of sccp_consumed bounces and releases the pending
             body: SccpFinalize {
                 queryId: 1,
                 response: env.deployer,
-                attestation: d.statement.toCell(),
-                signatures: d.signatures,
-                message: d.proof.toCell(),
+                cert: d.cert as Cell<TairaCert>,
+                message: d.proof as Cell<MessageProof>,
             },
         }),
     );
@@ -230,9 +229,8 @@ get fun `test a bounced sccp_already_consumed releases the pending supply`() {
             body: SccpFinalize {
                 queryId: 1,
                 response: env.deployer,
-                attestation: d.statement.toCell(),
-                signatures: d.signatures,
-                message: d.proof.toCell(),
+                cert: d.cert as Cell<TairaCert>,
+                message: d.proof as Cell<MessageProof>,
             },
         }),
     );
@@ -286,9 +284,8 @@ get fun `test a bounced unconsume is recorded and re-run by sccp_retry`() {
             body: SccpFinalize {
                 queryId: 1,
                 response: env.deployer,
-                attestation: d.statement.toCell(),
-                signatures: d.signatures,
-                message: d.proof.toCell(),
+                cert: d.cert as Cell<TairaCert>,
+                message: d.proof as Cell<MessageProof>,
             },
         }),
     );
@@ -398,9 +395,8 @@ get fun `test a mint bounce handler records the unconsume when the balance canno
             body: SccpFinalize {
                 queryId: 1,
                 response: env.deployer,
-                attestation: d.statement.toCell(),
-                signatures: d.signatures,
-                message: d.proof.toCell(),
+                cert: d.cert as Cell<TairaCert>,
+                message: d.proof as Cell<MessageProof>,
             },
         }),
     );

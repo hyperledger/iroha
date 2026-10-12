@@ -1,5 +1,5 @@
 // Deployment with canonical initial data and `sccp_init` (§5.3.1): the
-// recomputed digest, generation and validity bounds, the chain identity, the
+// recomputed root, generation and validity bounds, the chain identity, the
 // initial immutables and counters, and every operation throwing before init.
 
 import "@stdlib/exotic-cells"
@@ -11,6 +11,7 @@ import "@acton/testing/expect"
 import "@contracts/sccp-cells"
 import "@contracts/sccp-constants"
 import "@contracts/sccp-errors"
+import "@contracts/sccp-finality"
 import "@contracts/sccp-messages"
 import "@contracts/sccp-storage"
 import "@wrappers/SccpTairaXorMinter.gen"
@@ -46,21 +47,28 @@ get fun `test init records immutables and zero counters`() {
     expect(state.tairaNetworkId).toEqual(VEC_NETWORK_ID);
     expect(state.routeRevision).toEqual(TEST_REVISION);
     expect(state.initialGeneration).toEqual(7);
-    expect(state.initialDigest).toEqual(env.digest());
-    expect(state.digest).toEqual(env.digest());
+    expect(state.initialRoot).toEqual(env.committee.root());
+    expect(state.root).toEqual(env.committee.root());
     expect(state.generation).toEqual(7);
-    expect(state.validUntilMs).toEqual(env.roster.validUntilMs);
-    expect(state.prevDigest).toEqual(0);
-    expect(state.prevValidUntilMs).toEqual(0);
+    expect(state.untilMs).toEqual(defaultPin(env.committee).untilMs);
+    expect(state.consensusInstance).toEqual(VEC_CONSENSUS_INSTANCE);
+    expect(state.initialStart).toEqual(TEST_START_HEIGHT);
+    expect(state.initialUntilMs).toEqual(defaultPin(env.committee).untilMs);
+    expect(state.start).toEqual(TEST_START_HEIGHT);
+    expect(state.high).toEqual(TEST_START_HEIGHT - 1);
+    expect(state.equivocated).toBeFalse();
+    expect(state.fastPauseUntilMs).toEqual(0);
+    expect(state.effectivePaused).toBeFalse();
+    expect(env.minter.getSccpCheckpoints().count).toEqual(0);
     expect(state.outboundNonce).toEqual(0);
     expect(state.opCount).toEqual(0);
     expect(state.controlNonce).toEqual(0);
-    expect(state.mintingPaused).toBeFalse();
+    expect(state.parliamentPaused).toBeFalse();
     expect(state.totalSupply).toEqual(0);
     expect(state.pendingSupply).toEqual(0);
     expect(state.maxSupply).toEqual(TEST_MAX_SUPPLY);
     expect(state.deployedBuckets).toEqual(0);
-    expect(env.minter.getSccpMembers()).toEqual(env.roster.members);
+    expect(env.minter.getSccpCommittee().keys.hash()).toEqual(env.committee.keysCell().hash());
     val jetton = env.minter.getJettonData();
     expect(jetton.totalSupply).toEqual(0);
     expect(jetton.mintable).toBeTrue();
@@ -68,16 +76,23 @@ get fun `test init records immutables and zero counters`() {
     expect(jetton.jettonWalletCode.hash()).toEqual(build("SccpTairaXorWallet").hash());
 }
 
-get fun `test init works for a 31-member roster with keyless slots`() {
-    val env = setupEnvWith(31, 3, TEST_MAX_SUPPLY);
-    expect(env.minter.getSccpMembers()).toEqual(env.roster.members);
+get fun `test init works for a 31-member native committee`() {
+    val env = setupEnvWith(31, TEST_MAX_SUPPLY);
+    expect(env.minter.getSccpCommittee().keys.hash()).toEqual(env.committee.keysCell().hash());
 }
 
 get fun `test init is permissionless and runs once`() {
     testing.setNow(T0);
-    val roster = defaultRoster(4, 0);
+    val committee = testCommittee(4, 0);
     val minter = deployUninitialized(
-        canonicalStorage(VEC_NETWORK_ID, TEST_REVISION, TEST_MAX_SUPPLY, roster),
+        canonicalStorage(
+            VEC_NETWORK_ID,
+            VEC_CONSENSUS_INSTANCE,
+            TEST_REVISION,
+            TEST_MAX_SUPPLY,
+            defaultPin(committee),
+            committee.keys,
+        ),
     );
     expect(minter.getSccpState().initialized).toBeFalse();
     val stranger = testing.treasury("stranger");
@@ -92,9 +107,16 @@ get fun `test init is permissionless and runs once`() {
 
 get fun `test operations throw before init`() {
     testing.setNow(T0);
-    val roster = defaultRoster(4, 0);
+    val committee = testCommittee(4, 0);
     val minter = deployUninitialized(
-        canonicalStorage(VEC_NETWORK_ID, TEST_REVISION, TEST_MAX_SUPPLY, roster),
+        canonicalStorage(
+            VEC_NETWORK_ID,
+            VEC_CONSENSUS_INSTANCE,
+            TEST_REVISION,
+            TEST_MAX_SUPPLY,
+            defaultPin(committee),
+            committee.keys,
+        ),
     );
     val user = testing.treasury("user");
     val value: SendParams = { value: grams("2"), bounce: true };
@@ -115,93 +137,38 @@ get fun `test operations throw before init`() {
     expect(
         minter.sendSccpRetry(user.address, 0, user.address, 0, value),
     ).toHaveFailedTx<SccpRetry>({ to: minter.address, exitCode: notInitialized });
-    // proof-carrying operations with well-formed but irrelevant bodies
     val env: Env = {
         minter,
         deployer: user.address,
         networkId: VEC_NETWORK_ID,
-        roster,
+        instance: VEC_CONSENSUS_INSTANCE,
+        generation: TEST_GENERATION,
+        committee,
     };
     val d = deliverDefault(env, 0, 1000, user.address);
-    expect(sendFinalize(env, user.address, d, grams("2"))).toHaveFailedTx<SccpFinalize>({
-        to: minter.address,
-        exitCode: notInitialized,
-    });
-    val history: HistoryProof = {
-        height: 1,
-        sccpRoot: 1,
-        messageCount: 1,
-        leafIndex: 0,
-        pathLen: 0,
-        path: null,
-    };
     expect(
-        minter.sendSccpFinalizeHistorical(
-            user.address,
-            0,
-            user.address,
-            d.statement.attestation(),
-            d.signatures,
-            history,
-            d.proof,
-            value,
-        ),
-    ).toHaveFailedTx<SccpFinalizeHistorical>({ to: minter.address, exitCode: notInitialized });
-    expect(sendVoidExpired(env, user.address, 0, d, grams("2"))).toHaveFailedTx<SccpVoidExpired>({
-        to: minter.address,
-        exitCode: notInitialized,
-    });
+        sendFinalize(env, user.address, d, grams("2")),
+    ).toHaveFailedTx<SccpFinalize>({ to: minter.address, exitCode: notInitialized });
     expect(
-        minter.sendSccpVoidExpiredHistorical(
-            user.address,
-            0,
-            user.address,
-            0,
-            d.statement.attestation(),
-            d.signatures,
-            history,
-            d.proof,
-            value,
-        ),
-    ).toHaveFailedTx<SccpVoidExpiredHistorical>({ to: minter.address, exitCode: notInitialized });
+        sendFinalizeCheckpoint(env, user.address, d, grams("2")),
+    ).toHaveFailedTx<SccpFinalizeCheckpoint>({ to: minter.address, exitCode: notInitialized });
+    expect(
+        sendVoidExpired(env, user.address, 0, d, grams("2")),
+    ).toHaveFailedTx<SccpVoidExpired>({ to: minter.address, exitCode: notInitialized });
+    expect(
+        sendVoidExpiredCheckpoint(env, user.address, 0, d, grams("2")),
+    ).toHaveFailedTx<SccpVoidExpiredCheckpoint>({ to: minter.address, exitCode: notInitialized });
     val c = deliverControl(env, 1, true);
     expect(
-        minter.sendSccpApplyControl(
-            user.address,
-            0,
-            user.address,
-            c.statement.attestation(),
-            c.signatures,
-            c.proof,
-            value,
-        ),
+        sendApplyControl(env, c),
     ).toHaveFailedTx<SccpApplyControl>({ to: minter.address, exitCode: notInitialized });
     expect(
-        minter.sendSccpApplyControlHistorical(
-            user.address,
-            0,
-            user.address,
-            c.statement.attestation(),
-            c.signatures,
-            history,
-            c.proof,
-            value,
-        ),
-    ).toHaveFailedTx<SccpApplyControlHistorical>({ to: minter.address, exitCode: notInitialized });
-    val next = nextRoster(roster, 4, 4, T0 * 1000);
-    val statement = rotationStatement(env, roster, next, 300);
+        sendApplyControlCheckpoint(env, c),
+    ).toHaveFailedTx<SccpApplyControlCheckpoint>({ to: minter.address, exitCode: notInitialized });
     expect(
-        minter.sendSccpRotate(
-            user.address,
-            0,
-            user.address,
-            statement.attestation(),
-            signByThreshold(roster, statement.digest(env.networkId)),
-            next.spec(),
-            value,
-        ),
-    ).toHaveFailedTx<SccpRotate>({ to: minter.address, exitCode: notInitialized });
-    // a burn notification from the owner's canonical wallet (forged sender)
+        sendCheckpoint(env, user.address, d.cert, null, grams("2")),
+    ).toHaveFailedTx<SccpCheckpoint>({ to: minter.address, exitCode: notInitialized });
+    // A forged notification from the owner's canonical wallet is still refused.
     val wallet = minter.getWalletAddress(user.address);
     expect(
         minter.sendBurnNotificationForMinter(
@@ -215,151 +182,230 @@ get fun `test operations throw before init`() {
         ),
     ).toHaveFailedTx<BurnNotificationForMinter>({ to: minter.address, exitCode: notInitialized });
     expect(minter.getSccpState().initialized).toBeFalse();
-    // top-ups are accepted before init
-    val topUp = minter.sendTopUpTons(user.address, 0, { value: grams("1") });
-    expect(topUp).toHaveSuccessfulTx<TopUpTons>({ to: minter.address });
+    expect(
+        minter.sendTopUpTons(user.address, 0, { value: grams("1") }),
+    ).toHaveSuccessfulTx<TopUpTons>({ to: minter.address });
 }
 
-get fun `test init rejects a digest that does not match the stored roster`() {
+get fun `test init rejects a pinned root that differs from the stored committee`() {
     testing.setNow(T0);
-    val roster = defaultRoster(4, 0);
-    var storage = canonicalStorage(VEC_NETWORK_ID, TEST_REVISION, TEST_MAX_SUPPLY, roster);
-    // config.initial_digest differs from the recomputed digest
+    val committee = testCommittee(4, 0);
+    var storage = canonicalStorage(
+        VEC_NETWORK_ID,
+        VEC_CONSENSUS_INSTANCE,
+        TEST_REVISION,
+        TEST_MAX_SUPPLY,
+        defaultPin(committee),
+        committee.keys,
+    );
     var config = storage.config.load();
-    config.initialDigest = config.initialDigest ^ 1;
+    var pin = config.initial.load();
+    pin.root = pin.root ^ 1;
+    config.initial = pin.toCell();
     storage.config = config.toCell();
     val minter = deployUninitialized(storage);
     expect(
         sendInit(minter),
-    ).toHaveFailedTx<SccpInit>({ to: minter.address, exitCode: SccpErrors.BadRoster as int });
+    ).toHaveFailedTx<SccpInit>({ to: minter.address, exitCode: SccpErrors.BadCommittee as int });
 }
 
-get fun `test init rejects a roster digest field that does not match the members`() {
+get fun `test init rejects keys that differ from the pinned committee root`() {
     testing.setNow(T0);
-    val roster = defaultRoster(4, 0);
-    var storage = canonicalStorage(VEC_NETWORK_ID, TEST_REVISION, TEST_MAX_SUPPLY, roster);
-    var state = storage.roster.load();
-    state.members = sccpBuildMembers([keyAddress(0), keyAddress(1), keyAddress(2), keyAddress(4)]);
-    storage.roster = state.toCell();
+    val committee = testCommittee(4, 0);
+    var storage = canonicalStorage(
+        VEC_NETWORK_ID,
+        VEC_CONSENSUS_INSTANCE,
+        TEST_REVISION,
+        TEST_MAX_SUPPLY,
+        defaultPin(committee),
+        committee.keys,
+    );
+    var state = storage.committee.load();
+    state.keys = testCommittee(4, 4).keysCell();
+    storage.committee = state.toCell();
     val minter = deployUninitialized(storage);
     expect(
         sendInit(minter),
-    ).toHaveFailedTx<SccpInit>({ to: minter.address, exitCode: SccpErrors.BadRoster as int });
+    ).toHaveFailedTx<SccpInit>({ to: minter.address, exitCode: SccpErrors.BadCommittee as int });
 }
 
-get fun `test init rejects a library-cell member list`() {
+get fun `test init rejects a library-cell key list`() {
     testing.setNow(T0);
-    val roster = defaultRoster(4, 0);
-    var storage = canonicalStorage(VEC_NETWORK_ID, TEST_REVISION, TEST_MAX_SUPPLY, roster);
-    var state = storage.roster.load();
-    // published library with the canonical chunk: CTOS alone would resolve it
-    testing.registerLibrary(state.members);
-    state.members = state.members.toLibraryReference();
-    storage.roster = state.toCell();
+    val committee = testCommittee(4, 0);
+    var storage = canonicalStorage(
+        VEC_NETWORK_ID,
+        VEC_CONSENSUS_INSTANCE,
+        TEST_REVISION,
+        TEST_MAX_SUPPLY,
+        defaultPin(committee),
+        committee.keys,
+    );
+    var state = storage.committee.load();
+    testing.registerLibrary(state.keys);
+    state.keys = state.keys.toLibraryReference();
+    storage.committee = state.toCell();
     val minter = deployUninitialized(storage);
     expect(
         sendInit(minter),
     ).toHaveFailedTx<SccpInit>({ to: minter.address, exitCode: SccpErrors.BadSnake as int });
 }
 
-get fun `test init rejects a generation other than the pinned one`() {
+get fun `test init rejects committee fields that differ from the initial pin`() {
     testing.setNow(T0);
-    val roster = defaultRoster(4, 0);
-    var storage = canonicalStorage(VEC_NETWORK_ID, TEST_REVISION, TEST_MAX_SUPPLY, roster);
-    var config = storage.config.load();
-    config.initialGeneration = 8;
-    storage.config = config.toCell();
-    val minter = deployUninitialized(storage);
-    expect(
-        sendInit(minter),
-    ).toHaveFailedTx<SccpInit>({ to: minter.address, exitCode: SccpErrors.BadRoster as int });
+    val committee = testCommittee(4, 0);
+    var i = 0;
+    while (i < 4) {
+        var storage = canonicalStorage(
+            VEC_NETWORK_ID,
+            VEC_CONSENSUS_INSTANCE,
+            TEST_REVISION,
+            TEST_MAX_SUPPLY,
+            defaultPin(committee),
+            committee.keys,
+        );
+        var state = storage.committee.load();
+        if (i == 0) {
+            state.generation += 1;
+        }
+        if (i == 1) {
+            state.start += 1;
+        }
+        if (i == 2) {
+            state.high += 1;
+        }
+        if (i == 3) {
+            state.untilMs += 1;
+        }
+        storage.committee = state.toCell();
+        val minter = deployUninitialized(storage);
+        expect(
+            sendInit(minter),
+        ).toHaveFailedTx<SccpInit>({ to: minter.address, exitCode: SccpErrors.BadConfig as int });
+        i += 1;
+    }
 }
 
-get fun `test init rejects a bad threshold and bad member order`() {
+get fun `test init rejects bad committee size and key order`() {
     testing.setNow(T0);
-    val roster = makeRoster(
-        7,
-        4,
-        0,
-        0,
-        T0 * 1000 - HOUR_MS,
-        T0 * 1000 + DAY_MS,
-    );
-    var storage = canonicalStorage(VEC_NETWORK_ID, TEST_REVISION, TEST_MAX_SUPPLY, roster);
-    var state = storage.roster.load();
-    state.t = 4;
-    storage.roster = state.toCell();
-    val minter = deployUninitialized(storage);
-    expect(
-        sendInit(minter),
-    ).toHaveFailedTx<SccpInit>({ to: minter.address, exitCode: SccpErrors.BadRoster as int });
+    val committee = testCommittee(4, 0);
+    var i = 0;
+    while (i < 3) {
+        var storage = canonicalStorage(
+            VEC_NETWORK_ID,
+            VEC_CONSENSUS_INSTANCE,
+            TEST_REVISION,
+            TEST_MAX_SUPPLY,
+            defaultPin(committee),
+            committee.keys,
+        );
+        var state = storage.committee.load();
+        if (i == 0) {
+            state.n = 5;
+        }
+        if (i == 1) {
+            val k = committee.keys;
+            state.keys = sccpBuildKeys([k.get(1), k.get(0), k.get(2), k.get(3)]);
+        }
+        if (i == 2) {
+            val k = committee.keys;
+            state.keys = sccpBuildKeys([k.get(0), k.get(0), k.get(2), k.get(3)]);
+        }
+        storage.committee = state.toCell();
+        val minter = deployUninitialized(storage);
+        expect(
+            sendInit(minter),
+        ).toHaveFailedTx<SccpInit>({ to: minter.address, exitCode: SccpErrors.BadCommittee as int });
+        i += 1;
+    }
 }
 
-get fun `test init applies the validity bounds`() {
-    // valid_from too far in the future, validity too long, already expired,
-    // and valid_until beyond now + MAX_ROSTER_VALIDITY
+get fun `test init applies the pinned validity bounds`() {
+    testing.setNow(T0);
     val now = T0 * 1000;
-    val bounds: array<[int, int]> = [
-        [now + SCCP_MAX_CLOCK_SKEW_MS + 1, now + 2 * DAY_MS],
-        [now - DAY_MS, now - DAY_MS + SCCP_MAX_ROSTER_VALIDITY_MS + 1],
-        [now - 2 * DAY_MS, now],
-        [now + 1000, now + SCCP_MAX_ROSTER_VALIDITY_MS + 1],
+    val committee = testCommittee(4, 0);
+    val bounds: array<int> = [
+        now - 1,
+        now,
+        now + SCCP_MAX_VALIDITY_MS + SCCP_MAX_INIT_SLACK_MS + 1,
     ];
     var i = 0;
     while (i < bounds.size()) {
-        testing.setNow(T0);
-        val [from, until] = bounds.get(i);
-        val roster = makeRoster(
-            7,
-            4,
-            0,
-            0,
-            from,
-            until,
-        );
+        var pin = defaultPin(committee);
+        pin.untilMs = bounds.get(i);
         val minter = deployUninitialized(
-            canonicalStorage(VEC_NETWORK_ID, TEST_REVISION, TEST_MAX_SUPPLY, roster),
+            canonicalStorage(
+                VEC_NETWORK_ID,
+                VEC_CONSENSUS_INSTANCE,
+                TEST_REVISION,
+                TEST_MAX_SUPPLY,
+                pin,
+                committee.keys,
+            ),
         );
-        expect(sendInit(minter)).toHaveFailedTx<SccpInit>({
-            to: minter.address,
-            exitCode: SccpErrors.BadRosterValidity as int,
-        });
+        expect(
+            sendInit(minter),
+        ).toHaveFailedTx<SccpInit>({ to: minter.address, exitCode: SccpErrors.BadConfig as int });
         i += 1;
     }
-    // the edges are accepted
-    testing.setNow(T0);
-    val edge = makeRoster(
-        7,
-        4,
-        0,
-        0,
-        now + SCCP_MAX_CLOCK_SKEW_MS,
-        now + SCCP_MAX_ROSTER_VALIDITY_MS,
-    );
-    val minter = deployUninitialized(
-        canonicalStorage(VEC_NETWORK_ID, TEST_REVISION, TEST_MAX_SUPPLY, edge),
-    );
-    expect(sendInit(minter)).toHaveSuccessfulTx<SccpInit>({ to: minter.address });
+    val edges: array<int> = [now + 1, now + SCCP_MAX_VALIDITY_MS + SCCP_MAX_INIT_SLACK_MS];
+    i = 0;
+    while (i < edges.size()) {
+        var pin = defaultPin(committee);
+        pin.untilMs = edges.get(i);
+        val minter = deployUninitialized(
+            canonicalStorage(
+                VEC_NETWORK_ID,
+                VEC_CONSENSUS_INSTANCE,
+                TEST_REVISION,
+                TEST_MAX_SUPPLY,
+                pin,
+                committee.keys,
+            ),
+        );
+        expect(sendInit(minter)).toHaveSuccessfulTx<SccpInit>({ to: minter.address });
+        i += 1;
+    }
 }
 
 get fun `test init rejects non-canonical initial data`() {
     testing.setNow(T0);
-    val roster = defaultRoster(4, 0);
-    var storage = canonicalStorage(VEC_NETWORK_ID, TEST_REVISION, TEST_MAX_SUPPLY, roster);
+    val committee = testCommittee(4, 0);
+    var storage = canonicalStorage(
+        VEC_NETWORK_ID,
+        VEC_CONSENSUS_INSTANCE,
+        TEST_REVISION,
+        TEST_MAX_SUPPLY,
+        defaultPin(committee),
+        committee.keys,
+    );
     storage.totalSupply = 5;
     val minter = deployUninitialized(storage);
     expect(
         sendInit(minter),
     ).toHaveFailedTx<SccpInit>({ to: minter.address, exitCode: SccpErrors.BadConfig as int });
 
-    var paused = canonicalStorage(VEC_NETWORK_ID, TEST_REVISION, TEST_MAX_SUPPLY, roster);
-    paused.mintingPaused = true;
+    var paused = canonicalStorage(
+        VEC_NETWORK_ID,
+        VEC_CONSENSUS_INSTANCE,
+        TEST_REVISION,
+        TEST_MAX_SUPPLY,
+        defaultPin(committee),
+        committee.keys,
+    );
+    paused.parliamentPaused = true;
     val minter2 = deployUninitialized(paused);
     expect(
         sendInit(minter2),
     ).toHaveFailedTx<SccpInit>({ to: minter2.address, exitCode: SccpErrors.BadConfig as int });
 
-    val zeroRevision = canonicalStorage(VEC_NETWORK_ID, 0, TEST_MAX_SUPPLY, roster);
+    val zeroRevision = canonicalStorage(
+        VEC_NETWORK_ID,
+        VEC_CONSENSUS_INSTANCE,
+        0,
+        TEST_MAX_SUPPLY,
+        defaultPin(committee),
+        committee.keys,
+    );
     val minter3 = deployUninitialized(zeroRevision);
     expect(
         sendInit(minter3),
@@ -371,9 +417,16 @@ get fun `test init requires the ton mainnet global id`() {
     var config = testing.getConfig();
     config.setParamRaw(19, beginCell().storeInt(-3, 32).endCell());
     expect(testing.setConfig(config)).toBeTrue();
-    val roster = defaultRoster(4, 0);
+    val committee = testCommittee(4, 0);
     val minter = deployUninitialized(
-        canonicalStorage(VEC_NETWORK_ID, TEST_REVISION, TEST_MAX_SUPPLY, roster),
+        canonicalStorage(
+            VEC_NETWORK_ID,
+            VEC_CONSENSUS_INSTANCE,
+            TEST_REVISION,
+            TEST_MAX_SUPPLY,
+            defaultPin(committee),
+            committee.keys,
+        ),
     );
     expect(
         sendInit(minter),
@@ -381,11 +434,18 @@ get fun `test init requires the ton mainnet global id`() {
 }
 
 get fun `test canonical storage matches the documented bit layout`() {
-    val roster = defaultRoster(4, 0);
-    val storage = canonicalStorage(VEC_NETWORK_ID, TEST_REVISION, TEST_MAX_SUPPLY, roster);
+    val committee = testCommittee(4, 0);
+    val storage = canonicalStorage(
+        VEC_NETWORK_ID,
+        VEC_CONSENSUS_INSTANCE,
+        TEST_REVISION,
+        TEST_MAX_SUPPLY,
+        defaultPin(committee),
+        committee.keys,
+    );
     val root = storage.toCell().beginParse();
-    // initialized(1) total(4) pending(4) outbound(64) op(64) control(64) paused(1) deployed(64)
-    // prev-maybe(1) retries-dict(1)
-    expect(root.remainingBitsCount()).toEqual(268);
-    expect(root.remainingRefsCount()).toEqual(2);
+    // initialized(1) equivocated(1) total(4) pending(4) outbound(64) op(64)
+    // control(64) parliamentPaused(1) fastPauseUntilMs(64) deployed(64) retries-dict(1)
+    expect(root.remainingBitsCount()).toEqual(332);
+    expect(root.remainingRefsCount()).toEqual(3);
 }

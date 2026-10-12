@@ -9,7 +9,7 @@
 use super::{leaves, store};
 use crate::{block::BlockValidationError, state::StateTransaction};
 use iroha_data_model::sccp::{
-    attestation::{SccpBlockCommitmentV1, SccpHistoryStateV1},
+    commitment::{SccpBlockCommitmentV1, SccpHistoryStateV1},
     control::SccpLeafRefV1,
     events::{SccpBlockCommittedV1, SccpEvent},
 };
@@ -151,11 +151,14 @@ mod tests {
 
     fn control_record(leaf: [u8; 32], index: u32) -> SccpControlRecordV1 {
         SccpControlRecordV1 {
-            paused: true,
+            track: 1,
+            parliament_paused: true,
+            fast_pause_until_ms: 0,
             height: 5,
             commitment_index: index,
             leaf,
-            proposal_id: [9; 32],
+            certificate_id: [9; 32],
+            effect_hash: [0x45; 32],
         }
     }
 

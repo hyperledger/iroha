@@ -2677,43 +2677,48 @@ pub mod extractors {
         #[test]
         fn query_plus_and_percent_encoded_plus_have_distinct_form_semantics() {
             let space: StringQueryForTest =
-                super::decode_string_query(Some("label=tron+nile")).expect("form-space query");
-            assert_eq!(space.label.as_deref(), Some("tron nile"));
+                super::decode_string_query(Some("label=alpha+beta")).expect("form-space query");
+            assert_eq!(space.label.as_deref(), Some("alpha beta"));
             let plus: StringQueryForTest =
-                super::decode_string_query(Some("label=tron%2Bnile")).expect("literal-plus query");
-            assert_eq!(plus.label.as_deref(), Some("tron+nile"));
+                super::decode_string_query(Some("label=alpha%2Bbeta")).expect("literal-plus query");
+            assert_eq!(plus.label.as_deref(), Some("alpha+beta"));
         }
         #[test]
         fn generic_query_accepts_rfc3986_spellings() {
             for (query, expected) in [
-                ("label=tron%20nile", "tron nile"),
-                ("label=%74ron", "tron"),
-                ("label=tron%2bnile", "tron+nile"),
-                ("label=tron/nile", "tron/nile"),
-                ("label=tron:nile", "tron:nile"),
-                ("label=tron~nile", "tron~nile"),
-                ("label=tron%C2%A0nile", "tron\u{a0}nile"),
+                ("label=alpha%20beta", "alpha beta"),
+                ("label=%61lpha", "alpha"),
+                ("label=alpha%2bbeta", "alpha+beta"),
+                ("label=alpha/beta", "alpha/beta"),
+                ("label=alpha:beta", "alpha:beta"),
+                ("label=alpha~beta", "alpha~beta"),
+                ("label=alpha%C2%A0beta", "alpha\u{a0}beta"),
             ] {
                 let decoded: StringQueryForTest = super::decode_string_query(Some(query))
                     .unwrap_or_else(|err| panic!("{query:?} decodes: {err:?}"));
                 assert_eq!(decoded.label.as_deref(), Some(expected), "{query:?}");
             }
-            for query in ["label=tron%0Anile", "label=tron nile", "label=tron💖nile"] {
+            for query in [
+                "label=alpha%0Abeta",
+                "label=alpha beta",
+                "label=alpha💖beta",
+            ] {
                 assert!(
                     super::decode_string_query::<StringQueryForTest>(Some(query)).is_err(),
                     "query {query:?} must be rejected"
                 );
             }
             let decoded: StringQueryForTest =
-                super::decode_string_query(Some("label=tron%F0%9F%92%96nile"))
+                super::decode_string_query(Some("label=alpha%F0%9F%92%96beta"))
                     .expect("uppercase UTF-8 escapes are canonical");
-            assert_eq!(decoded.label.as_deref(), Some("tron💖nile"));
-            let decoded: StringQueryForTest = super::decode_string_query(Some("label=tron*nile"))
+            assert_eq!(decoded.label.as_deref(), Some("alpha💖beta"));
+            let decoded: StringQueryForTest = super::decode_string_query(Some("label=alpha*beta"))
                 .expect("the form asterisk is a canonical literal");
-            assert_eq!(decoded.label.as_deref(), Some("tron*nile"));
-            let decoded: StringQueryForTest = super::decode_string_query(Some("label=tron%7Enile"))
-                .expect("tilde is canonically escaped by form encoding");
-            assert_eq!(decoded.label.as_deref(), Some("tron~nile"));
+            assert_eq!(decoded.label.as_deref(), Some("alpha*beta"));
+            let decoded: StringQueryForTest =
+                super::decode_string_query(Some("label=alpha%7Ebeta"))
+                    .expect("tilde is canonically escaped by form encoding");
+            assert_eq!(decoded.label.as_deref(), Some("alpha~beta"));
         }
         #[test]
         fn generic_query_rejects_empty_and_ambiguous_framing() {
@@ -2912,7 +2917,7 @@ pub mod extractors {
             let leading_zero_hex = format!("{}1", "0".repeat(63));
             let request = Request::builder()
                 .uri(format!(
-                    "/test?numeric_hex={numeric_hex}&leading_zero_hex={leading_zero_hex}&null_like=null&bool_like=true&label=tron+nile"
+                    "/test?numeric_hex={numeric_hex}&leading_zero_hex={leading_zero_hex}&null_like=null&bool_like=true&label=alpha+beta"
                 ))
                 .body(())
                 .expect("request");
@@ -2928,7 +2933,7 @@ pub mod extractors {
             );
             assert_eq!(decoded.null_like.as_deref(), Some("null"));
             assert_eq!(decoded.bool_like.as_deref(), Some("true"));
-            assert_eq!(decoded.label.as_deref(), Some("tron nile"));
+            assert_eq!(decoded.label.as_deref(), Some("alpha beta"));
         }
         #[tokio::test]
         async fn signed_transaction_versioned_decode_error_returns_error_envelope() {

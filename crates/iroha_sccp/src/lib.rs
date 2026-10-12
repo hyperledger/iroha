@@ -15,6 +15,8 @@ extern crate alloc;
 /// Torii read-API records for SCCP v1.
 pub mod api;
 mod ethereum_native;
+/// Ethereum transaction signing and address recovery.
+pub mod ethereum_signing;
 pub mod ethereum_source;
 pub mod light_client;
 pub mod v1;
@@ -30,8 +32,8 @@ pub use ton_native::{
     TonValidatorSetV1, TonValidatorSignatureV1, TonValidatorV1, encode_canonical_ton_boc,
     parse_ton_boc, ton_block_id_tl_bytes, ton_boc_cell_hashes, ton_boc_single_root_hash_v1,
     ton_canonical_boc_single_root_hash_v1, ton_canonical_boc_v1, ton_cell_serialized_bit_len,
-    ton_header_key_block_v1, ton_sccp_transfer_payload_v1, ton_validator_list_hash_short_v1,
-    ton_validator_node_id_short_v1,
+    ton_header_key_block_v1, ton_masterchain_generation_time_seconds, ton_sccp_transfer_payload_v1,
+    ton_validator_list_hash_short_v1, ton_validator_node_id_short_v1,
 };
 #[cfg(test)]
 #[path = "test_fixtures/finality_descendant_tests.rs"]

@@ -28,10 +28,10 @@ mod peers_gossiper_topology_sync;
 mod runtime_provider_broker;
 /// Deployment-owned runtime-provider registry boundary for the standard launcher.
 pub mod runtime_provider_registry;
-/// In-node SCCP attestor with zero-touch bridge-key management.
+/// In-node SCCP keeper with a node-generated keeper key.
 #[cfg(unix)]
-#[path = "sccp_attestor.rs"]
-mod sccp_attestor;
+#[path = "sccp_keeper.rs"]
+mod sccp_keeper;
 /// Embedded Soracloud runtime-manager reconciliation.
 #[path = "soracloud_runtime.rs"]
 mod soracloud_runtime;
@@ -3261,8 +3261,9 @@ impl Iroha {
                         ))
                     })?;
                 let local_consensus_peer = config.common.trusted_peers.value().myself.id().clone();
-                // Active Parliament TLE custody is mandatory: private timed-OVN has no alternate
-                // ballot-opening path when this validator owns a release-share seat.
+                // Consensus-native custody only: a validator seated in the active global-beacon key
+                // session must hold its exact partial signer before Sumeragi starts. Governance
+                // state never gates startup.
                 preflight_threshold_signer_startup_readiness_v1(
                     Arc::clone(&state),
                     local_consensus_peer.clone(),
@@ -4212,20 +4213,20 @@ impl Iroha {
             supervisor.monitor(child);
             Some(runtime)
         };
-        // The SCCP attestor signs only durably final state and never aborts the node. The
-        // light-client keeper is a separate task, so its public RPC never delays signing.
+        // The SCCP keeper is a supervised task of its own and never aborts the node: its
+        // public RPC delays neither block production nor any other task.
         #[cfg(unix)]
-        if !emergency_fast {
-            for child in sccp_attestor::start(
+        if !emergency_fast
+            && let Some(child) = sccp_keeper::start(
                 Arc::clone(&state),
                 Arc::clone(&queue),
-                config.common.key_pair.clone(),
-                config.sccp.attestor.clone(),
+                &PeerId::new(config.common.key_pair.public_key().clone()),
+                &config.sccp.keeper,
                 config.sccp.light_client_keeper.clone(),
                 supervisor.shutdown_signal(),
-            ) {
-                supervisor.monitor(child);
-            }
+            )
+        {
+            supervisor.monitor(child);
         }
         ensure_operator_node_key_allowlisted(&mut config);
         let (kiso, child) = KisoHandle::start(config.clone());
@@ -8500,7 +8501,9 @@ fn validate_genesis_execution_offline(
         [],
         &execution_budget,
     )
-    .map_err(|error| Report::new(error).change_context(MainError::Config))?;
+    .map_err(|error: iroha_core::state::WorldConstructionError| {
+        Report::new(error).change_context(MainError::Config)
+    })?;
     iroha_core::sns::seed_genesis_alias_bootstrap(
         &mut world,
         &genesis.0,
@@ -10939,7 +10942,7 @@ mod tests {
                 [],
                 &budget,
             )
-            .expect("genesis world");
+            .expect("completed genesis World initialization");
             iroha_core::sns::seed_genesis_alias_bootstrap(
                 &mut world,
                 &provisional.0,

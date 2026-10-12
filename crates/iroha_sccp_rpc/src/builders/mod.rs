@@ -54,7 +54,6 @@ use crate::RpcError;
 pub mod bsc;
 pub mod ethereum;
 pub mod ton;
-pub mod tron;
 
 /// Clients over endpoint lists that are never contacted, for unit tests.
 #[cfg(test)]
@@ -114,7 +113,7 @@ impl From<RpcError> for BuildError {
 /// Bounds of one advance: the item count Taira accepts and the submitter's byte budget.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AdvanceBudgetV1 {
-    /// Most items: Ethereum updates, BSC steps, TRON segments or TON hops.
+    /// Most items: Ethereum updates, BSC steps or TON hops.
     pub max_items: usize,
     /// Most canonical bytes of the advance frame.
     pub max_bytes: usize,
@@ -191,7 +190,7 @@ pub struct BackfillPlanV1 {
 
 /// Plan `Backfill` segments of at most `segment_headers` headers from the stored checkpoint
 /// `checkpoint` down until it lies at most `reach` blocks above `event` (the proof's ancestry
-/// bound: Ethereum 256, BSC 255 and TRON 1 199 with the default parameters).
+/// bound: Ethereum 256 and BSC 255 with the default parameters).
 ///
 /// # Errors
 ///
@@ -283,11 +282,6 @@ pub enum SourceEventRefV1 {
         tx_hash: [u8; 32],
         /// Selected logs.
         event: ethereum::EthereumEventV1,
-    },
-    /// A TRON `transferToTaira` or void call (the transaction is the event).
-    Tron {
-        /// Transaction id.
-        tx_id: [u8; 32],
     },
     /// A TON minter transaction's `sccp_transfer_to_taira` or `sccp_voided` external-out
     /// message.

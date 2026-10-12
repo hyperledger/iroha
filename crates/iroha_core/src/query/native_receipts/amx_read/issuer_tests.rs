@@ -270,7 +270,16 @@ fn owned_issuer_retains_first_refused_archive_descriptor_after_original_view_dro
             .unwrap(),
     )
     .unwrap();
-    assert_eq!(tracker.verify_record(proof.canonical()).unwrap().height, 2);
+    assert_eq!(
+        tracker
+            .verify_record(
+                proof.canonical(),
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
+            )
+            .unwrap()
+            .height,
+        2
+    );
     assert!(matches!(&proof.canonical().record, AmxRecordV1::Begin(begin) if begin.tx == tx));
     assert!(original.complete().is_err(), "delivery remains one-shot");
     let before_drop = budget.reserved_bytes();
@@ -331,7 +340,12 @@ fn owned_issuer_preserves_partial_frame_and_same_pool_without_an_extra_poll() {
             .unwrap(),
     )
     .unwrap();
-    tracker.verify_record(proof.canonical()).unwrap();
+    tracker
+        .verify_record(
+            proof.canonical(),
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        )
+        .unwrap();
 }
 
 #[test]

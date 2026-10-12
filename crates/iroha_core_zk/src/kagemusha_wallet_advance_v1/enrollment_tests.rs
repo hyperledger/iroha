@@ -1626,9 +1626,26 @@ fn retained_generation_reply_adopts_visible_uncertain_marker_without_create_new_
     let start = probe.fs.steps();
     probe_provider.status(&probe_slot).unwrap();
     let trace = probe.fs.trace_since(start);
+    // The marker's own create-new rename: the first one after which a crash leaves a visible
+    // marker (the durable enrollment phase is published around it).
     let rename = trace
         .iter()
-        .position(|step| *step == KagemushaWalletSimStepV1::RenameNoReplace)
+        .enumerate()
+        .filter(|(_, step)| **step == KagemushaWalletSimStepV1::RenameNoReplace)
+        .map(|(at, _)| at)
+        .find(|at| {
+            let (crashed, mut provider, slot) = generated_reply_waiting_for_storage(177, policy);
+            crashed.fs.inject(
+                crashed.fs.steps() + u64::try_from(*at).unwrap(),
+                KagemushaWalletSimFaultV1::CrashAfter,
+            );
+            let _ = provider.status(&slot);
+            crashed
+                .fs
+                .visible_names(&kagemusha_wallet_markers_dir_v1(&slot))
+                .iter()
+                .any(|name| kagemusha_wallet_parse_marker_name_v1(name).is_some())
+        })
         .unwrap();
     assert_eq!(trace[rename + 1], KagemushaWalletSimStepV1::SyncDir);
     let (device, mut provider, slot) = generated_reply_waiting_for_storage(177, policy);

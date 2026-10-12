@@ -909,3 +909,190 @@ fn native_source_publication_change_retries_without_recovery_or_quarantine() {
         assert!(!super::super::control::transaction_rejection(&terminal));
     }
 }
+
+#[test]
+fn sccp_generation_refusals_preserve_original_capacity_and_recovery_categories() {
+    use crate::state::{
+        StateStorageAdmissionError, sccp_generation_custody::GenerationAdmissionError,
+    };
+    use iroha_allocation::{AllocationBudget, AllocationRefusal};
+    use mv::storage::AdmittedStorageError;
+    let budget = AllocationBudget::new(1);
+    let held = budget.try_reserve_bytes(1).unwrap();
+    let original = budget.try_reserve_bytes(1).unwrap_err();
+    let error =
+        BlockValidationError::StateStorageAdmission(StateStorageAdmissionError::SccpGeneration(
+            GenerationAdmissionError::Storage(AdmittedStorageError::Allocation(original.clone())),
+        ));
+    let Some(PublicationError::Deferred(source)) = validation_failure(&error) else {
+        panic!("capacity is original unfinished local work")
+    };
+    assert_eq!(source.allocation_refusal(), Some(&original));
+    let AllocationRefusal::Capacity { release, .. } = &original else {
+        panic!("held pool capacity")
+    };
+    assert_eq!(source.release_wait(), Some(release));
+    drop(held);
+    for original in [
+        GenerationAdmissionError::Invalid,
+        GenerationAdmissionError::Storage(AdmittedStorageError::PolicyIdentity),
+        GenerationAdmissionError::Storage(AdmittedStorageError::Allocation(
+            AllocationRefusal::DemandOverflow,
+        )),
+    ] {
+        assert!(matches!(
+            validation_failure(&BlockValidationError::StateStorageAdmission(
+                original.into()
+            )),
+            Some(PublicationError::RecoveryRequired(_))
+        ));
+    }
+    let error =
+        GenerationAdmissionError::Codec(norito::core::DecodeResourceError::AllocationFailed {
+            bytes: 8,
+        });
+    let Some(PublicationError::Deferred(source)) =
+        validation_failure(&BlockValidationError::StateStorageAdmission(error.into()))
+    else {
+        panic!("allocator refusal is unfinished local work")
+    };
+    assert!(source.release_wait().is_none());
+    assert!(source.allocation_refusal().is_none());
+}
+
+#[test]
+fn sccp_forgery_refusals_preserve_original_capacity_and_recovery_categories() {
+    use crate::state::{StateStorageAdmissionError, sccp_forgery_custody::ForgeryStorageError};
+    use iroha_allocation::{AllocationBudget, AllocationRefusal};
+    use mv::storage::AdmittedStorageError;
+    let budget = AllocationBudget::new(1);
+    let held = budget.try_reserve_bytes(1).unwrap();
+    let original = budget.try_reserve_bytes(1).unwrap_err();
+    let error =
+        BlockValidationError::StateStorageAdmission(StateStorageAdmissionError::SccpForgery(
+            ForgeryStorageError::Storage(AdmittedStorageError::Allocation(original.clone())),
+        ));
+    let Some(PublicationError::Deferred(source)) = validation_failure(&error) else {
+        panic!("capacity is original unfinished local work")
+    };
+    assert_eq!(source.allocation_refusal(), Some(&original));
+    let AllocationRefusal::Capacity { release, .. } = &original else {
+        panic!("held pool capacity")
+    };
+    assert_eq!(source.release_wait(), Some(release));
+    for original in [
+        ForgeryStorageError::Storage(AdmittedStorageError::Busy {
+            role: mv::storage::StorageRole::Undo,
+            release: release.clone(),
+        }),
+        ForgeryStorageError::Storage(AdmittedStorageError::Changed),
+        ForgeryStorageError::Storage(AdmittedStorageError::Allocator {
+            layout: std::alloc::Layout::new::<u64>(),
+        }),
+        ForgeryStorageError::Codec(norito::core::DecodeResourceError::AllocationFailed {
+            bytes: 8,
+        }),
+    ] {
+        let original = StateStorageAdmissionError::SccpForgery(original);
+        let Some(PublicationError::Deferred(PublicationDeferral::StateStorage(retained))) =
+            validation_failure(&BlockValidationError::StateStorageAdmission(
+                original.clone(),
+            ))
+        else {
+            panic!("local refusal retains the original category")
+        };
+        assert_eq!(retained, original);
+        assert_eq!(retained.release_wait(), original.release_wait());
+    }
+    drop(held);
+    for original in [
+        ForgeryStorageError::Invalid,
+        ForgeryStorageError::Storage(AdmittedStorageError::PolicyIdentity),
+        ForgeryStorageError::Storage(AdmittedStorageError::Planning(
+            concread::bptree::PlanningError::UnsupportedPayload,
+        )),
+        ForgeryStorageError::Storage(AdmittedStorageError::ScopeIdentity),
+        ForgeryStorageError::Storage(AdmittedStorageError::PolicyDemand {
+            expected_bytes: 8,
+            remaining_bytes: 7,
+        }),
+        ForgeryStorageError::Storage(AdmittedStorageError::Poisoned {
+            role: mv::storage::StorageRole::Undo,
+        }),
+        ForgeryStorageError::Storage(AdmittedStorageError::Allocation(
+            AllocationRefusal::DemandOverflow,
+        )),
+    ] {
+        assert!(matches!(
+            validation_failure(&BlockValidationError::StateStorageAdmission(
+                original.into()
+            )),
+            Some(PublicationError::RecoveryRequired(_))
+        ));
+    }
+    let error = ForgeryStorageError::Codec(norito::core::DecodeResourceError::AllocationFailed {
+        bytes: 8,
+    });
+    let Some(PublicationError::Deferred(source)) =
+        validation_failure(&BlockValidationError::StateStorageAdmission(error.into()))
+    else {
+        panic!("allocator refusal is unfinished local work")
+    };
+    assert!(source.release_wait().is_none());
+    assert!(source.allocation_refusal().is_none());
+}
+
+#[test]
+fn sccp_evidence_publication_preserves_all_original_preparation_categories() {
+    use crate::state::{EvidencePreparationError as E, StateStorageAdmissionError as S};
+    let pool = AllocationBudget::new(1);
+    let occupied = pool.try_reserve_bytes(1).unwrap();
+    let capacity = pool.try_reserve_bytes(1).unwrap_err();
+    for original in [
+        E::Admission(capacity.clone()),
+        E::Allocator {
+            requested_bytes: 17,
+        },
+        E::DecodeScope {
+            attempted_bytes: 23,
+            limit_bytes: 19,
+        },
+        E::DecodeResource(norito::core::DecodeResourceError::AllocationFailed { bytes: 29 }),
+    ] {
+        let storage = S::SccpEvidence(original.clone());
+        let result = validation_failure(&BlockValidationError::StateStorageAdmission(
+            storage.clone(),
+        ));
+        let Some(PublicationError::Deferred(PublicationDeferral::StateStorage(retained))) = result
+        else {
+            panic!("exact local refusal must remain deferred: {original:?}")
+        };
+        assert_eq!(retained, storage);
+        let deferred = PublicationDeferral::StateStorage(retained);
+        if let E::Admission(refusal) = &original {
+            assert_eq!(deferred.allocation_refusal(), Some(refusal));
+            assert_eq!(deferred.release_wait(), storage.release_wait());
+        } else {
+            assert!(deferred.allocation_refusal().is_none());
+            assert!(deferred.release_wait().is_none());
+        }
+    }
+    for original in [
+        E::Invariant,
+        E::Admission(AllocationRefusal::DemandOverflow),
+    ] {
+        assert!(matches!(
+            validation_failure(&BlockValidationError::StateStorageAdmission(
+                S::SccpEvidence(original)
+            )),
+            Some(PublicationError::RecoveryRequired(_))
+        ));
+    }
+    assert!(matches!(
+        validation_failure(&BlockValidationError::StateStorageAdmission(
+            S::SccpEvidence(E::OriginalHistoryPending)
+        )),
+        Some(PublicationError::Retryable(_))
+    ));
+    drop(occupied);
+}

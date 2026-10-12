@@ -437,7 +437,7 @@ fn decode_leg(
     budget: &AllocationBudget,
 ) -> Result<AllocatedAmxTransferLegV1, AmxLegDecodeErrorV1> {
     let result = with_leg_decode_pool(budget, |budget| {
-        PendingAmxTransferLegDecodeV1::new(bytes, budget).try_decode()
+        PendingAmxTransferLegDecodeV1::new(bytes, budget).try_decode(bytes)
     });
     #[cfg(test)]
     if let Ok(owner) = &result {
@@ -452,12 +452,20 @@ fn decode_leg(
 }
 
 fn decode_retained_leg(
+    pending: &mut PendingAmxTransferLegDecodeV1,
     bytes: &[u8],
     budget: &AllocationBudget,
 ) -> Result<iroha_data_model::sumeragi_amx::CompletedAmxTransferLegDecodeV1, AmxLegDecodeErrorV1> {
-    let result = with_leg_decode_pool(budget, |budget| {
-        PendingAmxTransferLegDecodeV1::new(bytes, budget).try_decode_retained()
-    });
+    if !pending.belongs_to(budget) {
+        return Err(AmxLegDecodeErrorV1::Invariant(
+            "original native AMX decoder pool changed",
+        ));
+    }
+    #[cfg(test)]
+    let before = budget.reserved_bytes();
+    let result = pending.try_decode_retained(bytes);
+    #[cfg(test)]
+    retry_probe::retained_attempt(&result, before, budget);
     #[cfg(test)]
     if let Ok(owner) = &result {
         retry_probe::decoded(
@@ -504,6 +512,10 @@ fn leg_decode_error(error: AmxLegDecodeErrorV1, state: &mut StateTransaction<'_,
                 });
             state.attempt_error_to_instruction_error(original)
         }
+        // The sole Model validator already completed this intrinsic relation.
+        // Retain its exact cause until the existing terminal diagnostic boundary;
+        // no allocation/scope refusal or local retry origin is inferred here.
+        AmxLegDecodeErrorV1::Multisig(error) => invalid(error.to_string()),
         AmxLegDecodeErrorV1::Codec(error) => invalid(error.to_string()),
         AmxLegDecodeErrorV1::Scope(error) => match error {
             norito::core::PreparedDecodeScopeError::Allocation(
@@ -827,7 +839,10 @@ impl Execute for RelayGlobalAmxHandoffV1 {
         let source = original.canonical().expect("checked participant");
         let global = &source.participant.global;
         let verified = global
-            .verify_block(&self.proof.block)
+            .verify_block(
+                &self.proof.block,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            )
             .map_err(|error| super::amx_error(error, state))?;
         if verified.epoch != global.epoch() {
             return Ok(());
@@ -838,7 +853,7 @@ impl Execute for RelayGlobalAmxHandoffV1 {
             ));
         }
         let boundary = verified
-            .commitment
+            .commitment()
             .schedule
             .boundary
             .as_ref()
@@ -885,6 +900,18 @@ pub(crate) fn with_paid_prepare_retry_fixture(
     ),
 ) {
     tests::with_paid_prepare_retry_fixture(test);
+}
+
+/// Reuse a genuine signed Begin whose original receiver is canonically multisig.
+#[cfg(test)]
+pub(crate) fn with_paid_multisig_prepare_retry_fixture(
+    test: impl FnOnce(
+        &crate::sumeragi::test_chain::CertifiedTestChain,
+        iroha_data_model::isi::InstructionBox,
+        iroha_crypto::KeyPair,
+    ),
+) {
+    tests::with_paid_multisig_prepare_retry_fixture(test);
 }
 
 #[cfg(test)]

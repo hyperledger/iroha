@@ -17,10 +17,9 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
         ) {
             return Err(Error::Phase);
         }
-        self.selected
-            .as_ref()
-            .map(|(_, slot)| *slot)
-            .ok_or(Error::Phase)
+        let (scope, slot) = self.selected.as_ref().ok_or(Error::Phase)?;
+        self.require_selected_prekey(scope, slot)?;
+        Ok(*slot)
     }
     fn apple_record(&self, stage: u8, result: bool) -> Result<[u8; 32], Error> {
         if !(1..=3).contains(&stage) {

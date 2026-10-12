@@ -848,7 +848,11 @@ fn interval_finality_fetch<'a>(
 ) -> impl FnMut(NonZeroU64) -> Result<iroha::data_model::sumeragi_finality::SumeragiFinalityProof> + 'a
 {
     interval_finality_fetch_with(end, move |from, to| {
-        client.get_sumeragi_finality_interval(from, to)
+        client.get_sumeragi_finality_interval(
+            from,
+            to,
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        )
     })
 }
 fn interval_finality_fetch_with<'a>(
@@ -940,7 +944,9 @@ fn finality_chain_from_proofs(
             source_bytes <= limits.journal_bytes,
             "committee proof exceeds its journal source bound"
         );
-        proof.decode_checked()?;
+        proof.decode_checked(
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        )?;
         journal.blocks.push(NativeFinalityArtifact {
             block_wire: proof.block_wire,
         });
@@ -1103,7 +1109,9 @@ fn extend_finality_chain_from_proofs(
             source_bytes <= limits.journal_bytes,
             "committee proof exceeds its journal source bound"
         );
-        proof.decode_checked()?;
+        proof.decode_checked(
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        )?;
         journal
             .blocks
             .try_reserve(1)
@@ -1770,16 +1778,15 @@ async fn run_custody_or_activation_scenario(
             && first.prepared.len() == first.target.len() - usize::from(missing.is_some()),
         "first target custody preparation did not preserve the exact selected membership"
     );
-    let governance_pulse = if scenario == QualificationScenario::ActivateSevenThenReturnFour {
+    // The request is registered inside E+1 and stays pending: its slot is the boundary
+    // pulse at CUTOFF - 1, which the chain finalizes for its own committee election.
+    let pending_sortition = if scenario == QualificationScenario::ActivateSevenThenReturnFour {
         Some(
-            committee_parliament::exercise(
-                network,
+            committee_parliament::request(
                 admin,
-                genesis_voters,
                 first_preparation,
                 genesis_dkg.public_session.record(),
                 first._dkg.public_session.record(),
-                signed_genesis_hash,
                 parliament_proposal.ok_or_else(|| {
                     eyre!("complete rotation lacks its admitted Parliament proposal")
                 })?,
@@ -1863,13 +1870,18 @@ async fn run_custody_or_activation_scenario(
     })
     .await
     .wrap_err("first cutoff finality worker failed")?;
-    if let Some(pulse) = &governance_pulse {
-        committee_parliament::verify_boundary(
-            &cutoff_chain,
-            pulse,
-            genesis_dkg.public_session.record(),
-        )?;
-    }
+    let governance_pulse = pending_sortition
+        .as_ref()
+        .map(|pending| {
+            committee_parliament::verify_boundary(
+                &cutoff_chain,
+                pending,
+                genesis_dkg.public_session.record(),
+                genesis_voters,
+                &first_preparation.eligibility.xor_asset_definition_id,
+            )
+        })
+        .transpose()?;
     let genesis = cutoff_chain
         .first()
         .ok_or_else(|| eyre!("missing authenticated signed genesis"))?;
@@ -2013,6 +2025,22 @@ async fn run_custody_or_activation_scenario(
             == 1,
         "seven-seat activation did not publish the new validator generation"
     );
+    // Real-peer exercise of the rotation rule: the draw is consumed only now, under the
+    // seven-seat committee and its new key session, against the retained boundary session.
+    if let (Some(pending), Some(pulse)) = (&pending_sortition, &governance_pulse) {
+        committee_parliament::consume_after_rotation(
+            network,
+            admin,
+            &seven_set,
+            pending,
+            pulse,
+            genesis_dkg.public_session.record(),
+            first._dkg.public_session.record(),
+            signed_genesis_hash,
+            &first_preparation.eligibility.xor_asset_definition_id,
+        )
+        .await?;
+    }
     let status = read_validator_committee(&admin, 3).await?;
     let return_preparation = status
         .selected

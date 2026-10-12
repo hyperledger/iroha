@@ -49,6 +49,8 @@ mod proof_negative;
 mod settlement;
 #[path = "native_exchange/setup.rs"]
 mod setup;
+#[path = "native_exchange/source_reuse.rs"]
+mod source_reuse;
 use setup::LedgerSetup;
 
 const TARGET_SCHEMA: &str = "iroha.kagemusha.native-load-target.v1";
@@ -427,6 +429,7 @@ fn export_actual_a_load_target_with_retained_native_custody() {
         "schema": TARGET_SCHEMA,
         "scope": "Actual native A with real host storage and proofs; simulated payment hardware and engineering issuer. Target DATA is not a finalized receipt or settlement verdict.",
         "source_pins": (source_pins()),
+        "sealed_originals": (source_reuse::locator(&sources.originals)),
         "executed_ledger_setup_sha256": (setup.manifest_sha256),
         "native_source_sha256": (env_pin("KAGEMUSHA_NATIVE_SOURCE_SHA256")),
         "native_binary_sha256": (executable_hash()),
@@ -574,7 +577,7 @@ fn require_payment_bound(bytes: &[u8], scheme: &[u8; 32]) {
 #[ignore = "requires exported SAME A custody, genuine full52 grant and an independently pinned finalized Load for its exact target"]
 fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
     let output = fresh_output("KAGEMUSHA_NATIVE_EXCHANGE_OUTPUT");
-    let sources = Sources::admit(&output.join("source-admission"));
+    let sources = Sources::requalify(&output.join("source-admission"));
     let setup = LedgerSetup::read(&sources);
     let f = sources.fixture(&setup, 0);
     let path = selected_path("KAGEMUSHA_NATIVE_LOAD_TARGET");

@@ -5771,6 +5771,7 @@ dependencies = [
  "iroha_data_model",
  "iroha_model_base",
  "iroha_sccp",
+ "iroha_sumeragi",
  "norito",
  "sha2",
  "tiny-keccak",
@@ -5812,7 +5813,6 @@ dependencies = [
  "iroha_wallet",
  "norito",
  "rustix 1.1.4",
- "sha2",
  "tempfile",
  "zeroize",
 ]

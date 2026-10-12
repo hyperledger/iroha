@@ -454,6 +454,8 @@ pub(super) struct TestCustody {
     status_unavailable_at: Option<usize>,
     checkpoint_calls: usize,
     checkpoint_replacement: Option<(usize, ([u8; 32], Vec<u8>))>,
+    pub(super) resources: crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeResourcesV1,
+    pub(super) resource_queries: usize,
 }
 impl TestCustody {
     fn new() -> Self {
@@ -473,10 +475,22 @@ impl TestCustody {
             status_unavailable_at: None,
             checkpoint_calls: 0,
             checkpoint_replacement: None,
+            resources: crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeResourcesV1 {
+                storage_bytes: u64::MAX / 2,
+                memory_bytes: Some(u64::MAX / 2),
+            },
+            resource_queries: 0,
         }
     }
 }
 impl Custody for TestCustody {
+    fn runtime_resources(
+        &mut self,
+    ) -> Result<crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeResourcesV1, ProviderError>
+    {
+        self.resource_queries += 1;
+        Ok(self.resources)
+    }
     fn collect_capsule(
         &mut self,
         generation: u128,
@@ -685,6 +699,7 @@ pub(super) struct TestProofs {
     capsule_writes: Option<Arc<AtomicUsize>>,
     expire_during_publication: bool,
     fold_pause: Option<Arc<folding_preemption_tests::Pause>>,
+    pub(super) capacity: crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeCapacityV1,
 }
 
 mod folding_preemption_tests;
@@ -728,6 +743,12 @@ impl NativeProofs for TestProofs {
                 "wallet-test-chain".into(),
             )
         }))
+    }
+
+    fn runtime_capacity(
+        &self,
+    ) -> Result<crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeCapacityV1, Error> {
+        Ok(self.capacity)
     }
 
     fn fold_schedule(
@@ -1103,14 +1124,33 @@ fn missing_marker_bound_witness_is_loss_and_archive_cannot_invent_completion() {
             .expect("retry")
             .is_none()
     );
-    w.commit(boot.clone()).expect("commit");
-    w.archive.records.lock().expect("records").clear();
+    let exact = w.commit(boot.clone()).expect("commit");
+    assert!(matches!(&exact, Completion::Complete(_)));
+    let signatures = w.custody.signatures;
+    // Losing W prevents reconstruction, but the authenticated StepEntry still
+    // binds the exact retained completion without requiring its private opening.
+    assert!(
+        w.archive
+            .records
+            .lock()
+            .expect("records")
+            .remove(&ArchiveKey::Capsule(boot.capsule.custody_digest()))
+            .is_some()
+    );
     assert!(matches!(w.released_steps(), Err(Error::WitnessLost(_))));
-    assert!(matches!(
+    assert_eq!(
         w.retry(&boot.capsule.body().operation_id)
             .expect("exact authority"),
-        Some(Completion::Complete(_))
+        Some(exact)
+    );
+    // Losing the authenticated index as well cannot promote archive contents
+    // or an unauthenticated retained record into a completed operation.
+    w.archive.records.lock().expect("records").clear();
+    assert!(matches!(
+        w.retry(&boot.capsule.body().operation_id),
+        Err(Error::WitnessLost(_))
     ));
+    assert_eq!(w.custody.signatures, signatures);
 }
 
 #[test]

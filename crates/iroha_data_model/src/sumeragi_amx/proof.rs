@@ -13,8 +13,9 @@ use norito::codec::{Decode, Encode};
 
 use super::{AmxError, AmxRecordV1};
 use crate::{
-    DeriveJsonDeserialize, DeriveJsonSerialize, block::CommitCertificate,
-    sumeragi_finality::ExecutionResultCommitment,
+    DeriveJsonDeserialize, DeriveJsonSerialize,
+    block::CommitCertificate,
+    sumeragi_finality::{CertifiedResultScope, CertifiedResultV1},
 };
 
 /// Depth of the write-set tree.
@@ -299,7 +300,8 @@ impl AmxRecordProofV1 {
     /// produced (the complete execution witness writes, including mandatory context writes).
     /// The resulting path must match the ordinary-write root in the canonical result preimage.
     /// This checks the supplied write set; the receiving foreign-instance tracker still
-    /// authenticates the certificate and its binding to that preimage.
+    /// authenticates the certificate and its binding to that preimage. The producer
+    /// supplies its selected root `scope`; the result header cannot select authority.
     ///
     /// # Errors
     /// The result preimage is malformed or exceeds its bound, the record is not written in
@@ -308,8 +310,9 @@ impl AmxRecordProofV1 {
         block: AmxCertifiedBlockV1,
         writes: impl IntoIterator<Item = (&'a [u8], &'a [u8])>,
         record: AmxRecordV1,
+        scope: CertifiedResultScope,
     ) -> Result<Self, AmxError> {
-        let commitment = ExecutionResultCommitment::decode(&block.result_preimage)
+        let certified_result = CertifiedResultV1::decode(&block.result_preimage, scope)
             .map_err(|error| super::commitment_error(&error))?;
         let key = record.witness_key();
         let (write, value) = AmxWriteProofV1::from_writes(writes, &key)?;
@@ -318,7 +321,8 @@ impl AmxRecordProofV1 {
                 "the written value is not the record".into(),
             ));
         }
-        if write.root(&key, &value)? != commitment.execution.ordinary_writes_root {
+        if write.root(&key, &value)? != certified_result.commitment().execution.ordinary_writes_root
+        {
             return Err(AmxError::Proof(
                 "the write set differs from the block's ordinary-write root".into(),
             ));

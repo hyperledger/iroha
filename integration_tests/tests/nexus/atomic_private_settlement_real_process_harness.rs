@@ -5815,7 +5815,16 @@ fn collect_signed_rs16_finality(
     let responses = collect_bounded_observations(peers.clone(), TEST_STACK_BYTES, |peer| {
         let client = peer.client();
         let response = (|| -> Result<_> {
-            let proof = client.client().get_sumeragi_finality_proof(height)?;
+            let proof = client.client().get_sumeragi_finality_proof(
+                height,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::from_root_scope(
+                    iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(
+                        &network.genesis().0,
+                    )?
+                    .sumeragi_context
+                    .root_scope,
+                ),
+            )?;
             let certified = authenticated_native_history(network, &client)?
                 .into_iter()
                 .find(|block| block.committed().height() == finalized_height)
@@ -8168,7 +8177,18 @@ fn authenticated_native_history(
             network.network_id(),
             height,
             deadline,
-            |at| Ok(client.get_sumeragi_finality_proof(at)?),
+            |at| {
+                Ok(client.get_sumeragi_finality_proof(
+                    at,
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::from_root_scope(
+                        iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(
+                            &network.genesis().0,
+                        )?
+                        .sumeragi_context
+                        .root_scope,
+                    ),
+                )?)
+            },
         )
     })();
     if SmokeDiagnosticScopeV1::capture().is_some() {
@@ -8245,7 +8265,15 @@ fn certified_native_history_from_proofs(
             proof.height() == at,
             "native history proof differs from requested height"
         );
-        proof.decode_checked()?;
+        proof.decode_checked(
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::from_root_scope(
+                iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(
+                    trusted_genesis,
+                )?
+                .sumeragi_context
+                .root_scope,
+            ),
+        )?;
         let block = iroha::data_model::block::decode_framed_signed_block(&proof.block_wire)?;
         let block = iroha::data_model::block::SharedSignedBlock::try_new(block, &budget)
             .map_err(|(_, error)| error)?;

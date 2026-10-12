@@ -8,6 +8,8 @@ use crate::queue::RoutingDecision;
 /// Block validation supplies the actual fragment count before attachment.
 /// Rows, sources, receipts, transcripts and applying policy remain State-owned.
 pub(crate) struct ExecutionOutputSealMetadata {
+    /// Exact fixed-width X produced by the same post-execution finalizer.
+    pub(crate) sccp_finality_header: iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1,
     /// Actual fragment count after the finalizer's deterministic State changes.
     pub(crate) committed_fragment_count: u64,
 }
@@ -414,6 +416,12 @@ impl StateBlock<'_> {
             }
             let metadata = finalize(state, block, sources.carrier_network_routes())
                 .map_err(ExecutionOutputSealError::Finalizer)?;
+            if metadata.sccp_finality_header.network_id() != *state.network_id.as_bytes()
+                || metadata.sccp_finality_header.height() != block.header().height().get()
+                || metadata.sccp_finality_header.timestamp_ms() != block.header().creation_time_ms
+            {
+                return Err("finality header differs from its original execution source".into());
+            }
             if !matches!(
                 state.execution_output_plan,
                 Some(ExecutionOutputPlanState::Sealing)
@@ -487,6 +495,7 @@ impl StateBlock<'_> {
                 .executed_block_wire_identity()
                 .map_err(|error| error.to_string())?;
             Ok(SealedExecutionOutputs {
+                sccp_finality_header: metadata.sccp_finality_header,
                 witness_hash: None,
                 witness_surface: None,
                 _sources: sources,
@@ -507,6 +516,23 @@ impl StateBlock<'_> {
                 Err(error)
             }
         }
+    }
+
+    /// Borrow the original finalizer's fixed X only while its complete seal still matches.
+    /// Result preparation must take this value before publication mutates the overlay.
+    ///
+    /// # Errors
+    /// The output owner, exact executed wire, World delta or captured witness changed.
+    pub(crate) fn sealed_sccp_finality_header(
+        &self,
+        block: &SignedBlock,
+    ) -> Result<iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1, String> {
+        self.verify_execution_output_seal(block)?;
+        let Some(ExecutionOutputPlanState::Sealed(sealed)) = self.execution_output_plan.as_ref()
+        else {
+            return Err("finality header requires the original sealed output owner".into());
+        };
+        Ok(sealed.sccp_finality_header)
     }
 
     /// Check the exact attached wire while publication is still gated. Later

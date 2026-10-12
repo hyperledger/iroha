@@ -6,11 +6,11 @@
 //! stored in light-client `params`.
 //!
 //! **Versions.** Each network's profiles are append-only and numbered from 1: version `v` is
-//! element `v − 1` of [`ETHEREUM_MAINNET_VERSIONS`], [`BSC_MAINNET_VERSIONS`],
-//! [`TRON_MAINNET_VERSIONS`] or [`TON_MAINNET_VERSIONS`], and a release only ever appends a
-//! version, never edits one. Version 1 ([`GENESIS_PROFILE_VERSION`]) is active from genesis. A
-//! later version (a source-chain hard fork or a `supported_until` extension) becomes active only
-//! when the Parliament enacts `ActivateLightClientProfile` with its
+//! element `v − 1` of [`ETHEREUM_MAINNET_VERSIONS`], [`BSC_MAINNET_VERSIONS`] or
+//! [`TON_MAINNET_VERSIONS`], and a release only ever appends a version, never edits one.
+//! Version 1 ([`GENESIS_PROFILE_VERSION`]) is active from genesis. A later version (a
+//! source-chain hard fork or a `supported_until` extension) becomes active only when the
+//! Parliament enacts `ActivateLightClientProfile` with its
 //! [`profile hash`](EthereumChainProfileV1::profile_hash); world state then records the version,
 //! its hash and the Taira height it is active from.
 //!
@@ -350,140 +350,6 @@ impl BscChainProfileV1 {
     }
 }
 
-/// TRON maintenance interval (ms): the active witness set is re-elected every six hours.
-pub const TRON_MAINTENANCE_INTERVAL_MS: u64 = 21_600_000;
-/// Offset of the TRON maintenance grid from the Unix epoch (ms). java-tron advances
-/// `nextMaintenanceTime` from zero in whole intervals, so maintenances fall at 00:00, 06:00,
-/// 12:00 and 18:00 UTC and `T_p = p · 21 600 000`. The builders check it against
-/// `/wallet/getnextmaintenancetime` and fail closed on a mismatch.
-pub const TRON_MAINTENANCE_ORIGIN_MS: u64 = 0;
-/// TRON block interval (ms).
-pub const TRON_BLOCK_INTERVAL_MS: u64 = 3_000;
-/// Slots skipped after a maintenance block.
-pub const TRON_MAINTENANCE_SKIP_SLOTS: u64 = 2;
-/// Active witnesses (super representatives) per maintenance period.
-pub const TRON_ACTIVE_WITNESSES: usize = 27;
-/// Distinct active witnesses that must build on a block for it to be solid (70 % of 27).
-pub const TRON_SOLID_THRESHOLD: usize = 19;
-/// Production rounds of 27 slots after a maintenance block from which the new set is learned:
-/// two, so a witness that misses one slot is not evicted.
-pub const TRON_LEARNING_ROUNDS: u64 = 2;
-/// Last TRON mainnet time (ms) profile version 1 supports (2027-06-30T00:00:00Z).
-pub const TRON_MAINNET_SUPPORTED_UNTIL_MS: u64 = 1_814_313_600_000;
-/// Hard bound on segments in one TRON advance.
-pub const TRON_MAX_SEGMENTS_PER_ADVANCE: usize = 16;
-/// Hard bound on signed headers in one TRON segment (§4.13.3).
-pub const TRON_MAX_SEGMENT_HEADERS: usize = 128;
-/// Hard bound on unsigned `raw_data` headers from an event block to a stored checkpoint.
-pub const TRON_MAX_ANCESTRY_HEADERS: usize = 1_200;
-
-/// Compiled TRON chain profile.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct TronChainProfileV1 {
-    /// Maintenance interval (ms).
-    pub maintenance_interval_ms: u64,
-    /// Maintenance grid origin (ms).
-    pub maintenance_origin_ms: u64,
-    /// Block interval (ms).
-    pub block_interval_ms: u64,
-    /// Slots skipped after a maintenance block.
-    pub maintenance_skip_slots: u64,
-    /// Last supported header time (ms); later headers fail closed.
-    pub supported_until_ms: u64,
-}
-
-/// TRON mainnet profile version 1 (active from genesis).
-pub const TRON_MAINNET: TronChainProfileV1 = TronChainProfileV1 {
-    maintenance_interval_ms: TRON_MAINTENANCE_INTERVAL_MS,
-    maintenance_origin_ms: TRON_MAINTENANCE_ORIGIN_MS,
-    block_interval_ms: TRON_BLOCK_INTERVAL_MS,
-    maintenance_skip_slots: TRON_MAINTENANCE_SKIP_SLOTS,
-    supported_until_ms: TRON_MAINNET_SUPPORTED_UNTIL_MS,
-};
-
-/// TRON mainnet profile versions compiled into this release, append-only: version `v` is element
-/// `v − 1`.
-pub const TRON_MAINNET_VERSIONS: &[TronChainProfileV1] = &[TRON_MAINNET];
-
-impl TronChainProfileV1 {
-    /// The same profile with another `supported_until` time.
-    #[must_use]
-    pub const fn with_supported_until_ms(mut self, until_ms: u64) -> Self {
-        self.supported_until_ms = until_ms;
-        self
-    }
-
-    /// The maintenance period a header timestamped `time_ms` belongs to (`0` before the origin).
-    #[must_use]
-    pub const fn period_at(&self, time_ms: u64) -> u64 {
-        if time_ms < self.maintenance_origin_ms || self.maintenance_interval_ms == 0 {
-            return 0;
-        }
-        (time_ms - self.maintenance_origin_ms) / self.maintenance_interval_ms
-    }
-
-    /// Start of maintenance period `period` (ms), or `None` on overflow.
-    #[must_use]
-    pub const fn period_start_ms(&self, period: u64) -> Option<u64> {
-        match period.checked_mul(self.maintenance_interval_ms) {
-            Some(offset) => self.maintenance_origin_ms.checked_add(offset),
-            None => None,
-        }
-    }
-
-    /// End of maintenance period `period` (the next period's start, ms).
-    #[must_use]
-    pub const fn period_end_ms(&self, period: u64) -> Option<u64> {
-        match period.checked_add(1) {
-            Some(next) => self.period_start_ms(next),
-            None => None,
-        }
-    }
-
-    /// Length of the witness-learning window after a maintenance block (ms): the first
-    /// [`TRON_LEARNING_ROUNDS`] rounds of 27 production slots plus the skipped slots.
-    #[must_use]
-    pub const fn learning_window_ms(&self) -> u64 {
-        (TRON_LEARNING_ROUNDS * TRON_ACTIVE_WITNESSES as u64 + self.maintenance_skip_slots)
-            * self.block_interval_ms
-    }
-
-    /// Canonical fixed-layout bytes committed by the policy hash.
-    #[must_use]
-    pub fn policy_bytes(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(128);
-        out.extend_from_slice(b"SCCP/LC/PROFILE/TRON/V1");
-        for value in [
-            self.maintenance_interval_ms,
-            self.maintenance_origin_ms,
-            self.block_interval_ms,
-            self.maintenance_skip_slots,
-            self.supported_until_ms,
-        ] {
-            out.extend_from_slice(&value.to_be_bytes());
-        }
-        for bound in [
-            TRON_ACTIVE_WITNESSES,
-            TRON_SOLID_THRESHOLD,
-            TRON_MAX_SEGMENTS_PER_ADVANCE,
-            TRON_MAX_SEGMENT_HEADERS,
-            TRON_MAX_ANCESTRY_HEADERS,
-        ] {
-            out.extend_from_slice(&u64::try_from(bound).unwrap_or(u64::MAX).to_be_bytes());
-        }
-        out.extend_from_slice(&TRON_LEARNING_ROUNDS.to_be_bytes());
-        out.extend_from_slice(&MAX_SOURCE_FUTURE_MS.to_be_bytes());
-        out
-    }
-
-    /// Keccak-256 of [`Self::policy_bytes`]: the hash an `ActivateLightClientProfile` names and
-    /// world state records for this version (§4.13.2).
-    #[must_use]
-    pub fn profile_hash(&self) -> [u8; 32] {
-        keccak256(&[&self.policy_bytes()])
-    }
-}
-
 /// Margin subtracted from a TON epoch's `utime_until + stake_held_for` (ms): one hour.
 pub const TON_FRESHNESS_MARGIN_MS: u64 = 3_600_000;
 /// Last TON mainnet time (ms) profile version 1 supports (2027-06-30T00:00:00Z).
@@ -551,8 +417,6 @@ pub struct SccpChainProfilesV1 {
     pub ethereum: EthereumChainProfileV1,
     /// BSC mainnet.
     pub bsc: BscChainProfileV1,
-    /// TRON mainnet.
-    pub tron: TronChainProfileV1,
     /// TON mainnet.
     pub ton: TonChainProfileV1,
 }
@@ -561,7 +425,6 @@ pub struct SccpChainProfilesV1 {
 pub const GENESIS_PROFILES: SccpChainProfilesV1 = SccpChainProfilesV1 {
     ethereum: ETHEREUM_MAINNET_VERSIONS[0],
     bsc: BSC_MAINNET_VERSIONS[0],
-    tron: TRON_MAINNET_VERSIONS[0],
     ton: TON_MAINNET_VERSIONS[0],
 };
 
@@ -569,7 +432,6 @@ pub const GENESIS_PROFILES: SccpChainProfilesV1 = SccpChainProfilesV1 {
 pub const LATEST_PROFILES: SccpChainProfilesV1 = SccpChainProfilesV1 {
     ethereum: ETHEREUM_MAINNET_VERSIONS[ETHEREUM_MAINNET_VERSIONS.len() - 1],
     bsc: BSC_MAINNET_VERSIONS[BSC_MAINNET_VERSIONS.len() - 1],
-    tron: TRON_MAINNET_VERSIONS[TRON_MAINNET_VERSIONS.len() - 1],
     ton: TON_MAINNET_VERSIONS[TON_MAINNET_VERSIONS.len() - 1],
 };
 
@@ -595,7 +457,6 @@ impl SccpChainProfilesV1 {
         match network {
             SccpNetworkV1::EthereumMainnet => self.ethereum.supported_until_ms(),
             SccpNetworkV1::BscMainnet => self.bsc.supported_until_ms.checked_add(1),
-            SccpNetworkV1::TronMainnet => self.tron.supported_until_ms.checked_add(1),
             SccpNetworkV1::TonMainnet => self.ton.supported_until_ms.checked_add(1),
             SccpNetworkV1::SoraTaira => None,
         }
@@ -612,13 +473,6 @@ impl SccpChainProfilesV1 {
     #[must_use]
     pub const fn with_bsc(mut self, bsc: BscChainProfileV1) -> Self {
         self.bsc = bsc;
-        self
-    }
-
-    /// The same profiles with another TRON profile.
-    #[must_use]
-    pub const fn with_tron(mut self, tron: TronChainProfileV1) -> Self {
-        self.tron = tron;
         self
     }
 
@@ -642,8 +496,6 @@ pub struct SccpLcProfileCatalogV1<'a> {
     pub ethereum: &'a [EthereumChainProfileV1],
     /// BSC mainnet versions.
     pub bsc: &'a [BscChainProfileV1],
-    /// TRON mainnet versions.
-    pub tron: &'a [TronChainProfileV1],
     /// TON mainnet versions.
     pub ton: &'a [TonChainProfileV1],
 }
@@ -652,7 +504,6 @@ pub struct SccpLcProfileCatalogV1<'a> {
 pub const COMPILED_CATALOG: SccpLcProfileCatalogV1<'static> = SccpLcProfileCatalogV1 {
     ethereum: ETHEREUM_MAINNET_VERSIONS,
     bsc: BSC_MAINNET_VERSIONS,
-    tron: TRON_MAINNET_VERSIONS,
     ton: TON_MAINNET_VERSIONS,
 };
 
@@ -680,7 +531,6 @@ impl SccpLcProfileCatalogV1<'_> {
         match network {
             SccpNetworkV1::EthereumMainnet => newest(self.ethereum.len()),
             SccpNetworkV1::BscMainnet => newest(self.bsc.len()),
-            SccpNetworkV1::TronMainnet => newest(self.tron.len()),
             SccpNetworkV1::TonMainnet => newest(self.ton.len()),
             SccpNetworkV1::SoraTaira => 0,
         }
@@ -696,9 +546,6 @@ impl SccpLcProfileCatalogV1<'_> {
             }
             SccpNetworkV1::BscMainnet => {
                 at_version(self.bsc, version).map(|profile| profile.profile_hash())
-            }
-            SccpNetworkV1::TronMainnet => {
-                at_version(self.tron, version).map(|profile| profile.profile_hash())
             }
             SccpNetworkV1::TonMainnet => {
                 at_version(self.ton, version).map(|profile| profile.profile_hash())
@@ -721,7 +568,6 @@ impl SccpLcProfileCatalogV1<'_> {
         SccpLcActiveProfilesV1 {
             ethereum: genesis(SccpNetworkV1::EthereumMainnet),
             bsc: genesis(SccpNetworkV1::BscMainnet),
-            tron: genesis(SccpNetworkV1::TronMainnet),
             ton: genesis(SccpNetworkV1::TonMainnet),
         }
     }
@@ -785,12 +631,6 @@ impl SccpLcProfileCatalogV1<'_> {
                 active.bsc,
                 BscChainProfileV1::profile_hash,
             )?,
-            tron: pick(
-                self.tron,
-                SccpNetworkV1::TronMainnet,
-                active.tron,
-                TronChainProfileV1::profile_hash,
-            )?,
             ton: pick(
                 self.ton,
                 SccpNetworkV1::TonMainnet,
@@ -803,10 +643,9 @@ impl SccpLcProfileCatalogV1<'_> {
 
 /// The external networks that carry a light-client profile, in the order the active-profile
 /// hash commits them.
-pub const SCCP_LC_PROFILE_NETWORKS_V1: [SccpNetworkV1; 4] = [
+pub const SCCP_LC_PROFILE_NETWORKS_V1: [SccpNetworkV1; 3] = [
     SccpNetworkV1::EthereumMainnet,
     SccpNetworkV1::BscMainnet,
-    SccpNetworkV1::TronMainnet,
     SccpNetworkV1::TonMainnet,
 ];
 
@@ -826,8 +665,6 @@ pub struct SccpLcActiveProfilesV1 {
     pub ethereum: SccpLcProfileRefV1,
     /// BSC mainnet.
     pub bsc: SccpLcProfileRefV1,
-    /// TRON mainnet.
-    pub tron: SccpLcProfileRefV1,
     /// TON mainnet.
     pub ton: SccpLcProfileRefV1,
 }
@@ -839,7 +676,6 @@ impl SccpLcActiveProfilesV1 {
         match network {
             SccpNetworkV1::EthereumMainnet => Some(self.ethereum),
             SccpNetworkV1::BscMainnet => Some(self.bsc),
-            SccpNetworkV1::TronMainnet => Some(self.tron),
             SccpNetworkV1::TonMainnet => Some(self.ton),
             SccpNetworkV1::SoraTaira => None,
         }
@@ -851,7 +687,6 @@ impl SccpLcActiveProfilesV1 {
         match network {
             SccpNetworkV1::EthereumMainnet => self.ethereum = profile,
             SccpNetworkV1::BscMainnet => self.bsc = profile,
-            SccpNetworkV1::TronMainnet => self.tron = profile,
             SccpNetworkV1::TonMainnet => self.ton = profile,
             SccpNetworkV1::SoraTaira => {}
         }
@@ -865,7 +700,7 @@ impl SccpLcActiveProfilesV1 {
     /// unchanged.
     #[must_use]
     pub fn policy_hash(&self) -> [u8; 32] {
-        let mut bytes = Vec::with_capacity(4 * 36);
+        let mut bytes = Vec::with_capacity(SCCP_LC_PROFILE_NETWORKS_V1.len() * 36);
         for network in SCCP_LC_PROFILE_NETWORKS_V1 {
             if let Some(profile) = self.get(network) {
                 bytes.extend_from_slice(&profile.version.to_be_bytes());
@@ -1004,27 +839,6 @@ mod tests {
     }
 
     #[test]
-    fn tron_periods_follow_the_utc_maintenance_grid() {
-        let profile = TRON_MAINNET;
-        // Mainnet `getnextmaintenancetime` returned 2026-09-28T12:00:00Z.
-        let maintenance = 1_790_596_800_000;
-        let period = profile.period_at(maintenance);
-        assert_eq!(profile.period_start_ms(period), Some(maintenance));
-        assert_eq!(profile.period_at(maintenance - 1), period - 1);
-        assert_eq!(
-            profile.period_end_ms(period),
-            Some(maintenance + TRON_MAINTENANCE_INTERVAL_MS)
-        );
-        assert_eq!(profile.period_at(0), 0);
-        assert_eq!(profile.learning_window_ms(), 168_000);
-        assert!(
-            profile
-                .policy_bytes()
-                .starts_with(b"SCCP/LC/PROFILE/TRON/V1")
-        );
-    }
-
-    #[test]
     fn profile_hash_binds_every_profile_field() {
         let genesis = *SccpChainProfilesV1::genesis();
         assert_eq!(
@@ -1044,10 +858,6 @@ mod tests {
             TON_MAINNET.with_supported_until_ms(1).profile_hash(),
             TON_MAINNET.profile_hash()
         );
-        assert_ne!(
-            TRON_MAINNET.with_supported_until_ms(1).profile_hash(),
-            TRON_MAINNET.profile_hash()
-        );
     }
 
     /// Ethereum versions of a later release that appends version 2.
@@ -1060,11 +870,6 @@ mod tests {
         BSC_MAINNET,
         BSC_MAINNET.with_supported_until_ms(BSC_MAINNET_SUPPORTED_UNTIL_MS + 1),
     ];
-    /// TRON versions of a later release that appends version 2.
-    const EXTENDED_TRON: [TronChainProfileV1; 2] = [
-        TRON_MAINNET,
-        TRON_MAINNET.with_supported_until_ms(TRON_MAINNET_SUPPORTED_UNTIL_MS + 1),
-    ];
     /// TON versions of a later release that appends version 2.
     const EXTENDED_TON: [TonChainProfileV1; 2] = [
         TON_MAINNET,
@@ -1074,7 +879,6 @@ mod tests {
     const EXTENDED: SccpLcProfileCatalogV1<'static> = SccpLcProfileCatalogV1 {
         ethereum: &EXTENDED_ETHEREUM,
         bsc: &EXTENDED_BSC,
-        tron: &EXTENDED_TRON,
         ton: &EXTENDED_TON,
     };
 
@@ -1087,7 +891,6 @@ mod tests {
         );
         for (network, inclusive) in [
             (SccpNetworkV1::BscMainnet, BSC_MAINNET_SUPPORTED_UNTIL_MS),
-            (SccpNetworkV1::TronMainnet, TRON_MAINNET_SUPPORTED_UNTIL_MS),
             (SccpNetworkV1::TonMainnet, TON_MAINNET_SUPPORTED_UNTIL_MS),
         ] {
             assert_eq!(genesis.supported_until_ms(network), Some(inclusive + 1));

@@ -151,7 +151,13 @@ fn unsigned_changed_genesis_result_cannot_be_exported_by_streamed_reader() {
     let id = ChainId::from("sumeragi-certified-test-chain");
     let original = frame(&chain, 1);
     let certificate = original.commit_certificate().unwrap();
-    let mut result = ExecutionResultCommitment::decode(certificate.result_preimage()).unwrap();
+    let (result_header, mut result) =
+        iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+            certificate.result_preimage(),
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        )
+        .unwrap()
+        .into_parts();
     // Preserve the authenticated lane-write opening's structural consistency. This
     // attack changes a well-formed execution result which only the successor can bind.
     result.execution.world_state_root = Hash::new(b"unsigned genesis result replacement");
@@ -160,7 +166,12 @@ fn unsigned_changed_genesis_result_cannot_be_exported_by_streamed_reader() {
             CommitCertificate::from_untrusted_parts(
                 Vec::new(),
                 Vec::new(),
-                result.preimage().unwrap(),
+                iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
+                    result_header,
+                    result.clone(),
+                )
+                .preimage()
+                .unwrap(),
                 Vec::new(),
             ),
         )),
@@ -282,7 +293,13 @@ fn warmed_epoch_shape_rejects_substituted_context_and_still_checks_each_qc() {
     let original = frame(&chain, 3);
     for mutate_keys in [false, true] {
         let changed = with_parts(&original, |_, _, preimage| {
-            let mut commitment = ExecutionResultCommitment::decode(preimage).unwrap();
+            let (commitment_header, mut commitment) =
+                iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+                    preimage,
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                )
+                .unwrap()
+                .into_parts();
             if mutate_keys {
                 commitment.schedule.current.committee[0].proof_of_possession[0] ^= 1;
             } else {
@@ -300,7 +317,13 @@ fn warmed_epoch_shape_rejects_substituted_context_and_still_checks_each_qc() {
                 };
                 config.epoch = epoch.clone();
             }
-            *preimage = commitment.preimage().unwrap();
+            *preimage =
+                iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
+                    commitment_header,
+                    commitment.clone(),
+                )
+                .preimage()
+                .unwrap();
         });
         assert!(matches!(
             prefix.push(changed),
@@ -358,18 +381,57 @@ fn standalone_and_scoped_frame_reads_agree_without_skipping_shape_checks() {
     let (chain, _) = chain();
     let original = frame(&chain, 3);
     let mut validation = EpochValidationScope::new();
-    read_frame_with_validation(frame(&chain, 2), 2, &mut validation).unwrap();
-    let fresh = read_frame(original.clone(), 3).unwrap();
-    let reused = read_frame_with_validation(original.clone(), 3, &mut validation).unwrap();
+    read_frame_with_validation(
+        frame(&chain, 2),
+        2,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        &mut validation,
+    )
+    .unwrap();
+    let fresh = read_frame(
+        original.clone(),
+        3,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
+    let reused = read_frame_with_validation(
+        original.clone(),
+        3,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        &mut validation,
+    )
+    .unwrap();
     assert_eq!(fresh.commitment(), reused.commitment());
     assert_eq!(fresh.id(), reused.id());
     let changed = with_parts(&original, |_, _, preimage| {
-        let mut commitment = ExecutionResultCommitment::decode(preimage).unwrap();
+        let (commitment_header, mut commitment) =
+            iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+                preimage,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            )
+            .unwrap()
+            .into_parts();
         commitment.schedule.height += 1;
-        *preimage = commitment.preimage().unwrap();
+        *preimage = iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
+            commitment_header,
+            commitment.clone(),
+        )
+        .preimage()
+        .unwrap();
     });
-    let fresh_error = read_frame(changed.clone(), 3).unwrap_err();
-    let reused_error = read_frame_with_validation(changed, 3, &mut validation).unwrap_err();
+    let fresh_error = read_frame(
+        changed.clone(),
+        3,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap_err();
+    let reused_error = read_frame_with_validation(
+        changed,
+        3,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        &mut validation,
+    )
+    .unwrap_err();
     assert_eq!(fresh_error, reused_error);
     assert!(matches!(
         fresh_error,
@@ -396,8 +458,12 @@ fn scoped_reverse_walk_reads_all_original_frames_and_rechecks_corrupt_ancestors(
                 Ok(())
             },
             |receipt| {
-                let original =
-                    read_frame(frame(&chain, receipt.height()), receipt.height()).unwrap();
+                let original = read_frame(
+                    frame(&chain, receipt.height()),
+                    receipt.height(),
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                )
+                .unwrap();
                 assert_eq!(receipt.id(), original.id());
                 assert_eq!(receipt.commitment(), original.commitment());
                 assert_eq!(
@@ -552,7 +618,7 @@ fn admitted_prefix_initializes_every_field_like_the_owned_constructor() {
     let budget = iroha_allocation::AllocationBudget::new(
         prefix_bytes
             + std::mem::size_of::<CommittedBlock>()
-            + std::mem::size_of::<ExecutionResultCommitment>(),
+            + std::mem::size_of::<iroha_data_model::sumeragi_finality::CertifiedResultV1>(),
     );
     let mut slot =
         CertifiedPrefix::new_admitted(&id, chain.network_id(), frame(&chain, 1), &budget).unwrap();
@@ -585,9 +651,10 @@ fn admitted_prefix_finish_matches_original_step_and_retains_original_slot_until_
     let frame_bytes = std::alloc::Layout::array::<CommittedBlock>(1)
         .unwrap()
         .size();
-    let result_bytes = std::alloc::Layout::array::<ExecutionResultCommitment>(1)
-        .unwrap()
-        .size();
+    let result_bytes =
+        std::alloc::Layout::array::<iroha_data_model::sumeragi_finality::CertifiedResultV1>(1)
+            .unwrap()
+            .size();
     let budget = iroha_allocation::AllocationBudget::new(frame_bytes + result_bytes);
     let summarize = |step: CertifiedPrefixStep| {
         let (current, genesis) = step.into_parts();
@@ -631,7 +698,9 @@ fn admitted_prefix_finish_preserves_original_pool_refusal_and_certificate_error_
     let mut original = CertifiedPrefix::new(&id, chain.network_id(), frame(&chain, 1)).unwrap();
     let mut admitted = CertifiedPrefix::new(&id, chain.network_id(), frame(&chain, 1)).unwrap();
     let frame_layout = std::alloc::Layout::array::<CommittedBlock>(1).unwrap();
-    let result_layout = std::alloc::Layout::array::<ExecutionResultCommitment>(1).unwrap();
+    let result_layout =
+        std::alloc::Layout::array::<iroha_data_model::sumeragi_finality::CertifiedResultV1>(1)
+            .unwrap();
     let bytes = frame_layout.size() + result_layout.size();
     let budget = iroha_allocation::AllocationBudget::new(bytes);
     let blocker = budget
@@ -731,8 +800,18 @@ fn assert_walk_parent_link_retains_original_body(
         .unwrap()
         .initialize(source.as_ref().clone());
     drop(source);
-    let parent = read_frame(original.clone(), 2).unwrap();
-    let child = read_frame(frame(chain, 3), 3).unwrap();
+    let parent = read_frame(
+        original.clone(),
+        2,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
+    let child = read_frame(
+        frame(chain, 3),
+        3,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
     let mut link = WalkParentLink::from_committed(&parent);
     assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
         &link.block,
@@ -780,7 +859,16 @@ fn assert_walk_parent_link_retains_original_body(
     );
     link.block = block;
     assert!(link.is_extended_by(&child));
-    assert!(!link.is_extended_by(&read_frame(frame(chain, 4), 4).unwrap()));
+    assert!(
+        !link.is_extended_by(
+            &read_frame(
+                frame(chain, 4),
+                4,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
+            )
+            .unwrap()
+        )
+    );
     drop(link);
     assert_eq!(budget.reserved_bytes(), 0);
 }

@@ -37,7 +37,15 @@ fn selection(f: &BaseFixture) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
             &f.scheme.scheme_id(),
         )
         .unwrap();
-        generic.insert(platform.into(), norito::json!({"app_policy_original_base64":(text(row,"app_policy_original_base64").unwrap()),"enrollment_template_original_base64":(STANDARD.encode(policy.template().encode_canonical().unwrap())),"attestation_root_der_base64":(STANDARD.encode(SESSION_ROOT))}));
+        let mut selected = norito::json!({"app_policy_original_base64":(text(row,"app_policy_original_base64").unwrap()),"enrollment_template_original_base64":(STANDARD.encode(policy.template().encode_canonical().unwrap()))});
+        // Only Apple selects a root DER original; Android pins roots by SPKI in its policy.
+        if platform == "apple" {
+            object_mut(&mut selected).insert(
+                "attestation_root_der_base64".into(),
+                Value::String(STANDARD.encode(SESSION_ROOT)),
+            );
+        }
+        generic.insert(platform.into(), selected);
     }
     let (_, key) = f.key.public_key().to_bytes();
     generic.insert("sessions".into(), norito::json!([{"issuer":("community-provider"),"audience":("universal-provider"),"requestOrigin":("https://provider.example"),"verificationKeyEd25519Base64":(STANDARD.encode(key)),"releaseOriginalBase64":(STANDARD.encode(b"independent-provider-release")),"androidClientApp":("org.example.wallet"),"appleClientApp":("TEAM.org.example.wallet"),"enrollmentChallengePath":("/v1/kagemusha/enrollment"),"roles":[("WALLET_USER")],"requiredRole":("WALLET_USER")} ]));
@@ -265,10 +273,10 @@ fn generic_session(f: &BaseFixture, android: bool, mutation: Option<&str>) -> [V
     let message = format!("{header}.{}", encode(claims));
     let signature: G1Signature = proof_key.sign(message.as_bytes());
     let proof = format!("{message}.{}", URL_SAFE_NO_PAD.encode(signature.to_bytes())).into_bytes();
-    let root = if mutation == Some("root") {
-        b"foreign root".to_vec()
-    } else {
-        SESSION_ROOT.to_vec()
+    let root = match (mutation == Some("root"), android) {
+        (true, _) => b"foreign root".to_vec(),
+        (false, true) => Vec::new(),
+        (false, false) => SESSION_ROOT.to_vec(),
     };
     [token, proof, root]
 }
@@ -322,6 +330,56 @@ fn generic_provider_sessions_bind_selected_role_apps_origin_and_root() {
             );
         }
     }
+}
+
+#[test]
+fn generic_release_selects_only_the_apple_root_original() {
+    let f = BaseFixture::new();
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().canonicalize().unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let parent = iroha_fs::PrivateDirectory::open_exact(path).unwrap();
+    let (source, _) = registration(&f, &parent, "roots", 6, 2);
+    let original = selection(&f);
+    load(&f, &original, &source).unwrap();
+    // Re-sign the whole release around a changed runtime so only the platform rows differ.
+    let resigned = |change: &dyn Fn(&mut Map)| {
+        let mut runtime = json(&original.2, WALLET_RUNTIME_MAX, true).unwrap();
+        change(object_mut(&mut runtime));
+        let runtime = canonical(&runtime);
+        let mut app = json(&original.0, APP_MANIFEST_MAX, true).unwrap();
+        mutate(
+            &mut app,
+            "runtimeSha256",
+            Value::String(hex::encode(BlobV1::of(&runtime).sha256)),
+        );
+        let app = canonical(&app);
+        let envelope = sign_generic(&f, &app);
+        (app, envelope, runtime)
+    };
+    // The retired Android root DER is refused even when well formed.
+    let android_root = resigned(&|runtime| {
+        object_mut(runtime.get_mut("android").unwrap()).insert(
+            "attestation_root_der_base64".into(),
+            Value::String(STANDARD.encode(SESSION_ROOT)),
+        );
+    });
+    assert!(load(&f, &android_root, &source).is_err());
+    let apple_missing = resigned(&|runtime| {
+        object_mut(runtime.get_mut("apple").unwrap()).remove("attestation_root_der_base64");
+    });
+    assert!(load(&f, &apple_missing, &source).is_err());
+    let apple_foreign = resigned(&|runtime| {
+        object_mut(runtime.get_mut("apple").unwrap()).insert(
+            "attestation_root_der_base64".into(),
+            Value::String(STANDARD.encode(b"foreign root")),
+        );
+    });
+    assert!(load(&f, &apple_foreign, &source).is_err());
 }
 
 #[test]

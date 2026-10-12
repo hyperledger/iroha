@@ -489,15 +489,15 @@ final class KagemushaWalletApplePlatformV1Tests: XCTestCase {
   }
 
   func testGenerationLabelBindsChallengeAndProfileAndParsesStrictly() {
-    let bound = request(.secureElementOrTee)
-    XCTAssertEqual(bound.label, "kgm-w1-binding:2:" + String(repeating: "c4", count: 32))
+    let bound = request(.secureElement)
+    XCTAssertEqual(bound.label, "kgm-w1-binding:1:" + String(repeating: "c4", count: 32))
     XCTAssertEqual(KagemushaWalletAppleKeyGenerationRequestV1(label: bound.label), bound)
     XCTAssertEqual(
       KagemushaWalletAppleKeyGenerationRequestV1(label: request(.secureElement).label)?.profile,
       .secureElement)
     let digest = String(repeating: "c4", count: 32)
     for label in [
-      "kgm-w1-binding:3:" + digest, "kgm-w1-binding:0:" + digest,
+      "kgm-w1-binding:2:" + digest, "kgm-w1-binding:3:" + digest, "kgm-w1-binding:0:" + digest,
       "kgm-w1-binding:1:" + digest.uppercased(), "kgm-w1-binding:1-" + digest,
       "kgm-w1-binding:1:" + digest.dropLast(2), "kgm-w1-binding:1:" + digest + "00",
       "kgm-w1-bindinG:1:" + digest, "",
@@ -849,7 +849,6 @@ final class KagemushaWalletApplePlatformV1Tests: XCTestCase {
     let changed = try XCTUnwrap(KagemushaWalletAppleKeyGenerationRequestV1(
       challengeDigest: Data(repeating: 0xf1, count: 32), profile: request().profile))
     XCTAssertEqual(platform.recoverGenerationReply(slot, changed), KagemushaWalletAppleKeyGenerationV1.unavailable(.keyUnusable))
-    XCTAssertEqual(platform.recoverGenerationReply(slot, request(.secureElementOrTee)), KagemushaWalletAppleKeyGenerationV1.unavailable(.keyUnusable))
     let other = try XCTUnwrap(KagemushaWalletAppleSlotV1(Data(repeating: 0xaa, count: 32)))
     XCTAssertNil(platform.recoverGenerationReply(other, request()))
     let before = keychain.operations.count

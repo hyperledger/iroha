@@ -114,7 +114,10 @@ fn scoped_canonical_commitment_decode_preserves_bytes_and_all_other_validation()
             ExecutionResultCommitment::decode_with_validation(&bytes, &mut validation).unwrap();
         assert_eq!(decoded, value);
         assert_eq!(decoded.preimage().unwrap(), bytes);
-        assert_eq!(decoded.result().unwrap(), value.result().unwrap());
+        assert_eq!(
+            crate::sumeragi_finality::certified_result::body_digest(&decoded.preimage().unwrap()),
+            crate::sumeragi_finality::certified_result::body_digest(&value.preimage().unwrap())
+        );
         decoded.validate_with_validation(&mut validation).unwrap();
     }
     assert_eq!(validation.validations, 1);

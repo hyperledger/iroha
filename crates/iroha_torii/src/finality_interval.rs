@@ -272,7 +272,8 @@ pub(crate) async fn prepare(
     .await
 }
 
-async fn run_with_stop<T, F>(
+/// Run finite native proof production under one physical admission and cancellation owner.
+pub(crate) async fn run_with_stop<T, F>(
     admission: QueryAdmissionPermit,
     owner: history_producer::HistoryProducerOwner,
     work: F,

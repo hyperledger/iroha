@@ -51,6 +51,7 @@ pub struct HttpFinalitySource {
     peers: BTreeMap<PeerId, Client>,
     initial_height: NonZeroU64,
     deadline: Instant,
+    scope: iroha_data_model::sumeragi_finality::CertifiedResultScope,
 }
 
 impl HttpFinalitySource {
@@ -58,6 +59,7 @@ impl HttpFinalitySource {
     /// HTTPS is required except for numeric loopback development endpoints. Each client's
     /// explicit credential stays at that endpoint; this constructor never retargets a client.
     /// The initial height is only a retry hint, normally the retained checkpoint height.
+    /// Select `scope` from independently authenticated genesis or the retained native verifier.
     ///
     /// # Errors
     /// Rejects mixed networks, insecure remote endpoints, duplicate peers, unbounded endpoint
@@ -68,6 +70,7 @@ impl HttpFinalitySource {
         proof_clients: Vec<Client>,
         peer_clients: Vec<(PeerId, Client)>,
         deadline: Instant,
+        scope: iroha_data_model::sumeragi_finality::CertifiedResultScope,
     ) -> Result<Self, HttpFinalityError> {
         ensure_deadline(deadline)?;
         if proof_clients.is_empty()
@@ -99,6 +102,7 @@ impl HttpFinalitySource {
             peers,
             initial_height,
             deadline,
+            scope,
         })
     }
 }
@@ -111,7 +115,7 @@ impl FinalitySource for HttpFinalitySource {
             ensure_deadline(self.deadline)?;
             let bounded =
                 client.with_request_deadline(self.deadline.min(Instant::now() + PER_PEER_BUDGET));
-            if let Ok(proof) = bounded.get_sumeragi_finality_proof(height) {
+            if let Ok(proof) = bounded.get_sumeragi_finality_proof(height, self.scope) {
                 ensure_deadline(self.deadline)?;
                 return Ok(proof);
             }
@@ -137,7 +141,7 @@ impl FinalitySource for HttpFinalitySource {
             .with_request_deadline(deadline);
         read_tip(self.initial_height, deadline, |height| {
             client
-                .get_sumeragi_finality_attestation(height, *challenge, peer)
+                .get_sumeragi_finality_attestation(height, *challenge, peer, self.scope)
                 .map(FinalityAttestation::Authenticated)
                 .map_err(|error| {
                     match error.downcast_ref::<BridgeFinalityAttestationTipMismatch>() {

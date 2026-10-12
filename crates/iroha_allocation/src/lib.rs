@@ -201,6 +201,46 @@ pub struct OwnedAllocationScope {
 }
 
 impl OwnedAllocationScope {
+    /// Allocate the original scope control from an already retained exact charge.
+    /// A foreign or wrong-layout charge is returned before allocator work; an
+    /// allocator refusal returns that same charge without linking any TLS scope.
+    ///
+    /// # Errors
+    /// Returns unchanged charge custody and the precise local refusal.
+    pub fn try_from_charge(
+        budget: &AllocationBudget,
+        charge: AllocationCharge,
+    ) -> Result<Self, (AllocationCharge, OwnedScopeError)> {
+        if !charge.belongs_to(budget) {
+            return Err((charge, OwnedScopeError::ForeignPool));
+        }
+        let expected = Self::allocation_layout();
+        if charge.layout() != expected {
+            let actual = charge.layout();
+            return Err((charge, OwnedScopeError::LayoutMismatch { expected, actual }));
+        }
+        let record = crate::shared::Shared::try_new(
+            RefundScope {
+                pool: Arc::as_ptr(&budget.pool),
+                previous: Cell::new(REFUND_SCOPES.with(Cell::get)),
+                pending: Cell::new(false),
+            },
+            charge,
+        )
+        .map_err(|(_record, charge, error)| {
+            (
+                charge,
+                OwnedScopeError::Allocator {
+                    layout: error.layout(),
+                },
+            )
+        })?;
+        REFUND_SCOPES.with(|head| head.set(ptr::from_ref(&*record)));
+        Ok(Self {
+            record,
+            budget: budget.clone(),
+        })
+    }
     /// Exact original allocation retained until the last physical owner releases.
     pub fn allocation_layout() -> Layout {
         crate::shared::Shared::<RefundScope, AllocationCharge>::layout()
@@ -225,6 +265,25 @@ impl OwnedAllocationScope {
             _thread: std::marker::PhantomData,
         }
     }
+}
+
+/// Local refusal constructing an original prepaid refund-scope control.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OwnedScopeError {
+    /// The offered charge belongs to another original pool.
+    ForeignPool,
+    /// The offered charge does not describe this exact physical control.
+    LayoutMismatch {
+        /// Actual required control layout.
+        expected: Layout,
+        /// Offered original charge layout.
+        actual: Layout,
+    },
+    /// The allocator refused the already admitted control layout.
+    Allocator {
+        /// Original requested layout.
+        layout: Layout,
+    },
 }
 
 impl Drop for OwnedAllocationScope {

@@ -2,7 +2,7 @@
 
 /// Exact existing first-release ABI-v1 golden; no production ABI authority is defined here.
 pub const ABI_V1_HASH_GOLDEN: &str =
-    "1958609290ef3fd0d62cd291f4462df35eb8bc77936b0e6cdf0d83d26815f5d5";
+    "d87449f2ec45628b835c736c9915eaa85bfcb87e544da269fdb7c4889d3db82f";
 
 /// Decode the exact wire-fixture hash into fixed stack storage for Model codec tests.
 /// The owning `ivm_abi` test recomputes and authenticates this value.

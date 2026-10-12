@@ -122,13 +122,6 @@ pub fn chain_hash(bytes: &[u8]) -> Hash32 {
     Hash32(<[u8; 32]>::from(Hash::new(bytes)))
 }
 
-/// `R` of a canonical result preimage: `H(RESULT_TAG ‖ preimage)`.
-/// Streams the domain and borrowed preimage without allocating a second payload buffer.
-#[must_use]
-pub fn result_of_preimage(preimage: &[u8]) -> Hash32 {
-    Hash32(Hash::new_from_chunks(&[RESULT_TAG, preimage]).into())
-}
-
 /// The deterministic outcome of executing one block: the complete World state before and after
 /// it, the events it emitted, roots over its execution witness and the identity of the
 /// result-bearing block (`specs/sumeragi.md` §4.1, Appendix E, E51).
@@ -392,14 +385,6 @@ impl ExecutionResultCommitment {
         decoded.validate_with_validation(validation)?;
         Ok(finish(decoded))
     }
-
-    /// `R` of this commitment.
-    ///
-    /// # Errors
-    /// A Norito serialization failure.
-    pub fn result(&self) -> Result<Hash32, CommitmentError> {
-        self.preimage().map(|bytes| result_of_preimage(&bytes))
-    }
 }
 
 /// Why `R` could not be computed or its canonical preimage could not be decoded.
@@ -440,6 +425,8 @@ pub enum CommitmentError {
 
 #[cfg(test)]
 mod execution_validation_tests {
+    #[cfg(feature = "transparent_api")]
+    use super::super::CertifiedResultScope;
     use super::*;
     use std::num::NonZeroU64;
 
@@ -492,7 +479,13 @@ mod execution_validation_tests {
     #[test]
     fn complete_native_result_decode_rejects_invalid_execution_geometry() {
         let fixture = super::super::tests::Fixture::new();
-        let mut commitment = fixture.second.decode_checked().unwrap().commitment;
+        let mut commitment = fixture
+            .second
+            .decode_checked(CertifiedResultScope::TairaGlobal)
+            .unwrap()
+            .certified_result
+            .into_parts()
+            .1;
         commitment.execution.executed_block_wire_len = 0;
         assert!(commitment.validate().is_err());
         let frame = norito::encode_canonical(&commitment).unwrap();

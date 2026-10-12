@@ -106,7 +106,7 @@ class KagemushaWalletAndroidPlatformDeviceV1Test {
         assertEquals(unknown, (adapter.keyProbe(slot) as KagemushaWalletAndroidKeyProbeV1.Unavailable).reason)
         assertEquals(
             unknown,
-            (adapter.keyGenerate(slot, nonzero32(), KagemushaWalletAndroidKeyProfileV1.SECURE_ELEMENT_OR_TEE.tag)
+            (adapter.keyGenerate(slot, nonzero32(), KAGEMUSHA_WALLET_ANDROID_KEY_PROFILE_TAG_V1)
                 as KagemushaWalletAndroidKeyGenerationV1.Unavailable).reason,
         )
         assertEquals(unknown, (adapter.attestationChain(slot) as KagemushaWalletAndroidAttestationChainV1.Unavailable).reason)
@@ -129,7 +129,7 @@ class KagemushaWalletAndroidPlatformDeviceV1Test {
         val adapter = adapter()
         val slot = nonzero32()
         assertSame(KagemushaWalletAndroidKeyProbeV1.Absent, adapter.keyProbe(slot))
-        val result = adapter.keyGenerate(slot, nonzero32(), KagemushaWalletAndroidKeyProfileV1.SECURE_ELEMENT_OR_TEE.tag)
+        val result = adapter.keyGenerate(slot, nonzero32(), KAGEMUSHA_WALLET_ANDROID_KEY_PROFILE_TAG_V1)
         try {
             when (result) {
                 is KagemushaWalletAndroidKeyGenerationV1.Generated -> {
@@ -148,13 +148,13 @@ class KagemushaWalletAndroidPlatformDeviceV1Test {
                     })
                     assertSame(
                         KagemushaWalletAndroidKeyGenerationV1.AlreadyPresent,
-                        adapter.keyGenerate(slot, nonzero32(), KagemushaWalletAndroidKeyProfileV1.SECURE_ELEMENT_OR_TEE.tag),
+                        adapter.keyGenerate(slot, nonzero32(), KAGEMUSHA_WALLET_ANDROID_KEY_PROFILE_TAG_V1),
                     )
                 }
                 is KagemushaWalletAndroidKeyGenerationV1.Unavailable -> {
                     // A retained but unusable key may exercise refusal, never a successful
                     // hardware lifecycle. Other provider/StrongBox failures remain failures;
-                    // the mixed profile's safe TEE fallback belongs to the production adapter.
+                    // the TEE hint for a fresh slot under a new challenge belongs to enrollment.
                     assertEquals(KagemushaWalletAndroidUnavailableV1.KEY_UNUSABLE, result.reason)
                     assertTrue(adapter.keyProbe(slot) is KagemushaWalletAndroidKeyProbeV1.Present)
                     assumeTrue("The provider refused the key; hardware lifecycle was not exercised", false)

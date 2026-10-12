@@ -56,6 +56,16 @@ pub(super) struct OtherDomains {
 pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     OtherDomains {
         usage: Use::Record,
+        reason: "Root of one canonical ordered native BLS committee key list. It identifies the committee retained in a generation and bound by finality X; it is not a digest over the generation table or a substitute for authenticated schedule authority",
+        literals: &[r"SCCP/COMMITTEE/V1"],
+    },
+    OtherDomains {
+        usage: Use::Name,
+        reason: "Exact magic of the fixed-width native finality header X. It selects the sole header layout; X is bound by the certified result, but this literal itself is not a State hash domain",
+        literals: &[r"SCCP/FINALITY/V1"],
+    },
+    OtherDomains {
+        usage: Use::Record,
         reason: "Hashes of the finite variant names and codes of one ordinary enum or application-error schema, excluding nominal identity. Each binds one supplied descriptor's content and commits no State tables or cells",
         literals: &[
             r"iroha:kotodama:enum-schema:v1\0",
@@ -98,13 +108,14 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     },
     OtherDomains {
         usage: Use::Name,
-        reason: "Norito schema names of the node-local enrollment journal scope, immutable selection, progress record, eligibility exchange, permit and worker preparation originals. The exclusive filesystem journal provides local custody and ordering, not a State commitment or independent authorization",
+        reason: "Norito schema names of the node-local enrollment journal scope, immutable selection, progress record, eligibility and worker-refusal exchanges, permit and worker preparation originals. The exclusive filesystem journal provides local custody and ordering, not a State commitment or independent authorization",
         literals: &[
             r"iroha_core.kagemusha.enrollment.eligibility_record.v1",
             r"iroha_core.kagemusha.enrollment.journal_permit.v1",
             r"iroha_core.kagemusha.enrollment.journal_scope.v1",
             r"iroha_core.kagemusha.enrollment.phase.v1",
             r"iroha_core.kagemusha.enrollment.record.v1",
+            r"iroha_core.kagemusha.enrollment.refusal_exchange.v1",
             r"iroha_core.kagemusha.enrollment.selection.v1",
             r"iroha_core.kagemusha.enrollment.worker_preparation.v1",
             r"iroha_core.kagemusha.enrollment.worker_prepared.v1",
@@ -134,10 +145,11 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     },
     OtherDomains {
         usage: Use::LocalArtifact,
-        reason: "Exact installed issuer journal scope original, its local digest and the local attempt cursor over one durable operation record excluding its eligibility exchange index. These fence original filesystem custody and phase ordering; no journal digest is a certified State root or an eligibility/signing grant",
+        reason: "Exact installed issuer journal scope original, its local digest, the bounded exact-byte adoption memo and the local attempt cursor over one durable operation record excluding its eligibility exchange index. These fence original filesystem custody and phase ordering; no journal digest is a certified State root or an eligibility/signing grant",
         literals: &[
             r"iroha:kagemusha:eligibility:attempt-cursor:v1\0",
             r"iroha:kagemusha:enrollment-issuer:v1\0",
+            r"iroha:kagemusha:issuer-journal-adopted:v1\0",
             r"iroha:kagemusha:issuer-journal-scope:v1\0",
         ],
     },
@@ -176,6 +188,7 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
         literals: &[
             r"iroha/sumeragi/certified-block/v1",
             r"iroha/sumeragi/lane/result/v1",
+            r"iroha/sumeragi/result-body/v1",
             r"iroha/sumeragi/result/v1",
         ],
     },
@@ -475,8 +488,6 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
             r"iroha.private_settlement.finalize_atomic_bundle.v1",
             r"iroha.private_settlement.register_atomic_prepare.v1",
             r"iroha.private_settlement.rotate_pool_policy.v1",
-            r"iroha.sccp.bridge_key.v1",
-            r"iroha.sccp.other.v1",
             r"iroha.streaming.snapshot.v1",
             r"iroha.sumeragi.amx.begin.v1",
             r"iroha.sumeragi.amx.prepare.v1",
@@ -665,6 +676,8 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
             r"retail_day_policy_v1/",
             r"retail_day_usage_v1/",
             r"retail_fee_control_v1/",
+            r"retail_fee_control_v1/reward_closed_through",
+            r"retail_fee_control_v1/reward_month/",
             r"retail_fee_control_v1/sweep_cursor",
             r"retail_fee_heads_v1/",
             r"retail_fee_receipts_v1/",
@@ -697,7 +710,6 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
             r"iroha.staking.pending_unbond.v1\0",
             r"iroha.staking.public_lane_candidate.v1",
             r"iroha.staking.public_lane_peer_binding.v1",
-            r"iroha.staking.reward_record.v1\0",
             r"iroha.validation_fee.payout_lifecycle.seal.v1",
             r"iroha.validation_fee.policy.parliament.v1",
             r"iroha/sumeragi/amx/transaction/v1",

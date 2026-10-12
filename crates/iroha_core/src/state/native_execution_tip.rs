@@ -14,7 +14,12 @@ use iroha_sumeragi::types::Hash32;
 /// Fixed execution identity retained by the original publication generation.
 /// This type deliberately has no decoder or public constructor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct NativeExecutionTip(NativeExecutionTipRecord);
+pub struct NativeExecutionTip(
+    NativeExecutionTipRecord,
+    // Only original execution or authenticated genesis-prefix restoration installs this.
+    // It is deliberately excluded from persisted record and undo projections.
+    iroha_data_model::block::consensus::SumeragiRootScope,
+);
 
 /// Snapshot claim; decoding this record grants no execution authority.
 #[derive(
@@ -35,6 +40,19 @@ impl norito::json::JsonSerialize for NativeExecutionTip {
 }
 
 impl NativeExecutionTip {
+    /// Original signed root identity retained with this opaque execution owner.
+    pub(crate) const fn root_scope(self) -> iroha_data_model::block::consensus::SumeragiRootScope {
+        self.1
+    }
+
+    /// Structural result scope selected by the original authenticated root.
+    #[must_use]
+    pub const fn result_scope(self) -> iroha_data_model::sumeragi_finality::CertifiedResultScope {
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::from_root_scope(
+            self.root_scope(),
+        )
+    }
+
     /// One-based original executed height.
     #[must_use]
     pub const fn height(self) -> u64 {
@@ -226,8 +244,8 @@ impl NativeExecutionTipSnapshot {
         }
         initialize(
             budget,
-            Some(NativeExecutionTip(current)),
-            Some(Some(NativeExecutionTip(previous))),
+            Some(NativeExecutionTip(current, chain.root_scope())),
+            Some(Some(NativeExecutionTip(previous, chain.root_scope()))),
         )
         .map_err(TipRestoreError::Admission)
     }
@@ -262,13 +280,13 @@ impl StateBlock<'_> {
         block: &crate::block::CommittedBlock,
         certificate: &iroha_data_model::block::CommitCertificate,
     ) -> Result<NativeExecutionTipRecord, String> {
-        let (next, parent) = authorization.for_state(self.state_ref)?;
+        let (next, parent, root_scope) = authorization.for_state(self.state_ref)?;
         let iroha = block.as_ref();
         if next.height != iroha.header().height().get()
             || u128::from(next.creation_time_ms) != iroha.header().creation_time().as_millis()
             || next.iroha_hash != iroha.hash()
-            || next.result
-                != crate::sumeragi::commitment::result_of_preimage(certificate.result_preimage()).0
+            || crate::sumeragi::commitment::result_of_preimage(certificate.result_preimage())
+                != Some(Hash32(next.result))
         {
             return Err("native execution owner differs from the original sealed carrier".into());
         }
@@ -301,7 +319,8 @@ impl StateBlock<'_> {
                     && self.block_hashes.last().copied() == Some(previous.iroha_hash())
                     && iroha.header().prev_block_hash() == Some(previous.iroha_hash())
                     && parent_hash == previous.core_hash()
-                    && parent_result == previous.result() => {}
+                    && parent_result == previous.result()
+                    && root_scope == previous.root_scope() => {}
             _ => {
                 return Err(
                     "native execution owner does not extend this original State tip".into(),
@@ -317,13 +336,13 @@ impl StateBlock<'_> {
         authorization: &crate::sumeragi::executor::NativeExecutionAuthorization,
         block: &crate::block::CommittedBlock,
     ) -> Result<(), String> {
-        let (next, _) = authorization.for_state(self.state_ref)?;
+        let (next, _, root_scope) = authorization.for_state(self.state_ref)?;
         if next.iroha_hash != block.as_ref().hash()
             || next.height != self._curr_block.height().get()
         {
             return Err("native execution tip changed during metadata preparation".into());
         }
-        *self.native_execution_tip.get_mut() = Some(NativeExecutionTip(next));
+        *self.native_execution_tip.get_mut() = Some(NativeExecutionTip(next, root_scope));
         // An abandoned block's checkpoint is harmless: readers trust a checkpoint
         // only while it matches their committed hash journal.
         self.kura

@@ -1,13 +1,12 @@
-//! SCCP v1 read-model views (`specs/sccp.md` §6) that do not depend on the attestation format.
+//! SCCP v1 read-model views (`specs/sccp.md` §6).
 //!
 //! - [`SccpMessageStatusV1`] (`GET /v1/sccp/messages/{message_id}`): the status union of an
-//!   outbound record (recorded, attested, voided, refunded, stranded), an inbound record
-//!   (pending, released, bounced) or an id Taira does not know.
+//!   outbound record (recorded, voided, refunded, stranded), an inbound record (pending,
+//!   released, bounced) or an id Taira does not know.
 //! - [`SccpOutboundPageV1`] (`GET /v1/sccp/outbound/{network}/{revision}`): records by nonce for
 //!   void and refund planning and for finding a just-recorded transfer.
 //! - [`SccpRecentMessagesV1`] (`GET /v1/sccp/messages/recent`): newest records first.
-//! - [`SccpControlPageV1`] (`GET /v1/sccp/controls/{network}/{revision}`): destination controls
-//!   with their attestation progress.
+//! - [`SccpControlPageV1`] (`GET /v1/sccp/controls/{network}/{revision}`): destination controls.
 //! - [`SccpLightClientDetailV1`] and [`SccpLcCheckpointCoverV1`] (`GET
 //!   /v1/sccp/light-clients/{network}` and `/checkpoints?covering=N`).
 //! - [`SccpGovernanceProposalDetailV1`] (`GET /v1/sccp/governance/proposals/{proposal_id}`).
@@ -37,84 +36,15 @@ pub const MAX_RECENT_MESSAGES: usize = 50;
 pub const MAX_OUTBOUND_PAGE: usize = 256;
 /// Largest `GET /v1/sccp/controls/{network}/{revision}` page (§6).
 pub const MAX_CONTROLS_PAGE: usize = 64;
-/// Largest `GET /v1/sccp/rosters/rotations` page (§6, one `rotateRosters` call).
-pub const MAX_ROTATION_STEPS: usize = 16;
-
-// ---------------------------------------------------------------------------------------------
-// Attestation progress
-// ---------------------------------------------------------------------------------------------
-
-/// Signatures stored for one attestation subject against its generation's threshold.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    Default,
-    PartialEq,
-    Eq,
-    Hash,
-    Decode,
-    Encode,
-    norito::derive::JsonSerialize,
-    norito::derive::JsonDeserialize,
-)]
-#[norito(no_fast_from_json)]
-#[norito(decode_from_slice)]
-#[norito(deny_unknown_fields)]
-#[derive(norito::NoritoSchema)]
-#[norito_schema(name = "iroha_sccp::api::SccpAttestationProgressV1")]
-pub struct SccpAttestationProgressV1 {
-    /// Taira height of the attestation subject.
-    pub subject_height: u64,
-    /// Signatures stored for it (signer bitmap popcount).
-    pub signers: u32,
-    /// `t` of the generation that signs it (0 when the generation is unknown).
-    pub threshold: u32,
-}
-
-/// Attestation state of the subject of a leaf's own block.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    Decode,
-    Encode,
-    norito::derive::JsonSerialize,
-    norito::derive::JsonDeserialize,
-)]
-#[norito(no_fast_from_json)]
-#[norito(decode_from_slice)]
-#[norito(deny_unknown_fields)]
-#[norito(tag = "status", content = "detail")]
-#[derive(norito::NoritoSchema)]
-#[norito_schema(name = "iroha_sccp::api::SccpLeafAttestationV1")]
-pub enum SccpLeafAttestationV1 {
-    /// Fewer than `t` signatures so far.
-    #[codec(index = 0)]
-    #[norito(rename = "pending")]
-    Pending(SccpAttestationProgressV1),
-    /// At least `t` signatures were recorded; a proof bundle can be served.
-    #[codec(index = 1)]
-    #[norito(rename = "attested")]
-    Attested(SccpAttestationProgressV1),
-}
-
-impl SccpLeafAttestationV1 {
-    /// Whether the subject is attested.
-    #[must_use]
-    pub const fn is_attested(&self) -> bool {
-        matches!(self, Self::Attested(_))
-    }
-}
 
 // ---------------------------------------------------------------------------------------------
 // Message status union
 // ---------------------------------------------------------------------------------------------
 
 /// Payload of [`SccpOutboundStateV1::Recorded`].
+///
+/// TODO: Torii work package (TT-A1): add `provable`, set once a certificate covers the record
+/// height (§6).
 #[derive(
     Debug,
     Clone,
@@ -139,10 +69,8 @@ pub struct SccpRecordedStateV1 {
 
 /// Wallet-facing state of an outbound record (§6, §7.1 step 4, §7.3).
 ///
-/// `Recorded` and `Attested` both mean the stored status is `recorded`; `Attested` adds that a
-/// subject at or above the record's block reached `t` signatures, so a proof bundle exists. It
-/// names the record's own subject while state retains that subject's signatures, otherwise the
-/// newest attested subject.
+/// Codec index 1 belonged to the attested state of the attestation transport and stays
+/// unassigned.
 #[derive(
     Debug,
     Clone,
@@ -162,14 +90,10 @@ pub struct SccpRecordedStateV1 {
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "iroha_sccp::api::SccpOutboundStateV1")]
 pub enum SccpOutboundStateV1 {
-    /// Recorded and not attested yet.
+    /// Recorded on Taira.
     #[codec(index = 0)]
     #[norito(rename = "recorded")]
     Recorded(SccpRecordedStateV1),
-    /// Recorded and attested by the named subject (`?attestation=<subject_height>`).
-    #[codec(index = 1)]
-    #[norito(rename = "attested")]
-    Attested(SccpAttestationProgressV1),
     /// Voided on the destination and proven on Taira.
     #[codec(index = 2)]
     #[norito(rename = "voided")]
@@ -374,7 +298,7 @@ pub struct SccpRecentMessagesV1 {
     pub next_before: Option<String>,
 }
 
-/// One destination control with the attestation state of its block.
+/// One destination control.
 #[derive(
     Debug,
     Clone,
@@ -397,8 +321,6 @@ pub struct SccpControlViewV1 {
     pub control_nonce: u64,
     /// The stored record (pause state, height, commitment index, leaf, enacting proposal).
     pub record: SccpControlRecordV1,
-    /// Attestation state of the subject of its block.
-    pub attestation: SccpLeafAttestationV1,
 }
 
 /// `GET /v1/sccp/controls/{network}/{revision}?after_nonce&limit`: controls ascending (§4.14.6).
@@ -765,8 +687,6 @@ pub struct SccpReadLimitsV1 {
     pub outbound_page: u32,
     /// `GET /v1/sccp/controls/{network}/{revision}`.
     pub controls_page: u32,
-    /// `GET /v1/sccp/rosters/rotations`.
-    pub rotation_steps: u32,
 }
 
 impl SccpReadLimitsV1 {
@@ -778,7 +698,6 @@ impl SccpReadLimitsV1 {
             recent_messages: 50,
             outbound_page: 256,
             controls_page: 64,
-            rotation_steps: 16,
         }
     }
 }
@@ -858,14 +777,6 @@ mod tests {
         assert!(norito::json::from_json::<T>(&text).is_err(), "{text}");
     }
 
-    fn progress() -> SccpAttestationProgressV1 {
-        SccpAttestationProgressV1 {
-            subject_height: 12,
-            signers: 3,
-            threshold: 3,
-        }
-    }
-
     fn outbound(state: SccpOutboundStateV1) -> SccpOutboundMessageViewV1 {
         SccpOutboundMessageViewV1 {
             message_id: [1; 32],
@@ -908,7 +819,6 @@ mod tests {
     fn states() -> Vec<SccpOutboundStateV1> {
         vec![
             SccpOutboundStateV1::Recorded(SccpRecordedStateV1 { deadline_ms: 99 }),
-            SccpOutboundStateV1::Attested(progress()),
             SccpOutboundStateV1::Voided(SccpVoidStatusV1 {
                 kind: SccpVoidKindV1::Frozen,
                 proven_at_height: 30,
@@ -978,17 +888,16 @@ mod tests {
         );
         assert_eq!(u32::try_from(MAX_OUTBOUND_PAGE), Ok(limits.outbound_page));
         assert_eq!(u32::try_from(MAX_CONTROLS_PAGE), Ok(limits.controls_page));
-        assert_eq!(u32::try_from(MAX_ROTATION_STEPS), Ok(limits.rotation_steps));
-        assert_eq!(
-            MAX_ROTATION_STEPS,
-            crate::v1::constants::MAX_ROTATIONS_PER_CALL
-        );
+        // The rotations page of the attestation transport has no limit entry.
+        let json = norito::json::to_value(&limits).expect("JSON");
+        assert!(json.get("rotation_steps").is_none());
+        assert_eq!(json.as_object().expect("object").len(), 3);
     }
 
     #[test]
     fn status_predicates_follow_finality() {
         let finals: Vec<bool> = states().iter().map(SccpOutboundStateV1::is_final).collect();
-        assert_eq!(finals, vec![false, false, false, true, true]);
+        assert_eq!(finals, vec![false, false, true, true]);
         assert!(!SccpMessageStatusV1::Unknown.is_final());
         assert!(!SccpMessageStatusV1::Inbound(inbound()).is_final());
         let mut released = inbound();
@@ -996,10 +905,59 @@ mod tests {
         let released = SccpMessageStatusV1::Inbound(released);
         assert!(released.is_final());
         assert!(released.inbound().is_some() && released.outbound().is_none());
-        let outbound = SccpMessageStatusV1::Outbound(outbound(states()[3]));
+        let outbound = SccpMessageStatusV1::Outbound(outbound(states()[2]));
         assert!(outbound.is_final() && outbound.outbound().is_some());
-        assert!(SccpLeafAttestationV1::Attested(progress()).is_attested());
-        assert!(!SccpLeafAttestationV1::Pending(progress()).is_attested());
+    }
+
+    #[test]
+    fn outbound_state_keeps_its_codec_indices_and_has_no_attested_state() {
+        // Index 1 was the attested state; it stays unassigned and the survivors do not shift.
+        for (state, index) in states().iter().zip([0_u32, 2, 3, 4]) {
+            assert!(state.encode().starts_with(&index.encode()), "{state:?}");
+        }
+        for index in [1_u32, 5, u32::MAX] {
+            let mut encoded = index.encode();
+            encoded.extend_from_slice(&[0x11; 64]);
+            assert!(
+                SccpOutboundStateV1::decode_all(&mut encoded.as_slice()).is_err(),
+                "state index {index}"
+            );
+        }
+        let recorded = norito::json::to_json(&states()[0]).expect("JSON");
+        assert!(recorded.contains(r#""state":"recorded""#), "{recorded}");
+        let attested = recorded.replace(r#""state":"recorded""#, r#""state":"attested""#);
+        assert!(norito::json::from_json::<SccpOutboundStateV1>(&attested).is_err());
+    }
+
+    #[test]
+    fn held_pending_status_is_closed_nonfinal_data_in_every_codec() {
+        let mut held = inbound();
+        held.record.status = SccpInboundStatusV1::pending(SccpPendingReasonV1::Held);
+        let held = SccpMessageStatusV1::Inbound(held);
+        assert!(held.inbound().unwrap().record.status.is_pending());
+        assert!(
+            !held.is_final(),
+            "a hold is not an immutable terminal status"
+        );
+        roundtrip(&held);
+        roundtrip(&SccpRecentMessagesV1 {
+            messages: vec![held.clone()],
+            next_before: Some("20:02".to_owned()),
+        });
+        assert!(
+            SccpPendingReasonV1::Held
+                .encode()
+                .starts_with(&6_u32.encode())
+        );
+        for index in [7_u32, u32::MAX] {
+            assert!(SccpPendingReasonV1::decode_all(&mut index.encode().as_slice()).is_err());
+        }
+        let json = norito::json::to_json(&held).expect("held JSON");
+        assert!(json.contains(r#""reason":"held""#), "{json}");
+        for replacement in [r#""reason":"Held""#, r#""reason":"unknown""#] {
+            let hostile = json.replace(r#""reason":"held""#, replacement);
+            assert!(norito::json::from_json::<SccpMessageStatusV1>(&hostile).is_err());
+        }
     }
 
     #[test]
@@ -1031,13 +989,15 @@ mod tests {
             controls: vec![SccpControlViewV1 {
                 control_nonce: 2,
                 record: SccpControlRecordV1 {
-                    paused: true,
+                    track: 1,
+                    parliament_paused: true,
+                    fast_pause_until_ms: 0,
                     height: 12,
                     commitment_index: 0,
                     leaf: [1; 32],
-                    proposal_id: [2; 32],
+                    certificate_id: [2; 32],
+                    effect_hash: [0x45; 32],
                 },
-                attestation: SccpLeafAttestationV1::Pending(progress()),
             }],
             next_after_nonce: None,
         });
@@ -1086,19 +1046,37 @@ mod tests {
             unknown.get("direction").and_then(Value::as_str),
             Some("unknown")
         );
-        let attested =
-            norito::json::to_value(&SccpMessageStatusV1::Outbound(outbound(states()[1])))
-                .expect("JSON");
+        let voided = norito::json::to_value(&SccpMessageStatusV1::Outbound(outbound(states()[1])))
+            .expect("JSON");
         assert_eq!(
-            attested.get("direction").and_then(Value::as_str),
+            voided.get("direction").and_then(Value::as_str),
             Some("outbound")
         );
-        let state = &attested["detail"]["state"];
-        assert_eq!(state.get("state").and_then(Value::as_str), Some("attested"));
+        let state = &voided["detail"]["state"];
+        assert_eq!(state.get("state").and_then(Value::as_str), Some("voided"));
         assert_eq!(
-            state["detail"].get("signers").and_then(Value::as_u64),
-            Some(3)
+            state["detail"]
+                .get("proven_at_height")
+                .and_then(Value::as_u64),
+            Some(30)
         );
+        // A control names no attestation state.
+        let control = SccpControlViewV1 {
+            control_nonce: 2,
+            record: SccpControlRecordV1 {
+                track: 1,
+                parliament_paused: true,
+                fast_pause_until_ms: 0,
+                height: 12,
+                commitment_index: 0,
+                leaf: [1; 32],
+                certificate_id: [2; 32],
+                effect_hash: [0x45; 32],
+            },
+        };
+        assert_closed(&control, "record");
+        let json = norito::json::to_value(&control).expect("JSON");
+        assert!(json.get("attestation").is_none());
     }
 
     #[test]

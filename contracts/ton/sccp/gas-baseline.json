@@ -1,0 +1,141 @@
+{
+  "rows": {
+    "BLS_FASTAGGREGATEVERIFY n=31": {
+      "gas": 121034,
+      "limit": 121034
+    },
+    "BLS_FASTAGGREGATEVERIFY n=4": {
+      "gas": 67034,
+      "limit": 67034
+    },
+    "BLS_FASTAGGREGATEVERIFY n=7": {
+      "gas": 73034,
+      "limit": 73034
+    },
+    "apply control historical n=31": {
+      "gas": 216975,
+      "limit": 260000
+    },
+    "apply control n=31": {
+      "gas": 170880,
+      "limit": 260000
+    },
+    "bucket activation": {
+      "gas": 1848,
+      "limit": 3000
+    },
+    "bucket consume": {
+      "gas": 6155,
+      "limit": 8000
+    },
+    "bucket consume range 512": {
+      "gas": 7029,
+      "limit": 9000
+    },
+    "bucket unconsume": {
+      "gas": 3800,
+      "limit": 5000
+    },
+    "checkpoint heartbeat rotation n=4": {
+      "gas": 98572,
+      "limit": 250000
+    },
+    "checkpoint key-change rotation n=4": {
+      "gas": 105015,
+      "limit": 250000
+    },
+    "checkpoint n=31": {
+      "gas": 162109,
+      "limit": 250000
+    },
+    "checkpoint n=4": {
+      "gas": 95500,
+      "limit": 250000
+    },
+    "checkpoint n=7": {
+      "gas": 103097,
+      "limit": 250000
+    },
+    "minter bounced internal_transfer": {
+      "gas": 6181,
+      "limit": 20000
+    },
+    "minter burn (1024-byte recipient)": {
+      "gas": 38683,
+      "limit": 48000
+    },
+    "minter consume reverted": {
+      "gas": 4414,
+      "limit": 6000
+    },
+    "minter consumed": {
+      "gas": 10183,
+      "limit": 14000
+    },
+    "minter consumed (void)": {
+      "gas": 8371,
+      "limit": 14000
+    },
+    "minter deploy 16 buckets": {
+      "gas": 52078,
+      "limit": 60000
+    },
+    "minter finalize direct n=31": {
+      "gas": 177635,
+      "limit": 300000
+    },
+    "minter finalize direct n=4": {
+      "gas": 119498,
+      "limit": 300000
+    },
+    "minter finalize historical n=31": {
+      "gas": 244014,
+      "limit": 300000
+    },
+    "minter range reply": {
+      "gas": 6066,
+      "limit": 8000
+    },
+    "minter retry": {
+      "gas": 11681,
+      "limit": 14000
+    },
+    "minter retry (activation)": {
+      "gas": 11667,
+      "limit": 14000
+    },
+    "minter void frozen": {
+      "gas": 12832,
+      "limit": 30000
+    },
+    "minter void frozen activating 4 buckets": {
+      "gas": 24980,
+      "limit": 30000
+    },
+    "minter void historical n=31": {
+      "gas": 235133,
+      "limit": 285000
+    },
+    "rotation n=31 -> n=31": {
+      "gas": 203443,
+      "limit": 250000
+    },
+    "wallet burn": {
+      "gas": 5000,
+      "limit": 7000
+    },
+    "wallet receive": {
+      "gas": 4155,
+      "limit": 8000
+    },
+    "wallet receive with notification": {
+      "gas": 7173,
+      "limit": 8000
+    },
+    "wallet transfer": {
+      "gas": 5991,
+      "limit": 8000
+    }
+  },
+  "schema": "iroha.sccp.ton-gas.v1"
+}

@@ -55,14 +55,16 @@ fn wallet_advance_v1_reconcile_abandon_reason_tags() {
     for reason in [
         KagemushaWalletSlotAbandonReasonV1::KeyWithoutMarker,
         KagemushaWalletSlotAbandonReasonV1::ChallengeExpired,
+        KagemushaWalletSlotAbandonReasonV1::HolderAbandoned,
     ] {
         assert_eq!(
             KagemushaWalletSlotAbandonReasonV1::from_tag(reason.tag()),
             Some(reason)
         );
     }
+    assert_eq!(KagemushaWalletSlotAbandonReasonV1::HolderAbandoned.tag(), 3);
     assert_eq!(KagemushaWalletSlotAbandonReasonV1::from_tag(0), None);
-    assert_eq!(KagemushaWalletSlotAbandonReasonV1::from_tag(3), None);
+    assert_eq!(KagemushaWalletSlotAbandonReasonV1::from_tag(4), None);
 }
 
 #[test]
@@ -728,7 +730,9 @@ fn wallet_advance_v1_reconcile_pending_head_is_cached_without_rewrites() {
     let Ok(KagemushaWalletSlotStatusV1::Pending(selected)) = provider.status(&slot) else {
         panic!("pending");
     };
-    // ... then every later status only re-lists `markers/` and compares the marker's bytes.
+    // ... then every later status only re-lists `markers/`, compares the marker's bytes, reads
+    // the (absent) abandoned-slot record that would conflict with it and re-reads the verified
+    // enrollment phase and its three pre-key originals.
     let markers = kagemusha_wallet_markers_dir_v1(&slot);
     let inode = device.fs.inode_of(&markers, selected.file_name().as_str());
     for _ in 0..3 {
@@ -737,7 +741,7 @@ fn wallet_advance_v1_reconcile_pending_head_is_cached_without_rewrites() {
             provider.status(&slot),
             Ok(KagemushaWalletSlotStatusV1::Pending(selected.clone()))
         );
-        assert_eq!(device.fs.steps() - start, 2, "list and read only");
+        assert_eq!(device.fs.steps() - start, 7, "list and reads only");
     }
     // A reconcile with an owner retries only the finishing steps: nothing is rewritten while
     // signing stays unavailable.

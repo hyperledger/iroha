@@ -627,3 +627,48 @@ fn restore_keeps_corrupt_native_history_a_completed_schema_rejection() {
     assert_eq!(pool.reserved_bytes(), reserved);
     assert_eq!(view.native_execution_tip().unwrap().height(), 2);
 }
+
+#[test]
+fn restored_root_scope_comes_from_verified_genesis_without_changing_snapshot_wire() {
+    let mut chain = chain();
+    chain.commit(Vec::new());
+    let view = chain.state().view();
+    let current = view.native_execution_tip().unwrap();
+    assert_eq!(
+        current.root_scope(),
+        iroha_data_model::block::consensus::SumeragiRootScope::Global
+    );
+    let serialized = norito::json::to_json(&snapshot_claim(chain.state())).unwrap();
+    assert!(!serialized.contains("root_scope"));
+    assert!(!serialized.contains("result_scope"));
+    let claim: NativeExecutionTipSnapshot = norito::json::from_str(&serialized).unwrap();
+    let hashes = view.block_hashes().iter().copied().collect::<Vec<_>>();
+    let restored = claim
+        .restore(
+            &chain.state().ivm_execution_budget(),
+            view.chain_id(),
+            view.network_id(),
+            &hashes,
+            chain.kura(),
+        )
+        .unwrap();
+    assert_eq!(*restored.view().get(), Some(current));
+    assert_eq!(
+        restored.view().get().unwrap().root_scope(),
+        current.root_scope()
+    );
+    assert_eq!(
+        restored
+            .predecessor_view()
+            .get()
+            .unwrap()
+            .unwrap()
+            .root_scope(),
+        current.root_scope()
+    );
+    let read = view
+        .canonical_history()
+        .executed_block(NonZeroUsize::MIN, |_, _| Ok(()))
+        .unwrap();
+    assert_eq!(read.hash(), chain.genesis().hash());
+}

@@ -6,27 +6,33 @@ use iroha_core::{
     kura::Kura,
     query::store::LiveQueryStore,
     queue::evaluate_policy_plan_with_nexus_and_world_at,
-    smartcontracts::isi::sccp::{self, admission, fees, hook, leaves, params, store},
+    smartcontracts::isi::sccp::{self, admission, fees, generation, hook, leaves, params, store},
     state::{State, World},
 };
-use iroha_crypto::{Algorithm, Hash, HashOf, KeyPair, SignatureOf};
+use iroha_crypto::{Algorithm, Hash, HashOf, KeyPair};
 use iroha_data_model::{
     NetworkId,
     account::AccountId,
-    block::BlockHeader,
+    block::{BlockHeader, consensus::SumeragiRootScope},
     bridge::SccpNetworkV1,
     isi::{
         InstructionBox,
-        sccp::{RecordSccpMessage, SetSccpBridgeKeyV1, SettleSccpV1, SubmitSccpAttestationsV1},
+        sccp::{
+            AdvanceSccpLightClientV1, InitializeSccpV1, RecordSccpMessage,
+            ReportSccpLightClientEquivocationV1, SettleSccpV1, SubmitSccpInboundMessageV1,
+            SubmitSccpOutboundVoidV1,
+        },
     },
     nexus::{DataSpaceCatalog, DataSpaceMetadata, LaneCatalog, LaneConfig},
-    sccp::{control::SccpLeafRefV1, keys::SccpBridgeKeyBindingV1},
+    sccp::{
+        control::SccpLeafRefV1,
+        inbound::SccpSourceProofBytesV1,
+        light_client::{SccpLcAdvanceBytesV1, SccpLcEvidenceBytesV1},
+        params::SccpParametersV1,
+    },
     transaction::{FeePaymentIntent, SignedTransaction, TransactionBuilder},
 };
-use iroha_model_base::{
-    peer::PeerId,
-    topology::{DataSpaceId, LaneId},
-};
+use iroha_model_base::topology::{DataSpaceId, LaneId};
 use iroha_primitives::numeric::Numeric;
 use std::num::{NonZeroU32, NonZeroU64};
 
@@ -59,20 +65,6 @@ fn network_id() -> NetworkId {
     NetworkId::from_genesis_hash(HashOf::<BlockHeader>::from_untyped_unchecked(Hash::new(
         [0x7a; 32],
     )))
-}
-
-fn set_bridge_key() -> SetSccpBridgeKeyV1 {
-    let peer_keys = key_pair(0x31);
-    let peer = PeerId::new(peer_keys.public_key().clone());
-    let binding = SccpBridgeKeyBindingV1::new(network_id(), peer.clone(), Some([2; 33]), 3, 0);
-    SetSccpBridgeKeyV1 {
-        peer,
-        public_key: Some([2; 33]),
-        activation_epoch: 3,
-        binding_nonce: 0,
-        peer_signature: SignatureOf::new(peer_keys.private_key(), &binding),
-        key_pop: Some([0x1b; 65]),
-    }
 }
 
 #[test]
@@ -176,8 +168,36 @@ fn every_sccp_instruction_routes_to_the_universal_dataspace() {
             recipient: vec![0x22; 20],
         }
         .into(),
-        SubmitSccpAttestationsV1 { entries: vec![] }.into(),
-        set_bridge_key().into(),
+        InitializeSccpV1 {
+            parameters: SccpParametersV1::taira_default(),
+            reset_nonce: [0x5a; 32],
+        }
+        .into(),
+        SubmitSccpInboundMessageV1 {
+            network: SccpNetworkV1::TonMainnet,
+            revision: 1,
+            payload: vec![1],
+            proof: SccpSourceProofBytesV1::new(vec![1]).unwrap(),
+        }
+        .into(),
+        SubmitSccpOutboundVoidV1 {
+            network: SccpNetworkV1::BscMainnet,
+            revision: 1,
+            proof: SccpSourceProofBytesV1::new(vec![2]).unwrap(),
+        }
+        .into(),
+        AdvanceSccpLightClientV1 {
+            network: SccpNetworkV1::EthereumMainnet,
+            expected_state_hash: Some([8; 32]),
+            advance: SccpLcAdvanceBytesV1::new(vec![1; 64]).unwrap(),
+        }
+        .into(),
+        ReportSccpLightClientEquivocationV1 {
+            network: SccpNetworkV1::BscMainnet,
+            a: SccpLcEvidenceBytesV1::new(vec![1, 2]).unwrap(),
+            b: SccpLcEvidenceBytesV1::new(vec![3, 4]).unwrap(),
+        }
+        .into(),
     ];
     for instruction in samples {
         assert!(sccp::is_sccp_instruction(&*instruction));
@@ -196,17 +216,19 @@ fn a_network_without_sccp_is_unchanged() {
     assert_eq!(params::parameters(world), None);
     assert!(!params::exists(world));
     assert!(store::routes::is_empty(world));
-    assert!(store::rosters::is_empty(world));
-    assert_eq!(*store::roster_current::get(world), 0);
-    assert!(!hook::heartbeat_start_work_pending(world, &header(2)));
+    assert!(store::committee_generations::is_empty(world));
+    assert_eq!(*store::committee_current::get(world), 0);
+    assert!(!generation::heartbeat_due(
+        world,
+        header(2).creation_time_ms
+    ));
     let transaction = signed(vec![
         iroha_data_model::isi::Log::new(iroha_data_model::Level::INFO, "ordinary".to_owned())
             .into(),
     ]);
     assert_eq!(admission::classify(world, &view, 2, &transaction), Ok(None));
     assert!(!admission::allows_unregistered_authority(
-        transaction.instructions(),
-        transaction.authority()
+        transaction.instructions()
     ));
     assert!(admission::block_exempt_cap_ok(world, &[]));
     assert!(!fees::exempt_on_success(world, transaction.payload()));
@@ -217,6 +239,9 @@ fn a_network_without_sccp_is_unchanged() {
     assert!(!sccp::is_sccp_instruction(&*log));
     drop(view);
     let mut block = state.try_block(header(2)).expect("open block");
-    hook::finalize_block(&mut block, &header(2), None).expect("no-op without SCCP");
+    let finality = hook::finalize_block(&mut block, &header(2), None, SumeragiRootScope::Global)
+        .expect("inactive without SCCP");
+    assert!(!finality.is_active());
+    assert_eq!(finality.height(), 2);
     assert!(store::block_commitments::is_empty(&block.world));
 }

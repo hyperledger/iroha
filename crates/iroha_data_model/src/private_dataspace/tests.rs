@@ -198,10 +198,18 @@ fn bad_quorum_parent_and_result_are_rejected_without_partial_progress() {
     changed.certificate.consensus_header = norito::encode_canonical(&header).unwrap();
     assert!(state.apply(&changed).is_err());
     let mut changed = anchor.clone();
-    let mut result =
-        ExecutionResultCommitment::decode(&changed.certificate.result_preimage).unwrap();
-    result.execution.world_state_root = Hash::new(b"unrelated state");
-    changed.certificate.result_preimage = result.preimage().unwrap();
+    let result = CertifiedResultV1::decode(
+        &changed.certificate.result_preimage,
+        CertifiedResultScope::NonGlobal,
+    )
+    .unwrap();
+    let (header, mut body) = result.into_parts();
+    body.execution.world_state_root = Hash::new(b"unrelated state");
+    changed.certificate.result_preimage =
+        CertifiedResultV1::new(header, body, CertifiedResultScope::NonGlobal)
+            .unwrap()
+            .preimage()
+            .unwrap();
     assert!(state.apply(&changed).is_err());
     assert_eq!(state, original);
     state.apply(&anchor).unwrap();
@@ -286,4 +294,129 @@ fn authenticated_anchor_state_json_roundtrip_and_restore_invariants() {
         assert!(malformed.apply(&anchor).is_err());
         assert_eq!(malformed, before);
     }
+}
+
+#[test]
+fn private_anchor_rejects_bare_body_and_active_x_without_advancing() {
+    use crate::sumeragi_finality::certified_result::FLAG_ACTIVE;
+    use crate::sumeragi_finality::{SccpFinalityHeaderV1, context_committee_root};
+    let (mut fixture, registration) = fixture();
+    let anchor = next(&mut fixture, &registration);
+    let mut state =
+        PrivateDataspaceAnchorState::from_authorized_registration(registration).unwrap();
+    let retained = state.clone();
+    let result = CertifiedResultV1::decode(
+        &anchor.certificate.result_preimage,
+        CertifiedResultScope::NonGlobal,
+    )
+    .unwrap();
+    let mut bare = anchor.clone();
+    bare.certificate.result_preimage = result.commitment().preimage().unwrap();
+    assert!(matches!(
+        bare.public_parts(),
+        Err(PrivateDataspaceAnchorError::Invalid(_))
+    ));
+    assert!(state.apply(&bare).is_err());
+    let mut fields = result.header().fields();
+    fields.flags = FLAG_ACTIVE;
+    fields.generation = 1;
+    fields.committee_root = context_committee_root(&result.commitment().schedule.current).unwrap();
+    let active = CertifiedResultV1::new(
+        SccpFinalityHeaderV1::from_fields(&fields).unwrap(),
+        result.commitment().clone(),
+        CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
+    let mut wrong_scope = anchor.clone();
+    wrong_scope.certificate.result_preimage = active.preimage().unwrap();
+    assert!(matches!(
+        wrong_scope.public_parts(),
+        Err(PrivateDataspaceAnchorError::Invalid(_))
+    ));
+    assert!(
+        PrivateDataspaceAnchor::decode(&norito::encode_canonical(&wrong_scope).unwrap()).is_err()
+    );
+    assert!(state.apply(&wrong_scope).is_err());
+    assert_eq!(state, retained);
+    assert_eq!(
+        state.apply(&anchor).unwrap(),
+        PrivateDataspaceAnchorOutcome::Advanced
+    );
+}
+
+#[test]
+fn private_anchor_local_decoder_refusal_preserves_original_and_retries() {
+    let (mut fixture, registration) = fixture();
+    let anchor = next(&mut fixture, &registration);
+    let original = anchor.clone();
+    let mut state =
+        PrivateDataspaceAnchorState::from_authorized_registration(registration).unwrap();
+    let retained = state.clone();
+    let limit =
+        norito::DecodeLimits::new(96, MAX_PRIVATE_DATASPACE_ANCHOR_BYTES, usize::MAX, 0, 32);
+    let error = norito::with_decode_limits_scope(limit, || state.apply(&anchor)).unwrap_err();
+    assert!(
+        matches!(error, PrivateDataspaceAnchorError::Resource(_)),
+        "{error:?}"
+    );
+    assert_eq!(state, retained);
+    assert_eq!(anchor, original);
+    let bytes = norito::encode_canonical(&anchor).unwrap();
+    let error = norito::with_decode_limits_scope(limit, || PrivateDataspaceAnchor::decode(&bytes))
+        .unwrap_err();
+    assert!(
+        matches!(error, PrivateDataspaceAnchorError::Resource(_)),
+        "{error:?}"
+    );
+    assert_eq!(PrivateDataspaceAnchor::decode(&bytes).unwrap(), original);
+    assert_eq!(
+        state.apply(&anchor).unwrap(),
+        PrivateDataspaceAnchorOutcome::Advanced
+    );
+}
+
+#[test]
+fn private_anchor_resource_mapping_preserves_nested_and_intrinsic_categories() {
+    use crate::sumeragi_finality::{CertifiedResultError, CommitmentError};
+    let resource = norito::core::DecodeResourceError::AllocationFailed { bytes: 221 };
+    assert_eq!(
+        certified_failure(CertifiedResultError::Body(CommitmentError::Resource(
+            resource
+        ))),
+        PrivateDataspaceAnchorError::Resource(resource)
+    );
+    assert_eq!(
+        amx_failure(crate::sumeragi_amx::AmxError::Resource(resource)),
+        PrivateDataspaceAnchorError::Resource(resource)
+    );
+    assert_eq!(
+        codec_failure(norito::Error::AllocationFailed { bytes: 221 }),
+        PrivateDataspaceAnchorError::Resource(resource)
+    );
+    assert!(matches!(
+        certified_failure(CertifiedResultError::ActiveOutsideGlobal),
+        PrivateDataspaceAnchorError::Invalid(_)
+    ));
+    assert!(matches!(
+        codec_failure(norito::Error::InvalidMagic),
+        PrivateDataspaceAnchorError::Invalid(_)
+    ));
+    assert!(matches!(
+        codec_failure(norito::Error::SequenceLengthExceeded {
+            length: 97,
+            limit: 96
+        }),
+        PrivateDataspaceAnchorError::Invalid(_)
+    ));
+    let limit =
+        norito::DecodeLimits::new(96, MAX_PRIVATE_DATASPACE_ANCHOR_BYTES, usize::MAX, 0, 32);
+    let cause = norito::Error::SequenceLengthExceeded {
+        length: 97,
+        limit: 96,
+    };
+    let expected = cause.decode_resource_error().unwrap();
+    assert_eq!(
+        norito::with_decode_limits_scope(limit, || codec_failure(cause)),
+        PrivateDataspaceAnchorError::Resource(expected)
+    );
 }

@@ -21,8 +21,30 @@ import "@contracts/sccp-verify"
 import "@wrappers/SccpConsumedBucket.gen"
 import "@wrappers/SccpTairaXorMinter.gen"
 import "@wrappers/SccpTairaXorWallet.gen"
+import "sccp-test-bls"
 import "sccp-test-helpers"
 import "sccp-test-vectors.gen"
+
+/// A single-step result keeps emitted events in raw outMessages, before delivery.
+/// Parse their exact types and bindings instead of relying on drained-trace externals.
+fun expectPendingPublication(step: SendResult, delivery: Delivery) {
+    expect(step.outMessages.size()).toEqual(4);
+    val certificate = (step
+        .outMessages
+        .atCell(0) as Cell<TlbExtMessageRelaxed<SccpCertificateEvent>>)
+        .load()
+        .loadBody();
+    expect(certificate.height).toEqual(delivery.x.height);
+    expect(certificate.generation).toEqual(delivery.x.generation);
+    expect(certificate.cert.hash()).toEqual(delivery.cert.hash());
+    val checkpoint = (step
+        .outMessages
+        .atCell(1) as Cell<TlbExtMessageRelaxed<SccpCheckpointedEvent>>)
+        .load()
+        .loadBody();
+    expect(checkpoint.height).toEqual(delivery.x.height);
+    expect(checkpoint.id).toEqual(delivery.x.id());
+}
 
 get fun `test finalize mints, emits and consumes the nonce`() {
     val env = setupEnv();
@@ -60,8 +82,8 @@ get fun `test finalize mints, emits and consumes the nonce`() {
     expect(wallet.minterAddress).toEqual(env.minter.address);
 }
 
-get fun `test finalize with a 31-member roster and 21 signatures`() {
-    val env = setupEnvWith(31, 3, TEST_MAX_SUPPLY);
+get fun `test finalize with a 31-member committee and exact 21-signature aggregate`() {
+    val env = setupEnvWith(31, TEST_MAX_SUPPLY);
     val alice = testing.treasury("alice").address;
     finalizeOk(env, 0, 1000, alice);
 }
@@ -73,70 +95,59 @@ get fun `test finalize historical proves an old block through the history root`(
     val leaf = inboundLeaf(env.networkId, payload, env.minter.address);
     val blockLeaves = leavesWith(leaf, 2, 5);
     val blockRoot = treeRoot(blockLeaves);
-    val history = historyLeaves(7, 3, 55, blockRoot, 5);
-    // a later heartbeat block with no messages attests the history
-    val statement: TestStatement = {
-        height: 90,
-        epoch: 2,
-        timestampMs: T0 * 1000 - 1000,
-        blockHash: 0xABCDEF,
-        sccpRoot: 0,
-        messageCount: 0,
-        historyRoot: treeRoot(history),
-        historySize: 7,
-        rosterDigest: env.digest(),
-        nextRosterDigest: 0,
-    };
+    val history = historyLeaves(7, 3, 1055, blockRoot, 5);
+    var x = emptyX(env.networkId, env.generation, env.committee.root(), 1090);
+    x.historyRoot = treeRoot(history);
+    x.historySize = 7;
     val blockPath = treePath(blockLeaves, 2);
     val historyPath = treePath(history, 3);
-    val proof: MessageProof = {
-        leafIndex: 2,
-        pathLen: blockPath.size(),
+    val proof = messageProofCell(
+        2,
+        blockPath,
         payload,
-        path: sccpBuildHashPath(blockPath),
-    };
-    val historyProof: HistoryProof = {
-        height: 55,
-        sccpRoot: blockRoot,
-        messageCount: 5,
-        leafIndex: 3,
-        pathLen: historyPath.size(),
-        path: sccpBuildHashPath(historyPath),
-    };
-    val res = env
-        .minter
-        .sendSccpFinalizeHistorical(
-            env.deployer,
-            1,
-            env.deployer,
-            statement.attestation(),
-            signByThreshold(env.roster, statement.digest(env.networkId)),
-            historyProof,
-            proof,
-            { value: finalizeValue(env, 3), bounce: true },
-        );
-    expect(res).toHaveSuccessfulTx<SccpFinalizeHistorical>({ to: env.minter.address });
+        blockRefCell(1055, blockRoot, 5, 3, historyPath),
+    );
+    val cert = certifyFor(env, env.committee, x);
+    val res = sendFinalizeCells(
+        env,
+        env.deployer,
+        cert,
+        null,
+        proof,
+        finalizeValue(env, 3),
+    );
+    expect(res).toHaveSuccessfulTx<SccpFinalize>({ to: env.minter.address });
     expect(jettonBalanceOf(env, alice)).toEqual(777);
-
-    // a wrong history index is rejected
-    val payload2 = inboundPayloadCell(4, TEST_REVISION, T0 * 1000 + DAY_MS, 1, alice.accountId());
-    var badHistory = historyProof;
-    badHistory.leafIndex = 4;
-    val bad = env
-        .minter
-        .sendSccpFinalizeHistorical(
+    // A wrong history index is rejected, including against the stored checkpoint.
+    val badProof = messageProofCell(
+        2,
+        blockPath,
+        payload,
+        blockRefCell(1055, blockRoot, 5, 4, historyPath),
+    );
+    expect(
+        sendFinalizeCells(
+            env,
             env.deployer,
-            1,
-            env.deployer,
-            statement.attestation(),
-            signByThreshold(env.roster, statement.digest(env.networkId)),
-            badHistory,
-            proof,
-            { value: finalizeValue(env, 3), bounce: true },
-        );
-    expect(bad).toHaveFailedTx<SccpFinalizeHistorical>({ to: env
+            null,
+            x.ref(),
+            badProof,
+            finalizeValue(env, 3),
+        ),
+    ).toHaveFailedTx<SccpFinalizeCheckpoint>({ to: env
             .minter
             .address, exitCode: SccpErrors.BadProof as int });
+    expect(
+        sendFinalizeCells(
+            env,
+            env.deployer,
+            null,
+            x.ref(),
+            proof,
+            finalizeValue(env, 3),
+        ),
+    ).toHaveSuccessfulTx<SccpAlreadyConsumed>({ to: env.minter.address });
+    expect(jettonBalanceOf(env, alice)).toEqual(777);
 }
 
 get fun `test duplicate finalize is rejected by the bucket and releases pending supply`() {
@@ -157,7 +168,7 @@ get fun `test duplicate finalize is rejected by the bucket and releases pending 
 
 get fun `test parallel duplicate finalizes reserve pending supply until the bucket rejects one`() {
     // cap admits one mint of 1000 plus nothing else
-    val env = setupEnvWith(4, 0, 1500);
+    val env = setupEnvWith(4, 1500);
     val alice = testing.treasury("alice").address;
     val d = deliverDefault(env, 0, 1000, alice);
     val value = finalizeValue(env, 0);
@@ -168,9 +179,8 @@ get fun `test parallel duplicate finalizes reserve pending supply until the buck
         body: SccpFinalize {
             queryId: 1,
             response: env.deployer,
-            attestation: d.statement.toCell(),
-            signatures: d.signatures,
-            message: d.proof.toCell(),
+            cert: d.cert as Cell<TairaCert>,
+            message: d.proof as Cell<MessageProof>,
         },
     });
     val first = testing.processSingleTraceStep(env.deployer, finalizeMsg);
@@ -181,8 +191,10 @@ get fun `test parallel duplicate finalizes reserve pending supply until the buck
             .minter
             .address, exitCode: SccpErrors.SupplyCapExceeded as int });
     // deliver the first activation and consume; the mint completes
-    net.send(env.minter.address, forwardOut(first, 0));
-    net.send(env.minter.address, forwardOut(first, 1));
+    // Native full-path publication precedes the two bucket messages.
+    expectPendingPublication(first, d);
+    net.send(env.minter.address, forwardOut(first, 2));
+    net.send(env.minter.address, forwardOut(first, 3));
     val state = env.minter.getSccpState();
     expect(state.pendingSupply).toEqual(0);
     expect(state.totalSupply).toEqual(1000);
@@ -201,17 +213,20 @@ get fun `test two pending duplicates both reserve and only one mints`() {
         body: SccpFinalize {
             queryId: 1,
             response: env.deployer,
-            attestation: d.statement.toCell(),
-            signatures: d.signatures,
-            message: d.proof.toCell(),
+            cert: d.cert as Cell<TairaCert>,
+            message: d.proof as Cell<MessageProof>,
         },
     });
     val first = testing.processSingleTraceStep(env.deployer, msg);
     // the first entry activates bucket 0, so the duplicate only consumes
     val second = testing.processSingleTraceStep(env.deployer, msg);
     expect(env.minter.getSccpState().pendingSupply).toEqual(800);
-    net.send(env.minter.address, forwardOut(first, 0));
-    net.send(env.minter.address, forwardOut(first, 1));
+    // Native full-path publication precedes the two bucket messages.
+    expectPendingPublication(first, d);
+    net.send(env.minter.address, forwardOut(first, 2));
+    net.send(env.minter.address, forwardOut(first, 3));
+    // Same-header checkpoint reuse owes no further certificate event.
+    expect(second.outMessages.size()).toEqual(1);
     net.send(env.minter.address, forwardOut(second, 0));
     val state = env.minter.getSccpState();
     expect(state.pendingSupply).toEqual(0);
@@ -220,7 +235,7 @@ get fun `test two pending duplicates both reserve and only one mints`() {
 }
 
 get fun `test supply cap edges`() {
-    val env = setupEnvWith(4, 0, 1000);
+    val env = setupEnvWith(4, 1000);
     val alice = testing.treasury("alice").address;
     val over = deliverDefault(env, 0, 1001, alice);
     expect(
@@ -247,7 +262,8 @@ get fun `test deadline edges`() {
     val deadline = (T0 + 100) * 1000;
     val d = deliver(
         env,
-        env.roster,
+        env.committee,
+        env.generation,
         0,
         50,
         alice,
@@ -257,7 +273,8 @@ get fun `test deadline edges`() {
     );
     val late = deliver(
         env,
-        env.roster,
+        env.committee,
+        env.generation,
         1,
         60,
         alice,
@@ -282,20 +299,21 @@ get fun `test deadline edges`() {
     expect(jettonBalanceOf(env, alice)).toEqual(50);
 }
 
-get fun `test expired roster cannot finalize`() {
+get fun `test expired committee cannot finalize`() {
     val env = setupEnv();
     val alice = testing.treasury("alice").address;
     val d = deliver(
         env,
-        env.roster,
+        env.committee,
+        env.generation,
         0,
         50,
         alice,
-        env.roster.validUntilMs + DAY_MS,
+        defaultPin(env.committee).untilMs + DAY_MS,
         0,
         1,
     );
-    testing.setNow(env.roster.validUntilMs / 1000);
+    testing.setNow(defaultPin(env.committee).untilMs / 1000);
     expect(
         sendFinalize(env, env.deployer, d, finalizeValue(env, 0)),
     ).toHaveSuccessfulTx<SccpFinalize>({
@@ -303,20 +321,21 @@ get fun `test expired roster cannot finalize`() {
     });
     val d2 = deliver(
         env,
-        env.roster,
+        env.committee,
+        env.generation,
         1,
         50,
         alice,
-        env.roster.validUntilMs + DAY_MS,
+        defaultPin(env.committee).untilMs + DAY_MS,
         0,
         1,
     );
-    testing.setNow(env.roster.validUntilMs / 1000 + 1);
+    testing.setNow(defaultPin(env.committee).untilMs / 1000 + 1);
     expect(
         sendFinalize(env, env.deployer, d2, finalizeValue(env, 1)),
     ).toHaveFailedTx<SccpFinalize>({
         to: env.minter.address,
-        exitCode: SccpErrors.RosterNotAccepted as int,
+        exitCode: SccpErrors.CommitteeNotAccepted as int,
     });
 }
 
@@ -393,15 +412,15 @@ get fun `test bounced sccp_consume releases pending supply`() {
             body: SccpFinalize {
                 queryId: 1,
                 response: env.deployer,
-                attestation: d.statement.toCell(),
-                signatures: d.signatures,
-                message: d.proof.toCell(),
+                cert: d.cert as Cell<TairaCert>,
+                message: d.proof as Cell<MessageProof>,
             },
         }),
     );
     expect(env.minter.getSccpState().pendingSupply).toEqual(300);
-    // out message 0 activates bucket 0, out message 1 is the consume
-    val consume = step.outMessages.at<SccpConsume>(1).loadBody();
+    // Certificate and checkpoint events precede activation and consume.
+    expectPendingPublication(step, d);
+    val consume = step.outMessages.at<SccpConsume>(3).loadBody();
     expect(consume.nonce).toEqual(0);
     expect(consume.amount).toEqual(300);
     // a bounce from anyone but the bucket is refused
@@ -431,9 +450,8 @@ get fun `test bounced internal_transfer unconsumes and the message finalizes aga
             body: SccpFinalize {
                 queryId: 1,
                 response: env.deployer,
-                attestation: d.statement.toCell(),
-                signatures: d.signatures,
-                message: d.proof.toCell(),
+                cert: d.cert as Cell<TairaCert>,
+                message: d.proof as Cell<MessageProof>,
             },
         }),
     );
@@ -481,9 +499,8 @@ get fun `test bounced sccp_consumed makes the bucket clear the flag`() {
             body: SccpFinalize {
                 queryId: 1,
                 response: env.deployer,
-                attestation: d.statement.toCell(),
-                signatures: d.signatures,
-                message: d.proof.toCell(),
+                cert: d.cert as Cell<TairaCert>,
+                message: d.proof as Cell<MessageProof>,
             },
         }),
     );
@@ -612,150 +629,101 @@ get fun `test finalize requires the required value`() {
     expect(jettonBalanceOf(env, alice)).toEqual(1);
 }
 
-get fun `test signature set negatives`() {
+get fun `test certificate signature and exact signer set negatives`() {
     val env = setupEnv();
     val alice = testing.treasury("alice").address;
     val d = deliverDefault(env, 0, 1, alice);
-    val digest = d.statement.digest(env.networkId);
-    val t = env.roster.t();
-    // too few signatures
-    var cases: array<[cell, int]> = [
-        [signBySlots(env.roster, digest, [0, 1]), SccpErrors.TooFewSignatures as int],
-    ];
-    // a bit beyond n
-    val (r0, s0, v0) = testSign(0, digest);
-    val (r1, s1, v1) = testSign(1, digest);
-    val (r2, s2, v2) = testSign(2, digest);
-    val (r3, s3, v3) = testSign(3, digest);
-    cases.push(
+    val qc = defaultQc(d.x.height);
+    val m = commitMessage(env.instance, qc, d.x);
+    val sig = blsAggregateSign(env.committee.secretsOf(0b0111), m);
+    val other = testCommittee(4, 4);
+    val cases: array<[cell, int]> = [
+        [certifyBy(env.committee, 0b0011, env.instance, qc, d.x), SccpErrors.BadCertificate as int],
+        // Supersets are refused: native q is exact, not a threshold minimum.
+        [certifyBy(env.committee, 0b1111, env.instance, qc, d.x), SccpErrors.BadCertificate as int],
+        [certOf(sig, 0b10011, qc, d.x), SccpErrors.BadCertificate as int],
+        [certOf(sig, 0b1110, qc, d.x), SccpErrors.BadSignature as int],
         [
-            signatureCellsFromRows(0b10011, [[r0, s0, v0], [r1, s1, v1], [r2, s2, v2]]),
-            SccpErrors.BadSignatures as int,
+            certOf(blsAggregateSign(other.secretsOf(0b0111), m), 0b0111, qc, d.x),
+            SccpErrors.BadSignature as int,
         ],
-    );
-    // signatures in the wrong order (slot 1 signature under slot 0)
-    cases.push(
         [
-            signatureCellsFromRows(0b0111, [[r1, s1, v1], [r0, s0, v0], [r2, s2, v2]]),
-            SccpErrors.BadSignatures as int,
+            certifyBy(env.committee, 0b0111, env.instance ^ 1, qc, d.x),
+            SccpErrors.BadSignature as int,
         ],
-    );
-    // high-S twin
-    val flipped = v0 == 27 ? 28 : 27;
-    cases.push(
+        // The wire signature is exactly 96 bytes, with no trailing bit.
         [
-            signatureCellsFromRows(
+            certOf(
+                beginCell().storeSlice(sig).storeUint(0, 1).endCell().beginParse(),
                 0b0111,
-                [[r0, SECP256K1_N - s0, flipped], [r1, s1, v1], [r2, s2, v2]],
+                qc,
+                d.x,
             ),
-            SccpErrors.BadSignatures as int,
+            SccpErrors.BadCertificate as int,
         ],
-    );
-    // v = 29
-    cases.push(
-        [
-            signatureCellsFromRows(0b0111, [[r0, s0, 29], [r1, s1, v1], [r2, s2, v2]]),
-            SccpErrors.BadSignatures as int,
-        ],
-    );
-    // more signature cells than set bits
-    cases.push(
-        [
-            signatureCellsFromRows(0b0011, [[r0, s0, v0], [r1, s1, v1], [r2, s2, v2]]),
-            SccpErrors.BadSignatures as int,
-        ],
-    );
-    // fewer signature cells than set bits
-    cases.push(
-        [
-            signatureCellsFromRows(0b1111, [[r0, s0, v0], [r1, s1, v1], [r2, s2, v2]]),
-            SccpErrors.BadSignatures as int,
-        ],
-    );
-    // a key outside the roster signing for slot 3
-    val (r9, s9, v9) = testSign(9, digest);
-    cases.push(
-        [
-            signatureCellsFromRows(0b1011, [[r0, s0, v0], [r1, s1, v1], [r9, s9, v9]]),
-            SccpErrors.BadSignatures as int,
-        ],
-    );
+        [certOf(sig.preloadBits(760), 0b0111, qc, d.x), SccpErrors.BadCertificate as int],
+    ];
     var i = 0;
     while (i < cases.size()) {
-        val [sigs, code] = cases.get(i);
+        val [cert, code] = cases.get(i);
         var bad = d;
-        bad.signatures = sigs;
-        expect(sendFinalize(env, env.deployer, bad, grams("5"))).toHaveFailedTx<SccpFinalize>({
-            to: env.minter.address,
-            exitCode: code,
-        });
+        bad.cert = cert;
+        expect(
+            sendFinalize(env, env.deployer, bad, grams("5")),
+        ).toHaveFailedTx<SccpFinalize>({ to: env.minter.address, exitCode: code });
         i += 1;
     }
-    // all four signatures are fine too
-    var all = d;
-    all.signatures = signatureCellsFromRows(
-        0b1111,
-        [[r0, s0, v0], [r1, s1, v1], [r2, s2, v2], [r3, s3, v3]],
-    );
-    expect(t).toEqual(3);
+    expect(env.committee.q()).toEqual(3);
+    // A different valid exact quorum is accepted.
+    var valid = d;
+    valid.cert = certifyBy(env.committee, 0b1110, env.instance, qc, d.x);
     expect(
-        sendFinalize(env, env.deployer, all, finalizeValue(env, 0)),
-    ).toHaveSuccessfulTx<SccpFinalize>({
-        to: env.minter.address,
-    });
+        sendFinalize(env, env.deployer, valid, finalizeValue(env, 0)),
+    ).toHaveSuccessfulTx<SccpFinalize>({ to: env.minter.address });
 }
 
-get fun `test a keyless slot can never sign`() {
-    val env = setupEnvWith(7, 2, TEST_MAX_SUPPLY);
+get fun `test a foreign signer cannot replace a committee member`() {
+    val env = setupEnvWith(7, TEST_MAX_SUPPLY);
     val alice = testing.treasury("alice").address;
     val d = deliverDefault(env, 0, 1, alice);
-    val digest = d.statement.digest(env.networkId);
-    // slot 0 is keyless: any signature under it is rejected
-    val (r, s, v) = testSign(0, digest);
-    var rows: array<[int, int, int]> = [[r, s, v]];
-    var slot = 2;
-    while (slot < 6) {
-        val (rs, ss, vs) = testSign(env.roster.keys.get(slot), digest);
-        rows.push([rs, ss, vs]);
-        slot += 1;
-    }
+    val qc = defaultQc(d.x.height);
+    val m = commitMessage(env.instance, qc, d.x);
+    var secrets = env.committee.secretsOf(0b0011111);
+    secrets.set(testCommittee(4, 7).secrets.get(0), 0);
     var bad = d;
-    bad.signatures = signatureCellsFromRows(0b111101, rows);
-    expect(sendFinalize(env, env.deployer, bad, grams("5"))).toHaveFailedTx<SccpFinalize>({
-        to: env.minter.address,
-        exitCode: SccpErrors.BadSignatures as int,
-    });
-    // t = 5 keyed signers finalize
+    bad.cert = certOf(blsAggregateSign(secrets, m), 0b0011111, qc, d.x);
+    expect(sendFinalize(env, env.deployer, bad, grams("5"))).toHaveFailedTx<SccpFinalize>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.BadSignature as int });
+    expect(env.committee.q()).toEqual(5);
     expect(
         sendFinalize(env, env.deployer, d, finalizeValue(env, 0)),
-    ).toHaveSuccessfulTx<SccpFinalize>({
-        to: env.minter.address,
-    });
+    ).toHaveSuccessfulTx<SccpFinalize>({ to: env.minter.address });
 }
 
 get fun `test proof negatives`() {
     val env = setupEnv();
     val alice = testing.treasury("alice").address;
     val d = deliverDefault(env, 0, 1, alice);
-    // wrong leaf index
     var wrongIndex = d;
-    wrongIndex.proof.leafIndex = 2;
-    expect(sendFinalize(env, env.deployer, wrongIndex, grams("5"))).toHaveFailedTx<SccpFinalize>({
-        to: env.minter.address,
-        exitCode: SccpErrors.BadProof as int,
-    });
-    // truncated path
+    var indexProof = MessageProof.fromCell(d.proof);
+    indexProof.leafIndex = 2;
+    wrongIndex.proof = indexProof.toCell();
+    expect(
+        sendFinalize(env, env.deployer, wrongIndex, grams("5")),
+    ).toHaveFailedTx<SccpFinalize>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.BadProof as int });
     var shortPath = d;
-    shortPath.proof.pathLen = 1;
-    shortPath.proof.path = sccpBuildHashPath([1]);
-    expect(sendFinalize(env, env.deployer, shortPath, grams("5"))).toHaveFailedTx<SccpFinalize>({
-        to: env.minter.address,
-        exitCode: SccpErrors.BadProof as int,
-    });
-    // a path longer than the block limit
+    shortPath.proof = messageProofCell(1, [1], d.payload, ownBlockRef(d.x));
+    expect(
+        sendFinalize(env, env.deployer, shortPath, grams("5")),
+    ).toHaveFailedTx<SccpFinalize>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.BadProof as int });
     var longPath = d;
-    longPath.proof.pathLen = 10;
-    longPath.proof.path = sccpBuildHashPath(
+    longPath.proof = messageProofCell(
+        1,
         [
             1,
             2,
@@ -768,19 +736,22 @@ get fun `test proof negatives`() {
             9,
             10,
         ],
+        d.payload,
+        ownBlockRef(d.x),
     );
-    expect(sendFinalize(env, env.deployer, longPath, grams("5"))).toHaveFailedTx<SccpFinalize>({
-        to: env.minter.address,
-        exitCode: SccpErrors.BadProof as int,
-    });
-    // an attestation whose count/root invariants do not hold
+    expect(
+        sendFinalize(env, env.deployer, longPath, grams("5")),
+    ).toHaveFailedTx<SccpFinalize>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.BadProof as int });
     var broken = d;
-    broken.statement.messageCount = 0;
-    broken.signatures = signByThreshold(env.roster, broken.statement.digest(env.networkId));
-    expect(sendFinalize(env, env.deployer, broken, grams("5"))).toHaveFailedTx<SccpFinalize>({
-        to: env.minter.address,
-        exitCode: SccpErrors.BadAttestation as int,
-    });
+    broken.x.messageCount = 0;
+    broken.cert = certifyFor(env, env.committee, broken.x);
+    expect(
+        sendFinalize(env, env.deployer, broken, grams("5")),
+    ).toHaveFailedTx<SccpFinalize>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.BadHeader as int });
 }
 
 get fun `test a leaf for another destination word is rejected`() {
@@ -790,46 +761,33 @@ get fun `test a leaf for another destination word is rejected`() {
     val parsed = sccpParseInboundPayload(payload, TEST_REVISION, 0);
     val otherLeaf = sccpTransferLeaf(sccpInboundMessageId(env.networkId, parsed.payloadHash), 0x99);
     val leaves = leavesWith(otherLeaf, 0, 2);
-    val statement = blockStatement(10, leaves, env.digest());
-    val path = treePath(leaves, 0);
+    val x = blockX(env.networkId, env.generation, env.committee.root(), 1100, leaves);
     val d: Delivery = {
         payload,
-        statement,
-        signatures: signByThreshold(env.roster, statement.digest(env.networkId)),
-        proof: {
-            leafIndex: 0,
-            pathLen: path.size(),
-            payload,
-            path: sccpBuildHashPath(path),
-        },
+        x,
+        cert: certifyFor(env, env.committee, x),
+        proof: messageProofCell(0, treePath(leaves, 0), payload, ownBlockRef(x)),
         messageId: 0,
     };
-    expect(sendFinalize(env, env.deployer, d, grams("5"))).toHaveFailedTx<SccpFinalize>({
-        to: env.minter.address,
-        exitCode: SccpErrors.BadProof as int,
-    });
+    expect(sendFinalize(env, env.deployer, d, grams("5"))).toHaveFailedTx<SccpFinalize>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.BadProof as int });
 }
 
 get fun `test payload targeting another revision or the minter itself is rejected`() {
     val env = setupEnv();
     val payload = inboundPayloadCell(0, 2, T0 * 1000 + DAY_MS, 1, 0x55);
-    val statement = blockStatement(10, [fillerLeaf(1)], env.digest());
+    val x = blockX(env.networkId, env.generation, env.committee.root(), 1100, [fillerLeaf(1)]);
     val d: Delivery = {
         payload,
-        statement,
-        signatures: signByThreshold(env.roster, statement.digest(env.networkId)),
-        proof: {
-            leafIndex: 0,
-            pathLen: 0,
-            payload,
-            path: null,
-        },
+        x,
+        cert: certifyFor(env, env.committee, x),
+        proof: messageProofCell(0, [], payload, ownBlockRef(x)),
         messageId: 0,
     };
-    expect(sendFinalize(env, env.deployer, d, grams("5"))).toHaveFailedTx<SccpFinalize>({
-        to: env.minter.address,
-        exitCode: SccpErrors.BadPayload as int,
-    });
+    expect(sendFinalize(env, env.deployer, d, grams("5"))).toHaveFailedTx<SccpFinalize>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.BadPayload as int });
     val selfPayload = inboundPayloadCell(
         0,
         TEST_REVISION,
@@ -839,11 +797,12 @@ get fun `test payload targeting another revision or the minter itself is rejecte
     );
     var selfDelivery = d;
     selfDelivery.payload = selfPayload;
-    selfDelivery.proof.payload = selfPayload;
-    expect(sendFinalize(env, env.deployer, selfDelivery, grams("5"))).toHaveFailedTx<SccpFinalize>({
-        to: env.minter.address,
-        exitCode: SccpErrors.BadRecipient as int,
-    });
+    selfDelivery.proof = messageProofCell(0, [], selfPayload, ownBlockRef(x));
+    expect(
+        sendFinalize(env, env.deployer, selfDelivery, grams("5")),
+    ).toHaveFailedTx<SccpFinalize>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.BadRecipient as int });
 }
 
 get fun `test finalize requires the ton mainnet global id`() {

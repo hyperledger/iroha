@@ -638,3 +638,272 @@ fn charged_sequence_preserves_exact_pool_and_allocator_causes_before_late_framin
     drop(retry);
     assert_eq!(pool.reserved_bytes(), 0);
 }
+
+#[test]
+fn retained_sequence_keeps_late_framing_storage_and_cumulative_retry_work() {
+    use norito::core::{
+        DecodeBudgetContext, RetainedElementSequence, RetainedSequenceError,
+        SequenceAdmissionError, plan_binary_sequence,
+    };
+    for flags in [0, header_flags::COMPACT_LEN] {
+        let _flags = DecodeFlagsGuard::enter(flags);
+        let mut bytes = super::bare_bytes(&vec![3_u64, 5, 7, 11], flags);
+        bytes.pop();
+        let exact = std::alloc::Layout::array::<SequenceSpan>(4).unwrap().size();
+        let pool = AllocationBudget::new(exact);
+        let foreign = AllocationBudget::new(exact);
+        let context = DecodeBudgetContext::new(limits(1 << 20));
+        let oracle = DecodeBudgetContext::new(limits(1 << 20));
+        let mut owner = RetainedElementSequence::new(&pool);
+        assert_eq!(owner.allocation_bytes(), Some(0));
+        assert!(owner.belongs_to(&pool));
+        assert!(!owner.belongs_to(&foreign));
+        assert!(matches!(
+            owner.as_prepared(&bytes),
+            Err(RetainedSequenceError::Incomplete)
+        ));
+        for _ in 0..2 {
+            let expected = oracle
+                .with(|| plan_binary_sequence(&bytes, flags))
+                .unwrap_err();
+            let actual = context.with(|| owner.prepare(&bytes)).unwrap_err();
+            let RetainedSequenceError::Admission(SequenceAdmissionError::Codec(actual)) = actual
+            else {
+                panic!("original late framing failure required");
+            };
+            assert_eq!(actual.to_string(), expected.to_string());
+            assert!(matches!(actual, norito::Error::LengthMismatch));
+            assert_eq!(
+                context.consumed_allocated_bytes(),
+                oracle.consumed_allocated_bytes()
+            );
+            assert_eq!(pool.reserved_bytes(), exact);
+            assert_eq!(owner.allocation_bytes(), Some(exact));
+            assert!(matches!(
+                owner.as_prepared(&bytes),
+                Err(RetainedSequenceError::Incomplete)
+            ));
+        }
+        drop(owner);
+        assert_eq!(pool.reserved_bytes(), 0);
+    }
+}
+
+#[test]
+fn retained_sequence_does_not_wake_its_original_capacity_refusal_during_retry() {
+    use iroha_allocation::{AllocationRefusal, release::ReleaseRegistration};
+    use norito::core::{DecodeBudgetContext, RetainedElementSequence};
+    use std::task::{Context, Poll, Waker};
+    let _flags = DecodeFlagsGuard::enter(header_flags::COMPACT_LEN);
+    let bytes = super::bare_bytes(&vec![3_u64, 5, 7, 11], header_flags::COMPACT_LEN);
+    let exact = std::alloc::Layout::array::<SequenceSpan>(4).unwrap().size();
+    let pool = AllocationBudget::new(4096);
+    let mut reservation = pool
+        .try_reserve(ReleaseRegistration::allocation_layout())
+        .unwrap();
+    let mut registration = ReleaseRegistration::from_reservation(&mut reservation).unwrap();
+    let blocker = pool
+        .try_reserve_bytes(pool.limit_bytes() - pool.reserved_bytes() - exact)
+        .unwrap();
+    let context = DecodeBudgetContext::new(limits(1 << 20));
+    context.with(|| ());
+    let mut owner = None;
+    assert_eq!(
+        super::allocations_during(|| owner = Some(RetainedElementSequence::new(&pool))),
+        0
+    );
+    let mut owner = owner.unwrap();
+    context.with(|| owner.prepare(&bytes)).unwrap();
+    let original = pool.try_reserve_bytes(1).unwrap_err();
+    let AllocationRefusal::Capacity { release, .. } = &original else {
+        panic!("original pool is full");
+    };
+    let mut cx = Context::from_waker(Waker::noop());
+    assert_eq!(registration.poll_wait(release, &mut cx), Poll::Pending);
+    let before = context.consumed_allocated_bytes();
+    assert_eq!(
+        super::allocations_during(|| {
+            context.with(|| owner.prepare(&bytes)).unwrap();
+        }),
+        0
+    );
+    assert!(context.consumed_allocated_bytes() > before);
+    assert_eq!(owner.allocation_bytes(), Some(exact));
+    assert_eq!(pool.try_reserve_bytes(1).unwrap_err(), original);
+    assert_eq!(registration.poll_wait(release, &mut cx), Poll::Pending);
+    drop(blocker);
+    assert_eq!(registration.poll_wait(release, &mut cx), Poll::Ready(()));
+    let view = owner.as_prepared(&bytes).unwrap();
+    let mut visited = 0;
+    view.decode_elements::<u64, Infallible>(|index, field| {
+        field.with_payload(|payload| {
+            let (value, used) = u64::decode_from_slice(payload)?;
+            assert_eq!(used, payload.len());
+            assert_eq!(value, [3, 5, 7, 11][index]);
+            visited += 1;
+            Ok(())
+        })
+    })
+    .unwrap();
+    assert_eq!(visited, 4);
+}
+
+#[test]
+fn retained_sequence_rejects_substitution_in_place_mutation_and_changed_flags() {
+    use norito::core::{RetainedElementSequence, RetainedSequenceError};
+    let flags = header_flags::COMPACT_LEN;
+    let _flags = DecodeFlagsGuard::enter(flags);
+    let mut bytes = super::bare_bytes(&vec![3_u64, 5, 7, 11], flags);
+    let pool = AllocationBudget::new(4096);
+    let mut owner = RetainedElementSequence::new(&pool);
+    owner.prepare(&bytes).unwrap();
+    let retained = pool.reserved_bytes();
+    let replacement = bytes.clone();
+    assert!(matches!(
+        owner.as_prepared(&replacement),
+        Err(RetainedSequenceError::SourceMismatch)
+    ));
+    let address = bytes.as_ptr();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 1;
+    assert_eq!(bytes.as_ptr(), address);
+    assert!(matches!(
+        owner.as_prepared(&bytes),
+        Err(RetainedSequenceError::SourceMismatch)
+    ));
+    assert!(matches!(
+        owner.prepare(&bytes),
+        Err(RetainedSequenceError::SourceMismatch)
+    ));
+    assert!(matches!(
+        owner.as_prepared(&bytes),
+        Err(RetainedSequenceError::Incomplete)
+    ));
+    bytes[last] ^= 1;
+    owner.prepare(&bytes).unwrap();
+    {
+        let _other_flags = DecodeFlagsGuard::enter(0);
+        assert!(matches!(
+            owner.as_prepared(&bytes),
+            Err(RetainedSequenceError::SourceMismatch)
+        ));
+        assert!(matches!(
+            owner.prepare(&bytes),
+            Err(RetainedSequenceError::SourceMismatch)
+        ));
+    }
+    owner.prepare(&bytes).unwrap();
+    assert_eq!(owner.as_prepared(&bytes).unwrap().used(), bytes.len());
+    assert_eq!(pool.reserved_bytes(), retained);
+}
+
+#[test]
+fn retained_sequence_preserves_first_admission_and_exhausted_retry_order() {
+    use iroha_allocation::ChargedBufferError;
+    use norito::core::{
+        DecodeBudgetContext, RetainedElementSequence, RetainedSequenceError,
+        SequenceAdmissionError, plan_binary_sequence,
+    };
+    let flags = header_flags::COMPACT_LEN;
+    let _flags = DecodeFlagsGuard::enter(flags);
+    let bytes = super::bare_bytes(&vec![3_u64, 5, 7, 11], flags);
+    let exact = std::alloc::Layout::array::<SequenceSpan>(4).unwrap();
+    let pool = AllocationBudget::new(exact.size());
+    let blocker = pool.try_reserve(exact).unwrap();
+    let expected = pool.try_reserve(exact).unwrap_err();
+    let mut owner = RetainedElementSequence::new(&pool);
+    let error = owner.prepare(&bytes).unwrap_err();
+    let RetainedSequenceError::Admission(SequenceAdmissionError::Allocation(
+        ChargedBufferError::Admission(actual),
+    )) = error
+    else {
+        panic!("original physical admission refusal required");
+    };
+    assert_eq!(actual, expected);
+    assert_eq!(owner.allocation_bytes(), Some(0));
+    drop(blocker);
+    let sizing = DecodeBudgetContext::new(limits(1 << 20));
+    sizing.with(|| plan_binary_sequence(&bytes, flags)).unwrap();
+    let maximum = usize::try_from(sizing.consumed_allocated_bytes()).unwrap();
+    let oracle = DecodeBudgetContext::new(limits(maximum));
+    let context = DecodeBudgetContext::new(limits(maximum));
+    oracle.with(|| plan_binary_sequence(&bytes, flags)).unwrap();
+    context.with(|| owner.prepare(&bytes)).unwrap();
+    let expected = oracle
+        .with(|| plan_binary_sequence(&bytes, flags))
+        .unwrap_err();
+    let error = context.with(|| owner.prepare(&bytes)).unwrap_err();
+    let RetainedSequenceError::Admission(SequenceAdmissionError::Codec(actual)) = error else {
+        panic!("the original cumulative limit must reject retry");
+    };
+    assert!(actual.is_decode_resource_limit());
+    assert_eq!(
+        actual.decode_resource_error(),
+        expected.decode_resource_error()
+    );
+    assert_eq!(
+        context.consumed_allocated_bytes(),
+        oracle.consumed_allocated_bytes()
+    );
+    assert_eq!(owner.allocation_bytes(), Some(exact.size()));
+    assert_eq!(pool.reserved_bytes(), exact.size());
+    assert!(matches!(
+        owner.as_prepared(&bytes),
+        Err(RetainedSequenceError::Incomplete)
+    ));
+}
+
+#[test]
+fn retained_sequence_admits_only_exact_spans_for_each_layout_and_empty_input() {
+    use norito::core::{DecodeBudgetContext, RetainedElementSequence, plan_binary_sequence};
+    for flags in [0, header_flags::COMPACT_LEN] {
+        let _flags = DecodeFlagsGuard::enter(flags);
+        for count in [0, 4, 31, 961] {
+            let values: Vec<u64> = (0..count as u64).map(|value| value * 7 + 3).collect();
+            let bytes = super::bare_bytes(&values, flags);
+            let exact = std::alloc::Layout::array::<SequenceSpan>(count)
+                .unwrap()
+                .size();
+            let pool = AllocationBudget::new(exact);
+            let mut owner = RetainedElementSequence::new(&pool);
+            let oracle = DecodeBudgetContext::new(limits(1 << 20));
+            let expected = oracle.with(|| plan_binary_sequence(&bytes, flags)).unwrap();
+            let context = DecodeBudgetContext::new(limits(1 << 20));
+            context.with(|| ());
+            super::REQUESTED_ALLOCATION_BYTES.with(|bytes| bytes.set(0));
+            let allocations = super::allocations_during(|| {
+                context.with(|| owner.prepare(&bytes)).unwrap();
+            });
+            assert_eq!(allocations, usize::from(count != 0));
+            assert_eq!(
+                super::REQUESTED_ALLOCATION_BYTES.with(std::cell::Cell::get),
+                exact
+            );
+            assert_eq!(
+                context.consumed_allocated_bytes(),
+                oracle.consumed_allocated_bytes()
+            );
+            assert_eq!(owner.allocation_bytes(), Some(exact));
+            assert_eq!(pool.reserved_bytes(), exact);
+            let view = owner.as_prepared(&bytes).unwrap();
+            assert_eq!(
+                (view.len(), view.used()),
+                (expected.spans.len(), expected.used)
+            );
+            assert_eq!(view.is_empty(), count == 0);
+            let mut visited = 0;
+            view.decode_elements::<u64, Infallible>(|index, field| {
+                field.with_payload(|payload| {
+                    let (value, used) = u64::decode_from_slice(payload)?;
+                    assert_eq!((value, used), (values[index], payload.len()));
+                    visited += 1;
+                    Ok(())
+                })
+            })
+            .unwrap();
+            assert_eq!(visited, count);
+            drop(owner);
+            assert_eq!(pool.reserved_bytes(), 0);
+        }
+    }
+}

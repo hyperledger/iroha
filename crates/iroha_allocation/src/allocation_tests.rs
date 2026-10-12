@@ -1054,3 +1054,100 @@ fn prepaid_shared_charge_rejects_wrong_size_and_alignment_before_allocation() {
         assert_eq!(budget.reserved_bytes(), 0);
     }
 }
+
+#[test]
+fn owned_scope_exact_charge_refuses_foreign_layout_and_allocator_without_replacing_custody() {
+    let layout = OwnedAllocationScope::allocation_layout();
+    let budget = AllocationBudget::new(layout.size() * 4);
+    let other = AllocationBudget::new(layout.size() * 4);
+    let charge = budget
+        .try_reserve(layout)
+        .unwrap()
+        .try_split(layout)
+        .unwrap();
+    let (charge, error) =
+        without_allocations(|| OwnedAllocationScope::try_from_charge(&other, charge))
+            .err()
+            .unwrap();
+    assert_eq!(error, OwnedScopeError::ForeignPool);
+    assert!(charge.belongs_to(&budget));
+    assert_eq!(budget.reserved_bytes(), layout.size());
+    assert_eq!(other.reserved_bytes(), 0);
+    drop(charge);
+    let wrong = Layout::from_size_align(layout.size() + 1, layout.align()).unwrap();
+    let charge = budget.try_reserve(wrong).unwrap().try_split(wrong).unwrap();
+    let (charge, error) =
+        without_allocations(|| OwnedAllocationScope::try_from_charge(&budget, charge))
+            .err()
+            .unwrap();
+    assert_eq!(
+        error,
+        OwnedScopeError::LayoutMismatch {
+            expected: layout,
+            actual: wrong
+        }
+    );
+    assert_eq!(charge.layout(), wrong);
+    drop(charge);
+    let charge = budget
+        .try_reserve(layout)
+        .unwrap()
+        .try_split(layout)
+        .unwrap();
+    let (charge, error) = crate::test_support::refusing_allocation(layout, || {
+        OwnedAllocationScope::try_from_charge(&budget, charge)
+    })
+    .err()
+    .unwrap();
+    assert_eq!(error, OwnedScopeError::Allocator { layout });
+    assert!(charge.belongs_to(&budget));
+    assert_eq!(budget.reserved_bytes(), layout.size());
+    let scope = OwnedAllocationScope::try_from_charge(&budget, charge)
+        .unwrap_or_else(|_| panic!("same original charge retries"));
+    let reader = without_allocations(|| scope.clone());
+    drop(scope);
+    assert_eq!(budget.reserved_bytes(), layout.size());
+    drop(reader);
+    assert_eq!(budget.reserved_bytes(), 0);
+    without_allocations(|| budget.with_deferred_refund_notifications(|_| {}));
+}
+
+#[test]
+fn prepaid_scope_controls_unlink_out_of_order_without_early_refund_wake() {
+    fn scope(budget: &AllocationBudget) -> OwnedAllocationScope {
+        let layout = OwnedAllocationScope::allocation_layout();
+        let charge = budget
+            .try_reserve(layout)
+            .unwrap()
+            .try_split(layout)
+            .unwrap();
+        OwnedAllocationScope::try_from_charge(budget, charge)
+            .unwrap_or_else(|_| panic!("funded exact scope"))
+    }
+    let bytes = OwnedAllocationScope::allocation_layout().size();
+    let budget =
+        AllocationBudget::new(bytes * 3 + 1 + ReleaseRegistration::allocation_layout().size());
+    let other = AllocationBudget::new(bytes);
+    let mut registration = registration(&budget);
+    let outer = scope(&budget);
+    let foreign = scope(&other);
+    let inner = budget.with_deferred_refund_notifications(|_| scope(&budget));
+    let occupied = budget
+        .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
+        .unwrap();
+    let mut wait = capacity_wait(budget.try_reserve_bytes(1).unwrap_err(), &mut registration);
+    let wakes = Arc::new(WakeCount::default());
+    assert!(poll(&mut wait, &wakes).is_pending());
+    drop(occupied);
+    drop(outer);
+    drop(foreign);
+    assert_eq!(wakes.0.load(SeqCst), 0);
+    assert_eq!(other.reserved_bytes(), 0);
+    drop(inner);
+    assert!(wakes.0.load(SeqCst) > 0);
+    assert_eq!(
+        budget.reserved_bytes(),
+        ReleaseRegistration::allocation_layout().size()
+    );
+    without_allocations(|| budget.with_deferred_refund_notifications(|_| {}));
+}

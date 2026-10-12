@@ -98,6 +98,31 @@ fn private_chain() -> CertifiedTestChain {
 }
 
 #[test]
+fn terminal_result_scope_comes_from_the_signed_private_root() {
+    let mut chain = private_chain();
+    chain.commit_at(2_000, Vec::new());
+    chain.commit_at(3_000, Vec::new());
+    let view = chain.state().view();
+    let context = norito::core::DecodeBudgetContext::try_new_owned(
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 128),
+        &view.execution_budget(),
+    )
+    .unwrap();
+    let mut reader = context.with(|| CertifiedChain::new(&view)).unwrap();
+    let terminal = context.with(|| reader.certified_terminal_amx(3)).unwrap();
+    let scope = iroha_data_model::sumeragi_finality::CertifiedResultScope::from_root_scope(
+        SumeragiRootScope::Dataspace {
+            parent_network_id: NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
+                Hash::new(b"independent public parent"),
+            )),
+            dataspace_id: DataSpaceId::new(u64::MAX - 15),
+        },
+    );
+    assert_eq!(terminal.committed().result_scope(), scope);
+    assert_eq!(terminal.committed().result(), chain.committed(3).result());
+}
+
+#[test]
 fn compact_export_authenticates_original_genesis_and_successor_without_private_bodies() {
     let mut chain = private_chain();
     let registered = registration(&chain.state().view()).unwrap();
@@ -204,5 +229,75 @@ fn original_private_export_refusal_preserves_read_owner_and_exact_custody_retry(
         Err(ExportError::Custody(ChainReadError::NotCommitted {
             height: 3
         }))
+    ));
+}
+
+#[test]
+fn private_execution_tip_keeps_its_signed_role_through_successor_and_history_read() {
+    let mut chain = private_chain();
+    let original = chain.state().view().native_execution_tip().unwrap();
+    assert!(matches!(
+        original.root_scope(),
+        SumeragiRootScope::Dataspace { .. }
+    ));
+    assert_eq!(
+        original.result_scope(),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::NonGlobal
+    );
+    chain.commit_at(1_100, vec![]);
+    let view = chain.state().view();
+    let current = view.native_execution_tip().unwrap();
+    assert_eq!(current.root_scope(), original.root_scope());
+    let reader = CertifiedChain::new(&view).unwrap();
+    assert_eq!(reader.root_scope(), original.root_scope());
+    let receipt = reader.committed(2).unwrap();
+    assert_eq!(receipt.result_scope(), original.result_scope());
+    let decoded = iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+        receipt
+            .block()
+            .commit_certificate()
+            .unwrap()
+            .result_preimage(),
+        original.result_scope(),
+    )
+    .unwrap();
+    assert!(!decoded.header().is_active());
+    assert_eq!(current.result(), receipt.result());
+    assert_eq!(
+        anchor(&view, 2).unwrap().certificate.result_preimage,
+        receipt
+            .block()
+            .commit_certificate()
+            .unwrap()
+            .result_preimage()
+    );
+}
+
+#[test]
+fn private_profile_export_preserves_local_resource_category_after_decode_scope_retires() {
+    for (resource, expected) in [
+        (
+            norito::core::DecodeResourceError::AllocationFailed { bytes: 1 },
+            ivm::error::ExecutionDeferral::AllocationUnavailable,
+        ),
+        (
+            norito::core::DecodeResourceError::TotalAllocationExceeded {
+                attempted: 2,
+                limit: 1,
+            },
+            ivm::error::ExecutionDeferral::ActiveMemoryCapacity,
+        ),
+    ] {
+        let ExportError::Deferred(retained) =
+            ExportError::from(PrivateDataspaceAnchorError::Resource(resource))
+        else {
+            panic!("captured local resource cannot become a profile rejection");
+        };
+        assert_eq!(retained.reason(), expected);
+        assert!(retained.allocation_refusal().is_none());
+    }
+    assert!(matches!(
+        ExportError::from(PrivateDataspaceAnchorError::Invalid("malformed".into())),
+        ExportError::Profile(_)
     ));
 }

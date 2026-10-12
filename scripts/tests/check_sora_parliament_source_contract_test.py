@@ -155,6 +155,16 @@ def test_beacon_parliament_fixture_module_cannot_be_disconnected(
 
 
 INDEX_ADMISSION_TEST = "fn parliament_required_beacon_slot_index_tracks_lifecycle_and_removal()"
+PARLIAMENT_ADMISSION_TEST = (
+    "fn parliament_attempt_admission_derives_the_slot_index_and_no_pulse_demand() {"
+)
+SLOT_FIXTURE = "fn parliament_pending_sortition_slot_fixture("
+INDEX_REBUILD_TEST = "fn parliament_required_beacon_slot_index_rebuilds_and_tracks_removal()"
+NO_CONFLICT_TEST = "fn parliament_sortition_slot_never_conflicts_with_a_finalized_pulse()"
+RELEASE_CONFLICT_TEST = (
+    "fn parliament_attempt_rejects_release_unavailable_ballot_at_a_finalized_pulse_slot_atomically()"
+)
+READINESS_HORIZON_TEST = "fn readiness_horizon_is_native_only_with_pending_parliament_slots() {"
 
 
 @pytest.mark.parametrize("path,declaration,original,replacement", (
@@ -180,26 +190,144 @@ INDEX_ADMISSION_TEST = "fn parliament_required_beacon_slot_index_tracks_lifecycl
      ".put_parliament_attempt(attempt.clone())", ".unchecked_parliament_attempt(attempt.clone())"),
     (STATE_TESTS_PATH, INDEX_ADMISSION_TEST,
      'expect("persist the live sortition request")', "unwrap()"),
-    (STATE_TESTS_PATH, INDEX_ADMISSION_TEST,
+    (STATE_TESTS_PATH, SLOT_FIXTURE,
      "crate::beacon::tests::pending_batched_sortition_attempt(", "other_pending_attempt("),
     (STATE_TESTS_PATH, INDEX_ADMISSION_TEST,
      ".fail_body_election_no_roster(", ".retain_live_request("),
-    (guard.BEACON_PRODUCER_TESTS_PATH, "fn fixture() -> Fixture {",
+    # The retired rule: an election far past its slot fails as pulse-unavailable.
+    (STATE_TESTS_PATH, INDEX_ADMISSION_TEST,
+     "Err(ParliamentReducerErrorV1::InvalidLifecycleTransition(\n"
+     "            crate::governance::parliament::ParliamentReducerEntityV1::BodyElection\n"
+     "        ))", "Ok(())"),
+    (STATE_TESTS_PATH, INDEX_ADMISSION_TEST, "pulse_height + 1_000_000,", "pulse_height,"),
+    (STATE_TESTS_PATH, INDEX_ADMISSION_TEST,
+     'expect("rewrite the unchanged pulse wait")', "unwrap_err()"),
+    (STATE_TESTS_PATH, INDEX_ADMISSION_TEST,
+     "BTreeMap::from([(pulse_slot, BTreeSet::from([governance_attempt_id]))])",
+     "BTreeMap::new()"),
+    (STATE_TESTS_PATH, INDEX_ADMISSION_TEST,
+     ".fail_sortition_generation_with_empty_roster_for_tests(", ".expire_missing_pulse("),
+    (STATE_TESTS_PATH, INDEX_REBUILD_TEST,
+     ".validate_restored_height_v1(pulse_height + 1_000_000)",
+     ".validate_restored_height_v1(pulse_height)"),
+    (STATE_TESTS_PATH, INDEX_REBUILD_TEST,
+     "world.parliament_required_beacon_pulse_slots = Storage::default();", ""),
+    (STATE_TESTS_PATH, INDEX_REBUILD_TEST,
+     "            .get(&pulse_slot)\n            .is_none()", "            .is_empty()"),
+    # The retired veto: a finalized pulse at the slot rejects the sortition attempt.
+    (STATE_TESTS_PATH, NO_CONFLICT_TEST,
+     "assert_eq!(transaction.put_parliament_attempt(attempt.clone()), Ok(()));",
+     "assert_eq!(transaction.put_parliament_attempt(attempt.clone()),\n"
+     "                Err(ParliamentReducerErrorV1::BeaconPulseAlreadyAvailable));"),
+    (STATE_TESTS_PATH, NO_CONFLICT_TEST,
+     "[(pending, true), (failed, false)]", "[(failed, false)]"),
+    (STATE_TESTS_PATH, NO_CONFLICT_TEST,
+     "world.global_beacon_pulses.insert(pulse.pulse_id, pulse);", ""),
+    (STATE_TESTS_PATH, NO_CONFLICT_TEST,
+     'expect("a finalized pulse never contradicts a sortition slot")', "unwrap_err()"),
+    (STATE_TESTS_PATH, NO_CONFLICT_TEST,
+     "assert!(pending.unavailable_release_pulse_slots_v1().is_empty());", ""),
+    (STATE_TESTS_PATH, RELEASE_CONFLICT_TEST,
+     "Err(ParliamentReducerErrorV1::BeaconPulseAlreadyAvailable)", "Ok(())"),
+    (STATE_TESTS_PATH, RELEASE_CONFLICT_TEST,
+     "let world = world_with_pulse_slots(&[release_slot]);",
+     "let world = world_with_pulse_slots(&[]);"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, PARLIAMENT_ADMISSION_TEST,
      "(BeaconSessionId::for_network_v1(&chain.network_id()), 9)",
      "(BeaconSessionId::for_network_v1(&chain.network_id()), 10)"),
-    (guard.BEACON_PRODUCER_TESTS_PATH, "fn fixture() -> Fixture {",
+    (guard.BEACON_PRODUCER_TESTS_PATH, PARLIAMENT_ADMISSION_TEST,
      ".put_parliament_attempt(attempt)", ".unchecked_parliament_attempt(attempt)"),
-    (guard.BEACON_PRODUCER_TESTS_PATH, "fn fixture() -> Fixture {",
+    (guard.BEACON_PRODUCER_TESTS_PATH, PARLIAMENT_ADMISSION_TEST,
      "crate::beacon::tests::pending_batched_sortition_attempt(", "other_pending_attempt("),
+    (guard.BEACON_PRODUCER_TESTS_PATH, PARLIAMENT_ADMISSION_TEST,
+     "seeded(prefix())", "seeded(npos_prefix(8))"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, PARLIAMENT_ADMISSION_TEST,
+     "Some(&BTreeSet::from([attempt_id]))", "None"),
+    # The inverted assertions: admission creates no demand, horizon, round or partial.
+    (guard.BEACON_PRODUCER_TESTS_PATH, PARLIAMENT_ADMISSION_TEST,
+     "!super::super::required(SumeragiRootScope::Global, view.world(), current, 9).unwrap(),\n"
+     '            "the admitted governance slot',
+     "super::super::required(SumeragiRootScope::Global, view.world(), current, 9).unwrap(),\n"
+     '            "the admitted governance slot'),
+    (guard.BEACON_PRODUCER_TESTS_PATH, PARLIAMENT_ADMISSION_TEST,
+     "!super::super::required(SumeragiRootScope::Global, view.world(), current, 9).unwrap(),\n"
+     '            "a Permissioned chain', "true,\n            \"a Permissioned chain"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, PARLIAMENT_ADMISSION_TEST,
+     "assert_eq!(current.mode, ConsensusMode::Permissioned);",
+     "assert_eq!(current.mode, ConsensusMode::Npos);"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, PARLIAMENT_ADMISSION_TEST,
+     'assert!(ready, "no demand remains', 'assert!(!ready, "no demand remains'),
+    (guard.BEACON_PRODUCER_TESTS_PATH, PARLIAMENT_ADMISSION_TEST,
+     "horizon.next_required_pulse_height, None,", "horizon.next_required_pulse_height, Some(9),"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, PARLIAMENT_ADMISSION_TEST,
+     "assert_eq!(horizon.epoch_length_blocks, 0);", ""),
+    (guard.BEACON_PRODUCER_TESTS_PATH, PARLIAMENT_ADMISSION_TEST,
+     "                .unwrap()\n                .is_none(),", "                .is_ok(),"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, PARLIAMENT_ADMISSION_TEST,
+     "assert!(producer.active.is_none());", "assert!(producer.active.is_some());"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, PARLIAMENT_ADMISSION_TEST,
+     "                .unwrap()\n                .is_empty(),", "                .is_err(),"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, PARLIAMENT_ADMISSION_TEST,
+     "count.load(Ordering::SeqCst) == 0", "true"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, PARLIAMENT_ADMISSION_TEST,
+     "    let state = chain.state();",
+     "    if true {\n        return;\n    }\n    let state = chain.state();"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, READINESS_HORIZON_TEST,
+     "height == 9,", "height == 9 || height == 7,"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, READINESS_HORIZON_TEST,
+     "horizon.next_required_pulse_height,\n        Some(9),",
+     "horizon.next_required_pulse_height,\n        Some(7),"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, READINESS_HORIZON_TEST,
+     "assert_eq!(horizon.next_required_pulse_height, None);",
+     "assert_eq!(horizon.next_required_pulse_height, Some(9));"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, READINESS_HORIZON_TEST,
+     "        !ready,\n", "        ready,\n"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, READINESS_HORIZON_TEST,
+     "let chain = npos_prefix(5);", "let chain = prefix();"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, READINESS_HORIZON_TEST,
+     "assert!(view.world().active_global_beacon_key_session().is_none());", ""),
+    (guard.BEACON_PRODUCER_TESTS_PATH, "fn fixture() -> Fixture {",
+     "seeded(npos_prefix(8))", "seeded(prefix())"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, "fn fixture() -> Fixture {",
+     "ConsensusMode::Npos", "ConsensusMode::Permissioned"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, "fn fixture() -> Fixture {",
+     "current.authorization.last_height, NPOS_EPOCH_LENGTH_BLOCKS",
+     "current.authorization.last_height, 0"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, "fn fixture() -> Fixture {",
+     ".is_none(),", ".is_some(),"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, "fn fixture() -> Fixture {",
+     "current, 9).unwrap(),", "current, 8).unwrap(),"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, "fn fixture() -> Fixture {",
+     "    fixture\n}",
+     "    fixture.chain.setup_world_at(2_000, |transaction| {\n"
+     "        transaction.world.put_parliament_attempt(attempt).unwrap();\n    });\n"
+     "    fixture\n}"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, "fn fixture() -> Fixture {",
+     "    fixture\n}",
+     "    let _ = crate::beacon::tests::pending_batched_sortition_attempt;\n    fixture\n}"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, "fn seeded(chain: CertifiedTestChain) -> Fixture {",
+     "assert_eq!(chain.height(), 8);",
+     "assert_eq!(chain.height(), 8);\n"
+     "    let _ = World::parliament_required_beacon_pulse_slots;"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, "fn npos_prefix(height: u64) -> CertifiedTestChain {",
+     "SumeragiConsensusMode::Npos", "SumeragiConsensusMode::Permissioned"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, "fn npos_prefix(height: u64) -> CertifiedTestChain {",
+     "NonZeroU64::new(NPOS_EPOCH_LENGTH_BLOCKS)", "NonZeroU64::new(3)"),
     (guard.BEACON_EXECUTION_TESTS_PATH,
      "fn same_predecessor(fixture: &Fixture, demand: bool) -> CertifiedTestChain {",
-     ".put_parliament_attempt(attempt)", ".unchecked_parliament_attempt(attempt)"),
+     "npos_prefix(tip)", "prefix()"),
     (guard.BEACON_EXECUTION_TESTS_PATH,
      "fn same_predecessor(fixture: &Fixture, demand: bool) -> CertifiedTestChain {",
-     "crate::beacon::tests::pending_batched_sortition_attempt(", "other_pending_attempt("),
-    (guard.BEACON_PRODUCER_TESTS_PATH,
-     "fn wrong_source_sender_and_proof_never_change_the_owned_round()",
-     ".parliament_unavailable_beacon_pulse_slots", ".global_beacon_pulse_slots"),
+     "ConsensusMode::Npos", "ConsensusMode::Permissioned"),
+    (guard.BEACON_EXECUTION_TESTS_PATH,
+     "fn same_predecessor(fixture: &Fixture, demand: bool) -> CertifiedTestChain {",
+     "            demand,\n", "            true,\n"),
+    (guard.BEACON_EXECUTION_TESTS_PATH,
+     "fn same_predecessor(fixture: &Fixture, demand: bool) -> CertifiedTestChain {",
+     "    chain\n}",
+     "    chain.setup_world_at(2_000, |transaction| {\n"
+     "        transaction.world.put_parliament_attempt(attempt).unwrap();\n    });\n"
+     "    chain\n}"),
     (guard.BEACON_EXECUTION_TESTS_PATH,
      "fn transported_pulse_executes_once_and_cold_replay_reproduces_the_certified_result()",
      "invalid(&mut worker, &replay, &missing);", "let _ = &missing;"),
@@ -210,6 +338,13 @@ INDEX_ADMISSION_TEST = "fn parliament_required_beacon_slot_index_tracks_lifecycl
     (guard.BEACON_EXECUTION_TESTS_PATH,
      "fn same_predecessor(fixture: &Fixture, demand: bool) -> CertifiedTestChain {",
      "if demand {", "if true {"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, "fn fixture() -> Fixture {",
+     "let fixture = seeded(npos_prefix(8));",
+     "let fixture = seeded(npos_prefix(8));\n    if true {\n        return fixture;\n    }"),
+    (guard.BEACON_EXECUTION_TESTS_PATH,
+     "fn same_predecessor(fixture: &Fixture, demand: bool) -> CertifiedTestChain {",
+     "let chain = npos_prefix(tip);",
+     "let chain = npos_prefix(tip);\n    if true {\n        return chain;\n    }"),
 ))
 def test_beacon_parliament_fixture_admission_cannot_be_moved_to_disconnected_text(
     path: str, declaration: str, original: str, replacement: str,
@@ -222,6 +357,148 @@ def test_beacon_parliament_fixture_admission_cannot_be_moved_to_disconnected_tex
     sources[path] = changed + "\n/* " + original + " */\n"
     with pytest.raises(RuntimeError, match=re.escape(path)):
         _check_pulse_fixtures(sources)
+
+
+RETIRED_FIXTURE_IDENTIFIERS = (
+    "parliament_unavailable_beacon_pulse_slots",
+    "unavailable_beacon_pulse_slots_v1",
+    "parliament_unavailable_beacon_slot_index_rebuilds_and_tracks_removal",
+    "parliament_attempt_rejects_unavailable_slot_after_pulse_finalization_atomically",
+    "parliament_unavailable_slot_rebuild_rejects_finalized_pulse_fail_atomically",
+)
+
+
+@pytest.mark.parametrize("path", (
+    STATE_TESTS_PATH, guard.BEACON_PRODUCER_TESTS_PATH, guard.BEACON_EXECUTION_TESTS_PATH,
+))
+@pytest.mark.parametrize("identifier", RETIRED_FIXTURE_IDENTIFIERS)
+def test_beacon_parliament_fixtures_reject_the_retired_unavailable_slot_table(
+    path: str, identifier: str,
+) -> None:
+    """No fixture may write or name the deleted unavailable-slot table or its tests."""
+    sources = _pulse_fixture_sources()
+    sources[path] += f"\n// {identifier} is retired\nconst NOTE: &str = \"{identifier}\";\n"
+    _check_pulse_fixtures(sources)
+    sources[path] += f"\n#[test]\nfn {identifier}_again() {{}}\n"
+    _check_pulse_fixtures(sources)
+    sources[path] += f"\nfn reintroduced() {{\n    let _ = {identifier};\n}}\n"
+    with pytest.raises(RuntimeError, match="retired"):
+        _check_pulse_fixtures(sources)
+
+
+@pytest.mark.parametrize("declaration", (
+    INDEX_ADMISSION_TEST + " {", INDEX_REBUILD_TEST + " {", NO_CONFLICT_TEST + " {",
+    RELEASE_CONFLICT_TEST + " {", READINESS_HORIZON_TEST,
+))
+def test_beacon_parliament_slot_tests_must_stay_compiled_tests(declaration: str) -> None:
+    """Each pinned slot test keeps exactly its `#[test]` attribute."""
+    path = (guard.BEACON_PRODUCER_TESTS_PATH if declaration == READINESS_HORIZON_TEST
+            else STATE_TESTS_PATH)
+    for replacement in ("// #[test]\n", "#[test]\n#[ignore]\n", "#[cfg(any())]\n#[test]\n"):
+        sources = _pulse_fixture_sources()
+        attributed = "#[test]\n" + declaration
+        assert sources[path].count(attributed) == 1
+        sources[path] = sources[path].replace(attributed, replacement + declaration, 1)
+        with pytest.raises(RuntimeError, match="must be a compiled test"):
+            _check_pulse_fixtures(sources)
+
+
+def test_beacon_fixture_epoch_constant_fixes_the_native_pulse_height() -> None:
+    """The generic fixture's only demand is the pre-boundary height of a ten-block epoch."""
+    sources = _pulse_fixture_sources()
+    path = guard.BEACON_PRODUCER_TESTS_PATH
+    constant = "const NPOS_EPOCH_LENGTH_BLOCKS: u64 = 10;"
+    assert sources[path].count(constant) == 1
+    sources[path] = sources[path].replace(
+        constant, "const NPOS_EPOCH_LENGTH_BLOCKS: u64 = 12;", 1
+    ) + "\n// " + constant + "\n"
+    with pytest.raises(RuntimeError, match="native pulse at 9"):
+        _check_pulse_fixtures(sources)
+
+
+def test_beacon_parliament_admission_owner_must_stay_a_compiled_test() -> None:
+    """The Parliament-specific admission cannot survive as an uncompiled helper."""
+    sources = _pulse_fixture_sources()
+    path = guard.BEACON_PRODUCER_TESTS_PATH
+    attributed = "#[test]\n" + PARLIAMENT_ADMISSION_TEST
+    assert sources[path].count(attributed) == 1
+    sources[path] = sources[path].replace(
+        attributed, "// #[test]\n" + PARLIAMENT_ADMISSION_TEST, 1
+    )
+    with pytest.raises(RuntimeError, match="must be a compiled test"):
+        _check_pulse_fixtures(sources)
+
+
+DISABLING_ATTRIBUTES = (
+    "#[ignore]", "#[cfg(any())]", "#[should_panic]", "#[cfg(\n    any()\n)]",
+    '#[should_panic(expected = "#[test]")]',
+)
+
+
+@pytest.mark.parametrize("attribute", DISABLING_ATTRIBUTES)
+@pytest.mark.parametrize("before", (True, False))
+def test_beacon_parliament_admission_test_carries_no_other_attribute(
+    attribute: str, before: bool,
+) -> None:
+    """An attribute on either side of `#[test]` can disable or invert the admission test."""
+    sources = _pulse_fixture_sources()
+    path = guard.BEACON_PRODUCER_TESTS_PATH
+    attributed = "#[test]\n" + PARLIAMENT_ADMISSION_TEST
+    assert sources[path].count(attributed) == 1
+    run = (attribute + "\n#[test]\n") if before else ("#[test]\n" + attribute + "\n")
+    sources[path] = sources[path].replace(attributed, run + PARLIAMENT_ADMISSION_TEST, 1)
+    with pytest.raises(RuntimeError, match="must be a compiled test"):
+        _check_pulse_fixtures(sources)
+
+
+def test_live_item_attributes_walks_the_whole_attribute_run() -> None:
+    """Every attribute is returned outermost first; comments and literals are not attributes."""
+    source = (
+        '// #[cfg(any())]\nconst A: &str = "#[ignore]";\n#[cfg(\n    test\n)]\n'
+        "/// #[ignore]\n#[test] // #[should_panic]\n\n#[allow(dead_code)]\nfn owner() {}\n"
+        "fn bare() {}\n"
+    )
+    masked = guard.mask_rust(source)
+    assert guard.live_item_attributes(masked, "fn owner() {", "x.rs") == (
+        "#[cfg(test)]", "#[test]", "#[allow(dead_code)]",
+    )
+    assert guard.live_item_attributes(masked, "fn bare() {", "x.rs") == ()
+    with pytest.raises(RuntimeError, match="expected one live declaration"):
+        guard.live_item_attributes(masked, "fn absent() {", "x.rs")
+
+
+@pytest.mark.parametrize("path,declaration,anchor,addition", (
+    (guard.BEACON_PRODUCER_TESTS_PATH, "fn fixture() -> Fixture {",
+     "    fixture\n}",
+     "    // Parliament demand: put_parliament_attempt and\n"
+     "    /* pending_batched_sortition_attempt */ are owned by another test.\n"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, "fn fixture() -> Fixture {",
+     "assert_eq!(current.mode, ConsensusMode::Npos);",
+     "let _note = \"put_parliament_attempt is owned by another test\";\n"
+     "        assert_eq!( current.mode,\n            ConsensusMode::Npos );"),
+    (guard.BEACON_EXECUTION_TESTS_PATH,
+     "fn same_predecessor(fixture: &Fixture, demand: bool) -> CertifiedTestChain {",
+     "let chain = npos_prefix(tip);",
+     "let chain =\n        npos_prefix( tip ); // not put_parliament_attempt"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, PARLIAMENT_ADMISSION_TEST,
+     "assert_eq!(horizon.epoch_length_blocks, 0);",
+     "// parliament_unavailable_beacon_pulse_slots is retired; return is only a word here.\n"
+     "    assert_eq!( horizon.epoch_length_blocks,\n        0 );"),
+    (STATE_TESTS_PATH, NO_CONFLICT_TEST + " {",
+     "let mut failed = pending.clone();",
+     "/* Err(ParliamentReducerErrorV1::BeaconPulseAlreadyAvailable) */\n"
+     "    let mut failed =\n        pending.clone();"),
+))
+def test_beacon_native_fixtures_accept_comment_literal_and_layout_changes(
+    path: str, declaration: str, anchor: str, addition: str,
+) -> None:
+    """Comments, literals and whitespace are not governance admissions or lost pins."""
+    sources = _pulse_fixture_sources()
+    body = guard.rust_item(sources[path], declaration, path)
+    assert body.count(anchor) == 1
+    replacement = addition if anchor.endswith(";") else addition + anchor
+    sources[path] = sources[path].replace(body, body.replace(anchor, replacement), 1)
+    _check_pulse_fixtures(sources)
 
 
 def test_encrypted_beacon_dkg_source_baseline() -> None:
@@ -358,61 +635,405 @@ def test_encrypted_beacon_dkg_retains_original_admission_and_event_commitment(
 
 
 RUNTIME_DEPS_PATH = "crates/irohad/src/main/runtime_deps.rs"
-EXPIRED_READINESS_TEST = (
-    "fn threshold_signer_startup_readiness_skips_expired_history_and_rejects_mismatch() {"
+DAEMON_PATH = "crates/irohad/src/main.rs"
+READINESS = "fn validate_threshold_signer_startup_readiness_v1("
+BEACON_CAPABILITY = "fn require_global_beacon_capability_for_local_seat_v1("
+BEACON_SEAT = "fn require_global_beacon_signer_for_local_seat_v1("
+PREFLIGHT = "async fn preflight_threshold_signer_startup_readiness_v1("
+TLE_PROBE = "impl iroha_core::tle_release::TlePartialReleaseSignerV1 for CapabilityProbeSigner {"
+INVERSION_TEST = "fn threshold_signer_startup_readiness_never_consults_parliament_tle_custody() {"
+BEACON_CUSTODY_TEST = (
+    "fn threshold_signer_startup_readiness_requires_global_beacon_custody_for_local_seat() {"
 )
+BEACON_CUSTODY_CALL = """        require_global_beacon_capability_for_local_seat_v1(
+            local_signer_index,
+            runtime_deps
+                .sumeragi_global_beacon_partial_signer
+                .as_deref(),
+            session,
+        )?;
+"""
+READINESS_TAIL = "\n    Ok(())\n}"
+DAEMON_PREFLIGHT = """                preflight_threshold_signer_startup_readiness_v1(
+                    Arc::clone(&state),
+                    local_consensus_peer.clone(),
+                    runtime_deps.clone(),
+                )
+                .await
+                .map_err(|message| Report::new(StartError::StartP2p).attach(message))?;
+"""
+TLE_SETTER = """        with_parliament_tle_partial_release_signer(
+            signer: Arc<dyn iroha_core::tle_release::TlePartialReleaseSignerV1>,
+        ) => parliament_tle_partial_release_signer;
+"""
+TLE_FIELD = """    parliament_tle_partial_release_signer:
+        Option<Arc<dyn iroha_core::tle_release::TlePartialReleaseSignerV1>>,
+"""
+
+
+def _readiness_sources() -> tuple[str, str]:
+    return guard.read(RUNTIME_DEPS_PATH), guard.read(DAEMON_PATH)
+
+
+def _mutate_item(source: str, path: str, declaration: str, old: str, new: str) -> str:
+    """Change one item body and leave the removed text behind as a comment."""
+    body = guard.rust_item(source, declaration, path)
+    assert body.count(old) >= 1, (declaration, old)
+    changed = source.replace(body, body.replace(old, new), 1)
+    assert changed != source
+    return changed + "\n/* " + old + " */\n"
 
 
 def test_threshold_signer_readiness_source_baseline_and_entrypoint() -> None:
-    """The current active and retained custody checks remain connected to the full guard."""
-    guard.require_threshold_signer_startup_readiness(guard.read(RUNTIME_DEPS_PATH))
+    """The consensus-native startup custody contract is connected to the full guard."""
+    guard.require_threshold_signer_startup_readiness(*_readiness_sources())
     body = ast.parse(inspect.getsource(guard.main))
     calls = [node.func.id for node in ast.walk(body)
              if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)]
     assert calls.count("require_threshold_signer_startup_readiness") == 1
 
 
-@pytest.mark.parametrize("declaration,old,new", (
-    (EXPIRED_READINESS_TEST, "threshold_signer_readiness_fixture_v1(14)",
-     "threshold_signer_readiness_fixture_v1(13)"),
-    (EXPIRED_READINESS_TEST, "fixture.active_key_session_id,", "fixture.retained_key_session_id,"),
-    (EXPIRED_READINESS_TEST, "fixture.active_participant_index,", "fixture.retained_participant_index,"),
-    (EXPIRED_READINESS_TEST, "vec![(", "vec![(fixture.retained_key_session_id, 2), ("),
-    (EXPIRED_READINESS_TEST, "exact_signer.sign_calls.load(Ordering::Acquire), 0",
-     "exact_signer.sign_calls.load(Ordering::Acquire), 1"),
-    (EXPIRED_READINESS_TEST, "mismatched_signer.sign_calls.load(Ordering::Acquire), 0",
-     "mismatched_signer.sign_calls.load(Ordering::Acquire), 1"),
-    (EXPIRED_READINESS_TEST, "CapabilityMode::MismatchedSeat", "CapabilityMode::Exact"),
-    ("fn threshold_signer_startup_readiness_scans_active_and_deadline_retained_frozen_rosters() {",
-     "fixture.retained_participant_index,", "fixture.active_participant_index,"),
-    ("fn threshold_signer_startup_readiness_scans_active_and_deadline_retained_frozen_rosters() {",
-     "expected.sort_unstable();", ""),
-    ("fn require_parliament_tle_capability_for_local_seat_v1(",
-     ".attest_partial_release_capability(session, participant_index)",
-     ".sign_partial_release(context)"),
+@pytest.mark.parametrize("lookup", (
+    "let _ = world.tle_key_sessions_required_for_runtime_custody_v1(committed_height);",
+    "let _ = world.tle_key_session_rosters();",
+    "let _ = runtime_deps.parliament_tle_partial_release_signer.as_deref();",
+    "let _ = |signer: &dyn iroha_core::tle_release::TlePartialReleaseSignerV1, session, seat| "
+    "signer.attest_partial_release_capability(session, seat);",
+    "let _ = |signer: &dyn Signer, context| signer.sign_partial_release(context);",
+    "let _ = |signer: &dyn Signer, context| signer.sign_partial(context);",
+    "let _ = world.parliament_attempts();",
+    "let _ = world.selectable_tle_key_session_for_fresh_ballot_at(committed_height);",
+), ids=lambda lookup: lookup.split("(")[0].rsplit(".", 1)[-1][-48:])
+@pytest.mark.parametrize("owner", (READINESS, BEACON_CAPABILITY, PREFLIGHT))
+def test_threshold_signer_readiness_rejects_reintroduced_tle_custody(
+    owner: str, lookup: str,
+) -> None:
+    """No Parliament TLE lookup, signer or unmodeled gate may return to the startup path."""
+    runtime_deps, daemon = _readiness_sources()
+    body = guard.rust_item(runtime_deps, owner, RUNTIME_DEPS_PATH)
+    opening = body.index("{", body.index(")")) + 1
+    if owner == READINESS:
+        opening = body.index("let world = state.world_view();")
+    changed = runtime_deps.replace(body, body[:opening] + "\n    " + lookup + body[opening:], 1)
+    assert changed != runtime_deps
+    with pytest.raises(RuntimeError, match=re.escape(RUNTIME_DEPS_PATH)):
+        guard.require_threshold_signer_startup_readiness(changed, daemon)
+
+
+@pytest.mark.parametrize("gate", (
+    "require_local_custody_v1(&world, local_peer, runtime_deps)?;",
+    "world.committed_custody_rows().try_for_each(|row| row.check(local_peer))?;",
+    "governance_gate!(world)?;",
+    "custody_gate::<u8>(&world)?;",
+    "custody_gate :: < Vec<u8> > (&world)?;",
 ))
-def test_threshold_signer_readiness_rejects_lost_exact_custody_controls(
+def test_threshold_signer_readiness_rejects_an_unmodeled_startup_gate(gate: str) -> None:
+    """A new gate under a neutral name still has to be added to the contract first."""
+    runtime_deps, daemon = _readiness_sources()
+    body = guard.rust_item(runtime_deps, READINESS, RUNTIME_DEPS_PATH)
+    anchor = "let world = state.world_view();"
+    assert body.count(anchor) == 1
+    changed = runtime_deps.replace(body, body.replace(anchor, anchor + "\n    " + gate), 1)
+    with pytest.raises(RuntimeError, match="gained an unmodeled call"):
+        guard.require_threshold_signer_startup_readiness(changed, daemon)
+
+
+@pytest.mark.parametrize("helper", guard.RETIRED_TLE_STARTUP_HELPERS)
+@pytest.mark.parametrize("shape", (
+    "\nfn {helper}() -> Result<(), &'static str> {{\n    Ok(())\n}}\n",
+    "\n#[cfg(test)]\nmod revived {{\n    fn probe() {{\n        let _ = super::{helper};\n"
+    "    }}\n}}\n",
+))
+def test_threshold_signer_readiness_rejects_each_retired_helper(helper: str, shape: str) -> None:
+    """The four deleted Parliament TLE startup helpers cannot return anywhere in the file."""
+    runtime_deps, daemon = _readiness_sources()
+    with pytest.raises(RuntimeError, match="retired Parliament TLE startup helper"):
+        guard.require_threshold_signer_startup_readiness(
+            runtime_deps + shape.format(helper=helper), daemon
+        )
+
+
+@pytest.mark.parametrize("declaration,old,new", (
+    (READINESS, BEACON_CUSTODY_CALL, ""),
+    (READINESS, BEACON_CUSTODY_CALL,
+     BEACON_CUSTODY_CALL.replace("local_signer_index,", "None,")),
+    (READINESS, BEACON_CUSTODY_CALL, BEACON_CUSTODY_CALL.replace(")?;", ").ok();")),
+    (READINESS, BEACON_CUSTODY_CALL, BEACON_CUSTODY_CALL.replace(
+        ".sumeragi_global_beacon_partial_signer\n                .as_deref()",
+        ".sumeragi_global_beacon_partial_signer\n                .as_deref()"
+        "\n                .filter(|_| false)")),
+    (READINESS, "if let Some(active_session_id) = active_session_id {",
+     "if let Some(active_session_id) = active_session_id.filter(|_| false) {"),
+    (READINESS, "|| record.session.roster_hash != topology_roster_hash", ""),
+    (READINESS, "|| !record.is_active_at(committed_height.saturating_add(1))", ""),
+    (READINESS, "active global-beacon key session is not bound to the startup roster",
+     "ignored"),
+    (READINESS, READINESS_TAIL, "\n    #[cfg(any())]\n    return Err(\"never\");\n    Ok(())\n}"),
+    (BEACON_CAPABILITY, ".attest_partial_signing_capability(session, signer_index)",
+     ".attest_partial_signing_capability(session, 1)"),
+    (BEACON_CAPABILITY, "if !attestation.matches(session, signer_index) {", "if false {"),
+    (BEACON_CAPABILITY,
+     "require_global_beacon_signer_for_local_seat_v1(local_signer_index.is_some(), "
+     "signer.is_some())?;", ""),
+    (BEACON_CAPABILITY, "has no exact runtime custody attestation", "is fine"),
+    (BEACON_SEAT, "if local_has_committee_seat && !signer_is_resolved {", "if false {"),
+    (BEACON_SEAT, "has no resolved partial signer", "is fine"),
+    (PREFLIGHT, "validate_threshold_signer_startup_readiness_v1(&state, &local_peer, "
+     "&runtime_deps)", "Ok(())"),
+    (PREFLIGHT, "tokio::task::spawn_blocking(move || {", "tokio::spawn(async move {"),
+    ("pub(crate) fn parliament_tle_release_coordinator(",
+     "self.parliament_tle_partial_release_signer", "None::<Arc<_>>"),
+    ("pub(crate) fn parliament_tle_release_coordinator(",
+     "iroha_core::tle_release::TleReleaseCoordinatorV1::from_signer,",
+     "|_| iroha_core::tle_release::TleReleaseCoordinatorV1::without_signer(),"),
+    ("pub struct IrohaRuntimeDeps {", TLE_FIELD, ""),
+    ("define_runtime_dep_setters_v1! {", TLE_SETTER, ""),
+    (TLE_PROBE, ".push((", ".retain(|_| false); let _ = (("),
+    (TLE_PROBE, "self.sign_calls.fetch_add(1, Ordering::AcqRel);", ""),
+    (INVERSION_TEST, "threshold_signer_readiness_fixture_v1(13)",
+     "threshold_signer_readiness_fixture_v1(14)"),
+    (INVERSION_TEST, ".tle_key_sessions_required_for_runtime_custody_v1(13)",
+     ".tle_key_sessions_required_for_runtime_custody_v1(99)"),
+    (INVERSION_TEST, "                        fixture.retained_key_session_id,\n"
+     "                        fixture.active_key_session_id,\n",
+     "                        fixture.active_key_session_id,\n"),
+    (INVERSION_TEST, "                    fixture.local_peer,\n",
+     "                    frozen_roster[usize::from(participant_index - 1)],\n"),
+    (INVERSION_TEST, "[CapabilityMode::Rejected, CapabilityMode::MismatchedSeat]",
+     "[CapabilityMode::Exact]"),
+    (INVERSION_TEST, ".with_parliament_tle_partial_release_signer(tle_signer.clone());", ";"),
+    (INVERSION_TEST, "tle_signer.attestation_calls().is_empty(),", "true,"),
+    (INVERSION_TEST, "assert_eq!(tle_signer.sign_calls.load(Ordering::Acquire), 0);", ""),
+    (INVERSION_TEST, "tle_signer.sign_calls.load(Ordering::Acquire), 0",
+     "tle_signer.sign_calls.load(Ordering::Acquire), 1"),
+    (INVERSION_TEST, "assert_eq!(beacon_signer.sign_calls.load(Ordering::Acquire), 0);", ""),
+    (INVERSION_TEST, "                &runtime_deps,\n                ),\n                Ok(())",
+     "                &runtime_deps,\n                ),\n                Err(\"refused\")"),
+    (INVERSION_TEST, "                &unavailable,\n            ),\n            Ok(())",
+     "                &IrohaRuntimeDeps::default(),\n            ),\n            Ok(())"),
+    (INVERSION_TEST,
+     "vec![(fixture.beacon_session_id, fixture.beacon_signer_index)],\n"
+     "            \"the consensus-native custody check still ran\"",
+     "vec![],\n            \"the consensus-native custody check still ran\""),
+    (INVERSION_TEST, "#[test]", "#[cfg(any())]"),
+    (BEACON_CUSTODY_TEST, "Err(\"local global-beacon committee seat has no resolved partial "
+     "signer\")", "Ok(())"),
+    (BEACON_CUSTODY_TEST, "(CapabilityMode::Exact, Ok(())),", ""),
+    (BEACON_CUSTODY_TEST, "                CapabilityMode::Rejected,\n",
+     "                CapabilityMode::Exact,\n"),
+    (BEACON_CUSTODY_TEST, "                CapabilityMode::MismatchedSeat,\n",
+     "                CapabilityMode::Rejected,\n"),
+    (BEACON_CUSTODY_TEST, "                expected\n", "                expected.and(Ok(()))\n"),
+    (BEACON_CUSTODY_TEST, "assert_eq!(signer.sign_calls.load(Ordering::Acquire), 0);", ""),
+    (BEACON_CUSTODY_TEST, "assert!(observer_signer.attestation_calls().is_empty());", ""),
+    (BEACON_CUSTODY_TEST,
+     "Err(\"active global-beacon key session is not bound to the startup roster\")", "Ok(())"),
+    (BEACON_CUSTODY_TEST, "assert!(exact_signer.attestation_calls().is_empty());", ""),
+    (BEACON_CUSTODY_TEST, "#[test]", ""),
+    (INVERSION_TEST, "demanded.into_iter().collect::<Vec<_>>(),",
+     "expected_demand(&fixture),"),
+    (INVERSION_TEST, "let fixture = threshold_signer_readiness_fixture_v1(13);",
+     "return;\n        let fixture = threshold_signer_readiness_fixture_v1(13);"),
+    (INVERSION_TEST, "let fixture = threshold_signer_readiness_fixture_v1(13);",
+     "let fixture = threshold_signer_readiness_fixture_v1(13);\n"
+     "        if true {\n            return;\n        }"),
+    (BEACON_CUSTODY_TEST, "let fixture = threshold_signer_readiness_fixture_v1(13);",
+     "if true {\n            return;\n        }\n"
+     "        let fixture = threshold_signer_readiness_fixture_v1(13);"),
+    *((test, "#[test]", attribute + "\n    #[test]")
+      for test in (INVERSION_TEST, BEACON_CUSTODY_TEST)
+      for attribute in DISABLING_ATTRIBUTES),
+    *((test, "#[test]", "#[test]\n    " + attribute)
+      for test in (INVERSION_TEST, BEACON_CUSTODY_TEST)
+      for attribute in DISABLING_ATTRIBUTES[:3]),
+), ids=lambda value: None if "\n" in value or len(value) > 60 else value)
+def test_threshold_signer_readiness_rejects_lost_beacon_custody_or_decisive_assertions(
     declaration: str, old: str, new: str,
 ) -> None:
-    """Expiry, exact seat, mismatch and no-signing assertions cannot move to unrelated text."""
-    source = guard.read(RUNTIME_DEPS_PATH)
-    guard.require_threshold_signer_startup_readiness(source)
-    body = guard.rust_item(source, declaration, RUNTIME_DEPS_PATH)
-    assert old in body
-    changed = source.replace(body, body.replace(old, new), 1)
-    assert changed != source
+    """The beacon check, retained TLE surface and each decisive assertion stay in their owner."""
+    runtime_deps, daemon = _readiness_sources()
+    if old == "#[test]":
+        attributed = "#[test]\n    " + declaration
+        assert runtime_deps.count(attributed) == 1
+        changed = runtime_deps.replace(attributed, (new + "\n    " + declaration).lstrip("\n"), 1)
+        changed += "\n// " + attributed.replace("\n", " ") + "\n"
+    else:
+        changed = _mutate_item(runtime_deps, RUNTIME_DEPS_PATH, declaration, old, new)
     with pytest.raises(RuntimeError, match=re.escape(RUNTIME_DEPS_PATH)):
-        guard.require_threshold_signer_startup_readiness(changed + "\n/* " + old + " */\n")
+        guard.require_threshold_signer_startup_readiness(changed, daemon)
 
 
-def test_threshold_signer_readiness_allows_historical_id_in_a_negative_assertion() -> None:
-    """An unrelated owner or explicit inequality is not an expired-session expected call."""
-    source = guard.read(RUNTIME_DEPS_PATH)
-    body = guard.rust_item(source, EXPIRED_READINESS_TEST, RUNTIME_DEPS_PATH)
-    negative = "\n        assert_ne!(fixture.active_key_session_id, fixture.retained_key_session_id);\n"
-    changed = source.replace(body, body[:-1] + negative + "}", 1)
-    assert changed != source
-    guard.require_threshold_signer_startup_readiness(changed)
+@pytest.mark.parametrize("attributes", (
+    "#[cfg(any())]\n#[cfg(test)]", "#[cfg(test)]\n#[cfg(any())]", "",
+))
+def test_threshold_signer_readiness_tests_stay_in_the_compiled_test_module(
+    attributes: str,
+) -> None:
+    """The test module carries `#[cfg(test)]` and no attribute that removes it."""
+    runtime_deps, daemon = _readiness_sources()
+    module = "#[cfg(test)]\nmod parliament_tle_release_tests {"
+    assert runtime_deps.count(module) == 1
+    changed = runtime_deps.replace(
+        module, (attributes + "\nmod parliament_tle_release_tests {").lstrip("\n"), 1
+    )
+    with pytest.raises(RuntimeError, match="must stay a test module"):
+        guard.require_threshold_signer_startup_readiness(changed, daemon)
+
+
+@pytest.mark.parametrize("declaration,old,new", (
+    (READINESS, "let topology = state.commit_topology_snapshot();",
+     "let topology = state.commit_topology_snapshot();\n"
+     "    if topology.len() > 0 {\n        return Ok(());\n    }"),
+    (READINESS, "if let Some(active_session_id) = active_session_id {",
+     "let active_session_id: Option<[u8; 32]> = None;\n"
+     "    if let Some(active_session_id) = active_session_id {"),
+    (READINESS, "let topology = state.commit_topology_snapshot();",
+     "let topology = state.commit_topology_snapshot();\n"
+     "    if runtime_deps.other_field.is_none {\n        return Err(\"x\");\n    }"),
+    (READINESS, "let topology = state.commit_topology_snapshot();",
+     "let topology = state.commit_topology_snapshot();\n"
+     "    while topology.len() > 0 {\n        return Err(\"x\");\n    }"),
+    (READINESS, "let session = &record.session;",
+     "let session = &record.session;\n        if session.threshold > 0 {\n"
+     "            return Ok(());\n        }"),
+    (BEACON_CAPABILITY,
+     "require_global_beacon_signer_for_local_seat_v1(local_signer_index.is_some(), "
+     "signer.is_some())?;",
+     "require_global_beacon_signer_for_local_seat_v1(local_signer_index.is_some(), "
+     "signer.is_some())?;\n    if signer.is_some() {\n        return Ok(());\n    }"),
+    (BEACON_SEAT, "if local_has_committee_seat && !signer_is_resolved {",
+     "if signer_is_resolved || true {\n        return Ok(());\n    }\n"
+     "    if local_has_committee_seat && !signer_is_resolved {"),
+    (PREFLIGHT, "tokio::task::spawn_blocking(move || {",
+     "if true {\n        return Ok(());\n    }\n    tokio::task::spawn_blocking(move || {"),
+), ids=lambda value: None if "\n" in value or len(value) > 60 else value)
+def test_threshold_signer_readiness_control_flow_is_closed(
+    declaration: str, old: str, new: str,
+) -> None:
+    """Every pinned token can survive an early success return; the whole body is pinned."""
+    runtime_deps, daemon = _readiness_sources()
+    changed = _mutate_item(runtime_deps, RUNTIME_DEPS_PATH, declaration, old, new)
+    with pytest.raises(RuntimeError, match="differs from its modeled body"):
+        guard.require_threshold_signer_startup_readiness(changed, daemon)
+
+
+def test_threshold_signer_readiness_bodies_cover_exactly_the_startup_owners() -> None:
+    """The closed bodies are the readiness function, both beacon helpers and the wrapper."""
+    assert set(guard.THRESHOLD_READINESS_BODIES) == {
+        READINESS, BEACON_CAPABILITY, BEACON_SEAT, PREFLIGHT,
+    }
+    runtime_deps, _ = _readiness_sources()
+    for owner, body in guard.THRESHOLD_READINESS_BODIES.items():
+        assert guard.live_rust_item(runtime_deps, owner, RUNTIME_DEPS_PATH)[0] == body
+
+
+@pytest.mark.parametrize("opening,closing", (
+    ("                if false {\n", "                }\n"),
+    ("                if emergency_fast {\n", "                }\n"),
+    ("                let _ = async {\n", "                Ok::<(), Report<StartError>>(())\n"
+     "                };\n"),
+))
+def test_threshold_signer_preflight_runs_unconditionally(opening: str, closing: str) -> None:
+    """A guard around the awaited preflight keeps every token and its order."""
+    runtime_deps, daemon = _readiness_sources()
+    assert daemon.count(DAEMON_PREFLIGHT) == 1
+    changed = daemon.replace(DAEMON_PREFLIGHT, opening + DAEMON_PREFLIGHT + closing, 1)
+    with pytest.raises(RuntimeError, match="must run unconditionally"):
+        guard.require_threshold_signer_startup_readiness(runtime_deps, changed)
+
+
+def test_require_no_early_exit_reads_whitespace_free_code() -> None:
+    """Only a live `return` trips the rule."""
+    guard.require_no_early_exit("x.rs", "fn a()", "letvalue=1;assert_eq!(value,1);")
+    with pytest.raises(RuntimeError, match="early return"):
+        guard.require_no_early_exit("x.rs", "fn a()", "iftrue{return;}assert!(false);")
+
+
+@pytest.mark.parametrize("old,new", (
+    (DAEMON_PREFLIGHT, ""),
+    (DAEMON_PREFLIGHT, DAEMON_PREFLIGHT.replace("                .await\n", "")),
+    (DAEMON_PREFLIGHT, DAEMON_PREFLIGHT.replace(
+        ".map_err(|message| Report::new(StartError::StartP2p).attach(message))?;", ".ok();")),
+    (DAEMON_PREFLIGHT, DAEMON_PREFLIGHT.replace(
+        "preflight_threshold_signer_startup_readiness_v1(", "let _deferred = async || preflight("
+    ).replace("?;", "?; Ok::<(), Report<StartError>>(())")),
+    (DAEMON_PREFLIGHT, "                if false {\n" + DAEMON_PREFLIGHT + "                }\n"
+     + DAEMON_PREFLIGHT),
+))
+def test_threshold_signer_preflight_must_be_awaited_before_consensus_start(
+    old: str, new: str,
+) -> None:
+    """Startup awaits and propagates the one custody preflight before Sumeragi starts."""
+    runtime_deps, daemon = _readiness_sources()
+    assert daemon.count(old) == 1
+    changed = daemon.replace(old, new, 1) + "\n/* " + old + " */\n"
+    with pytest.raises(RuntimeError, match=re.escape(DAEMON_PATH)):
+        guard.require_threshold_signer_startup_readiness(runtime_deps, changed)
+
+
+def test_threshold_signer_preflight_cannot_move_behind_consensus_start() -> None:
+    """A preflight issued after `start_on_network` is not a startup gate."""
+    runtime_deps, daemon = _readiness_sources()
+    assert daemon.count(DAEMON_PREFLIGHT) == 1
+    removed = daemon.replace(DAEMON_PREFLIGHT, "", 1)
+    anchor = "        let tx_gossiper = if emergency_fast {"
+    assert removed.count(anchor) == 1
+    changed = removed.replace(anchor, DAEMON_PREFLIGHT + anchor, 1)
+    with pytest.raises(RuntimeError, match="reordered"):
+        guard.require_threshold_signer_startup_readiness(runtime_deps, changed)
+
+
+@pytest.mark.parametrize("declaration,old,new", (
+    (READINESS, "let world = state.world_view();",
+     "// No tle_key_session_rosters or parliament_tle_partial_release_signer lookup here.\n"
+     "    /* attest_partial_release_capability is governance-local */\n"
+     "    let  world  =\n        state.world_view( ) ;"),
+    (READINESS, BEACON_CUSTODY_CALL,
+     "        require_global_beacon_capability_for_local_seat_v1(local_signer_index, "
+     "runtime_deps.sumeragi_global_beacon_partial_signer.as_deref(), session,)?;\n"),
+    (READINESS, "\"active global-beacon key session is absent\"",
+     "\"active global-beacon key session is absent; Parliament TLE custody is never read\""),
+    (BEACON_CAPABILITY, "let attestation = signer",
+     "// sign_partial_release( and .sign_partial( stay out of startup.\n"
+     "    let attestation = signer"),
+    (INVERSION_TEST, "let fixture = threshold_signer_readiness_fixture_v1(13);",
+     "// A refusal would read Err(\"...\"); this test expects none.\n"
+     "        let fixture =\n            threshold_signer_readiness_fixture_v1( 13 );"),
+    (BEACON_CUSTODY_TEST, "assert!(observer_signer.attestation_calls().is_empty());",
+     "assert!( observer_signer.attestation_calls().is_empty() ); /* observer: no seat */"),
+))
+def test_threshold_signer_readiness_accepts_comment_and_whitespace_changes(
+    declaration: str, old: str, new: str,
+) -> None:
+    """Comments, literal wording and layout neither satisfy nor violate the contract."""
+    runtime_deps, daemon = _readiness_sources()
+    body = guard.rust_item(runtime_deps, declaration, RUNTIME_DEPS_PATH)
+    assert body.count(old) == 1
+    changed = runtime_deps.replace(body, body.replace(old, new), 1)
+    assert changed != runtime_deps
+    guard.require_threshold_signer_startup_readiness(changed, daemon)
+    guard.require_threshold_signer_startup_readiness(
+        changed, daemon.replace(DAEMON_PREFLIGHT, DAEMON_PREFLIGHT.replace(
+            "                .await\n", "                // awaited before consensus\n"
+            "                .await\n"), 1),
+    )
+
+
+def test_strip_rust_comments_keeps_literals_and_agrees_with_the_shared_lexer() -> None:
+    """Only comments are blanked; quotes, raw strings and lifetimes keep their text."""
+    source = (
+        'fn a<\'x>(v: &\'x str) { let s = "// not a comment /* nor this */"; /* gone\n'
+        ' /* nested */ */ let r = br#"a"//b"#; let c = \'"\'; let e = \'\\\'\'; // tail\n'
+        ' let b = b"\\"//"; }'
+    )
+    stripped = guard.strip_rust_comments(source)
+    assert len(stripped) == len(source)
+    assert stripped.count("\n") == source.count("\n")
+    for kept in ('"// not a comment /* nor this */"', 'br#"a"//b"#', "'\"'", "'\\''",
+                 'b"\\"//"', "<'x>", "&'x str"):
+        assert kept in stripped
+    for dropped in ("gone", "nested", "tail"):
+        assert dropped not in stripped
 
 
 FEE_BOUNDARY_PATHS = ('crates/iroha_core/src/validation_fee.rs', 'crates/iroha_core/src/deferred_authority.rs', 'crates/iroha_core/src/retail_fee.rs', 'crates/iroha_core/src/smartcontracts/isi/asset.rs', 'crates/iroha_core/src/tx.rs', 'crates/iroha_core/src/lib.rs')
@@ -447,9 +1068,12 @@ def test_signed_staking_fee_boundary_baseline() -> None:
             "None::<&'static str>",
         ),
         (
+            # The opaque-authority traversal owns this arm; the SCCP outbound
+            # scan above it matches the same variant and is not this boundary.
             "crates/iroha_core/src/deferred_authority.rs",
-            "Executable::IvmProved(proved)",
-            "Executable::IvmProved(_)\n                if false",
+            "Executable::IvmProved(proved) => {\n                reject_opaque_committee_operations_with(",
+            "Executable::IvmProved(_)\n                if false => {\n"
+            "                reject_opaque_committee_operations_with(",
         ),
         (
             "crates/iroha_core/src/deferred_authority.rs",
@@ -926,8 +1550,21 @@ def _replace_propagated_refusal(commit: str, call: str, anchor: str) -> str:
     return commit[:refusal] + anchor.replace("?", ".unwrap()") + commit[refusal + len(anchor):]
 
 
+# The retained World is validated by these three calls, in this order.
+WORLD_VALIDATION_STAGES = {
+    "policy": "world_commit::PreparedWorldCommit::validate_prepared_policy_transition(world)",
+    "live": "world_commit::PreparedWorldCommit::validate_prepared_musubi_live(",
+    "universal": "world_commit::PreparedWorldCommit::validate_prepared_musubi_universal(",
+}
+WORLD_VALIDATION_REFUSAL = "retained World validation must propagate refusal before publication"
+WORLD_VALIDATION_SUCCESS = "retained World validation success must stay with its original stage"
+
+
 @pytest.mark.parametrize("mutation", (
-    "world_refusal", "world_validation_refusal", "foreign_world_effects", "shadowed_world_effects", "geometry_refusal", "world_drop", "hash_drop", "swapped_commits",
+    "world_refusal", "world_policy_validation_refusal", "world_live_validation_refusal",
+    "world_universal_validation_refusal", "world_validation_after_tiered_capture",
+    "world_validation_before_freeze",
+    "foreign_world_effects", "shadowed_world_effects", "geometry_refusal", "world_drop", "hash_drop", "swapped_commits",
     "writer_removed", "generation_removed", "writer_early_drop", "conditional_world",
     "conditional_transitions", "transitions_after_snapshot",
     "replay_prevalidation", "authenticated_replay", "transitions_outside_replay_guard",
@@ -955,9 +1592,23 @@ def test_prepared_commit_rejects_refusal_publication_or_replay_regressions(
     if mutation == "world_refusal":
         changed = _replace_propagated_refusal(
             commit, "world_commit::PreparedWorldCommit::prepare_overlay_mutations(", "})?")
-    elif mutation == "world_validation_refusal":
-        changed = _replace_propagated_refusal(
-            commit, "world_commit::PreparedWorldCommit::validate_prepared_overlay(", "})?;")
+    elif mutation in ("world_policy_validation_refusal", "world_live_validation_refusal",
+                      "world_universal_validation_refusal"):
+        stage = mutation.removeprefix("world_").removesuffix("_validation_refusal")
+        call = WORLD_VALIDATION_STAGES[stage]
+        assert commit.count(call) == 1
+        changed = _replace_propagated_refusal(commit, call, ")?;")
+    elif mutation in ("world_validation_after_tiered_capture", "world_validation_before_freeze"):
+        # Move one complete block; every validation statement itself stays intact.
+        moved, anchor = {
+            "world_validation_after_tiered_capture": (
+                "        if tiered_snapshot.is_none() {", WORLD_VALIDATION_STAGES["policy"]),
+            "world_validation_before_freeze": (
+                "        if !*fields_frozen {", "        if !*effects_captured {"),
+        }[mutation]
+        block = guard.rust_item(commit, moved, PUBLICATION_PATH) + "\n"
+        assert commit.count(block) == 1 and commit.count(anchor) == 1
+        changed = commit.replace(block, "", 1).replace(anchor, block + anchor, 1)
     elif mutation == "foreign_world_effects":
         original = "*world_effects = Some(effects);"
         assert commit.count(original) == 1
@@ -1059,7 +1710,103 @@ def test_prepared_commit_rejects_refusal_publication_or_replay_regressions(
     original_read = guard.read
     monkeypatch.setattr(guard, "read", lambda path:
                         changed if path == PUBLICATION_PATH else original_read(path))
-    with pytest.raises(RuntimeError, match=PUBLICATION_PATH):
+    message = PUBLICATION_PATH
+    if "_validation_" in mutation:
+        # The validation gate itself must refuse, not a later publication check.
+        message += ": " + WORLD_VALIDATION_REFUSAL
+    with pytest.raises(RuntimeError, match=re.escape(message)):
+        guard.require_parliament_commit_publication(state)
+
+
+LIVE_VALIDATION = "        if !*musubi_live_validated {"
+UNIVERSAL_VALIDATION = "        if !*musubi_validated {"
+
+
+@pytest.mark.parametrize("original,replacement", (
+    ("            *musubi_validated = true;", "            *musubi_validated\n                = true;"),
+    (UNIVERSAL_VALIDATION,
+     "        // A note quoting `*musubi_validated = true;` grants nothing.\n" + UNIVERSAL_VALIDATION),
+    (LIVE_VALIDATION, "        /* musubi_live_validated: true, */\n" + LIVE_VALIDATION),
+))
+def test_retained_world_validation_accepts_layout_and_comment_changes(
+    original: str, replacement: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only live code is bound: layout and commentary are not validation owners."""
+    publication = guard.read(PUBLICATION_PATH)
+    assert publication.count(original) == 1
+    changed = publication.replace(original, replacement, 1)
+    original_read = guard.read
+    monkeypatch.setattr(guard, "read", lambda path:
+                        changed if path == PUBLICATION_PATH else original_read(path))
+    guard.require_parliament_commit_publication(guard.read(STATE_PATH))
+
+
+@pytest.mark.parametrize("stage,original,replacement,message", (
+    # No stage can be removed, disabled, or run another stage's validator.
+    (None, WORLD_VALIDATION_STAGES["policy"],
+     "Ok::<(), crate::execution_attempt::ExecutionAttemptError<String>>(())", WORLD_VALIDATION_REFUSAL),
+    (LIVE_VALIDATION, None, "", WORLD_VALIDATION_REFUSAL),
+    (UNIVERSAL_VALIDATION, None, "", WORLD_VALIDATION_REFUSAL),
+    (LIVE_VALIDATION, "if !*musubi_live_validated {", "if false {", WORLD_VALIDATION_REFUSAL),
+    (UNIVERSAL_VALIDATION, "if !*musubi_validated {", "if false {", WORLD_VALIDATION_REFUSAL),
+    (UNIVERSAL_VALIDATION, WORLD_VALIDATION_STAGES["universal"], WORLD_VALIDATION_STAGES["live"],
+     WORLD_VALIDATION_REFUSAL),
+    # Every stage reads the frozen original World and the State's own pool.
+    (None, WORLD_VALIDATION_STAGES["policy"],
+     WORLD_VALIDATION_STAGES["policy"].replace("(world)", "(other_world)"), WORLD_VALIDATION_REFUSAL),
+    (LIVE_VALIDATION, "                world,", "                other_world,", WORLD_VALIDATION_REFUSAL),
+    (UNIVERSAL_VALIDATION, "&state_ref.ivm_execution_budget(),",
+     "&other_state.ivm_execution_budget(),", WORLD_VALIDATION_REFUSAL),
+    # Rejection and local deferral keep their original distinct types.
+    (LIVE_VALIDATION, "TransactionsBlockError::ExecutionDeferred(reason)",
+     "TransactionsBlockError::WorldCommitPreparation", WORLD_VALIDATION_REFUSAL),
+    (UNIVERSAL_VALIDATION, "TransactionsBlockError::WorldCommitPreparation",
+     "TransactionsBlockError::ExecutionDeferred(Default::default())", WORLD_VALIDATION_REFUSAL),
+    # Only a stage's own completed success may skip that same stage.
+    (UNIVERSAL_VALIDATION, "if !*musubi_validated {", "if !*musubi_live_validated {",
+     WORLD_VALIDATION_REFUSAL),
+    (LIVE_VALIDATION, "*musubi_live_validated = true;", "*musubi_validated = true;",
+     WORLD_VALIDATION_REFUSAL),
+    (UNIVERSAL_VALIDATION, "            " + WORLD_VALIDATION_STAGES["universal"],
+     "            *musubi_validated = true;\n            " + WORLD_VALIDATION_STAGES["universal"],
+     WORLD_VALIDATION_REFUSAL),
+    # Outside its stage a success marker is constructed false and never granted.
+    (None, "            musubi_live_validated: false,", "            musubi_live_validated: true,",
+     WORLD_VALIDATION_SUCCESS),
+    (None, "            musubi_validated: false,", "            musubi_validated: true,",
+     WORLD_VALIDATION_SUCCESS),
+    (None, "original.musubi_live_validated = false;", "original.musubi_live_validated = true;",
+     WORLD_VALIDATION_SUCCESS),
+    (None, "original.musubi_validated = false;", "original.musubi_validated = true;",
+     WORLD_VALIDATION_SUCCESS),
+    (None, "        if original.published {",
+     "        original.musubi_validated = true;\n        if original.published {",
+     WORLD_VALIDATION_SUCCESS),
+    (None, "        if !*fields_frozen {",
+     "        *musubi_validated |= world_cut.is_some();\n        if !*fields_frozen {",
+     WORLD_VALIDATION_SUCCESS),
+    (None, "            musubi_live_validated,\n            musubi_validated,",
+     "            musubi_live_validated: musubi_validated,\n"
+     "            musubi_validated: musubi_live_validated,", WORLD_VALIDATION_SUCCESS),
+))
+@pytest.mark.parametrize("decoy", ("", "/* {original} */"))
+def test_retained_world_validation_keeps_each_original_stage_and_success_owner(
+    stage: str | None, original: str | None, replacement: str, message: str, decoy: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only three live stages on the frozen original World admit its publication."""
+    state = guard.read(STATE_PATH)
+    guard.require_parliament_commit_publication(state)
+    publication = guard.read(PUBLICATION_PATH)
+    body = publication if stage is None else guard.rust_item(publication, stage, PUBLICATION_PATH)
+    original = body if original is None else original
+    assert body.count(original) == 1 and publication.count(body) == 1
+    changed = publication.replace(
+        body, body.replace(original, decoy.format(original=original) + replacement, 1), 1)
+    original_read = guard.read
+    monkeypatch.setattr(guard, "read", lambda path:
+                        changed if path == PUBLICATION_PATH else original_read(path))
+    with pytest.raises(RuntimeError, match=re.escape(f"{PUBLICATION_PATH}: {message}")):
         guard.require_parliament_commit_publication(state)
 
 
@@ -1256,7 +2003,21 @@ def test_replay_dispatch_preserves_typed_admission_and_channel_refusal(
         guard.require_parliament_commit_publication(state)
 
 
-BEACON_SOURCE_PATHS = (guard.EPOCH_BEACON_PATH, guard.BEACON_PRODUCER_PATH)
+BEACON_SOURCE_PATHS = (
+    guard.EPOCH_BEACON_PATH, guard.BEACON_PRODUCER_PATH, guard.BEACON_READINESS_PATH,
+)
+HC224_HOOK = '#[cfg(all(test, sumeragi_core_mutation = "HC224"))]\n    {'
+NATIVE_ONLY = (
+    '    #[cfg(not(all(test, sumeragi_core_mutation = "HC224")))]\n    {\n        Ok(native)\n    }'
+)
+PARLIAMENT_DISJUNCT = (
+    "Ok(native\n            || world\n                .parliament_required_beacon_pulse_slots()\n"
+    "                .get(&(BeaconSessionId::for_network_v1(&current.network_id), height))\n"
+    "                .is_some_and(|attempts| !attempts.is_empty()))"
+)
+ROOT_SCOPE_TEST = (
+    "fn retained_parliament_slot_row_creates_no_demand_on_private_or_global_root() {"
+)
 
 
 def _beacon_sources() -> dict[str, str]:
@@ -1264,7 +2025,7 @@ def _beacon_sources() -> dict[str, str]:
 
 
 def test_indexed_beacon_requirement_gates_native_admission_and_production() -> None:
-    """One committed demand gates follower admission, activation and witness building."""
+    """Native-only demand gates follower admission, activation, readiness and witness building."""
     guard.require_parliament_beacon_requirement(*_beacon_sources().values())
     body = ast.parse(inspect.getsource(guard.main))
     calls = [node.func.id for node in ast.walk(body)
@@ -1295,16 +2056,94 @@ def test_indexed_beacon_requirement_gates_native_admission_and_production() -> N
     (guard.BEACON_PRODUCER_PATH,
      "let parent = self.parent_source(state, context, applied)?;",
      "let parent = self.parent_source(state, context, applied).unwrap();"),
-    (guard.EPOCH_BEACON_PATH, "(current.mode == ConsensusMode::Npos\n",
-     "(current.mode != ConsensusMode::Npos\n"),
-    (guard.EPOCH_BEACON_PATH, "height.checked_add(1) == Some(current.authorization.last_height))",
-     "height.checked_add(2) == Some(current.authorization.last_height))"),
-    (guard.EPOCH_BEACON_PATH, "Some(current.authorization.last_height))\n        ||",
-     "Some(current.authorization.last_height))\n        &&"),
+    (guard.EPOCH_BEACON_PATH, "let native = current.mode == ConsensusMode::Npos\n",
+     "let native = current.mode != ConsensusMode::Npos\n"),
+    (guard.EPOCH_BEACON_PATH, "height.checked_add(1) == Some(current.authorization.last_height);",
+     "height.checked_add(2) == Some(current.authorization.last_height);"),
+    (guard.EPOCH_BEACON_PATH, "        && height.checked_add(1)", "        || height.checked_add(1)"),
+    # The retired rule: a committed Parliament slot row is consensus demand.
+    (guard.EPOCH_BEACON_PATH, NATIVE_ONLY,
+     NATIVE_ONLY.replace("Ok(native)", PARLIAMENT_DISJUNCT)),
+    (guard.EPOCH_BEACON_PATH, NATIVE_ONLY, NATIVE_ONLY.replace("Ok(native)", "Ok(true)")),
+    (guard.EPOCH_BEACON_PATH, NATIVE_ONLY, ""),
+    (guard.EPOCH_BEACON_PATH, HC224_HOOK, "#[cfg(test)]\n    {"),
+    (guard.EPOCH_BEACON_PATH, HC224_HOOK, "{"),
+    (guard.EPOCH_BEACON_PATH, HC224_HOOK, HC224_HOOK.replace("HC224", "HC221")),
+    (guard.EPOCH_BEACON_PATH, HC224_HOOK, HC224_HOOK.replace("all(test, ", "any(test, ")),
+    (guard.EPOCH_BEACON_PATH, 'sumeragi_core_mutation = "HC224")))]',
+     'sumeragi_core_mutation = "HC221")))]'),
     (guard.EPOCH_BEACON_PATH, ".get(&(BeaconSessionId::for_network_v1(&current.network_id), height))",
      ".get(&(BeaconSessionId::for_network_v1(&current.network_id), height + 1))"),
-    (guard.EPOCH_BEACON_PATH, "            .is_some_and(|attempts| !attempts.is_empty()))\n}",
-     "            .is_some_and(|attempts| attempts.is_empty()))\n}"),
+    (guard.EPOCH_BEACON_PATH, "                .is_some_and(|attempts| !attempts.is_empty()))\n    }",
+     "                .is_some_and(|attempts| attempts.is_empty()))\n    }"),
+    # A second index read anywhere else in the live file.
+    (guard.EPOCH_BEACON_PATH, "    let demanded = required(scope, world, current, height)?;",
+     "    let demanded = required(scope, world, current, height)?\n"
+     "        || world.parliament_required_beacon_pulse_slots().iter().next().is_some();"),
+    (guard.EPOCH_BEACON_PATH, "    validate_pending_slot(world, current, height)?;\n",
+     "    validate_pending_slot(world, current, height)?;\n"
+     "    let _attempts = world.parliament_attempts();\n"),
+    (guard.EPOCH_BEACON_PATH,
+     "    if world.global_beacon_pulses().get(&pulse.pulse_id).is_some() {\n"
+     '        return Err("native beacon witness repeats a committed pulse".into());\n    }\n', ""),
+    (guard.EPOCH_BEACON_PATH,
+     "world.active_global_beacon_key_session() != Some(pulse.session_id)", "false"),
+    (guard.EPOCH_BEACON_PATH, "!record.is_active_at(height)", "false"),
+    (guard.EPOCH_BEACON_PATH,
+     "record.session.adaptive_dkg.finalized_at_height > parent", "false"),
+    # validate_pending_slot keeps uniqueness, count equality and the monotonic cursor.
+    (guard.EPOCH_BEACON_PATH, "    if world.global_beacon_pulse_slots().get(&slot).is_some()\n",
+     "    if false\n"),
+    (guard.EPOCH_BEACON_PATH, "            != world.global_beacon_pulses().iter().count()",
+     "            > world.global_beacon_pulses().iter().count()"),
+    (guard.EPOCH_BEACON_PATH, ") <= (previous.height, previous.round)",
+     ") < (previous.height, previous.round)"),
+    (guard.EPOCH_BEACON_PATH,
+     "    } else if world.global_beacon_pulses().iter().next().is_some() {\n"
+     '        return Err("native beacon history lost its latest cursor".into());\n    }',
+     "    }"),
+    # The retired veto: a Parliament-classified slot closes the consensus slot.
+    (guard.EPOCH_BEACON_PATH, "    if world.global_beacon_pulse_slots().get(&slot).is_some()\n",
+     "    if world\n        .parliament_required_beacon_pulse_slots()\n        .get(&slot)\n"
+     "        .is_some_and(|attempts| !attempts.is_empty())\n"
+     "        || world.global_beacon_pulse_slots().get(&slot).is_some()\n"),
+    # The readiness horizon is the native boundary pulse or nothing.
+    (guard.BEACON_READINESS_PATH, "let next = (current.mode == ConsensusMode::Npos)",
+     "let next = (current.mode != ConsensusMode::Npos)"),
+    (guard.BEACON_READINESS_PATH, "            .filter(|height| *height >= context.height);",
+     "            .filter(|height| *height >= context.height);\n"
+     "        let _slots = world.parliament_required_beacon_pulse_slots();"),
+    (guard.BEACON_READINESS_PATH, "            .filter(|height| *height >= context.height);",
+     "            .filter(|height| *height >= context.height)\n"
+     "            .or_else(|| governance_slot_after(world, context.height));"),
+    (guard.BEACON_READINESS_PATH, "            next_required_pulse_height: next,",
+     "            next_required_pulse_height: None,"),
+    (guard.BEACON_READINESS_PATH, "            next_required_pulse_height: next,",
+     "            next_required_pulse_height: next.min(governance_height),"),
+    (guard.BEACON_READINESS_PATH, "next.is_some_and(|height| record.is_active_at(height));",
+     "true;"),
+    (guard.BEACON_READINESS_PATH,
+     "        if !super::super::owns_global_control(root_scope, world, current)", "        if false"),
+    (guard.BEACON_READINESS_PATH, "    pub(crate) fn refresh_readiness(",
+     "    fn governance_slots(world: &impl WorldReadOnly) -> usize {\n"
+     "        world.parliament_attempts().iter().count()\n    }\n"
+     "    pub(crate) fn refresh_readiness("),
+    (guard.BEACON_PRODUCER_PATH, "        let active = if required {",
+     "        let _ = state.world().parliament_required_beacon_pulse_slots();\n"
+     "        let active = if required {"),
+    # The in-file unit test of the retained index row.
+    (guard.EPOCH_BEACON_PATH, "assert_eq!(required(scope, &view, &epoch, 7), Ok(false));",
+     "assert_eq!(required(scope, &view, &epoch, 7), Ok(true));"),
+    (guard.EPOCH_BEACON_PATH,
+     "            required(SumeragiRootScope::Global, &view, &epoch, 7),\n            Ok(false)",
+     "            required(SumeragiRootScope::Global, &view, &epoch, 7),\n            Ok(true)"),
+    (guard.EPOCH_BEACON_PATH, "            .insert(slot, row.clone());", "            .remove(slot);"),
+    (guard.EPOCH_BEACON_PATH, '.contains("global epoch or beacon")', '.contains("Parliament")'),
+    (guard.EPOCH_BEACON_PATH, "    #[test]\n    " + ROOT_SCOPE_TEST, "    " + ROOT_SCOPE_TEST),
+    (guard.EPOCH_BEACON_PATH, "    #[test]\n    " + ROOT_SCOPE_TEST,
+     "    #[test]\n    #[ignore]\n    " + ROOT_SCOPE_TEST),
+    (guard.EPOCH_BEACON_PATH, "#[cfg(test)]\nmod root_scope_tests {",
+     "#[cfg(any())]\nmod root_scope_tests {"),
     (guard.EPOCH_BEACON_PATH, "let demanded = required(scope, world, current, height)?;",
      "let demanded = false;"),
     (guard.EPOCH_BEACON_PATH, "        return if demanded {", "        return if false {"),
@@ -1315,11 +2154,6 @@ def test_indexed_beacon_requirement_gates_native_admission_and_production() -> N
     (guard.EPOCH_BEACON_PATH,
      "authenticated_global_threshold_beacon_roster_hash_iter_v1(&record.session, peers)",
      "authenticated_global_threshold_beacon_roster_hash_iter_v1(&record.session, foreign_peers)"),
-    (guard.EPOCH_BEACON_PATH,
-     ".parliament_unavailable_beacon_pulse_slots()\n        .get(&slot)\n"
-     "        .is_some_and(|attempts| !attempts.is_empty())",
-     ".parliament_unavailable_beacon_pulse_slots()\n        .get(&slot)\n"
-     "        .is_some_and(|attempts| attempts.is_empty())"),
     (guard.BEACON_PRODUCER_PATH,
      "let active = if required {",
      "let active = if true {"),
@@ -1368,9 +2202,12 @@ def test_beacon_requirement_rejects_lost_demand_or_unauthenticated_activation(
     (guard.EPOCH_BEACON_PATH, "current.mode != ConsensusMode::Permissioned", "false"),
     (guard.EPOCH_BEACON_PATH,
      "        || current.authorization.beacon != BeaconEpochBindingV1::Bootstrap", "        || false"),
-    (guard.EPOCH_BEACON_PATH,
-     "            .parliament_required_beacon_pulse_slots()\n"
-     "            .iter()\n            .next()\n            .is_some()", "            false"),
+    # The retired rule: a Parliament row refuses or grants private-root custody.
+    (guard.EPOCH_BEACON_PATH, "        || world.active_global_beacon_key_session().is_some()\n",
+     "        || world.parliament_required_beacon_pulse_slots().iter().next().is_some()\n"
+     "        || world.active_global_beacon_key_session().is_some()\n"),
+    (guard.EPOCH_BEACON_PATH, '"private root cannot own global epoch or beacon control"',
+     '"private root cannot own global epoch, Parliament, or beacon control"'),
     (guard.EPOCH_BEACON_PATH, "world.active_global_beacon_key_session().is_some()", "false"),
     (guard.EPOCH_BEACON_PATH, "        || world.global_beacon_pulses().iter().next().is_some()", "        || false"),
     (guard.EPOCH_BEACON_PATH, "if !owns_global_control(scope, world, current)?", "if false"),
@@ -1406,6 +2243,36 @@ def test_beacon_requirement_preserves_authenticated_root_scope_and_parent_cut(
     sources[path] = sources[path].replace(old, new, 1)
     with pytest.raises(RuntimeError, match=re.escape(path)):
         guard.require_parliament_beacon_requirement(*sources.values())
+
+
+@pytest.mark.parametrize("path,anchor,replacement", (
+    (guard.EPOCH_BEACON_PATH, "        Ok(native)\n",
+     "        // Not here: world.parliament_required_beacon_pulse_slots() is hook-only.\n"
+     "        Ok( native )\n"),
+    (guard.EPOCH_BEACON_PATH, "    let demanded = required(scope, world, current, height)?;",
+     "    /* Parliament attempt rows are never scanned */\n"
+     "    let demanded =\n        required( scope, world, current, height )?;"),
+    (guard.EPOCH_BEACON_PATH, "    let slot = (BeaconSessionId::for_network_v1(&current.network_id), height);\n"
+     "    if world.global_beacon_pulse_slots()",
+     "    let slot = (\n        BeaconSessionId::for_network_v1(&current.network_id),\n        height\n    );\n"
+     "    // No governance veto.\n    if world.global_beacon_pulse_slots()"),
+    (guard.BEACON_READINESS_PATH, "            next_required_pulse_height: next,",
+     "            // Governance slots (Parliament sortition, timed-OVN release) never enter.\n"
+     "            next_required_pulse_height:\n                next,"),
+    (guard.BEACON_READINESS_PATH, "    pub(crate) fn refresh_readiness(",
+     "    const GOVERNANCE_NOTE: &'static str = \"Parliament slots create no demand\";\n"
+     "    pub(crate) fn refresh_readiness("),
+    (guard.BEACON_PRODUCER_PATH, "        let active = if required {",
+     "        // Parliament state is not consulted.\n        let active = if required {"),
+))
+def test_beacon_requirement_accepts_comment_literal_and_layout_changes(
+    path: str, anchor: str, replacement: str,
+) -> None:
+    """Comments, literals and whitespace neither read governance state nor lose a pin."""
+    sources = _beacon_sources()
+    assert sources[path].count(anchor) == 1
+    sources[path] = sources[path].replace(anchor, replacement, 1)
+    guard.require_parliament_beacon_requirement(*sources.values())
 
 
 def test_beacon_requirement_checks_root_before_reusing_prepared_context() -> None:
@@ -1615,10 +2482,16 @@ def test_borrowed_storage_iterator_gate_is_connected_to_main() -> None:
 @pytest.mark.parametrize("old,new", (
     ("iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(source)",
      "iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(other)"),
+    # The genesis epoch read below maps its refusal identically; the trailing
+    # context binds this mutation to the signed root-scope read alone.
     ("crate::execution_attempt::genesis_read_attempt_error(error, |error| {\n"
      "                        ScheduleError::Epoch(error.to_string())\n"
-     "                    })",
-     "ScheduleError::Epoch(error.to_string()).into()"),
+     "                    })\n"
+     "                })?\n"
+     "                .sumeragi_context",
+     "ScheduleError::Epoch(error.to_string()).into()\n"
+     "                })?\n"
+     "                .sumeragi_context"),
     ("crate::sumeragi::lanes::routing::committed_root_scope(&self.world)",
      "Some(SumeragiRootScope::Global)"),
     ("                ScheduleError::Epoch(\"native control requires immutable root scope\".into())",
@@ -1972,3 +2845,1022 @@ def test_start_construction_keeps_original_da_and_state_reader_release_owners(
                         changed if target == path else original_read(target))
     with pytest.raises(RuntimeError, match="original writers"):
         guard.require_block_start_construction(state)
+
+
+def _main_calls(name: str) -> int:
+    body = ast.parse(inspect.getsource(guard.main))
+    return [node.func.id for node in ast.walk(body)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)].count(name)
+
+
+SUMERAGI_ROOT = guard.SUMERAGI_MODULE_ROOT
+LANE_EXECUTOR_PATH = "crates/iroha_core/src/sumeragi/lanes/executor.rs"
+GOVERNANCE_READ = (
+    "\nfn governance_demand(world: &impl WorldReadOnly) -> bool {\n"
+    "    world.parliament_required_beacon_pulse_slots().iter().next().is_some()\n}\n"
+)
+
+
+def test_sumeragi_driver_reads_no_parliament_state_and_is_connected() -> None:
+    """Every production module of the node driver is scanned; test modules are not."""
+    sources = guard.sumeragi_sources()
+    guard.require_sumeragi_parliament_isolation(sources)
+    assert _main_calls("require_sumeragi_parliament_isolation") == 1
+    modules = guard.sumeragi_production_modules(sources)
+    for path in (
+        SUMERAGI_ROOT, guard.EPOCH_BEACON_PATH, guard.BEACON_PRODUCER_PATH,
+        guard.BEACON_READINESS_PATH, LANE_EXECUTOR_PATH, guard.SCHEDULE_EXECUTION_PATH,
+    ):
+        assert path in modules
+    for path in (
+        guard.BEACON_PRODUCER_TESTS_PATH, guard.BEACON_EXECUTION_TESTS_PATH,
+        "crates/iroha_core/src/sumeragi/test_chain.rs",
+        "crates/iroha_core/src/sumeragi/executor_publication_tests.rs",
+    ):
+        assert path in sources and path not in modules
+    # The single live identifier is the hook's index read; inline test modules are blank.
+    assert guard.parliament_identifiers(modules[guard.EPOCH_BEACON_PATH]) == (
+        "parliament_required_beacon_pulse_slots",
+    )
+    assert "root_scope_tests" not in modules[guard.EPOCH_BEACON_PATH]
+
+
+@pytest.mark.parametrize("path", (
+    LANE_EXECUTOR_PATH, guard.SCHEDULE_EXECUTION_PATH, guard.BEACON_PRODUCER_PATH,
+    guard.BEACON_READINESS_PATH, guard.EPOCH_BEACON_PATH, SUMERAGI_ROOT,
+    "crates/iroha_core/src/sumeragi/epoch_beacon/control.rs",
+))
+def test_sumeragi_driver_rejects_a_parliament_read_in_any_production_module(path: str) -> None:
+    """A governance accessor, field or type in live driver code is refused wherever it is."""
+    for addition in (
+        GOVERNANCE_READ,
+        "\nfn attempts(world: &World) -> usize {\n    world.parliament_attempts.len()\n}\n",
+        "\ntype Pending = crate::governance::parliament::ParliamentAttemptStateV1;\n",
+        "\n#[cfg(test)]\nfn probe(world: &World) -> usize {\n"
+        "    world.parliament_attempts.len()\n}\n",
+    ):
+        sources = guard.sumeragi_sources()
+        sources[path] += addition
+        with pytest.raises(RuntimeError, match=re.escape(path) + ".*must not read governance"):
+            guard.require_sumeragi_parliament_isolation(sources)
+
+
+@pytest.mark.parametrize("path,addition", (
+    (LANE_EXECUTOR_PATH, "\n// world.parliament_attempts() is governance-local.\n"),
+    (LANE_EXECUTOR_PATH, '\nconst NOTE: &str = "parliament_required_beacon_pulse_slots";\n'),
+    (LANE_EXECUTOR_PATH,
+     "\n#[cfg(test)]\nmod governance_fixture_tests {\n    use super::*;\n"
+     "    fn rows(world: &World) -> usize {\n        world.parliament_attempts.len()\n    }\n}\n"),
+    (guard.BEACON_PRODUCER_TESTS_PATH, GOVERNANCE_READ),
+    (guard.BEACON_EXECUTION_TESTS_PATH, GOVERNANCE_READ),
+    ("crates/iroha_core/src/sumeragi/test_chain.rs", GOVERNANCE_READ),
+))
+def test_sumeragi_driver_scan_ignores_comments_literals_and_test_modules(
+    path: str, addition: str,
+) -> None:
+    """Comments, literals, inline test modules and test-gated files are not production."""
+    sources = guard.sumeragi_sources()
+    sources[path] += addition
+    guard.require_sumeragi_parliament_isolation(sources)
+
+
+@pytest.mark.parametrize("gate,rejected", (
+    ("", True),
+    ("pub(crate) ", True),
+    ('#[cfg(feature = "telemetry")]\n', True),
+    ("#[cfg(not(test))]\n", True),
+    ("#[allow(dead_code)]\n", True),
+    ("#[cfg(test)]\n", False),
+    ('#[cfg(any(test, feature = "iroha-core-tests"))]\n', False),
+))
+def test_sumeragi_driver_scan_follows_declarations_not_file_names(
+    gate: str, rejected: bool,
+) -> None:
+    """A module is test-only by its `cfg` gate; a test-like file name hides nothing."""
+    sources = guard.sumeragi_sources()
+    module = "crates/iroha_core/src/sumeragi/governance_demand_tests.rs"
+    assert module not in sources
+    sources[module] = "//! Demand.\nuse crate::state::WorldReadOnly;\n" + GOVERNANCE_READ
+    declaration = "mod governance_demand_tests;\n"
+    sources[SUMERAGI_ROOT] += "\n" + gate + declaration
+    if rejected:
+        with pytest.raises(RuntimeError, match=re.escape(module)):
+            guard.require_sumeragi_parliament_isolation(sources)
+    else:
+        guard.require_sumeragi_parliament_isolation(sources)
+
+
+def test_sumeragi_driver_scan_refuses_unresolved_modules_and_textual_includes() -> None:
+    """Nothing can leave the scan through a missing file, a path override or an include."""
+    sources = guard.sumeragi_sources()
+    sources[SUMERAGI_ROOT] += "\nmod absent_governance_owner;\n"
+    with pytest.raises(RuntimeError, match="cannot resolve production module"):
+        guard.require_sumeragi_parliament_isolation(sources)
+
+    sources = guard.sumeragi_sources()
+    hidden = "crates/iroha_core/src/sumeragi/hidden/owner.rs"
+    sources[hidden] = GOVERNANCE_READ
+    sources[SUMERAGI_ROOT] += '\n#[path = "hidden/owner.rs"]\nmod relocated;\n'
+    with pytest.raises(RuntimeError, match=re.escape(hidden)):
+        guard.require_sumeragi_parliament_isolation(sources)
+
+    sources = guard.sumeragi_sources()
+    sources[LANE_EXECUTOR_PATH] += '\ninclude!("governance_demand.rs");\n'
+    with pytest.raises(RuntimeError, match="textual include"):
+        guard.require_sumeragi_parliament_isolation(sources)
+
+    sources = guard.sumeragi_sources()
+    del sources[guard.BEACON_READINESS_PATH]
+    with pytest.raises(RuntimeError, match="cannot resolve production module"):
+        guard.require_sumeragi_parliament_isolation(sources)
+
+    sources = guard.sumeragi_sources()
+    declaration = "mod readiness;"
+    producer = sources[guard.BEACON_PRODUCER_PATH]
+    assert producer.count(declaration) == 1
+    sources[guard.BEACON_PRODUCER_PATH] = producer.replace(
+        declaration, "#[cfg(test)]\n" + declaration, 1
+    )
+    with pytest.raises(RuntimeError, match="left the scanned production modules"):
+        guard.require_sumeragi_parliament_isolation(sources)
+
+
+def test_production_rust_blanks_only_inline_test_modules() -> None:
+    """Offsets are kept; a test function, a mutation hook and a `not` block stay visible."""
+    source = (
+        "fn live() { a(); }\n#[cfg(test)]\nfn probe() { b(); }\n"
+        '#[cfg(all(test, mutation = "X"))]\n{ c(); }\n'
+        "#[cfg(test)]\npub(crate) mod tests {\n    fn hidden() { d(\"}\"); }\n}\n"
+        "#[cfg(test)]\nmod declared;\nfn tail() { e(); }\n"
+    )
+    code = guard.production_rust(source)
+    assert len(code) == len(source) and code.count("\n") == source.count("\n")
+    for token, present in (("a()", True), ("b()", True), ("c()", True), ("d(", False),
+                           ("hidden", False), ("mod declared;", True), ("e()", True)):
+        assert (token in code) is present
+    with pytest.raises(RuntimeError, match="unclosed inline Rust test module"):
+        guard.production_rust("#[cfg(test)]\nmod tests {\n    fn open() {\n")
+
+
+EVIDENCE_PATHS = (
+    guard.BEACON_EXECUTION_TESTS_PATH, guard.RESTORE_TESTS_PATH,
+    guard.SORTITION_ISI_TESTS_PATH, guard.MUTATION_GATE_PATH, guard.SUMERAGI_SPEC_PATH,
+)
+KILL_TEST = f"fn {guard.HC224_KILL_TEST}() {{"
+NPOS_TEST = "fn npos_boundary_pulse_stays_mandatory_with_or_without_pending_parliament_slots() {"
+RESTORE_VETO_TEST = "fn restore_accepts_pulse_at_a_slot_a_pending_sortition_election_names() {"
+RESTORE_WAIT_TEST = "fn world_snapshot_roundtrip_keeps_a_pulse_wait_on_its_exact_slot() {"
+RESTORE_PAST_TEST = (
+    "fn world_snapshot_roundtrip_past_an_unserved_slot_keeps_the_request_on_that_slot() {"
+)
+ROTATION_TEST = (
+    "fn parliament_sortition_consumes_the_slot_pulse_under_its_retained_session_after_rotation() {"
+)
+EVIDENCE_TESTS = (
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST),
+    (guard.BEACON_EXECUTION_TESTS_PATH, NPOS_TEST),
+    (guard.RESTORE_TESTS_PATH, RESTORE_VETO_TEST),
+    (guard.RESTORE_TESTS_PATH, RESTORE_WAIT_TEST),
+    (guard.RESTORE_TESTS_PATH, RESTORE_PAST_TEST),
+    (guard.SORTITION_ISI_TESTS_PATH, ROTATION_TEST),
+)
+
+
+def _evidence_sources() -> dict[str, str]:
+    return {path: guard.read(path) for path in EVIDENCE_PATHS}
+
+
+def _check_evidence(sources: dict[str, str]) -> None:
+    guard.require_parliament_pulse_isolation_evidence(
+        *(sources[path] for path in EVIDENCE_PATHS)
+    )
+
+
+def test_parliament_pulse_isolation_evidence_baseline_and_entrypoint() -> None:
+    """The kill test, the NPoS, restore and rotation tests and both HC224 rows are bound."""
+    _check_evidence(_evidence_sources())
+    assert _main_calls("require_parliament_pulse_isolation_evidence") == 1
+
+
+@pytest.mark.parametrize("path,declaration,old,new", (
+    # HC224 kill test, in the order of its decisive assertions.
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST, "const SLOT: u64 = 9;", "const SLOT: u64 = 8;"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
+     "let mut chain = prefix();", "let mut chain = npos_prefix(8);"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
+     "        admit(target, attempt.clone());\n", ""),
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
+     "                BTreeSet::from([attempt_id])\n            )],\n"
+     '            "admission derives the governance-local index row"',
+     "                BTreeSet::new()\n            )],\n"
+     '            "admission derives the governance-local index row"'),
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
+     "        assert_sortition_awaits(target, attempt_id, SLOT);\n", ""),
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
+     "            .active_global_beacon_key_session()\n            .is_none()",
+     "            .active_global_beacon_key_session()\n            .is_some()"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
+     "    assert_no_demand_at_next_height(&chain);\n    {\n", "    {\n"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
+     "                    .drive(&view, &custody.context, applied)\n"
+     "                    .unwrap()\n                    .is_none()",
+     "                    .drive(&view, &custody.context, applied)\n"
+     "                    .is_err()"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
+     "            assert!(producer.active.is_none());\n", ""),
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
+     ".all(|count| count.load(Ordering::SeqCst) == 0)", ".all(|_| true)"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
+     "    let ninth = commit_unrelated_work(&mut chain);\n    assert_eq!(chain.height(), SLOT);\n"
+     "    assert_no_pulse(&chain);\n",
+     "    let ninth = commit_unrelated_work(&mut chain);\n    assert_eq!(chain.height(), SLOT);\n"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
+     "    assert_no_pulse(&chain);\n    assert_sortition_awaits(&chain, attempt_id, SLOT);\n"
+     "    assert_eq!(slot_index(&chain), index);\n\n",
+     "    assert_no_pulse(&chain);\n    assert_eq!(slot_index(&chain), index);\n\n"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
+     "    invalid(\n        &mut executor_in(&custody.chain, ConsensusMode::Permissioned),\n"
+     "        &custody.chain,\n        &unrequested,\n    );\n", "    let _ = &unrequested;\n"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
+     "control::encode(Some(genuine_pulse_at_next_height(&custody, &custody.chain)))",
+     "control::encode(None)"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
+     "Some(ExecOutcome::Valid(_))", "Some(_)"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
+     "        commit_unrelated_work(&mut chain);\n        assert_no_pulse(&chain);\n",
+     "        commit_unrelated_work(&mut chain);\n"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
+     "    while chain.height() + 1 < release {\n        assert_no_demand_at_next_height(&chain);\n",
+     "    while chain.height() + 1 < release {\n"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
+     "chain.height() - SLOT >= 12", "chain.height() - SLOT >= 0"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
+     "        .replay_from(&chain)\n", "        .replay_from(&replay_source)\n"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
+     "            replay.committed(height).result(),\n            chain.committed(height).result()",
+     "            chain.committed(height).result(),\n            chain.committed(height).result()"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
+     "    assert_sortition_awaits(&replay, attempt_id, SLOT);\n", ""),
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
+     "    assert_no_pulse(&replay);\n", ""),
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
+     "    let index = slot_index(&chain);\n",
+     "    let index = slot_index(&chain);\n    if index.len() == 1 {\n        return;\n    }\n"),
+    # The helpers that carry those assertions.
+    (guard.BEACON_EXECUTION_TESTS_PATH, "fn admit(",
+     ".put_parliament_attempt(attempt)", ".unchecked_parliament_attempt(attempt)"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, "fn slot_index(",
+     ".parliament_required_beacon_pulse_slots()", ".parliament_certified_enactments()"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, "fn assert_sortition_awaits(",
+     "BodyElectionAttemptStatusV1::AwaitingPulse", "BodyElectionAttemptStatusV1::NoRoster"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, "fn assert_sortition_awaits(",
+     "(logical_session(chain), slot),", "(election.request.beacon_session_id, slot),"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, "fn assert_sortition_awaits(",
+     "election.request.pulse_height\n", "slot\n"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, "fn assert_sortition_awaits(",
+     "    for body in [ParliamentBody::RulesCommittee, ParliamentBody::PolicyJury] {",
+     "    for body in [] {"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, "fn assert_no_pulse(",
+     "    assert!(view.world().global_beacon_pulses().iter().next().is_none());\n", ""),
+    (guard.BEACON_EXECUTION_TESTS_PATH, "fn assert_no_pulse(",
+     "            .global_beacon_pulse_slots()\n            .iter()\n            .next()\n"
+     "            .is_none()",
+     "            .global_beacon_pulse_slots()\n            .iter()\n            .next()\n"
+     "            .is_some()"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, "fn assert_no_demand_at_next_height(",
+     "            !super::super::super::required(", "            super::super::super::required("),
+    (guard.BEACON_EXECUTION_TESTS_PATH, "fn assert_no_demand_at_next_height(",
+     "NativeBeaconProducer::new(chain.instance(), Some(key), None)",
+     "NativeBeaconProducer::new(chain.instance(), None, None)"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, "fn assert_no_demand_at_next_height(",
+     '            .expect("a governance slot is no source failure")\n            .is_none()',
+     "            .is_err()"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, "fn assert_no_demand_at_next_height(",
+     '    assert!(producer.active.is_none(), "no signing round is opened");\n', ""),
+    (guard.BEACON_EXECUTION_TESTS_PATH, "fn assert_no_demand_at_next_height(",
+     "    let height = chain.height() + 1;\n",
+     "    let height = chain.height() + 1;\n    if height > 9 {\n        return;\n    }\n"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, "fn commit_unrelated_work(",
+     "    assert!(stored.header().unwrap().control_witness.is_empty());\n", ""),
+    (guard.BEACON_EXECUTION_TESTS_PATH, "fn commit_unrelated_work(",
+     "    assert_eq!(stored.commitment().beacon, None);\n", ""),
+    (guard.BEACON_EXECUTION_TESTS_PATH, "fn commit_unrelated_work(",
+     "    assert!(stored.block().has_consensus_work());\n", ""),
+    (guard.BEACON_EXECUTION_TESTS_PATH, "fn commit_unrelated_work(",
+     ".is_some_and(|(_, output)| output.result.is_ok())", ".is_some()"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, "fn invalid(",
+     "Some(ExecOutcome::Invalid)", "Some(_)"),
+    # The native obligation with or without a pending slot.
+    (guard.BEACON_EXECUTION_TESTS_PATH, NPOS_TEST,
+     'assert!(refusal.contains("Invalid"), "{refusal}");',
+     'assert!(refusal.contains(""), "{refusal}");'),
+    (guard.BEACON_EXECUTION_TESTS_PATH, NPOS_TEST,
+     "            Ok(_) => panic!(", "            Ok(_) => return (fixture, pulse),\n            #[cfg(any())]\n            Ok(_) => panic!("),
+    (guard.BEACON_EXECUTION_TESTS_PATH, NPOS_TEST,
+     "        assert_eq!(stored.commitment().beacon, Some(pulse));\n", ""),
+    (guard.BEACON_EXECUTION_TESTS_PATH, NPOS_TEST,
+     "let mut chain = npos_prefix(4);", "let mut chain = npos_prefix(8);"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, NPOS_TEST,
+     "            3,\n            3,\n            NPOS_EPOCH_LENGTH_BLOCKS,",
+     "            3,\n            6,\n            NPOS_EPOCH_LENGTH_BLOCKS,"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, NPOS_TEST, "assert_eq!(slot, 9,", "assert_eq!(slot, 6,"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, NPOS_TEST, "    admit(&chain, attempt);\n", ""),
+    (guard.BEACON_EXECUTION_TESTS_PATH, NPOS_TEST,
+     "                !super::super::super::required(", "                super::super::super::required("),
+    (guard.BEACON_EXECUTION_TESTS_PATH, NPOS_TEST,
+     "    let (present, pulse) = mandatory_at_nine(seeded(chain));",
+     "    let (present, pulse) = (seeded(chain), plain_pulse);"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, NPOS_TEST,
+     "    assert_sortition_awaits(&present.chain, attempt_id, 9);\n", ""),
+    (guard.BEACON_EXECUTION_TESTS_PATH, NPOS_TEST,
+     ".verified_pulse(logical_session(&present.chain), 9),",
+     ".verified_pulse(logical_session(&present.chain), 19),"),
+    # Restore.
+    (guard.RESTORE_TESTS_PATH, RESTORE_VETO_TEST,
+     '            .expect("no Parliament state vetoes a finalized pulse at restart");',
+     '            .expect_err("a finalized pulse conflicts with an unavailable slot");'),
+    (guard.RESTORE_TESTS_PATH, RESTORE_VETO_TEST,
+     "        world.global_beacon_pulses.insert(pulse.pulse_id, pulse);\n", ""),
+    (guard.RESTORE_TESTS_PATH, RESTORE_VETO_TEST,
+     "                pulse.height,\n            );\n", "                pulse.height + 1,\n            );\n"),
+    (guard.RESTORE_TESTS_PATH, RESTORE_VETO_TEST,
+     "        assert_eq!(election.request.pulse_height, pulse.height);\n", ""),
+    (guard.RESTORE_TESTS_PATH, RESTORE_WAIT_TEST,
+     ".validate_restored_height_v1(pulse_height + 1_000_000)",
+     ".validate_restored_height_v1(pulse_height)"),
+    (guard.RESTORE_TESTS_PATH, RESTORE_WAIT_TEST,
+     "        assert_eq!(restored_attempt, &attempt);\n", ""),
+    (guard.RESTORE_TESTS_PATH, RESTORE_WAIT_TEST,
+     "            vec![(pulse_slot, BTreeSet::from([governance_attempt_id]))]\n", "            vec![]\n"),
+    (guard.RESTORE_TESTS_PATH, RESTORE_WAIT_TEST,
+     "            assert_eq!(election.request.pulse_height, pulse_height);\n", ""),
+    (guard.RESTORE_TESTS_PATH, RESTORE_PAST_TEST,
+     "const LATER_PULSE: u64 = 41;", "const LATER_PULSE: u64 = 9;"),
+    (guard.RESTORE_TESTS_PATH, RESTORE_PAST_TEST,
+     "        assert!(pulse_slot.1 + 12 < LATER_PULSE);\n", ""),
+    (guard.RESTORE_TESTS_PATH, RESTORE_PAST_TEST,
+     "                    pulse_slot\n                );",
+     "                    later_slot\n                );"),
+    (guard.RESTORE_TESTS_PATH, RESTORE_PAST_TEST, "        pending(restored_attempt);\n", ""),
+    (guard.RESTORE_TESTS_PATH, RESTORE_PAST_TEST,
+     '            .expect("a later pulse and an older unserved wait are consistent");',
+     '            .expect_err("a later pulse and an older unserved wait conflict");'),
+    (guard.RESTORE_TESTS_PATH, RESTORE_PAST_TEST,
+     "            vec![(later_slot, pulse.pulse_id)]", "            vec![]"),
+    (guard.RESTORE_TESTS_PATH, RESTORE_PAST_TEST,
+     "            vec![(pulse_slot, BTreeSet::from([governance_attempt_id]))],",
+     "            vec![(later_slot, BTreeSet::from([governance_attempt_id]))],"),
+    (guard.RESTORE_TESTS_PATH, RESTORE_PAST_TEST,
+     "            LATER_PULSE + 1_000_000,\n", ""),
+    # Late consumption under the retained session.
+    (guard.SORTITION_ISI_TESTS_PATH, ROTATION_TEST,
+     "ParliamentPermissionlessProgressPhase::AwaitingPulse",
+     "ParliamentPermissionlessProgressPhase::Drawing"),
+    (guard.SORTITION_ISI_TESTS_PATH, ROTATION_TEST,
+     "let successor = session_b.pulse(anchor(slot_height), context);",
+     "let successor = session_a.pulse(anchor(slot_height), context);"),
+    (guard.SORTITION_ISI_TESTS_PATH, ROTATION_TEST,
+     "            .retire_global_beacon_key_session(pulse.session_id, ROTATION_HEIGHT)\n"
+     '            .expect("retire session A");\n', ""),
+    (guard.SORTITION_ISI_TESTS_PATH, ROTATION_TEST,
+     "assert!(old.is_active_at(slot_height) && !old.is_active_at(EXECUTION_HEIGHT));",
+     "assert!(old.is_active_at(slot_height));"),
+    (guard.SORTITION_ISI_TESTS_PATH, ROTATION_TEST,
+     '        "the retained historical session yields the same seed after the rotation"\n'
+     "    );\n", '        "the retained historical session yields the same seed after the rotation"\n'
+     "    );\n    if true {\n        return;\n    }\n"),
+    (guard.SORTITION_ISI_TESTS_PATH, ROTATION_TEST,
+     "        Ok(seed)\n", "        Ok(successor_seed)\n"),
+    (guard.SORTITION_ISI_TESTS_PATH, ROTATION_TEST,
+     "        assert!(awaiting_pulse(state_transaction));\n", ""),
+    (guard.SORTITION_ISI_TESTS_PATH, ROTATION_TEST,
+     '            .expect_err("a substituted pulse never draws");', "            .unwrap();"),
+    (guard.SORTITION_ISI_TESTS_PATH, ROTATION_TEST,
+     "    store(&mut state_transaction, successor);\n", ""),
+    (guard.SORTITION_ISI_TESTS_PATH, ROTATION_TEST,
+     "        other_height.pulse_id,\n        MISMATCH,", "        other_height.pulse_id,\n        UNKNOWN,"),
+    (guard.SORTITION_ISI_TESTS_PATH, ROTATION_TEST,
+     "    refused(&mut state_transaction, slot_height, [0xE3; 32], UNKNOWN);\n", ""),
+    (guard.SORTITION_ISI_TESTS_PATH, ROTATION_TEST,
+     'const MISMATCH: &str = "does not match the persisted finalized beacon pulse";',
+     'const MISMATCH: &str = "";'),
+    (guard.SORTITION_ISI_TESTS_PATH, ROTATION_TEST,
+     "        BodyElectionAttemptStatusV1::Drawing\n", "        BodyElectionAttemptStatusV1::AwaitingPulse\n"),
+    (guard.SORTITION_ISI_TESTS_PATH, ROTATION_TEST,
+     "        Some(seed),\n", "        Some(other_seed),\n"),
+))
+def test_parliament_pulse_isolation_evidence_rejects_a_lost_decisive_assertion(
+    path: str, declaration: str, old: str, new: str,
+) -> None:
+    """Each decisive assertion stays in its own compiled owner; a comment is no assertion."""
+    sources = _evidence_sources()
+    body = guard.rust_item(sources[path], declaration, path)
+    assert body.count(old) == 1, (declaration, old)
+    sources[path] = sources[path].replace(body, body.replace(old, new, 1), 1)
+    sources[path] += "\n/* " + old + " */\n"
+    with pytest.raises(RuntimeError, match=re.escape(path)):
+        _check_evidence(sources)
+
+
+@pytest.mark.parametrize("path,declaration", EVIDENCE_TESTS)
+@pytest.mark.parametrize("shape", (
+    "removed", "commented", "#[ignore]", "#[cfg(any())]", "#[should_panic]",
+))
+def test_parliament_pulse_isolation_evidence_tests_stay_compiled(
+    path: str, declaration: str, shape: str,
+) -> None:
+    """Deleting `#[test]`, or adding an attribute that disables or inverts it, is refused."""
+    sources = _evidence_sources()
+    attributed = re.compile(r"#\[test\]\n(?P<indent>[ \t]*)" + re.escape(declaration))
+    matches = list(attributed.finditer(sources[path]))
+    assert len(matches) == 1
+    indent = matches[0].group("indent")
+    replacement = {
+        "removed": "", "commented": "// #[test]\n" + indent,
+    }.get(shape, f"#[test]\n{indent}{shape}\n{indent}")
+    sources[path] = (
+        sources[path][:matches[0].start()] + replacement + declaration
+        + sources[path][matches[0].end():]
+    )
+    with pytest.raises(RuntimeError, match="must be a compiled test"):
+        _check_evidence(sources)
+
+
+def test_parliament_pulse_restore_tests_stay_in_their_compiled_module() -> None:
+    """The restore tests cannot survive in a module no test build compiles."""
+    sources = _evidence_sources()
+    path = guard.RESTORE_TESTS_PATH
+    module = "#[cfg(test)]\nmod global_beacon_persistence_tests {"
+    assert sources[path].count(module) == 1
+    sources[path] = sources[path].replace(
+        module, "#[cfg(any())]\nmod global_beacon_persistence_tests {", 1
+    )
+    with pytest.raises(RuntimeError, match="must stay a compiled test module"):
+        _check_evidence(sources)
+
+
+GATE_ROW = (
+    '    m("HC224", "native pulse demand: treat a committed Parliament slot row as mandatory control",\n'
+    f'      ["{guard.HC224_KILL_TEST_PATH}"]),\n'
+)
+
+
+@pytest.mark.parametrize("replacement", (
+    "",
+    GATE_ROW + GATE_ROW,
+    GATE_ROW.replace(guard.HC224_KILL_TEST, "another_test"),
+    GATE_ROW.replace('"]),', '",\n       "sumeragi::epoch_beacon::producer::tests::other"]),'),
+    GATE_ROW.replace('m("HC224"', 'm("HC2240"'),
+    "# " + GATE_ROW.replace("\n      ", " "),
+    '    NOTE = """\n' + GATE_ROW + '    """\n',
+    GATE_ROW.replace('"]),', '"], ["scenario"]),'),
+))
+def test_parliament_pulse_isolation_requires_one_hc224_gate_row(replacement: str) -> None:
+    """The mutation gate holds exactly one HC224 row, killed by the named test alone."""
+    sources = _evidence_sources()
+    path = guard.MUTATION_GATE_PATH
+    assert sources[path].count(GATE_ROW) == 1
+    sources[path] = sources[path].replace(GATE_ROW, replacement, 1)
+    with pytest.raises(RuntimeError, match=re.escape(path)):
+        _check_evidence(sources)
+
+
+def test_parliament_pulse_isolation_requires_hc224_among_core_mutations() -> None:
+    """The row is a Core mutation, not a row of another mutation table."""
+    sources = _evidence_sources()
+    path = guard.MUTATION_GATE_PATH
+    moved = sources[path].replace(GATE_ROW, "", 1).replace(
+        "\nMODEL_MUTATIONS = [\n", "\nMODEL_MUTATIONS = [\n" + GATE_ROW, 1
+    )
+    assert moved.count(GATE_ROW) == 1 and moved != sources[path]
+    sources[path] = moved
+    with pytest.raises(RuntimeError, match="must be a Core mutation row"):
+        _check_evidence(sources)
+    sources[path] = "def broken(:\n" + sources[path]
+    with pytest.raises(RuntimeError, match="cannot parse the mutation gate"):
+        _check_evidence(sources)
+
+
+def _spec_row(sources: dict[str, str]) -> str:
+    rows = [line for line in sources[guard.SUMERAGI_SPEC_PATH].splitlines()
+            if line.startswith("| HC224 |")]
+    assert len(rows) == 1
+    return rows[0]
+
+
+@pytest.mark.parametrize("mutation", (
+    "removed", "duplicated", "other_test", "other_id", "no_site", "prose_mention",
+))
+def test_parliament_pulse_isolation_requires_one_hc224_spec_row(mutation: str) -> None:
+    """Spec section 13.4 holds exactly one HC224 row naming the kill test."""
+    sources = _evidence_sources()
+    path = guard.SUMERAGI_SPEC_PATH
+    row = _spec_row(sources)
+    replacement = {
+        "removed": "",
+        "duplicated": row + "\n" + row,
+        "other_test": row.replace(guard.HC224_KILL_TEST, "another_test"),
+        "other_id": row.replace("| HC224 |", "| HC2240 |"),
+        "no_site": row.replace("`epoch_beacon::required`", "`epoch_beacon`"),
+        "prose_mention": row + "\n\nHC224 is also described elsewhere.",
+    }[mutation]
+    sources[path] = sources[path].replace(row, replacement, 1)
+    with pytest.raises(RuntimeError, match=re.escape(path)):
+        _check_evidence(sources)
+
+
+@pytest.mark.parametrize("path,declaration,anchor,replacement", (
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
+     "    assert_no_pulse(&replay);\n",
+     "    // assert_no_pulse(&chain); is repeated for the twin; return is only a word.\n"
+     "    assert_no_pulse( &replay );\n"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
+     "    assert_eq!(chain.height(), SLOT);\n",
+     "    assert_eq!(\n        chain.height(),\n        SLOT\n    ); /* commit_unrelated_work(&mut chain); */\n"),
+    (guard.BEACON_EXECUTION_TESTS_PATH, "fn assert_no_pulse(",
+     "    let view = chain.state().view();\n",
+     "    let _note = \"assert!(view.world().global_beacon_pulses().iter().next().is_none());\";\n"
+     "    let view = chain.state().view();\n"),
+    (guard.RESTORE_TESTS_PATH, RESTORE_PAST_TEST,
+     "        pending(restored_attempt);\n",
+     "        // pending(restored_attempt); checks every election.\n"
+     "        pending( restored_attempt );\n"),
+    (guard.SORTITION_ISI_TESTS_PATH, ROTATION_TEST,
+     "    store(&mut state_transaction, successor);\n",
+     "    /* refused(&mut state_transaction, slot_height, successor.pulse_id, UNKNOWN); */\n"
+     "    store(\n        &mut state_transaction,\n        successor\n    );\n"),
+))
+def test_parliament_pulse_isolation_evidence_accepts_comment_literal_and_layout_changes(
+    path: str, declaration: str, anchor: str, replacement: str,
+) -> None:
+    """Comments, literals and whitespace are neither assertions nor lost pins."""
+    sources = _evidence_sources()
+    body = guard.rust_item(sources[path], declaration, path)
+    assert body.count(anchor) == 1
+    sources[path] = sources[path].replace(body, body.replace(anchor, replacement, 1), 1)
+    _check_evidence(sources)
+
+
+REDUCER_PATH = "crates/iroha_core/src/governance/parliament.rs"
+PLANNER_PATH = "crates/iroha_core/src/governance/parliament/planner.rs"
+SLOT_RULE_PATHS = (REDUCER_PATH, PLANNER_PATH, WORLD_PATH)
+ALIGNED = "pub const fn aligned_sortition_pulse_height_v1("
+DERIVED = "    fn derived_sortition_generation_pulse_height_v1("
+NEXT_SLOT = "    pub(crate) fn next_sortition_generation_pulse_height_v1("
+ENSURE_SLOT = "    fn ensure_sortition_generation_pulse_height_v1("
+RECHECK = "    fn invalid_sortition_generation_slots_v1("
+CONSTRUCTOR = "    pub(crate) fn try_new_with_randomness_redraws_before_attempt("
+VALIDATE = "    pub fn validate(&self) -> Result<(), ParliamentReducerErrorV1> {"
+CAPACITY_REGISTRATION = "    fn record_hidden_sortition_capacity_failure("
+ELECTION_REGISTRATION = "    pub(crate) fn register_sortition_request("
+FAIL_ELECTION = "    pub fn fail_body_election_no_roster("
+PLAN_DRIVER = "    pub fn plan_driver_v1("
+CADENCE = "    fn parliament_sortition_pulse_epoch_length_v1("
+CREATE_ATTEMPT = "    impl Execute for gov::CreateParliamentGovernanceAttemptV1 {"
+CONFIRMATION_TEST = (
+    "fn narrow_confirmation_request_freezes_exact_current_snapshot_and_schedule() {"
+)
+SCHEDULE_FLOOR = (
+    "\n            || {0}sortition_pulse_epoch_length_blocks\n"
+    "                < MIN_PARLIAMENT_SORTITION_PULSE_EPOCH_LENGTH_BLOCKS_V1\n"
+)
+CADENCE_CALL = (
+    "            let sortition_pulse_epoch_length_blocks =\n"
+    "                parliament_sortition_pulse_epoch_length_v1(state_transaction)?;\n"
+)
+PLANNER_WAIT_END = (
+    "            }\n            // No committed pulse at the frozen slot: nothing is due, at any height."
+)
+
+
+def _slot_rule_sources() -> dict[str, str]:
+    return {
+        REDUCER_PATH: guard.read_rust_with_includes(REDUCER_PATH),
+        PLANNER_PATH: guard.read(PLANNER_PATH),
+        WORLD_PATH: guard.read(WORLD_PATH),
+    }
+
+
+def _check_slot_rule(sources: dict[str, str]) -> None:
+    guard.require_sortition_slot_rule(*(sources[path] for path in SLOT_RULE_PATHS))
+
+
+def test_sortition_slot_rule_baseline_and_entrypoint() -> None:
+    """The aligned slot rule, its frozen inputs and the absent substitution path are bound."""
+    _check_slot_rule(_slot_rule_sources())
+    assert _main_calls("require_sortition_slot_rule") == 1
+
+
+@pytest.mark.parametrize("path,declaration,old,new", (
+    # The pure alignment helper.
+    (REDUCER_PATH, ALIGNED, "earliest.checked_add(lead)", "earliest.checked_add(0)"),
+    (REDUCER_PATH, ALIGNED, "earliest.checked_add(lead)", "Some(earliest.saturating_add(lead))"),
+    (REDUCER_PATH, ALIGNED,
+     "epoch_length_blocks - 1 - earliest % epoch_length_blocks",
+     "epoch_length_blocks - earliest % epoch_length_blocks"),
+    (REDUCER_PATH, ALIGNED,
+     "    if height.checked_add(1).is_none() {\n        return None;\n    }\n", ""),
+    (REDUCER_PATH, ALIGNED, "earliest == 0 || ", ""),
+    (REDUCER_PATH, ALIGNED,
+     "epoch_length_blocks < MIN_PARLIAMENT_SORTITION_PULSE_EPOCH_LENGTH_BLOCKS_V1",
+     "epoch_length_blocks == 0"),
+    (REDUCER_PATH, "pub const MIN_PARLIAMENT_SORTITION_PULSE_EPOCH_LENGTH_BLOCKS_V1: u64",
+     "", " = 1; const RETIRED_FLOOR: u64"),
+    # The retired rule: slot = request_height + delay.
+    (REDUCER_PATH, DERIVED,
+     "aligned_sortition_pulse_height_v1(earliest, self.sortition_pulse_epoch_length_blocks)",
+     "Some(earliest)"),
+    (REDUCER_PATH, DERIVED,
+     "aligned_sortition_pulse_height_v1(earliest, self.sortition_pulse_epoch_length_blocks)",
+     "request_height.checked_add(self.sortition_pulse_delay_blocks)"),
+    (REDUCER_PATH, DERIVED,
+     "aligned_sortition_pulse_height_v1(earliest, self.sortition_pulse_epoch_length_blocks)",
+     "aligned_sortition_pulse_height_v1(earliest, live_epoch_length_blocks())"),
+    (REDUCER_PATH, DERIVED,
+     "delayed.max(previous.checked_add(1)?)", "delayed.max(previous)"),
+    (REDUCER_PATH, DERIVED, "Some(previous) => delayed.max(previous.checked_add(1)?),",
+     "Some(_) => delayed,"),
+    (REDUCER_PATH, DERIVED,
+     "request_height.checked_add(self.sortition_pulse_delay_blocks)?",
+     "request_height.saturating_add(self.sortition_pulse_delay_blocks)"),
+    (REDUCER_PATH, NEXT_SLOT, "            .max();", "            .min();"),
+    (REDUCER_PATH, NEXT_SLOT,
+     "(slot.beacon_session_id == beacon_session_id).then_some(slot.height)", "None::<u64>"),
+    (REDUCER_PATH, NEXT_SLOT,
+     "self.derived_sortition_generation_pulse_height_v1(request_height, previous)",
+     "self.derived_sortition_generation_pulse_height_v1(request_height, None)"),
+    (REDUCER_PATH, ENSURE_SLOT, "!= Some(pulse_height)", "== None"),
+    (REDUCER_PATH, ENSURE_SLOT,
+     "core::cmp::Ordering::Equal if generation_request_height == request_height => {}",
+     "core::cmp::Ordering::Equal => {}"),
+    (REDUCER_PATH, ENSURE_SLOT,
+     "core::cmp::Ordering::Equal | core::cmp::Ordering::Greater => {\n"
+     "                    return Err(ParliamentReducerErrorV1::InvalidSortitionPulseSchedule);\n"
+     "                }", "_ => {}"),
+    # Both registration paths check the claimed slot.
+    (REDUCER_PATH, CAPACITY_REGISTRATION,
+     "self.ensure_sortition_generation_pulse_height_v1(", "self.unchecked_sortition_slot("),
+    (REDUCER_PATH, ELECTION_REGISTRATION,
+     "self.ensure_sortition_generation_pulse_height_v1(", "self.unchecked_sortition_slot("),
+    (REDUCER_PATH, ELECTION_REGISTRATION,
+     "            request.request_height,\n            request.pulse_height,\n"
+     "            request.beacon_session_id,",
+     "            request.request_height,\n            request.pulse_height,\n"
+     "            other_session,"),
+    (REDUCER_PATH, "    pub(crate) fn next_sortition_retry_v1(",
+     "self.next_sortition_generation_pulse_height_v1(request_height, beacon_session_id)?",
+     "request_height.checked_add(self.sortition_pulse_delay_blocks)?"),
+    # The frozen field and its >= 3 validation, at construction and at restore.
+    (REDUCER_PATH, "pub struct ParliamentAttemptStateV1 {",
+     "    sortition_pulse_epoch_length_blocks: u64,\n", ""),
+    (REDUCER_PATH, CONSTRUCTOR, SCHEDULE_FLOOR.format(""), "\n"),
+    (REDUCER_PATH, CONSTRUCTOR, "sortition_pulse_delay_blocks == 0\n", "false\n"),
+    (REDUCER_PATH, CONSTRUCTOR,
+     "            sortition_pulse_epoch_length_blocks,\n            effect_preimage_hash,\n"
+     "            expected_head,\n            required_bodies,\n            risk_locked: false,",
+     "            sortition_pulse_epoch_length_blocks: 3,\n            effect_preimage_hash,\n"
+     "            expected_head,\n            required_bodies,\n            risk_locked: false,"),
+    (REDUCER_PATH, VALIDATE, SCHEDULE_FLOOR.format("self."), "\n"),
+    (REDUCER_PATH, VALIDATE,
+     "let invalid_sortition_generation_slots = self.invalid_sortition_generation_slots_v1();",
+     "let invalid_sortition_generation_slots = BTreeSet::<ParliamentPulseSlotV1>::new();"),
+    (REDUCER_PATH, VALIDATE,
+     "                request.beacon_session_id,\n                request.pulse_height,\n"
+     "            )) {\n                return Err(ParliamentReducerErrorV1::InvalidSortitionPulseSchedule);",
+     "                request.beacon_session_id,\n                request.pulse_height,\n"
+     "            )) {\n                return Ok(());"),
+    (REDUCER_PATH, RECHECK, "                != Some(slot.height)", "                == None"),
+    (REDUCER_PATH, RECHECK, "            previous = Some(*slot);\n", ""),
+    (REDUCER_PATH, RECHECK,
+     ".filter(|previous| previous.beacon_session_id == slot.beacon_session_id)", ""),
+    # The retired substitution path: a pulse wait that can be failed.
+    (REDUCER_PATH, FAIL_ELECTION,
+     "        if election.attempt.status != BodyElectionAttemptStatusV1::AcceptingInvitations {",
+     "        if election.attempt.status == BodyElectionAttemptStatusV1::AwaitingPulse {\n"
+     "            return self.fail_election_missing_its_pulse(election_attempt_id, current_height);\n"
+     "        }\n"
+     "        if election.attempt.status != BodyElectionAttemptStatusV1::AcceptingInvitations {"),
+    (REDUCER_PATH, FAIL_ELECTION,
+     "        election_attempt_id: BodyElectionAttemptId,\n        current_height: u64,\n",
+     "        election_attempt_id: BodyElectionAttemptId,\n        pulse_known: bool,\n"
+     "        current_height: u64,\n"),
+    (REDUCER_PATH, FAIL_ELECTION,
+     "BodyElectionAttemptStatusV1::AcceptingInvitations {",
+     "BodyElectionAttemptStatusV1::AcceptingInvitations\n"
+     "            && election.attempt.status != BodyElectionAttemptStatusV1::AwaitingPulse\n        {"),
+    (REDUCER_PATH, FAIL_ELECTION,
+     "            .is_none_or(|close_height| current_height <= close_height)",
+     "            .is_some_and(|close_height| current_height <= close_height)"),
+    (REDUCER_PATH, FAIL_ELECTION,
+     "            return Err(ParliamentReducerErrorV1::InvalidRoster);",
+     "            ParliamentElectionFailureKindV1::EmptyAcceptedRoster"),
+    (REDUCER_PATH, "pub enum ParliamentElectionFailureKindV1 {",
+     "    EmptyAcceptedRoster,\n", "    MissingPulse,\n    EmptyAcceptedRoster,\n"),
+    (REDUCER_PATH, VALIDATE,
+     "                        || election.failure_kind.is_some()\n"
+     "                        || election.failure_height.is_some()\n"
+     "                    {\n"
+     "                        return Err(ParliamentReducerErrorV1::ImmutableBindingMismatch);",
+     "                    {\n"
+     "                        return Err(ParliamentReducerErrorV1::ImmutableBindingMismatch);"),
+    (REDUCER_PATH, VALIDATE,
+     "let drawn_empty_terminal = election.pulse_id.is_some()\n",
+     "let drawn_empty_terminal = true\n"),
+    # The planner proposes nothing for a wait without its exact pulse.
+    (PLANNER_PATH, PLAN_DRIVER, PLANNER_WAIT_END,
+     "            } else if pulse_height < committed_height {\n"
+     "                for (election_id, _) in elections {\n"
+     "                    try_due(\n                        &mut state,\n                        due,\n"
+     "                        ParliamentLifecycleTransitionV1::FailBodyElectionNoRoster(\n"
+     "                            ParliamentFailBodyElectionNoRosterV1 {\n"
+     "                                election_attempt_id: election_id,\n"
+     "                            },\n                        ),\n"
+     "                        |state| state.fail_body_election_no_roster(id, election_id, height),\n"
+     "                    );\n                }\n"
+     + PLANNER_WAIT_END),
+    (PLANNER_PATH, PLAN_DRIVER,
+     "world.verified_pulse(session, pulse_height)",
+     "world.verified_pulse(session, pulse_height).or_else(|| world.verified_pulse(session, height))"),
+    (PLANNER_PATH, PLAN_DRIVER,
+     "                && request.pulse_height <= committed_height\n", ""),
+    (PLANNER_PATH, PLAN_DRIVER, "            if !sealed {\n", "            {\n"),
+    (PLANNER_PATH, PLAN_DRIVER,
+     "                election.attempt.status == BodyElectionAttemptStatusV1::AcceptingInvitations\n",
+     "                election.attempt.status != BodyElectionAttemptStatusV1::Drawing\n"),
+    # The executor freezes the NPoS epoch length from committed state, or creates nothing.
+    (WORLD_PATH, CADENCE,
+     "epoch.mode != iroha_data_model::parameter::system::ConsensusMode::Npos\n            || ", ""),
+    (WORLD_PATH, CADENCE,
+     "\n            || epoch.authorization.last_height % epoch_length_blocks != 0", ""),
+    (WORLD_PATH, CADENCE, ".ok_or_else(no_native_cadence)?;", ".unwrap_or(3);"),
+    (WORLD_PATH, CADENCE,
+     "state_transaction.world.sumeragi_npos_parameters()",
+     "state_transaction.world.sumeragi_parameters()"),
+    (WORLD_PATH, CADENCE, ".map_err(|_| no_native_cadence())?\n", ".unwrap()\n"),
+    (WORLD_PATH, CADENCE,
+     "PARLIAMENT_SORTITION_REQUIRES_NPOS_CADENCE_V1.into(),", "String::new().into(),"),
+    (WORLD_PATH, CADENCE, "            return Err(no_native_cadence());", "            {}"),
+    (WORLD_PATH, CREATE_ATTEMPT, CADENCE_CALL,
+     "            let sortition_pulse_epoch_length_blocks = 3;\n"),
+    (WORLD_PATH, CREATE_ATTEMPT, CADENCE_CALL,
+     "            let sortition_pulse_epoch_length_blocks = state_transaction\n"
+     "                .gov\n                .parliament_sortition_pulse_epoch_length_blocks;\n"),
+    # A write before the cadence rejection.
+    (WORLD_PATH, CREATE_ATTEMPT, CADENCE_CALL,
+     "            state_transaction\n                .world\n"
+     "                .put_governance_proposal(proposal_id, proposal_record.clone())\n"
+     "                .map_err(governance_proposal_storage_error)?;\n" + CADENCE_CALL),
+    (WORLD_PATH, CREATE_ATTEMPT, CADENCE_CALL,
+     "            state_transaction.world.parliament_attempt_counts.get_mut();\n" + CADENCE_CALL),
+    (WORLD_PATH, CREATE_ATTEMPT,
+     "                sortition_pulse_epoch_length_blocks,\n                effect_preimage_hash,",
+     "                3,\n                effect_preimage_hash,"),
+    (WORLD_PATH, "    fn canonical_confirmation_sortition_request_v1(",
+     ".next_sortition_generation_pulse_height_v1(request_height, beacon_session_id)",
+     ".sortition_pulse_delay_blocks().checked_add(request_height)"),
+    (WORLD_PATH, "gov::ParliamentLifecycleTransitionV1::FailBodyElectionNoRoster(payload) => {",
+     "                            payload.election_attempt_id,\n",
+     "                            payload.election_attempt_id,\n"
+     "                            pulse_known,\n"),
+    (WORLD_PATH, CONFIRMATION_TEST, "            assert_eq!(request.pulse_height, 13);\n", ""),
+    (WORLD_PATH, CONFIRMATION_TEST,
+     "(request.pulse_height + 1) % attempt.sortition_pulse_epoch_length_blocks(),",
+     "request.pulse_height % attempt.sortition_pulse_epoch_length_blocks(),"),
+    (WORLD_PATH, CONFIRMATION_TEST,
+     "request.pulse_height >= request_height + attempt.sortition_pulse_delay_blocks()",
+     "request.pulse_height == request_height + attempt.sortition_pulse_delay_blocks()"),
+))
+def test_sortition_slot_rule_rejects_the_retired_rule_and_substitution_path(
+    path: str, declaration: str, old: str, new: str,
+) -> None:
+    """Reverting the slot rule, its frozen inputs or the exact wait is refused at its owner."""
+    sources = _slot_rule_sources()
+    if declaration.endswith("=> {"):
+        body = guard.section(
+            sources[path], declaration,
+            "gov::ParliamentLifecycleTransitionV1::SealBodyRoster(payload) => {", path,
+        )
+    elif not old:
+        body = declaration
+        old = declaration
+        new = declaration + new
+    else:
+        body = guard.rust_item(sources[path], declaration, path)
+    assert body.count(old) == 1, (declaration, old)
+    sources[path] = sources[path].replace(body, body.replace(old, new, 1), 1)
+    sources[path] += "\n/* " + old + " */\n"
+    with pytest.raises(RuntimeError, match=re.escape(path)):
+        _check_slot_rule(sources)
+
+
+@pytest.mark.parametrize("path", SLOT_RULE_PATHS)
+@pytest.mark.parametrize("identifier", guard.RETIRED_SORTITION_SUBSTITUTION_IDENTIFIERS)
+def test_sortition_slot_rule_rejects_each_retired_identifier(path: str, identifier: str) -> None:
+    """Every retired missing-pulse name is refused in code and accepted in comments."""
+    sources = _slot_rule_sources()
+    sources[path] += f"\n// {identifier} is retired.\nconst RETIRED_NOTE: &str = \"{identifier}\";\n"
+    _check_slot_rule(sources)
+    sources[path] += f"\n#[cfg(test)]\nmod reintroduced {{\n    fn probe() {{ let _ = {identifier}; }}\n}}\n"
+    with pytest.raises(RuntimeError, match="retired missing-pulse substitution path returned"):
+        _check_slot_rule(sources)
+
+
+def test_substitution_path_scan_keeps_the_timed_ovn_ballot_names() -> None:
+    """Whole identifiers are compared: the ballot's release-pulse names stay legal."""
+    live = (
+        "fn ballot() {\n    let release_pulse_available = true;\n"
+        "    let _ = ParliamentBallotFailureKindV1::ReleasePulseUnavailable;\n"
+        "    let _ = attempt.unavailable_release_pulse_slots_v1();\n"
+        "    let _ = attempt.classifies_release_pulse_unavailable_at(slot);\n"
+        "    let _ = parliament_verified_pulse_available_v1(world);\n}\n"
+    )
+    guard.require_substitution_path_absent("x.rs", live)
+    with pytest.raises(RuntimeError, match="'PulseUnavailable', 'pulse_available'"):
+        guard.require_substitution_path_absent(
+            "x.rs", live + "fn f(pulse_available: bool) { E::PulseUnavailable; }\n"
+        )
+
+
+@pytest.mark.parametrize("path,declaration,anchor,replacement", (
+    (REDUCER_PATH, ALIGNED, "    Some(height)\n",
+     "    // Never saturating: earliest.saturating_add(lead) is not used.\n    Some( height )\n"),
+    (REDUCER_PATH, DERIVED, "            None => delayed,\n",
+     "            /* request_height + delay was the retired slot */\n            None =>\n"
+     "                delayed,\n"),
+    (REDUCER_PATH, FAIL_ELECTION,
+     "        election.failure_height = Some(current_height);\n",
+     "        // An AwaitingPulse election never reaches this line.\n"
+     "        election.failure_height =\n            Some(current_height);\n"),
+    (PLANNER_PATH, PLAN_DRIVER, PLANNER_WAIT_END,
+     "            }\n            // FailBodyElectionNoRoster is never proposed for a wait."),
+    (WORLD_PATH, CADENCE, "        Ok(epoch_length_blocks)\n",
+     "        // Node-local configuration is never read here.\n        Ok( epoch_length_blocks )\n"),
+    (WORLD_PATH, CREATE_ATTEMPT, CADENCE_CALL,
+     "            // .put_parliament_attempt(attempt) comes later.\n" + CADENCE_CALL),
+))
+def test_sortition_slot_rule_accepts_comment_and_layout_changes(
+    path: str, declaration: str, anchor: str, replacement: str,
+) -> None:
+    """Comments and whitespace neither restore the retired rule nor lose a pin."""
+    sources = _slot_rule_sources()
+    body = guard.rust_item(sources[path], declaration, path)
+    assert body.count(anchor) == 1
+    sources[path] = sources[path].replace(body, body.replace(anchor, replacement, 1), 1)
+    _check_slot_rule(sources)
+
+
+RESTORE_PATH = guard.RESTORE_TESTS_PATH
+MODEL_PATH = "formal/sora_parliament/SoraParliamentV1.tla"
+MODEL_CONFIG_PATH = "formal/sora_parliament/SoraParliamentV1.cfg"
+PULSE_APPEND_REUSE = (
+    "        if self.global_beacon_pulse_slots.get(&pulse_slot).is_some() {\n"
+    "            return Err(GlobalThresholdBeaconError::ReusedPulse);\n        }\n"
+)
+RELEASE_GUARD = (
+    "            .unavailable_release_pulse_slots_v1()\n            .iter()\n"
+    "            .any(|slot| self.global_beacon_pulse_slots.get(slot).is_some())"
+)
+RESTORE_SLOT_CHECK = "        if pulse_slots.get(&(logical_session, pulse.height)) != Some(pulse_id) {"
+RESTORE_KEY_SESSION = (
+    "        let key_session = key_sessions.get(&pulse.session_id).ok_or_else(|| {\n"
+)
+FRESH_SLOT = "    /\\ sortitionPulseHeight' = FreshSortitionPulseSlot\n"
+
+
+@pytest.mark.parametrize("path,old,new,message", (
+    # No Parliament-derived state vetoes or contradicts a consensus pulse.
+    (STATE_PATH, PULSE_APPEND_REUSE,
+     PULSE_APPEND_REUSE
+     + "        if self.parliament_required_beacon_pulse_slots.get(&pulse_slot).is_some() {\n"
+     "            return Err(GlobalThresholdBeaconError::InvalidPulseHistory);\n        }\n",
+     "must not read governance state"),
+    (STATE_PATH, PULSE_APPEND_REUSE,
+     "        if self.global_beacon_pulse_slots.get(&pulse_slot).is_some() {\n"
+     "            return Err(GlobalThresholdBeaconError::PersistenceConflict);\n        }\n",
+     "verify_and_advance_global_beacon_pulse"),
+    (STATE_PATH, PULSE_APPEND_REUSE, "", "verify_and_advance_global_beacon_pulse"),
+    # The retired sortition half of the attempt-write veto.
+    (STATE_PATH, RELEASE_GUARD,
+     RELEASE_GUARD.replace("unavailable_release_pulse_slots_v1", "required_beacon_pulse_slots_v1"),
+     "ballot-only release-slot guard"),
+    (STATE_PATH, RELEASE_GUARD,
+     RELEASE_GUARD + "\n            || attempt\n                .required_beacon_pulse_slots_v1()\n"
+     "                .iter()\n"
+     "                .any(|slot| self.global_beacon_pulse_slots.get(slot).is_some())",
+     "ballot-only release-slot guard"),
+    (STATE_PATH, "impl World {",
+     "fn retired(world: &World) -> usize {\n"
+     "    world.parliament_unavailable_beacon_pulse_slots.view().len()\n}\nimpl World {",
+     "retired missing-pulse substitution path returned"),
+    (STATE_PATH, "parliament_derived_read_indexes_v1(attempts.iter())?",
+     "parliament_derived_read_indexes_v1(attempts.iter(), &finalized_beacon_pulse_slots)?",
+     "missing modeled source binding"),
+    (STATE_PATH,
+     "    attempts: impl IntoIterator<Item = (&'a GovernanceAttemptId, &'a ParliamentAttemptStateV1)>,\n"
+     ") -> Result<ParliamentDerivedReadIndexesV1, String> {",
+     "    attempts: impl IntoIterator<Item = (&'a GovernanceAttemptId, &'a ParliamentAttemptStateV1)>,\n"
+     "    finalized_beacon_pulse_slots: &BTreeSet<(BeaconSessionId, u64)>,\n"
+     ") -> Result<ParliamentDerivedReadIndexesV1, String> {",
+     "must be rebuilt from attempts alone"),
+    # Restore never reports a stored pulse as conflicting with governance state.
+    (RESTORE_PATH, RESTORE_SLOT_CHECK,
+     "        let _waits = world.parliament_attempts.view();\n" + RESTORE_SLOT_CHECK,
+     "must not read governance state"),
+    (RESTORE_PATH, RESTORE_KEY_SESSION,
+     "        if unavailable_beacon_pulse_slots.contains(&(logical_session, pulse.height)) {\n"
+     "            return Err(invalid_global_beacon_persistence(\"conflict\"));\n        }\n"
+     + RESTORE_KEY_SESSION,
+     "retired missing-pulse substitution path returned"),
+    (RESTORE_PATH, RESTORE_KEY_SESSION,
+     "        if stale.contains(&(logical_session, pulse.height)) {\n"
+     "            return Err(invalid_global_beacon_persistence(\n"
+     "                \"finalized pulse conflicts with a Parliament slot terminally classified as unavailable\",\n"
+     "            ));\n        }\n" + RESTORE_KEY_SESSION,
+     "restore conflict returned"),
+    # A governance read anywhere in the node driver.
+    (LANE_EXECUTOR_PATH, "", GOVERNANCE_READ, "must not read governance state"),
+    # The model: every slot is the derived native slot and no missing-pulse terminal exists.
+    (MODEL_PATH, FRESH_SLOT,
+     "    /\\ sortitionPulseHeight' = height + SortitionPulseDelayBlocks\n",
+     "retired missing-pulse or unaligned-slot model returned"),
+    (MODEL_PATH, FRESH_SLOT, "    /\\ sortitionPulseHeight' = height + 1\n",
+     "every modeled sortition slot must be the derived native pulse slot"),
+    (MODEL_PATH, "    /\\ confirmationPulseHeight' = FreshSortitionPulseSlot\n",
+     "    /\\ confirmationPulseHeight' = policyResultHeight\n",
+     "missing modeled source binding"),
+    (MODEL_PATH, "", "\nFailSortitionPulseUnavailable ==\n    FALSE\n",
+     "retired missing-pulse or unaligned-slot model returned"),
+    (MODEL_PATH, 'SortitionFailureKinds == {None, "HiddenElectorateCapacityUnavailable"}',
+     'SortitionFailureKinds ==\n    {None, "HiddenElectorateCapacityUnavailable", "PulseUnavailable"}',
+     "missing modeled source binding"),
+    (MODEL_PATH, "       /\\ EpochLengthBlocks >= 3\n", "       /\\ EpochLengthBlocks >= 1\n",
+     "missing modeled source binding"),
+    (MODEL_PATH, "IsNativePulseHeight(candidate) == (candidate + 1) % EpochLengthBlocks = 0",
+     "IsNativePulseHeight(candidate) == candidate % EpochLengthBlocks = 0",
+     "missing modeled source binding"),
+    (MODEL_PATH, "            ELSE MaxHeightOf(priorSlots) + 1\n",
+     "            ELSE MaxHeightOf(priorSlots)\n", "missing modeled source binding"),
+    (MODEL_PATH, "    SortitionPulseSlot(height, PriorSortitionGenerationSlots)\n",
+     "    SortitionPulseSlot(height, {})\n", "missing modeled source binding"),
+    (MODEL_PATH, "\nAwaitingPulseLeavesOnlyByExactConsumption ==",
+     "\nAwaitingPulseMayLeaveOtherwise ==", "missing modeled source binding"),
+    (MODEL_PATH, "\nExactPulseWaitIsGovernanceLocal ==",
+     "\nExactPulseWaitIsGovernanceLocal ==\n    TRUE\nRetiredExactPulseWait ==",
+     "missing modeled source binding"),
+    (MODEL_PATH, "        /\\ ~sortitionPulseKnown => ~ENABLED ConsumeInitialSortitionBatch\n\n",
+     "\n", "missing modeled source binding"),
+    (MODEL_PATH, "        /\\ ~ENABLED RetryInitialSortitionBatch\n        /\\ \\A candidateCount",
+     "        /\\ \\A candidateCount", "missing modeled source binding"),
+    (MODEL_PATH, "\nNativeSortitionPulseSlots ==",
+     "\nNativeSortitionPulseSlots == TRUE\nNativeSortitionPulseSlots ==",
+     "must be declared exactly once"),
+    (MODEL_PATH, "\nSortitionSlotNeverChangesAfterRegistration ==",
+     "\nSortitionSlotNeverChangesAfterRegistration == TRUE\n"
+     "SortitionSlotNeverChangesAfterRegistration ==",
+     "must be declared exactly once"),
+    (MODEL_CONFIG_PATH, "    EpochLengthBlocks = 3\n", "    EpochLengthBlocks = 5\n",
+     "the modeled epoch length must be bound exactly once"),
+    (MODEL_CONFIG_PATH, "    EpochLengthBlocks = 3\n", "    EpochLengthBlocks = 30\n",
+     "the modeled epoch length must be bound exactly once"),
+    (MODEL_CONFIG_PATH, "    EpochLengthBlocks = 3\n", "    EpochLengthBlocks = 3 + 1\n",
+     "the modeled epoch length must be bound exactly once"),
+    (MODEL_CONFIG_PATH, "    EpochLengthBlocks = 3\n",
+     "    EpochLengthBlocks = 3\n    EpochLengthBlocks = 3\n", "the modeled epoch length must be bound exactly once"),
+    (MODEL_CONFIG_PATH, "    EpochLengthBlocks = 3\n", "    \\* EpochLengthBlocks = 3\n",
+     "the modeled epoch length must be bound exactly once"),
+    (MODEL_CONFIG_PATH, "    EpochLengthBlocks = 3\n", "", "the modeled epoch length must be bound exactly once"),
+    (MODEL_CONFIG_PATH, "    AwaitingPulseLeavesOnlyByExactConsumption\n", "",
+     "property block mismatch"),
+    (MODEL_CONFIG_PATH, "    SortitionSlotNeverChangesAfterRegistration\n", "",
+     "property block mismatch"),
+    (MODEL_CONFIG_PATH,
+     "    AwaitingPulseLeavesOnlyByExactConsumption\n    SortitionSlotNeverChangesAfterRegistration\n",
+     "    SortitionSlotNeverChangesAfterRegistration\n    AwaitingPulseLeavesOnlyByExactConsumption\n",
+     "property block mismatch"),
+    (MODEL_CONFIG_PATH, "\nPROPERTIES\n", "\n\\* PROPERTIES\n", "cannot locate section"),
+    (MODEL_CONFIG_PATH, "    NativeSortitionPulseSlots\n", "", "invariant block mismatch"),
+    (MODEL_CONFIG_PATH, "    StrictlyIncreasingGenerationSlots\n", "", "invariant block mismatch"),
+    (MODEL_CONFIG_PATH, "    FrozenSortitionRequestSlot\n", "", "invariant block mismatch"),
+    (MODEL_CONFIG_PATH, "    ExactPulseWaitIsGovernanceLocal\n", "", "invariant block mismatch"),
+    (MODEL_CONFIG_PATH,
+     "    NativeSortitionPulseSlots\n    StrictlyIncreasingGenerationSlots\n",
+     "    StrictlyIncreasingGenerationSlots\n    NativeSortitionPulseSlots\n",
+     "invariant block mismatch"),
+))
+def test_production_checker_enforces_pulse_isolation_state_and_model_pins(
+    path: str, old: str, new: str, message: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Negative source mutations of the pins bound inside the production entrypoint."""
+    original_read = guard.read
+    source = original_read(path)
+    if old:
+        assert source.count(old) >= 1, old
+        mutated = source.replace(old, new, 1)
+    else:
+        mutated = source + new
+    assert mutated != source
+    monkeypatch.setattr(
+        guard, "read", lambda relative: mutated if relative == path else original_read(relative)
+    )
+    with pytest.raises(RuntimeError, match=message):
+        guard.main()

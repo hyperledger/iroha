@@ -257,6 +257,7 @@ fn prepare_and_append(worker: &mut Worker<'_>, block: &AvailableBody, qc: &Qc) -
             )
             .unwrap(),
         ),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     )
     .append(block, qc)
     .unwrap();

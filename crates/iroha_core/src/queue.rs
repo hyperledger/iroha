@@ -9,6 +9,8 @@ mod sumeragi_wake;
 pub(crate) use sumeragi_wake::SumeragiQueueRegistration;
 use sumeragi_wake::SumeragiQueueReservation;
 use sumeragi_wake::SumeragiQueueWake;
+mod forgery_ingress;
+pub use forgery_ingress::ForgeryIngressError;
 mod resident_owner;
 use resident_owner::{QueueResidentLedger, QueuedTransaction};
 mod router;
@@ -131,7 +133,7 @@ use tokio::{
 pub(crate) mod policy_route;
 type EntrypointHash = HashOf<TransactionEntrypoint>;
 use crate::smartcontracts::isi::sccp::admission::{
-    SccpAdmissionKeysV1, SccpAdmissionRejectV1, SccpExemptBlockBudgetV1, SccpPendingClaimErrorV1,
+    SccpAdmissionKeysV1, SccpExemptBlockBudgetV1, SccpExemptClassV1, SccpPendingClaimErrorV1,
     SccpPendingIndexV1,
 };
 #[cfg(test)]
@@ -444,6 +446,8 @@ pub struct Queue {
     /// Admission keys of every queued fee-exempt SCCP transaction (`specs/sccp.md` §4.19),
     /// maintained atomically with `txs` under `push_remove_lock`.
     pending_sccp_exempt: parking_lot::Mutex<SccpPendingIndexV1>,
+    /// Node-wide SCCP seen triples and pairing bucket, shared by every ingress handle.
+    forgery_ingress: parking_lot::Mutex<Option<forgery_ingress::ForgeryIngressState>>,
     /// Authoritative cached routing plan per entrypoint hash.
     routing_plans: DashMap<EntrypointHash, RoutingPlan>,
     /// Cached encoded length per queued transaction hash.
@@ -977,6 +981,8 @@ impl BackpressureHandle {
 pub enum Error {
     /// Local admission did not complete: {0}
     Deferred(crate::execution_attempt::ExecutionDeferred),
+    /// Native SCCP forgery ingress did not admit this attempt: {0}
+    SccpForgeryIngress(ForgeryIngressError),
     /// Queue is full
     Full,
     /// Queue latency budget is saturated
@@ -1101,8 +1107,9 @@ trait QueueAdmissionStateAccess {
     /// (`specs/sccp.md` §4.19).
     fn sccp_exempt_admission(
         &mut self,
+        queue: &Queue,
         transaction: &SignedTransaction,
-    ) -> Result<Option<SccpAdmissionKeysV1>, SccpAdmissionRejectV1>;
+    ) -> Result<Option<SccpAdmissionKeysV1>, Error>;
     fn manifest_authority_eligible_lanes(
         &mut self,
         lane_id: LaneId,
@@ -1126,38 +1133,28 @@ trait QueueAdmissionStateAccess {
         lane_alias: &str,
     ) -> Result<Vec<iroha_model_base::domain::DomainId>, Error>;
 }
-struct EagerAdmissionStateAccess<'view, W: WorldReadOnly> {
-    world: &'view W,
-    nexus: &'view Nexus,
-    pipeline: &'view Pipeline,
-    /// Committed SCCP attestation statement digests (block hashes and the live `NetworkId`),
-    /// which SCCP exempt pre-verification checks signatures against.
-    sccp_digests: &'view dyn crate::smartcontracts::isi::sccp::subjects::SccpStatementDigests,
+struct EagerAdmissionStateAccess<'view, 'state> {
+    /// The actual committed observation shared by ordinary and native admission.
+    view: &'view StateView<'state>,
     next_block_height: u64,
     ledger_time_ms: u64,
 }
-impl<W: WorldReadOnly> EagerAdmissionStateAccess<'_, W> {
-    const fn new<'view>(
-        world: &'view W,
-        nexus: &'view Nexus,
-        pipeline: &'view Pipeline,
-        sccp_digests: &'view dyn crate::smartcontracts::isi::sccp::subjects::SccpStatementDigests,
+impl EagerAdmissionStateAccess<'_, '_> {
+    const fn new<'view, 'state>(
+        view: &'view StateView<'state>,
         next_block_height: u64,
         ledger_time_ms: u64,
-    ) -> EagerAdmissionStateAccess<'view, W> {
+    ) -> EagerAdmissionStateAccess<'view, 'state> {
         EagerAdmissionStateAccess {
-            world,
-            nexus,
-            pipeline,
-            sccp_digests,
+            view,
             next_block_height,
             ledger_time_ms,
         }
     }
 }
-impl<W: WorldReadOnly> QueueAdmissionStateAccess for EagerAdmissionStateAccess<'_, W> {
+impl QueueAdmissionStateAccess for EagerAdmissionStateAccess<'_, '_> {
     fn authority_exists(&mut self, authority: &AccountId) -> bool {
-        self.world.accounts().get(authority).is_some()
+        self.view.world().accounts().get(authority).is_some()
     }
     fn check_includable_transaction(
         &mut self,
@@ -1169,8 +1166,8 @@ impl<W: WorldReadOnly> QueueAdmissionStateAccess for EagerAdmissionStateAccess<'
         >,
     > {
         crate::sumeragi::payload::check_includable_transaction(
-            self.world,
-            &self.nexus.dataspace_catalog,
+            self.view.world(),
+            &self.view.nexus.dataspace_catalog,
             self.ledger_time_ms,
             self.next_block_height,
             transaction,
@@ -1178,14 +1175,26 @@ impl<W: WorldReadOnly> QueueAdmissionStateAccess for EagerAdmissionStateAccess<'
     }
     fn sccp_exempt_admission(
         &mut self,
+        queue: &Queue,
         transaction: &SignedTransaction,
-    ) -> Result<Option<SccpAdmissionKeysV1>, SccpAdmissionRejectV1> {
+    ) -> Result<Option<SccpAdmissionKeysV1>, Error> {
+        use crate::smartcontracts::isi::sccp::{admission::SccpExemptClassV1, fees};
+        if matches!(
+            fees::exempt_class(self.view.world(), transaction.payload()),
+            Some(SccpExemptClassV1::ForgeryEvidence)
+        ) {
+            return queue.admit_forgery(self.view, transaction).map(Some);
+        }
         crate::smartcontracts::isi::sccp::admission::classify(
-            self.world,
-            self.sccp_digests,
+            self.view.world(),
+            self.view,
             self.next_block_height,
             transaction,
         )
+        .map_err(|reject| Error::NexusFeeAdmissionRejected {
+            code: FeeRejectionCode::OperationNotAllowed,
+            reason: reject.to_string(),
+        })
     }
     fn manifest_authority_eligible_lanes(
         &mut self,
@@ -1195,7 +1204,7 @@ impl<W: WorldReadOnly> QueueAdmissionStateAccess for EagerAdmissionStateAccess<'
         crate::state::nexus_manifest_authority_eligible_lanes_at_height(
             lane_id,
             dataspace_id,
-            self.nexus,
+            &self.view.nexus,
             self.next_block_height,
         )
     }
@@ -1207,9 +1216,9 @@ impl<W: WorldReadOnly> QueueAdmissionStateAccess for EagerAdmissionStateAccess<'
     ) -> Result<Option<FeeAdmissionReservation>, Error> {
         queue.recheck_external_nexus_fee_admission(
             tx,
-            self.world,
-            self.nexus,
-            self.pipeline,
+            self.view.world(),
+            &self.view.nexus,
+            &self.view.pipeline,
             self.next_block_height,
             route_dataspace_id,
         )
@@ -1220,7 +1229,12 @@ impl<W: WorldReadOnly> QueueAdmissionStateAccess for EagerAdmissionStateAccess<'
         dataspace_id: DataSpaceId,
         lane_alias: &str,
     ) -> Result<(Option<UniversalAccountId>, Vec<String>), Error> {
-        Queue::extract_lane_identity_metadata(self.world, authority, dataspace_id, lane_alias)
+        Queue::extract_lane_identity_metadata(
+            self.view.world(),
+            authority,
+            dataspace_id,
+            lane_alias,
+        )
     }
     fn extract_lane_authority_domains(
         &mut self,
@@ -1228,7 +1242,7 @@ impl<W: WorldReadOnly> QueueAdmissionStateAccess for EagerAdmissionStateAccess<'
         lane_alias: &str,
     ) -> Result<Vec<iroha_model_base::domain::DomainId>, Error> {
         Queue::extract_lane_authority_domains(
-            self.world,
+            self.view.world(),
             authority,
             lane_alias,
             self.ledger_time_ms,
@@ -2470,6 +2484,7 @@ impl Queue {
                 tx_hashes: ArrayQueue::new(capacity.get()),
                 txs: DashMap::new(),
                 pending_sccp_exempt: parking_lot::Mutex::new(SccpPendingIndexV1::default()),
+                forgery_ingress: parking_lot::Mutex::new(None),
                 txs_per_user: DashMap::new(),
                 routing_plans: DashMap::new(),
                 tx_encoded_len: DashMap::new(),
@@ -3031,15 +3046,15 @@ impl Queue {
                 if tx.is_in_blockchain(state_view) || self.is_expired(tx.as_accepted()) {
                     return None;
                 }
-                // Eligibility is judged against the committed parent World, exactly as block
-                // validation counts it (`specs/sccp.md` §4.19).
-                sccp_budget
-                    .admit(
-                        crate::smartcontracts::isi::sccp::admission::exempt_class_of_entrypoint(
-                            state_view.world(),
-                            tx.as_accepted().entrypoint(),
-                        ),
-                    )
+                let class = crate::smartcontracts::isi::sccp::admission::exempt_class_of_entrypoint(
+                    state_view.world(),
+                    tx.as_accepted().entrypoint(),
+                );
+                // A forgery claim can become genuine/duplicate while remaining in Queue.
+                // Preserve all such candidates in this bounded window: only the global
+                // selector, after original-parent verification, may spend its quota.
+                // They are universal/global inputs, never native-lane work.
+                (class == Some(SccpExemptClassV1::ForgeryEvidence) || sccp_budget.admit(class))
                     .then(|| tx.value().clone())
             })
             .collect::<Vec<_>>();
@@ -3570,14 +3585,7 @@ impl Queue {
                     reason: "admission height overflows".to_owned(),
                 },
             })?;
-        let mut access = EagerAdmissionStateAccess::new(
-            view.world(),
-            &view.nexus,
-            &view.pipeline,
-            view,
-            height,
-            view.query_ledger_time_ms(),
-        );
+        let mut access = EagerAdmissionStateAccess::new(view, height, view.query_ledger_time_ms());
         let prepared = self.prepare_checked_for_enqueue(
             checked,
             routing_plan,
@@ -3680,14 +3688,11 @@ impl Queue {
         // pays the ordinary fee below; only an eligible transaction that fails pre-verification
         // is rejected here (`specs/sccp.md` §4.19).
         let sccp_exempt = Self::sccp_signed_transaction(checked.as_accepted().entrypoint())
-            .map(|transaction| state_access.sccp_exempt_admission(transaction))
+            .map(|transaction| state_access.sccp_exempt_admission(self, transaction))
             .transpose()
-            .map_err(|reject| Failure {
+            .map_err(|err| Failure {
                 tx: checked.as_accepted().clone().into(),
-                err: Error::NexusFeeAdmissionRejected {
-                    code: FeeRejectionCode::OperationNotAllowed,
-                    reason: reject.to_string(),
-                },
+                err,
             })?
             .flatten();
         let lane_id = routing_decision.lane_id;
@@ -7415,14 +7420,7 @@ pub mod tests {
         let state_view = state.view();
         #[cfg(feature = "telemetry")]
         let telemetry_handle = state_view.telemetry;
-        let mut state_access = EagerAdmissionStateAccess::new(
-            state_view.world(),
-            &state_view.nexus,
-            &state_view.pipeline,
-            &state_view,
-            1,
-            0,
-        );
+        let mut state_access = EagerAdmissionStateAccess::new(&state_view, 1, 0);
         let err = match queue.prepare_checked_for_enqueue(
             CheckedTransaction::new_unchecked(tx),
             RoutingPlan::single(RoutingDecision::new(LaneId::new(1), DataSpaceId::UNIVERSAL)),
@@ -9057,83 +9055,103 @@ pub mod tests {
     }
     #[test]
     fn bounded_pending_snapshot_caps_fee_exempt_sccp_transactions() {
-        use crate::{
-            smartcontracts::isi::sccp::{
-                admission::{self, SccpExemptClassV1},
-                bridge_keys, roster, subjects,
-                test_support::sample_bridge_key_state,
-            },
-            sumeragi::test_chain::{CertifiedTestChain, TestChainConfig, fixture_validators},
+        use crate::smartcontracts::isi::sccp::{
+            admission::{self, SccpExemptClassV1},
+            inbound::{SccpProvenInboundV1, record_proven},
+            recipients, store,
+            test_support::{ONE_XOR, funded_xor_state, header, install_value_route},
         };
         use iroha_data_model::{
-            IntoKeyValue, isi::sccp::SubmitSccpAttestationsV1,
-            sccp::attestation::SccpAttestationSignatureV1,
+            account::AccountAddress,
+            bridge::SccpNetworkV1,
+            isi::sccp::SettleSccpV1,
+            sccp::{inbound::SccpSourceLocatorV1, registry::SccpRouteActivationV1},
         };
-        use iroha_sccp::v1::key_file::SccpBridgeKeyFileV1;
+        use iroha_sccp::v1::payload::SccpTransferPayloadV1;
 
-        let bridge_keys = (1_u8..=4)
-            .map(|seed| SccpBridgeKeyFileV1::new([seed; 32], 0).expect("bridge key"))
-            .collect::<Vec<_>>();
-        let mut world = world_with_test_domains();
-        for key in &bridge_keys {
-            let account = bridge_keys::account_of(&key.public_key().expect("bridge public key"))
-                .expect("bridge account");
-            let (id, value) = Account::new(account.clone())
-                .build(&account)
-                .into_key_value();
-            world.accounts.insert(id, value);
-        }
+        let network = SccpNetworkV1::EthereumMainnet;
+        let recipients = [0x51_u8, 0x52].map(|seed| {
+            KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519)
+                .expect("deterministic recipient")
+        });
         let alice = AccountId::new(ALICE_KEYPAIR.public_key().clone());
-        let (id, value) = Account::new(alice.clone()).build(&alice).into_key_value();
-        world.accounts.insert(id, value);
+        let mut state = funded_xor_state(&alice, 1_000 * ONE_XOR);
+        let mut messages = Vec::new();
         {
-            let mut parameters = iroha_data_model::sccp::params::SccpParametersV1::taira_default();
-            parameters.max_exempt_transactions_per_block = 1;
-            let mut world = world.block();
-            *world.sccp_parameters.get_mut() = Some(parameters);
-            for ((peer, _), key) in fixture_validators().into_iter().zip(&bridge_keys) {
-                let mut binding = sample_bridge_key_state(1);
-                let active = binding.active.as_mut().expect("active bridge key");
-                active.public_key = key.public_key().expect("bridge public key");
-                active.address = key.address().expect("bridge address");
-                // A registered key's owner index makes its attestations eligible.
-                world
-                    .sccp_bridge_key_owners
-                    .insert(active.address, peer.clone());
-                world.sccp_bridge_keys.insert(peer, binding);
+            let mut block = state.block(header(1));
+            {
+                let mut stx = block.transaction();
+                stx.world.parameters.get_mut().set_parameter(
+                    crate::sumeragi::lanes::routing::test_support::metadata(
+                        iroha_data_model::block::consensus::SumeragiRootScope::Global,
+                    ),
+                );
+                install_value_route(
+                    &mut stx,
+                    network,
+                    1,
+                    SccpRouteActivationV1::Bidirectional,
+                    1_000 * ONE_XOR,
+                );
+                // These already-proven fixture messages exercise admission and selection,
+                // not source-chain proof verification or actual token settlement.
+                let mut route = store::routes::get(&*stx.world, &network)
+                    .cloned()
+                    .expect("installed route");
+                route.revisions.get_mut(&1).expect("revision").liability = 100 * ONE_XOR;
+                store::routes::insert(&mut stx, network, route).expect("backing liability");
+                let mut parameters = store::parameters::get(&*stx.world).clone().expect("SCCP");
+                parameters.max_exempt_transactions_per_block = 1;
+                parameters.enabled = false;
+                store::parameters::set(&mut stx, Some(parameters.clone()));
+                for (nonce, signer) in recipients.iter().enumerate() {
+                    let recipient = AccountId::new(signer.public_key().clone());
+                    recipients::ensure_registered(&mut stx, &recipient).expect("recipient");
+                    let recipient_bytes = AccountAddress::from_account_id(&recipient)
+                        .and_then(|address| address.canonical_bytes())
+                        .expect("recipient address");
+                    let nonce = u64::try_from(nonce).expect("two recipients");
+                    let payload = SccpTransferPayloadV1::inbound(
+                        network,
+                        nonce,
+                        1,
+                        10 * ONE_XOR,
+                        vec![0x44; 20],
+                        recipient_bytes,
+                    )
+                    .expect("inbound payload");
+                    let message_id = payload
+                        .message_id(stx.network_id().as_bytes())
+                        .expect("message id");
+                    record_proven(
+                        &mut stx,
+                        SccpProvenInboundV1 {
+                            network,
+                            revision: 1,
+                            payload: payload.encode().expect("payload bytes"),
+                            amount: 10 * ONE_XOR,
+                            message_id,
+                            source_locator: SccpSourceLocatorV1 {
+                                source_height: nonce + 100,
+                                block_hash: [7; 32],
+                                index_in_block: 0,
+                            },
+                            fee_due: 0,
+                        },
+                    )
+                    .expect("pending proven message");
+                    messages.push(message_id);
+                }
+                parameters.enabled = true;
+                store::parameters::set(&mut stx, Some(parameters));
+                stx.apply();
             }
-            world.commit();
+            block
+                .commit_world_overlay_for_testing()
+                .expect("committed parent World");
         }
-        // Genesis creates the real bridge roster; its initial non-rotation height
-        // has no attestation subject. Commit actual signed work at the original
-        // roster's heartbeat to obtain a certified rotation subject.
-        let mut chain =
-            CertifiedTestChain::start(TestChainConfig::new(world, 0)).expect("signed SCCP genesis");
-        assert!(subjects::statement_digest_of(&chain.state().view(), 1).is_none());
-        let heartbeat = {
-            let view = chain.state().view();
-            let (_, original_roster) =
-                roster::current(view.world()).expect("original genesis roster");
-            original_roster
-                .valid_from_ms
-                .checked_add(
-                    view.world()
-                        .sccp_parameters()
-                        .as_ref()
-                        .unwrap()
-                        .roster_max_age_ms,
-                )
-                .expect("original heartbeat time fits u64")
-        };
-        let work = chain.sign(
-            &ALICE_KEYPAIR,
-            [Log::new(Level::INFO, "certified SCCP heartbeat".into()).into()],
-            heartbeat,
-        );
-        assert_eq!(chain.commit_at(heartbeat, vec![work]), vec![true]);
-        let subject_height = chain.height();
-        let state = chain.state();
-        let (_time_handle, time_source) = TimeSource::new_mock(Duration::from_millis(heartbeat));
+        install_single_validator_topology_for_queue_test(&mut state, 0x68);
+        let (_time_handle, time_source) = TimeSource::new_mock(Duration::from_millis(2_000));
         let queue = Arc::new(Queue::test(config_factory(), &time_source));
         let accepted = |keypair: &KeyPair, instructions: Vec<InstructionBox>| {
             let transaction = TransactionBuilder::new_with_time_source(
@@ -9155,42 +9173,17 @@ pub mod tests {
             )
             .expect("signed queue input accepted")
         };
-        let attestation = |key: &SccpBridgeKeyFileV1| {
-            let view = state.view();
-            let (_, roster) = roster::current(view.world()).expect("committed SCCP roster");
-            assert_eq!(roster.members.len(), 4);
-            assert!(!roster.is_inert());
-            let address = key.address().expect("bridge address");
-            let signer_index = u8::try_from(
-                roster
-                    .members
-                    .iter()
-                    .position(|member| member.address == address)
-                    .expect("original bridge key is a roster member"),
-            )
-            .expect("four-member index fits u8");
-            let digest = subjects::statement_digest_of(&view, subject_height)
-                .expect("original committed heartbeat statement digest");
-            let instruction = SubmitSccpAttestationsV1 {
-                entries: vec![SccpAttestationSignatureV1 {
-                    height: subject_height,
-                    signer_index,
-                    signature: key.sign_digest(&digest).expect("sign committed statement"),
-                }],
-            };
-            drop(view);
-            let signer = KeyPair::from_private_key(
-                iroha_crypto::PrivateKey::from_bytes(Algorithm::Secp256k1, key.secret())
-                    .expect("bridge signing scalar"),
-            )
-            .expect("bridge signing keypair");
-            accepted(&signer, vec![instruction.into()])
-        };
-        // Concurrent claims use distinct actual bridge accounts; an account may retain
-        // only one pending attestation batch under the SCCP admission contract.
+        // Concurrent self-claims have distinct authenticated recipients and message ids.
+        // Both pass the real committed-state classifier; no admission override is used.
         let transactions = vec![
-            attestation(&bridge_keys[0]),
-            attestation(&bridge_keys[1]),
+            accepted(
+                &recipients[0],
+                vec![SettleSccpV1::inbound(messages[0]).into()],
+            ),
+            accepted(
+                &recipients[1],
+                vec![SettleSccpV1::inbound(messages[1]).into()],
+            ),
             accepted(
                 &ALICE_KEYPAIR,
                 vec![Log::new(Level::INFO, "ordinary".into()).into()],
@@ -9231,11 +9224,11 @@ pub mod tests {
                 admission::exempt_class_of_entrypoint(view.world(), transaction.entrypoint())
             })
             .collect::<Vec<_>>();
-        assert_eq!(classes, vec![SccpExemptClassV1::Attestation]);
+        assert_eq!(classes, vec![SccpExemptClassV1::SelfClaim]);
         assert_eq!(queue.pending_sccp_exempt.lock().len(), 2);
         assert_eq!(
             queue.pending_sccp_exempt.lock().class_of(&hashes[1]),
-            Some(SccpExemptClassV1::Attestation),
+            Some(SccpExemptClassV1::SelfClaim),
             "selection preserves the capped input's original admission ownership"
         );
         assert!(
@@ -9244,7 +9237,7 @@ pub mod tests {
         );
         assert!(!admission::block_exempt_cap_ok(
             view.world(),
-            &[SccpExemptClassV1::Attestation; 2]
+            &[SccpExemptClassV1::SelfClaim; 2]
         ));
     }
     #[test]

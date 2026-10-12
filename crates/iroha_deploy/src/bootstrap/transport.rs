@@ -107,9 +107,13 @@ impl CheckpointTransport {
                 )
                 .into());
             }
-            proof.decode_checked().map_err(|_| {
-                BootstrapError::Invalid("invalid AMX source framing or certificate")
-            })?;
+            proof
+                .decode_checked(
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                )
+                .map_err(|_| {
+                    BootstrapError::Invalid("invalid AMX source framing or certificate")
+                })?;
             if Instant::now() >= deadline {
                 return Err(PublicHttpError::Deadline.into());
             }

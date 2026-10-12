@@ -275,6 +275,14 @@ impl ServiceAuthority {
                 .collect(),
             self.peers.clone(),
             deadline,
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::from_root_scope(
+                iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(
+                    &self.genesis.genesis,
+                )
+                .map_err(|_| invalid("selected native operation genesis scope differs"))?
+                .sumeragi_context
+                .root_scope,
+            ),
         )
         .map_err(|_| invalid("invalid native operation finality source"))
     }

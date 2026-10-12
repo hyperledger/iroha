@@ -1,5 +1,4 @@
-//! Fee exemption of SCCP transactions (`specs/sccp.md` §4.19). Owners: ws31 (attestations,
-//! key bindings, fault evidence) and ws41 (keeper advances, recipient self-claims).
+//! Fee exemption of SCCP native forgery, keeper advances and self-claims (§4.19).
 //!
 //! [`exempt_class`] is the single eligibility predicate: a pure function of the committed
 //! parent World (the state the next block executes on), the authority and the signed payload.
@@ -9,20 +8,18 @@
 //! admitted, counted and executed as exempt exactly when it is eligible. A transaction of an
 //! exempt shape that is not eligible is never refused for that: it pays the ordinary fee.
 //!
-//! An eligible transaction is exempt when it succeeds. When it fails, the executor charges
-//! the ordinary Nexus fee within its signed fee intent, when that intent covers the fee and
-//! the payer can pay it (`ExecutionFeeExemption::ExemptOnSuccess`).
+//! An eligible transaction is exempt when it succeeds. Failed advances and self-claims
+//! incur the ordinary Nexus fee within their signed fee intent when the payer can pay it
+//! (`ExecutionFeeExemption::ExemptOnSuccess`). Failed eligible forgery evidence instead
+//! invalidates its carrier under R-EX; no rejection fee or failed output is published.
 
 use super::{
     admission::{self, SccpExemptClassV1},
-    bridge_keys, light_clients, params, self_claim, store,
+    light_clients, params, self_claim,
 };
 use crate::state::{StateTransaction, WorldReadOnly};
 use iroha_data_model::{
-    isi::{
-        InstructionBox,
-        sccp::{AdvanceSccpLightClientV1, SetSccpBridgeKeyV1},
-    },
+    isi::{InstructionBox, sccp::AdvanceSccpLightClientV1},
     transaction::{Executable, TransactionPayload},
 };
 
@@ -44,11 +41,9 @@ fn single<T: 'static>(payload: &TransactionPayload) -> Option<&T> {
 /// Only a payload with an [`admission::exempt_shape`] can be eligible, and only while SCCP
 /// exists. Per class:
 ///
-/// * attestation batch: the authority is a registered bridge key's account (§4.8);
-/// * key binding: [`bridge_keys::binding_exempt`], once per peer per epoch (§4.2.3);
-/// * fault evidence: always (§4.11);
-/// * keeper advance: [`light_clients::keeper_advance_eligible`], a live unfaulted bridge key
-///   and not a `Backfill` (§4.13.4);
+/// * forgery evidence: a sole native forgery instruction, from any authority;
+/// * keeper advance: [`light_clients::keeper_advance_eligible`], from any authority, registered
+///   or not, unless it is a `Backfill` (§4.13.4);
 /// * self-claim: [`self_claim::eligible`], the recipient claiming more than the self-claim fee
 ///   (§4.12.4).
 ///
@@ -65,15 +60,11 @@ pub fn exempt_class(
     let class = admission::exempt_shape(payload)?;
     let authority = &payload.authority;
     let eligible = match class {
-        SccpExemptClassV1::Attestation => bridge_keys::bridge_key_address_of(authority)
-            .is_some_and(|address| store::bridge_key_owners::contains(world, &address)),
-        SccpExemptClassV1::KeyBinding => single::<SetSccpBridgeKeyV1>(payload)
-            .is_some_and(|set| bridge_keys::binding_exempt(world, set, authority)),
-        SccpExemptClassV1::Fault => true,
+        // Eligibility grants no evidence authority. Ingress and execution must verify the
+        // complete relation; a completed execution failure invalidates the block (R-EX).
+        SccpExemptClassV1::ForgeryEvidence => true,
         SccpExemptClassV1::KeeperAdvance { .. } => single::<AdvanceSccpLightClientV1>(payload)
-            .is_some_and(|advance| {
-                light_clients::keeper_advance_eligible(world, authority, advance)
-            }),
+            .is_some_and(light_clients::keeper_advance_eligible),
         SccpExemptClassV1::SelfClaim => {
             self_claim::eligible(world, authority, &payload.instructions)
         }
@@ -107,11 +98,34 @@ pub fn exempt_class_in_block(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::smartcontracts::isi::sccp::test_support::{
-        SampleInstructions, blank_state, header, peer, sample_signed_transaction,
+    use crate::smartcontracts::isi::sccp::{
+        store,
+        test_support::{SampleInstructions, blank_state, header, sample_signed_transaction},
     };
     use iroha_data_model::sccp::params::SccpParametersV1;
-    use iroha_sccp::v1::key_file::SccpBridgeKeyFileV1;
+
+    fn keeper_advance(backfill: bool) -> AdvanceSccpLightClientV1 {
+        use iroha_sccp::light_client::{
+            ethereum::{EthereumHeaderSegmentV1, EthereumLcAdvanceV1},
+            proof::{SccpLcAdvanceV1, SccpLcSegmentV1},
+        };
+        let advance = if backfill {
+            SccpLcAdvanceV1::Backfill {
+                segment: SccpLcSegmentV1::Ethereum(EthereumHeaderSegmentV1 {
+                    headers: Vec::new(),
+                }),
+            }
+        } else {
+            SccpLcAdvanceV1::Ethereum(EthereumLcAdvanceV1 {
+                updates: Vec::new(),
+            })
+        };
+        AdvanceSccpLightClientV1 {
+            network: iroha_data_model::bridge::SccpNetworkV1::EthereumMainnet,
+            expected_state_hash: None,
+            advance: advance.to_bytes().expect("bounded advance"),
+        }
+    }
 
     fn with_instructions(instructions: Vec<InstructionBox>) -> TransactionPayload {
         let mut payload = sample_signed_transaction().payload().clone();
@@ -127,8 +141,8 @@ mod tests {
             &view,
             sample_signed_transaction().payload()
         ));
-        let fault = with_instructions(vec![SampleInstructions::fault().into()]);
-        assert_eq!(exempt_class(&view, &fault), None);
+        let advance = with_instructions(vec![keeper_advance(false).into()]);
+        assert_eq!(exempt_class(&view, &advance), None);
     }
 
     #[test]
@@ -142,41 +156,57 @@ mod tests {
         assert!(!exempt_on_success(&*stx.world, ordinary.payload()));
         let record = with_instructions(vec![SampleInstructions::record().into()]);
         assert!(!exempt_on_success(&*stx.world, &record));
-        assert!(single::<SetSccpBridgeKeyV1>(&record).is_none());
+        assert!(single::<AdvanceSccpLightClientV1>(&record).is_none());
     }
 
     #[test]
-    fn attestations_are_exempt_only_from_registered_bridge_key_accounts() {
+    fn keeper_advances_are_exempt_from_any_authority_with_sccp_only() {
+        use crate::smartcontracts::isi::sccp::test_support::authority;
+        use iroha_sccp::light_client::{
+            ethereum::{EthereumHeaderSegmentV1, EthereumLcAdvanceV1},
+            proof::{SccpLcAdvanceV1, SccpLcSegmentV1},
+        };
+        let network = iroha_data_model::bridge::SccpNetworkV1::EthereumMainnet;
+        let frame = |advance: SccpLcAdvanceV1| AdvanceSccpLightClientV1 {
+            network,
+            expected_state_hash: None,
+            advance: advance.to_bytes().expect("bounded advance"),
+        };
+        let advance = frame(SccpLcAdvanceV1::Ethereum(EthereumLcAdvanceV1 {
+            updates: Vec::new(),
+        }));
+        let backfill = frame(SccpLcAdvanceV1::Backfill {
+            segment: SccpLcSegmentV1::Ethereum(EthereumHeaderSegmentV1 {
+                headers: Vec::new(),
+            }),
+        });
         let state = blank_state();
         let mut block = state.block(header(2));
         let mut stx = block.transaction();
-        store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
-        let key = SccpBridgeKeyFileV1::new([7; 32], 0).expect("key");
-        let account =
-            bridge_keys::account_of(&key.public_key().expect("public key")).expect("account");
-        let mut payload = with_instructions(vec![SampleInstructions::attestations().into()]);
-        payload.authority = account;
-        assert!(
-            !exempt_on_success(&*stx.world, &payload),
-            "unregistered key"
-        );
-        store::bridge_key_owners::insert(&mut stx, key.address().expect("address"), peer(1))
-            .expect("owner");
-        assert_eq!(
-            exempt_class(&*stx.world, &payload),
-            Some(SccpExemptClassV1::Attestation)
-        );
-    }
-
-    #[test]
-    fn fault_evidence_is_exempt_with_sccp_only() {
-        let state = blank_state();
-        let mut block = state.block(header(2));
-        let mut stx = block.transaction();
-        let payload = with_instructions(vec![SampleInstructions::fault().into()]);
+        let payload = with_instructions(vec![advance.clone().into()]);
         assert!(!exempt_on_success(&*stx.world, &payload), "no SCCP");
         store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
-        assert!(exempt_on_success(&*stx.world, &payload));
+        let class = Some(SccpExemptClassV1::KeeperAdvance { network });
+        assert_eq!(exempt_class(&*stx.world, &payload), class);
+        // No account of the test World is registered: the authority does not matter.
+        for seed in [1, 2] {
+            let mut other = payload.clone();
+            other.authority = authority(seed);
+            assert_eq!(exempt_class(&*stx.world, &other), class);
+        }
+        assert_eq!(
+            exempt_class(&*stx.world, &with_instructions(vec![backfill.into()])),
+            None,
+            "a Backfill pays the ordinary fee"
+        );
+        assert_eq!(
+            exempt_class(
+                &*stx.world,
+                &with_instructions(vec![advance.clone().into(), advance.into()])
+            ),
+            None,
+            "only a single advance has the keeper-advance shape"
+        );
     }
 
     #[test]
@@ -184,7 +214,7 @@ mod tests {
         let state = blank_state();
         let mut block = state.block(header(2));
         let mut stx = block.transaction();
-        let payload = with_instructions(vec![SampleInstructions::fault().into()]);
+        let payload = with_instructions(vec![keeper_advance(false).into()]);
         store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
         assert!(
             exempt_on_success(&*stx.world, &payload),

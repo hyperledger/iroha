@@ -20,38 +20,23 @@ pub struct KagemushaEnrollmentWorker {
     pub openssl_executable: PathBuf,
     /// Exact authenticated operator pin for that executable original.
     pub openssl_sha256: [u8; 32],
-    /// Exact public platform root original, also checked against the enrollment policy pin.
-    pub attestation_root: PathBuf,
+    /// Exact public Apple App Attestation root original, also checked against the enrollment
+    /// policy pin. Absent on Android: the chain carries its root, matched by SPKI.
+    pub attestation_root: Option<PathBuf>,
     /// Existing private, explicitly initialized verifier journal directory.
     pub store_directory: PathBuf,
     /// Complete bound for one private process exchange, including its external checks.
     pub exchange_timeout: Duration,
-    /// Required only by the Android platform policy; never a caller-supplied credential.
-    pub google: Option<KagemushaEnrollmentGoogle>,
-}
-
-/// Exact public Google decoder policy and independently held private OAuth credential.
-#[derive(Clone, PartialEq, Eq)]
-pub struct KagemushaEnrollmentGoogle {
-    /// Complete existing public decoder-policy JSON original.
-    pub policy_original: PathBuf,
-    /// Exact authenticated operator pin for that original.
-    pub policy_sha256: [u8; 32],
-    /// Existing private Google OAuth credential original; no secret appears in config.
-    pub oauth_credential: PathBuf,
 }
 
 impl std::fmt::Debug for KagemushaEnrollmentWorker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("KagemushaEnrollmentWorker")
             .field("exchange_timeout", &self.exchange_timeout)
-            .field("google_selected", &self.google.is_some())
-            .finish_non_exhaustive()
-    }
-}
-impl std::fmt::Debug for KagemushaEnrollmentGoogle {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("KagemushaEnrollmentGoogle")
+            .field(
+                "attestation_root_selected",
+                &self.attestation_root.is_some(),
+            )
             .finish_non_exhaustive()
     }
 }

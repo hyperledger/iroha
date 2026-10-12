@@ -30,6 +30,14 @@ impl RestorationRead {
         if capacity.record_capacity_exceeded || capacity.byte_capacity_exceeded {
             return Err(invalid("restored evidence exceeds canonical capacity"));
         }
+        if view.world().consensus_evidence().iter().any(|(_, record)| {
+            matches!(
+                record.attribution.scope,
+                EvidenceScope::SccpGeneration { .. }
+            )
+        }) {
+            return Err(invalid("SCCP evidence restoration is not implemented"));
+        }
         let count = view
             .world()
             .consensus_evidence()
@@ -43,7 +51,10 @@ impl RestorationRead {
             let EvidenceScope::Lane(scope) = record.attribution.scope else {
                 continue;
             };
-            if *key != evidence_key(&record.evidence)
+            let proof = record
+                .native_evidence()
+                .ok_or_else(|| invalid("SCCP material cannot enter native restoration"))?;
+            if *key != evidence_key(proof)
                 || scope.admission_parent_height.checked_add(1) != Some(record.recorded_at_height)
             {
                 return Err(invalid("restored lane admission source differs"));
@@ -53,13 +64,12 @@ impl RestorationRead {
                 .ok_or_else(|| {
                     invalid("restored lane evidence lacks its original native execution tip")
                 })?;
-            let mut frame = ChargedBuffer::new(evidence_encoded_len(&record.evidence), budget)
+            let mut frame = ChargedBuffer::new(evidence_encoded_len(proof), budget)
                 .map_err(EvidencePreparationError::from)?;
             frame
-                .append(record.evidence.native_frame())
+                .append(proof.native_frame())
                 .map_err(|_| EvidencePreparationError::Invariant)?;
-            let native = record
-                .evidence
+            let native = proof
                 .decode_native()
                 .map_err(EvidenceAdmissionError::from)?;
             let height = super::super::evidence_history::subject(&native).1;
@@ -93,7 +103,9 @@ impl RestorationRead {
             current.next().is_some_and(|(key, record)| {
                 *key == source.key
                     && record.attribution.scope == EvidenceScope::Lane(source.scope)
-                    && record.evidence.native_frame() == source.frame.as_slice()
+                    && record
+                        .native_evidence()
+                        .is_some_and(|proof| proof.native_frame() == source.frame.as_slice())
             })
         }) && current.next().is_none()
     }

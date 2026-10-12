@@ -9,8 +9,7 @@
 //! - blocking HTTP over rustls with one wall-clock deadline per attempt, and
 //!   `norito::json` parsing under per-route byte caps and decode limits
 //!   ([`limits`]);
-//! - EVM JSON-RPC, the beacon light-client API, TRON HTTP and a TON ADNL-TCP
-//!   liteclient;
+//! - EVM JSON-RPC, the beacon light-client API and a TON ADNL-TCP liteclient;
 //! - builders for light-client advances, backfills, bootstraps, inbound
 //!   proofs and void proofs.
 //!
@@ -26,10 +25,8 @@ pub mod evm;
 pub mod http;
 pub mod limits;
 pub mod ton;
-pub mod tron;
 
 pub use beacon::BeaconClient;
 pub use endpoints::{Backoff, EndpointSet, FailoverPolicy, HttpEndpointKind, PollBudget};
 pub use evm::EvmClient;
 pub use http::{HttpConfig, HttpTransport, RpcError};
-pub use tron::TronClient;

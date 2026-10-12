@@ -109,18 +109,23 @@ impl FixtureFinality {
                 cache.verified.is_empty(),
                 "unanchored cache contains finality evidence"
             );
-            let proof =
-                client.get_sumeragi_finality_proof(NonZeroU64::new(1).expect("genesis height"))?;
-            ensure!(
-                proof.block_header.hash() == self.genesis_hash,
-                "finality anchor is not the fixture's exact signed genesis"
-            );
-            self.validate_fixture_roster(&proof)?;
             let mut verifier = SumeragiFinalityVerifier::new(
                 &self.trusted_genesis,
                 &self.chain_id,
                 self.validators.clone(),
             )?;
+            let proof = client.get_sumeragi_finality_proof(
+                NonZeroU64::new(1).expect("genesis height"),
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::from_root_scope(
+                    verifier.root_scope(),
+                ),
+            )?;
+            ensure!(
+                proof.block_header.hash() == self.genesis_hash,
+                "finality anchor is not the fixture's exact signed genesis"
+            );
+            self.validate_fixture_roster(&proof)?;
+
             let verified = verifier.verify(&proof)?;
             cache.verified.insert(1, verified);
             cache.verifier = Some(verifier);
@@ -137,8 +142,16 @@ impl FixtureFinality {
                 .expect("anchored proof cache")
                 .0
                 + 1;
-            let proof = client
-                .get_sumeragi_finality_proof(NonZeroU64::new(next).expect("successor height"))?;
+            let proof = client.get_sumeragi_finality_proof(
+                NonZeroU64::new(next).expect("successor height"),
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::from_root_scope(
+                    cache
+                        .verifier
+                        .as_ref()
+                        .expect("anchored current verifier")
+                        .root_scope(),
+                ),
+            )?;
             self.validate_fixture_roster(&proof)?;
             // A failed successor must not advance the retained authenticated frontier.
             let mut verifier = cache.verifier.clone().expect("anchored current verifier");

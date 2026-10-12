@@ -2,7 +2,7 @@
 
 use crate::kagemusha_wallet_advance_v1::kagemusha_wallet_provider_digest_v1 as digest;
 
-use super::super::preparation_custody::{SOURCE_CUSTODY_MAX_BYTES, SourceCustodyV1};
+use super::super::preparation_custody::SourceCustodyV1;
 use super::super::transition_custody::PreparedTransitionV1;
 use super::*;
 mod unload;
@@ -11,9 +11,7 @@ mod delivery;
 mod projection;
 pub use projection::CreditProjectionV1;
 
-const FROZEN_BOUND: usize =
-    KAGEMUSHA_WALLET_CAPSULE_MAX_BYTES_V1 + KAGEMUSHA_WALLET_CREDENTIAL_MAX_BYTES_V1 + 1024;
-const PLAN_BOUND: usize = PREPARATION_MAX_BYTES + SOURCE_CUSTODY_MAX_BYTES + 1024;
+use super::super::capacity::{FROZEN_BOUND, PLAN_BOUND};
 
 #[derive(norito::Encode, norito::Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_core_zk::kagemusha_wallet_state_v1::PreparationPlanV1")]
@@ -642,6 +640,8 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
         let frozen = if let Some(capsule) = entry.capsule {
             self.frozen(capsule)?
         } else {
+            // Design §5.3: check this phone before proving; commit checks it again.
+            self.require_runtime_capacity()?;
             let mut custody = PreparationCustodyV1::new(
                 &mut self.archive,
                 &snapshot,

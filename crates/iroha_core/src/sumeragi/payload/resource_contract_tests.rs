@@ -388,10 +388,10 @@ fn lane_routed_transaction_is_admitted_and_selected_within_its_lane_budget() {
     // The global proposer leaves a fresh lane input to its lane, and could not carry it.
     assert!(
         select(
-            chain.state(),
+            &chain.state().view(),
             &queue,
             usize::try_from(LANE_FIXTURE_GLOBAL).unwrap(),
-            0
+            &MergeProposal::default()
         )
         .unwrap()
         .is_empty()
@@ -445,15 +445,43 @@ fn proposer_selection_is_capped_by_the_fastpq_network_input_bound() {
     }
     assert_eq!(queue.queued_len(), cap + 2);
     let budget = usize::try_from(INCLUDABLE).unwrap();
-    assert_eq!(select(chain.state(), &queue, budget, 0).unwrap().len(), cap);
     assert_eq!(
-        select(chain.state(), &queue, budget, 3).unwrap().len(),
+        select(
+            &chain.state().view(),
+            &queue,
+            budget,
+            &MergeProposal::default()
+        )
+        .unwrap()
+        .len(),
+        cap
+    );
+    assert_eq!(
+        select(
+            &chain.state().view(),
+            &queue,
+            budget,
+            &MergeProposal {
+                transactions: 3,
+                ..MergeProposal::default()
+            }
+        )
+        .unwrap()
+        .len(),
         cap - 3
     );
     assert!(
-        select(chain.state(), &queue, budget, cap)
-            .unwrap()
-            .is_empty()
+        select(
+            &chain.state().view(),
+            &queue,
+            budget,
+            &MergeProposal {
+                transactions: cap,
+                ..MergeProposal::default()
+            }
+        )
+        .unwrap()
+        .is_empty()
     );
 }
 
@@ -498,7 +526,16 @@ fn global_rescue_carries_a_stalled_lane_transaction_only_within_the_global_budge
     let only_above = queue_of(&[&above]);
     let budget = usize::try_from(LANE_FIXTURE_GLOBAL).unwrap();
     // Fresh lane inputs are left to their lane.
-    assert!(select(chain.state(), &both, budget, 0).unwrap().is_empty());
+    assert!(
+        select(
+            &chain.state().view(),
+            &both,
+            budget,
+            &MergeProposal::default()
+        )
+        .unwrap()
+        .is_empty()
+    );
 
     // The lane carries neither input for more than `2A` global block times (A = 4 here).
     let cadence = chain
@@ -512,17 +549,34 @@ fn global_rescue_carries_a_stalled_lane_transaction_only_within_the_global_budge
     chain.commit_at(3_000 + 2 * 4 * cadence + 1_000, Vec::new());
 
     // The rescue takes the input the global budget carries and skips the larger one.
-    let rescued = select(chain.state(), &both, budget, 0).unwrap();
+    let rescued = select(
+        &chain.state().view(),
+        &both,
+        budget,
+        &MergeProposal::default(),
+    )
+    .unwrap();
     assert_eq!(rescued.len(), 1);
     assert_eq!(rescued[0].hash_as_entrypoint(), within.hash_as_entrypoint());
     // Its size alone keeps the larger input out: alone in the queue it is still skipped
     // within the global budget, and one more byte of budget would carry it.
     assert!(
-        select(chain.state(), &only_above, budget, 0)
-            .unwrap()
-            .is_empty()
+        select(
+            &chain.state().view(),
+            &only_above,
+            budget,
+            &MergeProposal::default()
+        )
+        .unwrap()
+        .is_empty()
     );
-    let carried = select(chain.state(), &only_above, budget + 1, 0).unwrap();
+    let carried = select(
+        &chain.state().view(),
+        &only_above,
+        budget + 1,
+        &MergeProposal::default(),
+    )
+    .unwrap();
     assert_eq!(carried.len(), 1);
     assert_eq!(carried[0].hash_as_entrypoint(), above.hash_as_entrypoint());
 }

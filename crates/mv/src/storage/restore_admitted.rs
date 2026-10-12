@@ -1,4 +1,4 @@
-//! Stream fixed-size authenticated snapshot entries into original admitted maps.
+//! Stream originally owned authenticated snapshot entries into original admitted maps.
 
 use super::*;
 use concread::bptree::{ClonePlanning, Prepaid};
@@ -6,13 +6,14 @@ use iroha_allocation::AllocationBudget;
 
 impl<K, V, P> Storage<K, V, Prepaid<P>>
 where
-    K: Key + Copy,
-    V: Value + Copy,
+    K: Key,
+    V: Value,
     P: AdmittedStoragePolicy + ClonePlanning<K, V> + ClonePlanning<K, Option<V>>,
 {
-    /// Restore fixed-size current values and exact undo preimages directly.
+    /// Restore owned current values and exact undo preimages directly.
     ///
-    /// The source callback feeds one already decoded inline entry at a time.
+    /// The source callback feeds one already admitted owned entry at a time. Its retained allocation
+    /// custody must move with the value; this method funds map nodes only.
     /// Every insertion admits its original map plan before allocating; no
     /// intermediate untracked map or post-load recharge exists. Both maps stay
     /// private until the complete callback accepts their authenticated schema.

@@ -24,10 +24,13 @@ import org.hyperledger.iroha.sdk.crypto.keystore.attestation.AttestationResult
  * authorize another call. This adapter records the alias used before touching the provider.
  *
  * A positive lookup is usable on API 26+, but no error or API 26–30 null is absence. No path
- * deletes or regenerates a key in response to an error. Fresh generation never retries an
- * alias, including after a StrongBox failure. A TEE-permitted profile may use one in-memory
- * hint for a different freshly authorized slot under the same challenge after that actual
- * failure. Neither the hint nor the alias set is persistent freshness or rollback authority.
+ * deletes or regenerates a key in response to an error. There is one hardware plan and no
+ * policy-driven selector or refusal plan: StrongBox where the phone declares it, otherwise the
+ * TEE (design §2.2). A StrongBox failure before key creation never falls back on the same
+ * slot, alias, grant or challenge: the slot is spent and abandoned locally (§3.2), and only an
+ * in-memory hardware-choice hint carries into a freshly authorized slot under a new challenge,
+ * on API 26–30 and API 31+ alike. Neither the hint nor the alias set is persistent freshness
+ * or rollback authority.
  */
 internal class KagemushaWalletAndroidPaymentKeyV1(
     private val keyStore: KagemushaWalletAndroidKeyStoreV1,
@@ -40,19 +43,17 @@ internal class KagemushaWalletAndroidPaymentKeyV1(
     // Actual positive vendor returns belong to this platform owner before any readback can fail.
     // Keeping a return never grants generation or treats an existing alias as a generated key.
     private val generationReturns = HashMap<String, GenerationReturn>()
-    private class GenerationReturn(val pair: KeyPair, challenge: ByteArray,
-        val profile: KagemushaWalletAndroidKeyProfileV1, val level: KagemushaWalletAndroidSecurityLevelV1) {
+    private class GenerationReturn(val pair: KeyPair, challenge: ByteArray, val level: KagemushaWalletAndroidSecurityLevelV1) {
         val challenge = challenge.copyOf()
     }
 
     /** Read-only recovery of this owner's actual positive return, bound to the original request. */
-    fun recoverGeneration(slot: ByteArray, challengeDigest: ByteArray,
-        profile: KagemushaWalletAndroidKeyProfileV1): KagemushaWalletAndroidKeyGenerationV1? = synchronized(lock) {
+    fun recoverGeneration(slot: ByteArray, challengeDigest: ByteArray): KagemushaWalletAndroidKeyGenerationV1? = synchronized(lock) {
         val alias = kagemushaWalletAndroidAliasV1(slot)
         val challenge = challengeDigest.copyOf()
         require(challenge.size == 32 && challenge.any { it != 0.toByte() })
         val returned = generationReturns[alias] ?: return@synchronized null
-        if (!returned.challenge.contentEquals(challenge) || returned.profile != profile) {
+        if (!returned.challenge.contentEquals(challenge)) {
             return@synchronized unavailableGeneration(KagemushaWalletAndroidUnavailableV1.KEY_UNUSABLE)
         }
         if (kagemushaWalletAndroidCustodyRefusalV1(environment) != null) {
@@ -69,23 +70,20 @@ internal class KagemushaWalletAndroidPaymentKeyV1(
         readBack(alias, challenge, returned.level)
     }
 
+    // A definitive StrongBox failure before key creation spends its slot. The next generation on
+    // a different, freshly authorized slot under a different (new) challenge uses the TEE. This
+    // is a one-shot hardware-choice hint: never a generation grant, durable record or retry token.
+    private var teeHint: TeeHint? = null
 
-    // A provider's StrongBox refusal permits one separate, freshly authorized slot to use TEE.
-    // This is a hardware-choice hint, never a generation grant, durable record or retry token.
-    private var freshTeeFallback: FreshTeeFallback? = null
+    private class TeeHint(val failedAlias: String, failedChallenge: ByteArray) {
+        private val challenge = failedChallenge.copyOf()
 
-    private class FreshTeeFallback(
-        val failedAlias: String,
-        challengeDigest: ByteArray,
-        val profile: KagemushaWalletAndroidKeyProfileV1,
-    ) {
-        private val challenge = challengeDigest.copyOf()
-
-        fun matches(alias: String, challengeDigest: ByteArray, requestedProfile: KagemushaWalletAndroidKeyProfileV1): Boolean =
-            alias != failedAlias && profile == requestedProfile &&
-                requestedProfile == KagemushaWalletAndroidKeyProfileV1.SECURE_ELEMENT_OR_TEE &&
-                challenge.contentEquals(challengeDigest)
+        fun appliesTo(alias: String, challengeDigest: ByteArray): Boolean =
+            alias != failedAlias && !challenge.contentEquals(challengeDigest)
     }
+
+    /** API 31+ aliases whose StrongBox attempt definitively failed; they answer the same refusal. */
+    private val strongBoxFailedAliases = HashSet<String>()
 
     /** Tri-state probe through `KeyStore.getKey`; the public key comes from the attested leaf. */
     fun probe(slot: ByteArray): KagemushaWalletAndroidKeyProbeV1 = synchronized(lock) {
@@ -97,30 +95,30 @@ internal class KagemushaWalletAndroidPaymentKeyV1(
     }
 
     /**
-     * Generate the payment key of [slot] under [challengeDigest] and [profile] (design E3).
+     * Generate the payment key of [slot] under [challengeDigest] (design E3). Only a definitive
+     * absence (API 31+) reaches the provider; an API 26–30 null stays unknown.
      *
-     * Order: custody guard, in-process alias reuse, definitive absence, hardware plan,
-     * generation, then readback. A StrongBox failure falls back to the TEE only under
-     * [KagemushaWalletAndroidKeyProfileV1.SECURE_ELEMENT_OR_TEE] and only after a second
-     * definitive absence. A generated key that does not match the request is reported
-     * `KEY_UNUSABLE` and left in place: the provider then abandons the slot.
+     * Order: custody guard, spent aliases, in-process alias reuse, definitive absence, hardware
+     * plan, generation, then readback. StrongBox is used where the phone declares it; a StrongBox
+     * failure spends this slot (its alias is never generated again and answers the same refusal)
+     * and leaves the TEE hint for a fresh slot under a new challenge. A generated key that does
+     * not match the request is reported `KEY_UNUSABLE` and left in place: the provider then
+     * abandons the slot.
      */
     fun generate(
         slot: ByteArray,
         challengeDigest: ByteArray,
-        profile: KagemushaWalletAndroidKeyProfileV1,
-    ): KagemushaWalletAndroidKeyGenerationV1 = synchronized(lock) { generateLocked(slot, challengeDigest, profile) }
+    ): KagemushaWalletAndroidKeyGenerationV1 = synchronized(lock) { generateLocked(slot, challengeDigest) }
 
     /**
      * Private Native enrollment upcall on API 26–30 only. Native has already consumed the
-     * one-shot grant bound to this platform owner, fresh slot, challenge and profile. Calling
-     * this internal adapter is not itself evidence of freshness; only nativeCall operation 11
-     * may reach it in production. There is no caller-supplied "fresh" flag or replayable grant.
+     * one-shot grant bound to this platform owner, fresh slot and challenge. Calling this
+     * internal adapter is not itself evidence of freshness; only nativeCall operation 11 may
+     * reach it in production. There is no caller-supplied "fresh" flag or replayable grant.
      */
     fun generateFreshFromNative(
         slot: ByteArray,
         challengeDigest: ByteArray,
-        profile: KagemushaWalletAndroidKeyProfileV1,
     ): KagemushaWalletAndroidKeyGenerationV1 = synchronized(lock) {
         val alias = kagemushaWalletAndroidAliasV1(slot)
         val challenge = challengeDigest.copyOf()
@@ -148,9 +146,9 @@ internal class KagemushaWalletAndroidPaymentKeyV1(
         }
         // Burn the alias before even probing. Any provider exception ends this grant's attempt.
         if (!usedAliases.add(alias)) return@synchronized KagemushaWalletAndroidKeyGenerationV1.AlreadyPresent
-        val useTeeFallback = freshTeeFallback?.matches(alias, challenge, profile) == true
+        val useTeeHint = teeHint?.appliesTo(alias, challenge) == true
         // Spend the hint before the new slot's probe: even a probe failure cannot retry it.
-        if (useTeeFallback) freshTeeFallback = null
+        if (useTeeHint) teeHint = null
         val occupied = try {
             // Inspect the raw entry: a non-private key or malformed chain is still occupied.
             keyStore.getKey(alias) != null
@@ -159,34 +157,13 @@ internal class KagemushaWalletAndroidPaymentKeyV1(
         }
         if (occupied) return@synchronized KagemushaWalletAndroidKeyGenerationV1.AlreadyPresent
         // Null is still unknown. Only the already-consumed Native grant authorizes creation.
-        val plan = try {
-            if (useTeeFallback) KagemushaWalletAndroidHardwarePlanV1.TEE_ONLY else
-                kagemushaWalletAndroidHardwarePlanV1(
-                    profile, environment.apiLevel, environment.apiLevel >= 28 && environment.hasStrongBox(),
-                )
-        } catch (error: Throwable) {
-            return@synchronized unavailableGeneration(classify(error, KagemushaWalletAndroidUnavailableV1.PLATFORM_KEYSTORE))
+        val level = when (val planned = plannedLevel(useTeeHint)) {
+            is Planned.Level -> planned.level
+            is Planned.Unavailable -> return@synchronized unavailableGeneration(planned.reason)
         }
-        val level = when (plan) {
-            KagemushaWalletAndroidHardwarePlanV1.REFUSE -> return@synchronized unavailableGeneration(
-                KagemushaWalletAndroidUnavailableV1.platform(KagemushaWalletAndroidUnavailableV1.PLATFORM_STRONGBOX_UNAVAILABLE),
-            )
-            KagemushaWalletAndroidHardwarePlanV1.TEE_ONLY -> KagemushaWalletAndroidSecurityLevelV1.TRUSTED_ENVIRONMENT
-            KagemushaWalletAndroidHardwarePlanV1.STRONGBOX_ONLY,
-            KagemushaWalletAndroidHardwarePlanV1.STRONGBOX_THEN_TEE -> KagemushaWalletAndroidSecurityLevelV1.STRONGBOX
-        }
-        when (val generated = attempt(alias, challenge, profile, level == KagemushaWalletAndroidSecurityLevelV1.STRONGBOX)) {
+        when (val generated = attempt(alias, challenge, level == KagemushaWalletAndroidSecurityLevelV1.STRONGBOX)) {
             Attempt.Generated -> readBack(alias, challenge, level)
-            Attempt.StrongBoxUnavailable -> {
-                if (level == KagemushaWalletAndroidSecurityLevelV1.STRONGBOX &&
-                    profile == KagemushaWalletAndroidKeyProfileV1.SECURE_ELEMENT_OR_TEE
-                ) {
-                    freshTeeFallback = FreshTeeFallback(alias, challenge, profile)
-                }
-                unavailableGeneration(KagemushaWalletAndroidUnavailableV1.platform(
-                    KagemushaWalletAndroidUnavailableV1.PLATFORM_STRONGBOX_UNAVAILABLE,
-                ))
-            }
+            Attempt.StrongBoxUnavailable -> strongBoxFailed(alias, challenge, level)
             is Attempt.Failed -> unavailableGeneration(generated.reason)
         }
     }
@@ -194,7 +171,6 @@ internal class KagemushaWalletAndroidPaymentKeyV1(
     private fun generateLocked(
         slot: ByteArray,
         challengeDigest: ByteArray,
-        profile: KagemushaWalletAndroidKeyProfileV1,
     ): KagemushaWalletAndroidKeyGenerationV1 {
         val alias = kagemushaWalletAndroidAliasV1(slot)
         val challenge = challengeDigest.copyOf()
@@ -206,56 +182,66 @@ internal class KagemushaWalletAndroidPaymentKeyV1(
                 KagemushaWalletAndroidUnavailableV1.PLATFORM_BACKUP_ENABLED,
             ))
         }
+        // A slot whose StrongBox attempt failed is spent: same answer, no Keystore access.
+        if (alias in strongBoxFailedAliases) return strongBoxUnavailable()
         if (alias in usedAliases) return KagemushaWalletAndroidKeyGenerationV1.AlreadyPresent
         when (val probed = probeEntry(alias)) {
             Probed.Absent -> {}
             is Probed.Present -> return occupied(alias)
             is Probed.Unavailable -> return unavailableGeneration(probed.reason)
         }
-        val plan = try {
-            kagemushaWalletAndroidHardwarePlanV1(profile, environment.apiLevel, environment.hasStrongBox())
-        } catch (error: Throwable) {
-            return unavailableGeneration(classify(error, KagemushaWalletAndroidUnavailableV1.PLATFORM_KEYSTORE))
+        val useTeeHint = teeHint?.appliesTo(alias, challenge) == true
+        val level = when (val planned = plannedLevel(useTeeHint)) {
+            is Planned.Level -> planned.level
+            is Planned.Unavailable -> return unavailableGeneration(planned.reason)
         }
-        val level = when (plan) {
-            KagemushaWalletAndroidHardwarePlanV1.REFUSE -> return unavailableGeneration(
-                KagemushaWalletAndroidUnavailableV1.platform(KagemushaWalletAndroidUnavailableV1.PLATFORM_STRONGBOX_UNAVAILABLE),
-            )
-            KagemushaWalletAndroidHardwarePlanV1.TEE_ONLY -> when (val tee = attempt(alias, challenge, profile, strongBox = false)) {
-                Attempt.Generated -> KagemushaWalletAndroidSecurityLevelV1.TRUSTED_ENVIRONMENT
-                Attempt.StrongBoxUnavailable -> return unavailableGeneration(
-                    KagemushaWalletAndroidUnavailableV1.platform(KagemushaWalletAndroidUnavailableV1.PLATFORM_GENERATION_FAILED),
-                )
-                is Attempt.Failed -> return unavailableGeneration(tee.reason)
-            }
-            KagemushaWalletAndroidHardwarePlanV1.STRONGBOX_ONLY,
-            KagemushaWalletAndroidHardwarePlanV1.STRONGBOX_THEN_TEE -> when (val strong = attempt(alias, challenge, profile, strongBox = true)) {
-                Attempt.Generated -> KagemushaWalletAndroidSecurityLevelV1.STRONGBOX
-                is Attempt.Failed -> return unavailableGeneration(strong.reason)
-                Attempt.StrongBoxUnavailable -> {
-                    if (plan != KagemushaWalletAndroidHardwarePlanV1.STRONGBOX_THEN_TEE) {
-                        return unavailableGeneration(KagemushaWalletAndroidUnavailableV1.platform(
-                            KagemushaWalletAndroidUnavailableV1.PLATFORM_STRONGBOX_UNAVAILABLE,
-                        ))
-                    }
-                    // The TEE is permitted only while the alias is still definitively empty.
-                    when (val again = probeEntry(alias)) {
-                        Probed.Absent -> {}
-                        is Probed.Present -> return occupied(alias)
-                        is Probed.Unavailable -> return unavailableGeneration(again.reason)
-                    }
-                    when (val tee = attempt(alias, challenge, profile, strongBox = false)) {
-                        Attempt.Generated -> KagemushaWalletAndroidSecurityLevelV1.TRUSTED_ENVIRONMENT
-                        Attempt.StrongBoxUnavailable -> return unavailableGeneration(
-                            KagemushaWalletAndroidUnavailableV1.platform(KagemushaWalletAndroidUnavailableV1.PLATFORM_GENERATION_FAILED),
-                        )
-                        is Attempt.Failed -> return unavailableGeneration(tee.reason)
-                    }
-                }
-            }
+        // The hint is spent by the attempt it selects, after definitive absence.
+        if (useTeeHint) teeHint = null
+        return when (val generated = attempt(alias, challenge, level == KagemushaWalletAndroidSecurityLevelV1.STRONGBOX)) {
+            Attempt.Generated -> readBack(alias, challenge, level)
+            Attempt.StrongBoxUnavailable -> strongBoxFailed(alias, challenge, level)
+            is Attempt.Failed -> unavailableGeneration(generated.reason)
         }
-        return readBack(alias, challenge, level)
     }
+
+    /** The one hardware plan's level for this attempt; the TEE hint selects the TEE. */
+    private fun plannedLevel(useTeeHint: Boolean): Planned {
+        if (useTeeHint) return Planned.Level(KagemushaWalletAndroidSecurityLevelV1.TRUSTED_ENVIRONMENT)
+        val plan = try {
+            kagemushaWalletAndroidHardwarePlanV1(environment.apiLevel, environment.apiLevel >= 28 && environment.hasStrongBox())
+        } catch (error: Throwable) {
+            return Planned.Unavailable(classify(error, KagemushaWalletAndroidUnavailableV1.PLATFORM_KEYSTORE))
+        }
+        return Planned.Level(when (plan) {
+            KagemushaWalletAndroidHardwarePlanV1.STRONGBOX_THEN_TEE -> KagemushaWalletAndroidSecurityLevelV1.STRONGBOX
+            KagemushaWalletAndroidHardwarePlanV1.TEE_ONLY -> KagemushaWalletAndroidSecurityLevelV1.TRUSTED_ENVIRONMENT
+        })
+    }
+
+    /**
+     * StrongBox definitively failed before creating a key. A TEE request never reports this, so
+     * it is then an unknown generation failure. Otherwise the slot is spent and the hint is left
+     * for a fresh slot under a new challenge.
+     */
+    private fun strongBoxFailed(
+        alias: String,
+        challenge: ByteArray,
+        level: KagemushaWalletAndroidSecurityLevelV1,
+    ): KagemushaWalletAndroidKeyGenerationV1 {
+        if (level != KagemushaWalletAndroidSecurityLevelV1.STRONGBOX) {
+            return unavailableGeneration(KagemushaWalletAndroidUnavailableV1.platform(
+                KagemushaWalletAndroidUnavailableV1.PLATFORM_GENERATION_FAILED,
+            ))
+        }
+        usedAliases += alias
+        strongBoxFailedAliases += alias
+        teeHint = TeeHint(alias, challenge)
+        return strongBoxUnavailable()
+    }
+
+    private fun strongBoxUnavailable(): KagemushaWalletAndroidKeyGenerationV1 = unavailableGeneration(
+        KagemushaWalletAndroidUnavailableV1.platform(KagemushaWalletAndroidUnavailableV1.PLATFORM_STRONGBOX_UNAVAILABLE),
+    )
 
     /**
      * Sign the exact 32-byte signing [message] with `SHA256withECDSA` (owner answer A1): the
@@ -345,12 +331,12 @@ internal class KagemushaWalletAndroidPaymentKeyV1(
 
     /**
      * One provider generation call. The fresh-only caller already burned the alias; the API
-     * 31+ caller may retry a failure only after definitive absence. Success marks the alias used.
+     * 31+ caller may retry a generic failure only after definitive absence, never a StrongBox
+     * failure. Success marks the alias used.
      */
-    private fun attempt(alias: String, challenge: ByteArray,
-        profile: KagemushaWalletAndroidKeyProfileV1, strongBox: Boolean): Attempt = try {
+    private fun attempt(alias: String, challenge: ByteArray, strongBox: Boolean): Attempt = try {
         val pair = keyStore.generate(KagemushaWalletAndroidKeySpecV1(alias, challenge, strongBox))
-        generationReturns[alias] = GenerationReturn(pair, challenge, profile,
+        generationReturns[alias] = GenerationReturn(pair, challenge,
             if (strongBox) KagemushaWalletAndroidSecurityLevelV1.STRONGBOX
             else KagemushaWalletAndroidSecurityLevelV1.TRUSTED_ENVIRONMENT)
         usedAliases += alias
@@ -517,6 +503,11 @@ internal class KagemushaWalletAndroidPaymentKeyV1(
         class Failed(val reason: KagemushaWalletAndroidUnavailableV1) : Attempt()
     }
 
+    private sealed class Planned {
+        class Level(val level: KagemushaWalletAndroidSecurityLevelV1) : Planned()
+        class Unavailable(val reason: KagemushaWalletAndroidUnavailableV1) : Planned()
+    }
+
     private sealed class Chain {
         class Valid(val certificates: List<X509Certificate>, val der: List<ByteArray>, val publicKeySec1: ByteArray) : Chain()
         class Invalid(val reason: KagemushaWalletAndroidUnavailableV1) : Chain()
@@ -552,23 +543,28 @@ internal fun kagemushaWalletAndroidAliasV1(slot: ByteArray): String {
 
 private const val HEX_DIGITS = "0123456789abcdef"
 
-/** Hardware generation plan of one profile on one device. */
-internal enum class KagemushaWalletAndroidHardwarePlanV1 { STRONGBOX_ONLY, STRONGBOX_THEN_TEE, TEE_ONLY, REFUSE }
+/**
+ * The one Android hardware plan (design §2.2): StrongBox where the phone declares it, otherwise
+ * the TEE. [STRONGBOX_THEN_TEE] generates in StrongBox on this slot; a definitive StrongBox
+ * failure spends the slot and only a fresh slot under a new challenge generates in the TEE.
+ * There is no policy-driven selector and no refusal plan: a TEE-only phone enrolls in its TEE.
+ */
+internal enum class KagemushaWalletAndroidHardwarePlanV1 { STRONGBOX_THEN_TEE, TEE_ONLY }
 
-/** StrongBox when the device has it; the TEE only when the profile permits it. */
+/** StrongBox (API 28+) when the device declares it; otherwise the TEE. */
 internal fun kagemushaWalletAndroidHardwarePlanV1(
-    profile: KagemushaWalletAndroidKeyProfileV1,
     apiLevel: Int,
     hasStrongBox: Boolean,
-): KagemushaWalletAndroidHardwarePlanV1 {
-    val strongBox = apiLevel >= 28 && hasStrongBox
-    return when (profile) {
-        KagemushaWalletAndroidKeyProfileV1.ANDROID_TEE -> KagemushaWalletAndroidHardwarePlanV1.TEE_ONLY
-        KagemushaWalletAndroidKeyProfileV1.SECURE_ELEMENT ->
-            if (strongBox) KagemushaWalletAndroidHardwarePlanV1.STRONGBOX_ONLY else KagemushaWalletAndroidHardwarePlanV1.REFUSE
-        KagemushaWalletAndroidKeyProfileV1.SECURE_ELEMENT_OR_TEE ->
-            if (strongBox) KagemushaWalletAndroidHardwarePlanV1.STRONGBOX_THEN_TEE else KagemushaWalletAndroidHardwarePlanV1.TEE_ONLY
-    }
+): KagemushaWalletAndroidHardwarePlanV1 =
+    if (apiLevel >= 28 && hasStrongBox) KagemushaWalletAndroidHardwarePlanV1.STRONGBOX_THEN_TEE
+    else KagemushaWalletAndroidHardwarePlanV1.TEE_ONLY
+
+/** Rust `KagemushaWalletKeyProfileV1::SecureElementOrTee`: the Android platform's only key profile tag. */
+internal const val KAGEMUSHA_WALLET_ANDROID_KEY_PROFILE_TAG_V1: Int = 2
+
+/** Native passes the key profile tag on every generation upcall; any other tag fails closed. */
+internal fun kagemushaWalletAndroidRequireKeyProfileV1(tag: Int) {
+    require(tag == KAGEMUSHA_WALLET_ANDROID_KEY_PROFILE_TAG_V1) { "unknown key profile tag" }
 }
 
 /** Attested `SecurityLevel` the planned [level] requires. */

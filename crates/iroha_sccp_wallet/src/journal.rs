@@ -19,7 +19,7 @@
 //! - The network directory is the lowercase hex of the Taira `NetworkId`, so records of a reset
 //!   Taira (a new `NetworkId`, §4.18) never mix with the old ones.
 //! - A flow is identified by its kind and a 32-byte id (the message id of a transfer, or a
-//!   caller-chosen digest for roster sync and control relays).
+//!   caller-chosen digest for committee sync and control relays).
 //! - Steps are dense and append-only. `operation.json` is the [`SccpJournalRecordV1`]: the exact
 //!   bytes about to be submitted and the raw evidence they were built from. `submission.json`
 //!   is the pre-dispatch marker ([`SccpJournalStep::begin_submission`] returns `true` to exactly
@@ -87,9 +87,9 @@ pub enum SccpFlowKindV1 {
     /// Void and refund of an outbound transfer (§7.3).
     #[norito(rename = "refund")]
     Refund,
-    /// Destination roster rotation (§7.4).
-    #[norito(rename = "roster_sync")]
-    RosterSync,
+    /// Destination native committee synchronization (§7.4).
+    #[norito(rename = "committee_sync")]
+    CommitteeSync,
     /// Destination control relay (§7.4).
     #[norito(rename = "control_apply")]
     ControlApply,
@@ -101,7 +101,7 @@ impl SccpFlowKindV1 {
         Self::Outbound,
         Self::Inbound,
         Self::Refund,
-        Self::RosterSync,
+        Self::CommitteeSync,
         Self::ControlApply,
     ];
 
@@ -112,7 +112,7 @@ impl SccpFlowKindV1 {
             Self::Outbound => "outbound",
             Self::Inbound => "inbound",
             Self::Refund => "refund",
-            Self::RosterSync => "roster_sync",
+            Self::CommitteeSync => "committee_sync",
             Self::ControlApply => "control_apply",
         }
     }
@@ -874,6 +874,34 @@ mod tests {
             SccpFlowIdV1::from_dir_name(&format!("outbound-{}", "AB".repeat(32))),
             None
         );
+    }
+
+    #[test]
+    fn committee_flow_label_is_first_release_only() {
+        let kind = SccpFlowKindV1::CommitteeSync;
+        assert_eq!(kind.as_str(), "committee_sync");
+        assert_eq!(SccpFlowKindV1::from_label("committee_sync"), Some(kind));
+        assert_eq!(SccpFlowKindV1::from_label("roster_sync"), None);
+        let flow = SccpFlowIdV1 { kind, id: [7; 32] };
+        assert_eq!(SccpFlowIdV1::from_dir_name(&flow.dir_name()), Some(flow));
+        assert_eq!(
+            SccpFlowIdV1::from_dir_name(&format!("roster_sync-{}", "07".repeat(32))),
+            None
+        );
+    }
+
+    #[test]
+    fn committee_flow_json_rejects_retired_label() {
+        let kind = SccpFlowKindV1::CommitteeSync;
+        let encoded = String::from_utf8(json::to_vec(&kind).expect("committee flow JSON"))
+            .expect("UTF-8 JSON");
+        assert!(encoded.contains("committee_sync"), "{encoded}");
+        assert_eq!(
+            json::from_str::<SccpFlowKindV1>(&encoded).expect("current label decodes"),
+            kind
+        );
+        let retired = encoded.replace("committee_sync", "roster_sync");
+        assert!(json::from_str::<SccpFlowKindV1>(&retired).is_err());
     }
 
     #[test]

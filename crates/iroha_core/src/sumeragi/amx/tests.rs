@@ -95,6 +95,7 @@ impl Dataspace {
                 .iter()
                 .map(|write| (write.key.as_slice(), write.value.as_slice())),
             record.clone(),
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::NonGlobal,
         )
         .unwrap()
     }

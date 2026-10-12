@@ -90,3 +90,84 @@ fn response_roundtrips_each_status_and_keeps_exact_original_boundaries() {
     }
     assert!(EnrollmentServiceResponseV1::decode_canonical(&[]).is_err());
 }
+
+#[test]
+fn outcome_headers_are_exact_closed_and_status_bound() {
+    use iroha_data_model::kagemusha::KagemushaWalletEnrollmentRefusalV1 as Refusal;
+    for outcome in Refusal::ALL
+        .iter()
+        .map(|reason| EnrollmentServiceOutcomeV1::Refused(*reason))
+        .chain([
+            EnrollmentServiceOutcomeV1::DeliveryWithheld(Refusal::AccountNotApproved),
+            EnrollmentServiceOutcomeV1::DeliveryWithheld(Refusal::AccountFrozen),
+            EnrollmentServiceOutcomeV1::OutcomeUnknown,
+        ])
+    {
+        let (name, value) = outcome.header();
+        let upper = name.to_ascii_uppercase();
+        for name in [name, upper.as_str()] {
+            assert_eq!(
+                EnrollmentServiceOutcomeV1::from_headers(
+                    outcome.status(),
+                    [
+                        ("content-type", b"text/plain".as_slice()),
+                        (name, value.as_bytes())
+                    ],
+                )
+                .unwrap(),
+                Some(outcome)
+            );
+        }
+        // The same status with another outcome, or another status, never matches.
+        assert!(EnrollmentServiceOutcomeV1::from_headers(503, [(name, value.as_bytes())]).is_err());
+        assert!(
+            EnrollmentServiceOutcomeV1::from_headers(
+                outcome.status(),
+                [(name, value.as_bytes()), (name, value.as_bytes())]
+            )
+            .is_err()
+        );
+    }
+    // Identical 403 statuses carry different, distinguishable outcomes.
+    assert_ne!(
+        EnrollmentServiceOutcomeV1::from_headers(
+            403,
+            [(ENROLLMENT_REFUSAL_CODE_HEADER_V1, b"12".as_slice())]
+        )
+        .unwrap(),
+        EnrollmentServiceOutcomeV1::from_headers(
+            403,
+            [(ENROLLMENT_DELIVERY_WITHHELD_HEADER_V1, b"12".as_slice())]
+        )
+        .unwrap()
+    );
+    assert_eq!(
+        EnrollmentServiceOutcomeV1::from_headers(503, [("retry-after", b"1".as_slice())]).unwrap(),
+        None
+    );
+    for (name, value) in [
+        (ENROLLMENT_REFUSAL_CODE_HEADER_V1, b"0".as_slice()),
+        (ENROLLMENT_REFUSAL_CODE_HEADER_V1, b"13"),
+        (ENROLLMENT_REFUSAL_CODE_HEADER_V1, b"012"),
+        (ENROLLMENT_REFUSAL_CODE_HEADER_V1, b"+1"),
+        (ENROLLMENT_REFUSAL_CODE_HEADER_V1, b""),
+        (ENROLLMENT_REFUSAL_CODE_HEADER_V1, b"65536"),
+        (ENROLLMENT_DELIVERY_WITHHELD_HEADER_V1, b"1"),
+        (ENROLLMENT_OUTCOME_HEADER_V1, b"Unknown"),
+    ] {
+        assert!(
+            EnrollmentServiceOutcomeV1::from_headers(403, [(name, value)]).is_err(),
+            "{name}: {value:?}"
+        );
+    }
+    assert!(
+        EnrollmentServiceOutcomeV1::from_headers(
+            403,
+            [
+                (ENROLLMENT_REFUSAL_CODE_HEADER_V1, b"11".as_slice()),
+                (ENROLLMENT_DELIVERY_WITHHELD_HEADER_V1, b"11".as_slice()),
+            ]
+        )
+        .is_err()
+    );
+}

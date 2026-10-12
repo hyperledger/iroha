@@ -1,5 +1,5 @@
 // Parliament controls (§5.1.6, §5.3.4 "apply control"): pause and resume,
-// stale, equal and gapped nonces, historical mode, foreign leaves (network,
+// stale, equal and gapped nonces, historical block references, foreign leaves (network,
 // destination, revision, Taira network, transfer leaf), and burns, rotations
 // and voids staying open while minting is paused.
 
@@ -26,7 +26,10 @@ get fun `test pause blocks finalization and resume re-enables it`() {
         .findExternalOutMessage<SccpControlAppliedEvent>({ from: env.minter.address })!
         .loadBody();
     expect(event.controlNonce).toEqual(1);
-    expect(event.paused).toBeTrue();
+    expect(event.parliamentPaused).toBeTrue();
+    expect(event.track).toEqual(SCCP_TRACK_PARLIAMENT);
+    expect(event.fastPauseUntilMs).toEqual(0);
+    expect(event.certificateId).toEqual(parliamentControl(1, true).certificateId);
     expect(res).toHaveSuccessfulTx<ReturnExcessesBack>({ to: env.deployer });
     expect(env.minter.getSccpState().opCount).toEqual(1);
     val d = deliverDefault(env, 0, 10, alice);
@@ -47,7 +50,8 @@ get fun `test pause blocks finalization and resume re-enables it`() {
 get fun `test stale and equal control nonces are rejected and gaps are accepted`() {
     val env = setupEnv();
     applyControlOk(env, 2, true);
-    expect(sendApplyControl(env, deliverControl(env, 2, false))).toHaveFailedTx<SccpApplyControl>({
+    // Replay the exact certified block so the equal nonce reaches StaleControl.
+    expect(sendApplyControl(env, deliverControl(env, 2, true))).toHaveFailedTx<SccpApplyControl>({
         to: env.minter.address,
         exitCode: SccpErrors.StaleControl as int,
     });
@@ -66,127 +70,175 @@ get fun `test stale and equal control nonces are rejected and gaps are accepted`
     });
 }
 
-get fun `test apply control historical`() {
+get fun `test apply control historical block reference and stored checkpoint`() {
     val env = setupEnv();
-    val leaf = sccpControlLeaf(
-        env.networkId,
-        env.minter.address.accountId(),
-        TEST_REVISION,
-        3,
-        true,
-    );
+    val control = parliamentControl(3, true);
+    val leaf = controlLeafOf(env, control);
     val blockLeaves = leavesWith(leaf, 1, 2);
     val blockRoot = treeRoot(blockLeaves);
-    val history = historyLeaves(4, 2, 44, blockRoot, 2);
-    val statement: TestStatement = {
-        height: 90,
-        epoch: 2,
-        timestampMs: T0 * 1000,
-        blockHash: 0x77,
-        sccpRoot: 0,
-        messageCount: 0,
-        historyRoot: treeRoot(history),
-        historySize: 4,
-        rosterDigest: env.digest(),
-        nextRosterDigest: 0,
-    };
-    val blockPath = treePath(blockLeaves, 1);
-    val historyPath = treePath(history, 2);
-    val res = env
-        .minter
-        .sendSccpApplyControlHistorical(
-            env.deployer,
-            1,
-            env.deployer,
-            statement.attestation(),
-            signByThreshold(env.roster, statement.digest(env.networkId)),
-            {
-                height: 44,
-                sccpRoot: blockRoot,
-                messageCount: 2,
-                leafIndex: 2,
-                pathLen: historyPath.size(),
-                path: sccpBuildHashPath(historyPath),
-            },
-            {
-                controlNonce: 3,
-                paused: true,
-                leafIndex: 1,
-                pathLen: blockPath.size(),
-                path: sccpBuildHashPath(blockPath),
-            },
-            { value: grams("1"), bounce: true },
-        );
-    expect(res).toHaveSuccessfulTx<SccpApplyControlHistorical>({ to: env.minter.address });
-    expect(env.minter.getSccpState().mintingPaused).toBeTrue();
+    val history = historyLeaves(4, 2, 1044, blockRoot, 2);
+    var x = emptyX(env.networkId, env.generation, env.committee.root(), 1090);
+    x.historyRoot = treeRoot(history);
+    x.historySize = 4;
+    val proof = controlProofCell(
+        control.nonce,
+        control.track,
+        control.parliamentPaused,
+        control.fastPauseUntilMs,
+        control.certificateId,
+        control.effectHash,
+        1,
+        treePath(blockLeaves, 1),
+        blockRefCell(1044, blockRoot, 2, 2, treePath(history, 2)),
+    );
+    expect(checkpointBy(env, env.committee, x, null)).toHaveSuccessfulTx<SccpCheckpoint>({ to: env
+            .minter
+            .address });
+    val res = sendApplyControlCells(
+        env,
+        env.deployer,
+        null,
+        x.ref(),
+        proof,
+        grams("1"),
+    );
+    expect(res).toHaveSuccessfulTx<SccpApplyControlCheckpoint>({ to: env.minter.address });
+    expect(env.minter.getSccpState().parliamentPaused).toBeTrue();
     expect(env.minter.getSccpState().controlNonce).toEqual(3);
 }
 
-get fun `test foreign control leaves are rejected`() {
+get fun `test foreign control leaves and altered cause fields are rejected`() {
     val env = setupEnv();
     val own = env.minter.address.accountId();
+    val c = parliamentControl(1, true);
     val leaves: array<int> = [
-        // another target network (ethereum-mainnet)
         controlLeafFor(
             env.networkId,
             0x41,
             1,
             own,
             TEST_REVISION,
-            1,
-            true,
+            c.nonce,
+            c.track,
+            c.parliamentPaused,
+            c.fastPauseUntilMs,
+            c.certificateId,
+            c.effectHash,
         ),
-        // another destination word
         controlLeafFor(
             env.networkId,
             SCCP_TAG_TON,
             SCCP_TON_IDENTITY_WORD,
             own ^ 1,
             TEST_REVISION,
-            1,
-            true,
+            c.nonce,
+            c.track,
+            c.parliamentPaused,
+            c.fastPauseUntilMs,
+            c.certificateId,
+            c.effectHash,
         ),
-        // another revision
         controlLeafFor(
             env.networkId,
             SCCP_TAG_TON,
             SCCP_TON_IDENTITY_WORD,
             own,
             TEST_REVISION + 1,
-            1,
-            true,
+            c.nonce,
+            c.track,
+            c.parliamentPaused,
+            c.fastPauseUntilMs,
+            c.certificateId,
+            c.effectHash,
         ),
-        // another Taira network
         controlLeafFor(
             env.networkId ^ 1,
             SCCP_TAG_TON,
             SCCP_TON_IDENTITY_WORD,
             own,
             TEST_REVISION,
-            1,
-            true,
+            c.nonce,
+            c.track,
+            c.parliamentPaused,
+            c.fastPauseUntilMs,
+            c.certificateId,
+            c.effectHash,
         ),
-        // the same control with the opposite pause value
         controlLeafFor(
             env.networkId,
             SCCP_TAG_TON,
             SCCP_TON_IDENTITY_WORD,
             own,
             TEST_REVISION,
-            1,
+            c.nonce,
+            c.track,
             false,
+            c.fastPauseUntilMs,
+            c.certificateId,
+            c.effectHash,
+        ),
+        controlLeafFor(
+            env.networkId,
+            SCCP_TAG_TON,
+            SCCP_TON_IDENTITY_WORD,
+            own,
+            TEST_REVISION,
+            c.nonce,
+            SCCP_TRACK_FAST_PAUSE,
+            true,
+            c.fastPauseUntilMs,
+            c.certificateId,
+            c.effectHash,
+        ),
+        controlLeafFor(
+            env.networkId,
+            SCCP_TAG_TON,
+            SCCP_TON_IDENTITY_WORD,
+            own,
+            TEST_REVISION,
+            c.nonce,
+            c.track,
+            true,
+            1,
+            c.certificateId,
+            c.effectHash,
+        ),
+        controlLeafFor(
+            env.networkId,
+            SCCP_TAG_TON,
+            SCCP_TON_IDENTITY_WORD,
+            own,
+            TEST_REVISION,
+            c.nonce,
+            c.track,
+            true,
+            c.fastPauseUntilMs,
+            c.certificateId ^ 1,
+            c.effectHash,
+        ),
+        controlLeafFor(
+            env.networkId,
+            SCCP_TAG_TON,
+            SCCP_TON_IDENTITY_WORD,
+            own,
+            TEST_REVISION,
+            c.nonce,
+            c.track,
+            true,
+            c.fastPauseUntilMs,
+            c.certificateId,
+            c.effectHash ^ 1,
         ),
     ];
     var i = 0;
     while (i < leaves.size()) {
-        val c = deliverControlLeaf(env, leaves.get(i), 1, true, 3);
-        expect(sendApplyControl(env, c)).toHaveFailedTx<SccpApplyControl>({
-            to: env.minter.address,
-            exitCode: SccpErrors.BadProof as int,
-        });
+        expect(
+            sendApplyControl(env, deliverControlLeaf(env, leaves.get(i), c, 3)),
+        ).toHaveFailedTx<SccpApplyControl>({ to: env
+                .minter
+                .address, exitCode: SccpErrors.BadProof as int });
         i += 1;
     }
-    // sanity: the genuine leaf applies
     applyControlOk(env, 1, true);
 }
 
@@ -197,49 +249,35 @@ get fun `test a transfer leaf offered as a control is rejected`() {
     val transferLeaf = inboundLeaf(env.networkId, payload, env.minter.address);
     var nonce = 0;
     while (nonce < 3) {
-        val c = deliverControlLeaf(env, transferLeaf, nonce, nonce == 1, 2);
-        expect(sendApplyControl(env, c)).toHaveFailedTx<SccpApplyControl>({
-            to: env.minter.address,
-            exitCode: SccpErrors.BadProof as int,
-        });
+        val c = deliverControlLeaf(env, transferLeaf, parliamentControl(nonce, nonce == 1), 2);
+        expect(sendApplyControl(env, c)).toHaveFailedTx<SccpApplyControl>({ to: env
+                .minter
+                .address, exitCode: SccpErrors.BadProof as int });
         nonce += 1;
     }
-    // and a control leaf never finalizes as a transfer
-    val controlLeaf = sccpControlLeaf(
-        env.networkId,
-        env.minter.address.accountId(),
-        TEST_REVISION,
-        1,
-        true,
-    );
-    val leaves = leavesWith(controlLeaf, 0, 2);
-    val statement = blockStatement(9, leaves, env.digest());
-    val path = treePath(leaves, 0);
+    val leaves = leavesWith(controlLeafOf(env, parliamentControl(1, true)), 0, 2);
+    val x = blockX(env.networkId, env.generation, env.committee.root(), 1100, leaves);
     val d: Delivery = {
         payload,
-        statement,
-        signatures: signByThreshold(env.roster, statement.digest(env.networkId)),
-        proof: {
-            leafIndex: 0,
-            pathLen: path.size(),
-            payload,
-            path: sccpBuildHashPath(path),
-        },
+        x,
+        cert: certifyFor(env, env.committee, x),
+        proof: messageProofCell(0, treePath(leaves, 0), payload, ownBlockRef(x)),
         messageId: 0,
     };
-    expect(sendFinalize(env, env.deployer, d, grams("5"))).toHaveFailedTx<SccpFinalize>({
-        to: env.minter.address,
-        exitCode: SccpErrors.BadProof as int,
-    });
+    expect(sendFinalize(env, env.deployer, d, grams("5"))).toHaveFailedTx<SccpFinalize>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.BadProof as int });
 }
 
-get fun `test burns, rotations and voids stay open while paused`() {
+get fun `test burns checkpoints rotations and voids stay open while paused`() {
     val env = setupEnv();
     val alice = testing.treasury("alice").address;
     finalizeOk(env, 0, 1000, alice);
+    // Retain the original expiring transfer through the handoff's history.
     val expiring = deliver(
         env,
-        env.roster,
+        env.committee,
+        env.generation,
         1,
         5,
         alice,
@@ -248,55 +286,122 @@ get fun `test burns, rotations and voids stay open while paused`() {
         1,
     );
     applyControlOk(env, 1, true);
-    // burn
     val burn = sendBurn(env, alice, 400, snakeOfLength(32), burnValue(env, alice));
     expect(burn).toHaveSuccessfulTx<BurnNotificationForMinter>({ to: env.minter.address });
     expect(jettonBalanceOf(env, alice)).toEqual(600);
-    // rotation
-    val next = nextRoster(env.roster, 4, 4, T0 * 1000 - 5000);
-    rotateTo(env, next, 300);
-    // void (signed by the previous roster, still in grace)
-    testing.setNow(T0 + 51);
+    val next = testCommittee(4, 4);
+    var x = rotationX(
+        env.networkId,
+        env.generation,
+        env.committee.root(),
+        1200,
+        T0 * 1000,
+        next.root(),
+        TEST_VALIDITY_MS,
+    );
+    x.historySize = 1;
+    x.historyRoot = sccpHistoryLeaf(expiring.x.height, expiring.x.sccpRoot, 1);
     expect(
-        sendVoidExpired(env, env.deployer, 1, expiring, env.minter.voidRequiredValue(1)),
-    ).toHaveSuccessfulTx<SccpConsumed>({
-        to: env.minter.address,
-    });
-    // controls themselves are not blocked by the pause (resume under the new roster)
-    val env8: Env = {
-        minter: env.minter,
-        deployer: env.deployer,
-        networkId: env.networkId,
-        roster: next,
+        checkpointBy(env, env.committee, x, next.keysCell()),
+    ).toHaveSuccessfulTx<SccpCheckpoint>({ to: env.minter.address });
+    testing.setNow(T0 + 51);
+    val proof = messageProofCell(
+        0,
+        [],
+        expiring.payload,
+        blockRefCell(expiring.x.height, expiring.x.sccpRoot, 1, 0, []),
+    );
+    expect(
+        sendVoidExpiredCells(
+            env,
+            env.deployer,
+            1,
+            null,
+            x.ref(),
+            proof,
+            env.minter.voidRequiredValue(1),
+        ),
+    ).toHaveSuccessfulTx<SccpConsumed>({ to: env.minter.address });
+    // Controls themselves remain available under the successor's real source.
+    val control = parliamentControl(2, false);
+    val leaves = leavesWith(controlLeafOf(env, control), 0, 2);
+    val resumeX = blockX(env.networkId, 8, next.root(), 1201, leaves);
+    val resume: ControlDelivery = {
+        x: resumeX,
+        cert: certifyFor(env, next, resumeX),
+        proof: controlProofCell(
+            control.nonce,
+            control.track,
+            control.parliamentPaused,
+            control.fastPauseUntilMs,
+            control.certificateId,
+            control.effectHash,
+            0,
+            treePath(leaves, 0),
+            ownBlockRef(resumeX),
+        ),
     };
-    applyControlOk(env8, 2, false);
-    // opCount: finalize, pause, burn, void, resume
+    expect(sendApplyControl(env, resume)).toHaveSuccessfulTx<SccpApplyControl>({ to: env
+            .minter
+            .address });
+    expect(env.minter.getSccpState().parliamentPaused).toBeFalse();
+    expect(env.minter.getSccpState().controlNonce).toEqual(2);
     expect(env.minter.getSccpState().opCount).toEqual(5);
 }
 
 get fun `test a frozen destination cannot apply controls`() {
     val env = setupEnv();
     val c = deliverControl(env, 1, true);
-    testing.setNow(env.roster.validUntilMs / 1000 + 1);
+    testing.setNow(defaultPin(env.committee).untilMs / 1000 + 1);
     expect(sendApplyControl(env, c)).toHaveFailedTx<SccpApplyControl>({
         to: env.minter.address,
-        exitCode: SccpErrors.RosterNotAccepted as int,
+        exitCode: SccpErrors.CommitteeNotAccepted as int,
     });
 }
 
-get fun `test apply control needs signatures and the mainnet global id`() {
+get fun `test apply control needs exact quorum and the mainnet global id`() {
     val env = setupEnv();
     var c = deliverControl(env, 1, true);
-    c.signatures = signBySlots(env.roster, c.statement.digest(env.networkId), [3]);
-    expect(sendApplyControl(env, c)).toHaveFailedTx<SccpApplyControl>({
-        to: env.minter.address,
-        exitCode: SccpErrors.TooFewSignatures as int,
-    });
+    c.cert = certifyBy(env.committee, 0b1000, env.instance, defaultQc(c.x.height), c.x);
+    expect(sendApplyControl(env, c)).toHaveFailedTx<SccpApplyControl>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.BadCertificate as int });
     var config = testing.getConfig();
     config.setParamRaw(19, beginCell().storeInt(-3, 32).endCell());
     expect(testing.setConfig(config)).toBeTrue();
-    expect(sendApplyControl(env, deliverControl(env, 1, true))).toHaveFailedTx<SccpApplyControl>({
-        to: env.minter.address,
-        exitCode: SccpErrors.WrongChain as int,
-    });
+    expect(
+        sendApplyControl(env, deliverControl(env, 1, true)),
+    ).toHaveFailedTx<SccpApplyControl>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.WrongChain as int });
+}
+
+get fun `test fast pause expires without clearing Parliament state`() {
+    val env = setupEnv();
+    val until = (T0 + 50) * 1000;
+    expect(
+        sendApplyControl(env, deliverFastPause(env, 1, false, until)),
+    ).toHaveSuccessfulTx<SccpApplyControl>({ to: env.minter.address });
+    expect(env.minter.getSccpState().fastPauseUntilMs).toEqual(until);
+    expect(env.minter.getSccpState().effectivePaused).toBeTrue();
+    val alice = testing.treasury("alice").address;
+    val d = deliverDefault(env, 0, 10, alice);
+    expect(
+        sendFinalize(env, env.deployer, d, finalizeValue(env, 0)),
+    ).toHaveFailedTx<SccpFinalize>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.MintingIsPaused as int });
+    testing.setNow(T0 + 51);
+    expect(env.minter.getSccpState().effectivePaused).toBeFalse();
+    expect(
+        sendFinalize(env, env.deployer, d, finalizeValue(env, 0)),
+    ).toHaveSuccessfulTx<SccpConsumed>({ to: env.minter.address });
+    applyControlOk(env, 2, true);
+    expect(
+        sendApplyControl(env, deliverFastPause(env, 3, true, (T0 + 60) * 1000)),
+    ).toHaveSuccessfulTx<SccpApplyControl>({ to: env.minter.address });
+    testing.setNow(T0 + 61);
+    expect(env.minter.getSccpState().parliamentPaused).toBeTrue();
+    expect(env.minter.getSccpState().effectivePaused).toBeTrue();
+    expect(jettonBalanceOf(env, alice)).toEqual(10);
 }

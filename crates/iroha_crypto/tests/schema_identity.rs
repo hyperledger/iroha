@@ -13,11 +13,13 @@ struct OriginalMarker;
 struct RelocatedMarker;
 
 fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    hex::encode(bytes)
 }
 
-fn record<T: NoritoSchema + NoritoSerialize + NoritoDeserialize<'static>>(value: T) -> json::Value {
-    let frame = norito::to_bytes(&value).unwrap();
+fn record<T: NoritoSchema + NoritoSerialize + NoritoDeserialize<'static>>(
+    value: &T,
+) -> json::Value {
+    let frame = norito::to_bytes(value).unwrap();
     let header = norito::core::Header::read(frame.as_slice()).unwrap();
     assert_eq!(header.schema, norito::schema::identity::frame_hash::<T>());
     assert_eq!(T::nominal_name(), std::any::type_name::<T>());
@@ -32,10 +34,10 @@ fn record<T: NoritoSchema + NoritoSerialize + NoritoDeserialize<'static>>(value:
 
 fn current_frames() -> Vec<json::Value> {
     vec![
-        record(HashOf::<OriginalMarker>::from_untyped_unchecked(
+        record(&HashOf::<OriginalMarker>::from_untyped_unchecked(
             Hash::prehashed([7; 32]),
         )),
-        record(SignatureOf::<OriginalMarker>::from_signature(
+        record(&SignatureOf::<OriginalMarker>::from_signature(
             Signature::from_bytes(&[3; 64]),
         )),
     ]

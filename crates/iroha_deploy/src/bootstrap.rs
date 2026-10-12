@@ -248,6 +248,7 @@ impl AuthenticatedBootstrap {
             proof_clients,
             peer_clients,
             deadline,
+            self.verifier.result_scope(),
         )
     }
 

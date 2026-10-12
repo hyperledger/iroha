@@ -17,7 +17,7 @@ use iroha_data_model::{
     },
     smart_contract::ContractAddress,
     sumeragi_finality::{
-        SUMERAGI_LANE_STATE_WITNESS_KEY, SumeragiLaneStateCommitment,
+        CertifiedResultScope, SUMERAGI_LANE_STATE_WITNESS_KEY, SumeragiLaneStateCommitment,
         test_fixtures::NativeFinalityFixture,
     },
     sumeragi_lanes::SumeragiLaneState,
@@ -569,7 +569,9 @@ fn prove(
             },
         );
         let root = finality
-            .decode_checked()
+            .decode_checked(CertifiedResultScope::from_root_scope(
+                fixture.verifier().root_scope(),
+            ))
             .unwrap()
             .execution()
             .ordinary_writes_root;
@@ -604,6 +606,56 @@ fn entitlement(records: &mut [FeeEvidenceRecordV1]) -> &mut ValidationFeeRewardE
             }
         })
         .unwrap()
+}
+
+#[test]
+fn fee_evidence_checked_verification_preserves_decode_refusal_and_exact_retry() {
+    let fixture = prefix();
+    let scope = CertifiedResultScope::from_root_scope(fixture.verifier().root_scope());
+    let (window, _) = prove(fixture, vec![Vec::new()]);
+    let block = &window.blocks[0];
+    let root = block
+        .finality
+        .decode_checked(scope)
+        .unwrap()
+        .execution()
+        .ordinary_writes_root;
+    let original = block.evidence.clone();
+    let snapshot = original.snapshot_witness.commitment().unwrap();
+    let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, usize::MAX);
+    norito::with_decode_limits_scope(limits, || {
+        let expected =
+            norito::decode_canonical::<FeeEvidenceSnapshotV1>(&original.snapshot_witness.value)
+                .unwrap_err();
+        let actual = block.evidence.verify_checked(root).unwrap_err();
+        assert!(norito::core::decode_error_matches_active_limits(&expected));
+        assert!(norito::core::decode_error_matches_active_limits(&actual));
+        assert_eq!(
+            actual.decode_resource_error(),
+            expected.decode_resource_error()
+        );
+    });
+    assert_eq!(block.evidence, original);
+    assert_eq!(block.evidence.verify_checked(root).unwrap(), Some(snapshot));
+    assert!(block.evidence.verify(root));
+    assert_eq!(
+        block
+            .evidence
+            .verify_checked(Hash::new(b"other-root"))
+            .unwrap(),
+        None
+    );
+
+    let mut omitted = original.clone();
+    omitted.records.clear();
+    assert_eq!(omitted.verify_checked(root).unwrap(), None);
+    let mut wrong_path = original.clone();
+    wrong_path.snapshot_witness.siblings[0] = Hash::new(b"other-sibling");
+    assert_eq!(wrong_path.verify_checked(root).unwrap(), None);
+    let mut malformed = original;
+    malformed.snapshot_witness.value = b"malformed snapshot".to_vec();
+    let error = malformed.verify_checked(root).unwrap_err();
+    assert!(error.decode_resource_error().is_none());
 }
 
 #[test]
@@ -842,10 +894,10 @@ fn certified_automatic_rewards_reject_reassigned_missing_or_replayed_sources() {
     reject(replay, "immutable fee record is replayed or changed");
     let mut recovery = original.clone();
     for record in &mut recovery[3] {
-        if let FeeEvidencePayloadV1::RewardBeneficiaryRevision(revision) = &mut record.payload {
-            if revision.revision == 1 {
-                revision.previous_account_id = Some(account(3));
-            }
+        if let FeeEvidencePayloadV1::RewardBeneficiaryRevision(revision) = &mut record.payload
+            && revision.revision == 1
+        {
+            revision.previous_account_id = Some(account(3));
         }
     }
     reject(recovery, "changes the original owner lineage");

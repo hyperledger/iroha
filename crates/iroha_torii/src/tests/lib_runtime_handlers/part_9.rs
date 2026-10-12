@@ -216,7 +216,14 @@ async fn solo_finality_walk_fits_the_proof_egress_budget() {
     let proof = iroha_core::sumeragi::finality::build_proof(&node.app.state.view(), 2)
         .expect("current real-node embedded certificate proof");
     proof
-        .decode_checked()
+        .decode_checked(
+            node.app
+                .state
+                .view()
+                .native_execution_tip()
+                .unwrap()
+                .result_scope(),
+        )
         .expect("current proof verifies before measuring egress");
     node.stop();
     let response_bytes = u64::try_from(

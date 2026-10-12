@@ -14,6 +14,16 @@ class KagemushaWalletExceptionV1(
     companion object {
         /** There is deliberately no structural verifier or software-key fallback. */
         const val ARTIFACTS_UNAVAILABLE = -4
+        /**
+         * Design §5.3 runtime capacity refusal: free custody storage does not cover the operation.
+         * Refused before commit; nothing debited or credited. Retry after freeing storage.
+         */
+        const val NOT_ENOUGH_STORAGE = -12
+        /**
+         * Design §5.3 runtime capacity refusal: available memory does not cover the installed
+         * relations' peak proving memory. Refused before commit; never a device verdict.
+         */
+        const val NOT_ENOUGH_MEMORY = -14
         /** Native output violates the fixed status/payload contract. */
         const val INVALID_NATIVE_OUTPUT = -100
         /** Missing, stale or unauthenticated native bridge library. */
@@ -32,8 +42,8 @@ class KagemushaWalletCallV1 internal constructor(
     bytes: ByteArray,
 ) {
     init {
-        val carriesBytes = status == EPOCH_PROGRESS || status == DELETION_REVIEW || status == DELETED || status == CREDIT_PROJECTION || status == UNLOAD_CLAIM || status == COMPLETE || status == CREDIT_STATUS || status == SETUP || status == TIME_CHALLENGE || status == ACCOUNT_CHALLENGE || status == ACTIVATION || status == CLOSE_LOADS || status == 31 || status == 33 || status == 36 || status == LEDGER_INSTRUCTION || status == UNLOAD_CONFIRMATION || status == ACTIVATION_CONFIRMATION || status == ACTIVATION_PROGRESS || status == ACTIVATION_REJECTED || status in listOf(18, 19, 23, 24, 25, 27, 28, 37, 38)
-        if (status in listOf(41, 43) || (status >= 0 && status !in UNKNOWN..EPOCH_PROGRESS) || bytes.size > when (status) { EPOCH_PROGRESS -> 16; DELETION_REVIEW -> 254; DELETED -> 32; DELETION_REVIEW_DISCARDED, NOT_DELETED -> 0; CREDIT_PROJECTION -> 10_092; ACTIVATION, ENROLLMENT_DISPATCH, CLOSE_LOADS, 36, UNLOAD_CLAIM -> 16_384; LEDGER_INSTRUCTION -> 65_536; 24 -> KagemushaWalletEnrollmentV1.REQUEST_MAX_BYTES; 25 -> 262_144; 28 -> 1024; 37 -> 1028; 38 -> 73_740; 31 -> 21_024; 33, UNLOAD_CONFIRMATION, ACTIVATION_CONFIRMATION, ACTIVATION_PROGRESS, ACTIVATION_REJECTED -> 32; else -> 10_000 } ||
+        val carriesBytes = status == EPOCH_PROGRESS || status == DELETION_REVIEW || status == DELETED || status == CREDIT_PROJECTION || status == UNLOAD_CLAIM || status == COMPLETE || status == CREDIT_STATUS || status == SETUP || status == TIME_CHALLENGE || status == ACCOUNT_CHALLENGE || status == ACTIVATION || status == CLOSE_LOADS || status == 31 || status == 33 || status == 36 || status == LEDGER_INSTRUCTION || status == ENROLLMENT_LEDGER_INSTRUCTION || status == UNLOAD_CONFIRMATION || status == ACTIVATION_CONFIRMATION || status == ACTIVATION_PROGRESS || status == ACTIVATION_REJECTED || status in listOf(18, 19, 23, 24, 25, 27, 28, 37, 38)
+        if (status in listOf(41, 43) || (status >= 0 && status !in UNKNOWN..ENROLLMENT_LEDGER_INSTRUCTION) || bytes.size > when (status) { EPOCH_PROGRESS -> 16; DELETION_REVIEW -> 254; DELETED -> 32; DELETION_REVIEW_DISCARDED, NOT_DELETED -> 0; CREDIT_PROJECTION -> 10_092; ACTIVATION, ENROLLMENT_DISPATCH, CLOSE_LOADS, 36, UNLOAD_CLAIM -> 16_384; LEDGER_INSTRUCTION, ENROLLMENT_LEDGER_INSTRUCTION -> 65_536; 24 -> KagemushaWalletEnrollmentV1.REQUEST_MAX_BYTES; 25 -> 262_144; 28 -> 1024; 37 -> 1028; 38 -> 73_740; 31 -> 21_024; 33, UNLOAD_CONFIRMATION, ACTIVATION_CONFIRMATION, ACTIVATION_PROGRESS, ACTIVATION_REJECTED -> 32; else -> 10_000 } ||
             (if (carriesBytes) bytes.isEmpty() else bytes.isNotEmpty()) ||
             ((status == TIME_CHALLENGE || status == ACCOUNT_CHALLENGE) && (bytes.size != 32 || sequenceLow <= 0 || sequenceHigh != 0L)) ||
             (status in listOf(ACTIVATION, CLOSE_LOADS, 31, 32, 34, 35, 36, ACTIVATION_NOT_STARTED, LEDGER_INSTRUCTION, UNLOAD_CLAIM, COLLECTION_IDLE, DELETED, DELETION_REVIEW_DISCARDED, NOT_DELETED) && (sequenceLow != 0L || sequenceHigh != 0L || detail != 0)) ||
@@ -42,7 +52,7 @@ class KagemushaWalletCallV1 internal constructor(
             (status == DELETION_REVIEW && (sequenceLow <= 0 || sequenceHigh != 0L || detail != 0 || bytes.size != 254)) ||
             (status == DELETED && (bytes.size != 32 || bytes.all { it == 0.toByte() })) ||
             (status == OPENED && (sequenceLow <= 0 || sequenceHigh != 0L)) ||
-            ((status in 18..28 || status in 37..39) && (sequenceLow <= 0 || sequenceHigh != 0L || detail != 0)) ||
+            ((status in 18..28 || status in 37..39 || status in ENROLLMENT_LOCAL_ABANDONED..ENROLLMENT_LEDGER_INSTRUCTION) && (sequenceLow <= 0 || sequenceHigh != 0L || detail != 0)) ||
             (status in listOf(UNLOAD_CONFIRMATION, ACTIVATION_CONFIRMATION, ACTIVATION_REJECTED) && java.lang.Long.compareUnsigned(sequenceLow, 2L) < 0) ||
             (status in listOf(18, 23) && bytes.size != 32) || (status == 19 && bytes.size != 161) ||
             (status in listOf(33, UNLOAD_CONFIRMATION, ACTIVATION_CONFIRMATION, ACTIVATION_PROGRESS, ACTIVATION_REJECTED) && (sequenceLow == 0L || sequenceHigh != 0L || detail != 0 || bytes.size != 32 || bytes.all { it == 0.toByte() }))) {
@@ -93,6 +103,13 @@ class KagemushaWalletCallV1 internal constructor(
     override fun toString(): String = "KagemushaWalletCallV1(status=$status, bytes=[REDACTED])"
     companion object {
         const val EPOCH_PROGRESS = 57
+        /**
+         * Design §3.2 no-marker abandonment: the slot is abandoned locally and there is nothing
+         * to submit. It never carries bytes. The marker form is [ENROLLMENT_ABANDONMENT].
+         */
+        const val ENROLLMENT_LOCAL_ABANDONED = 58
+        /** Exact ledger instruction for the enrollment owner's retained signed abandonment. */
+        const val ENROLLMENT_LEDGER_INSTRUCTION = 59
         const val UNKNOWN = 0
         const val COMPLETE = 1
         const val PENDING = 2
@@ -114,6 +131,7 @@ class KagemushaWalletCallV1 internal constructor(
         const val ACTIVATION = 17
         const val ENROLLMENT_READY = 26
         const val ENROLLMENT_DISPATCH = 27
+        /** Design §3.2 marker abandonment: the exact retained signed Abandonment frame to submit. */
         const val ENROLLMENT_ABANDONMENT = 28
         const val BACKGROUND_STATUS = 29
         const val CLOSE_LOADS = 30
@@ -558,6 +576,8 @@ internal object KagemushaWalletNativeV1 {
     @JvmStatic external fun activity(handle: Long, foreground: Int, charging: Int): Int
     @JvmStatic external fun call(handle: Long, operation: Int, first: ByteArray, second: ByteArray): KagemushaWalletCallV1?
     @JvmStatic external fun enrollment(runtime: Long, selector: Int, first: ByteArray, second: ByteArray, third: ByteArray, certificates: Array<ByteArray>): KagemushaWalletCallV1?
+    /** Native closed E1 refusal table: holder class 1 Phone, 2 App, 3 Attempt, 4 Account, or -1. */
+    @JvmStatic external fun enrollmentRefusal(code: Int, android: Boolean): Int
     @JvmStatic external fun setup(handle: Long, setupId: ByteArray, selector: Int, amountLow: Long, amountHigh: Long, token: Long, first: ByteArray, second: ByteArray, third: ByteArray): KagemushaWalletCallV1?
     @JvmStatic external fun execute(handle: Long, requestId: ByteArray, selector: Int, amountLow: Long, amountHigh: Long, first: ByteArray, second: ByteArray, third: ByteArray): KagemushaWalletCallV1?
     @JvmStatic external fun snapshot(handle: Long): KagemushaWalletSnapshotReplyV1?

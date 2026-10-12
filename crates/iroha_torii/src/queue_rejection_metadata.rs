@@ -2,6 +2,17 @@ impl Error {
     fn status_code_for_queue_error(err: &queue::Error) -> StatusCode {
         match err {
             queue::Error::Deferred(_) => StatusCode::TOO_MANY_REQUESTS,
+            queue::Error::SccpForgeryIngress(error) => {
+                if error.is_local() {
+                    StatusCode::SERVICE_UNAVAILABLE
+                } else if error.is_throttled() {
+                    StatusCode::TOO_MANY_REQUESTS
+                } else if matches!(error, queue::ForgeryIngressError::Duplicate) {
+                    StatusCode::CONFLICT
+                } else {
+                    StatusCode::BAD_REQUEST
+                }
+            }
             queue::Error::Full
             | queue::Error::LatencySaturated
             | queue::Error::MaximumTransactionsPerUser => StatusCode::TOO_MANY_REQUESTS,
@@ -24,6 +35,23 @@ impl Error {
     }
     fn queue_error_summary(err: &queue::Error) -> (&'static str, &'static str) {
         match err {
+            queue::Error::SccpForgeryIngress(error) => {
+                if error.is_local() {
+                    (
+                        "sccp_forgery_unavailable",
+                        "original SCCP evidence source or resources are unavailable",
+                    )
+                } else if error.is_throttled() {
+                    (
+                        "sccp_forgery_throttled",
+                        "node-local SCCP evidence repeat or pairing limit",
+                    )
+                } else if matches!(error, queue::ForgeryIngressError::Duplicate) {
+                    ("sccp_evidence_duplicate", "no new slashable SCCP offender")
+                } else {
+                    ("sccp_evidence_rejected", "SCCP evidence failed admission")
+                }
+            }
             queue::Error::Deferred(_) => (
                 "admission_deferred",
                 "local admission capacity is unavailable; retry the same signed transaction",
@@ -122,8 +150,7 @@ impl Error {
             _ => None,
         };
         ErrorEnvelope::new(code, message).with_details(ErrorDetails {
-            reject_code: (!matches!(err, queue::Error::Deferred(_)))
-                .then(|| reject_code.to_owned()),
+            reject_code: queue_error_has_rejection_code(err).then(|| reject_code.to_owned()),
             queue: backpressure.map(|backpressure| {
                 let saturated = backpressure.is_saturated();
                 QueueErrorSnapshot {
@@ -145,6 +172,18 @@ impl Error {
 }
 fn queue_rejection_metadata(err: &queue::Error) -> (&'static str, String) {
     match err {
+        queue::Error::SccpForgeryIngress(error) => {
+            let code = if error.is_local() {
+                "PRTRY:SCCP_FORGERY_UNAVAILABLE"
+            } else if error.is_throttled() {
+                "PRTRY:SCCP_FORGERY_THROTTLED"
+            } else if matches!(error, queue::ForgeryIngressError::Duplicate) {
+                "PRTRY:SCCP_EVIDENCE_DUPLICATE"
+            } else {
+                "PRTRY:SCCP_EVIDENCE_REJECTED"
+            };
+            (code, error.to_string())
+        }
         queue::Error::Deferred(_) => (
             "PRTRY:ADMISSION_DEFERRED",
             "local admission capacity is unavailable; retry the same signed transaction".to_owned(),
@@ -220,4 +259,10 @@ fn queue_rejection_metadata(err: &queue::Error) -> (&'static str, String) {
             format!("transaction queue admission requires recovery: {reason}"),
         ),
     }
+}
+
+// Local source/resource failure and node-local throttling are not consensus verdicts.
+fn queue_error_has_rejection_code(err: &queue::Error) -> bool {
+    !matches!(err, queue::Error::Deferred(_))
+        && !matches!(err, queue::Error::SccpForgeryIngress(error) if error.is_local() || error.is_throttled())
 }

@@ -42,11 +42,16 @@ fn original_finish_attestation(
         status,
         finality_proof: proofs.tip,
     };
-    body.validate_consistency().map_err(Error::InvalidBody)?;
+    body.validate_consistency(
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+    )
+    .map_err(Error::InvalidBody)?;
     let signature = SignatureOf::try_from_hash(signer.private_key(), body.signing_hash())
         .map_err(|error| Error::Signing(error.to_string()))?;
     let attestation = SumeragiFinalityAttestation { body, signature };
-    attestation.verify().map_err(Error::InvalidBody)?;
+    attestation
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+        .map_err(Error::InvalidBody)?;
     Ok(attestation)
 }
 
@@ -114,7 +119,9 @@ fn check_signature_and_order(chain: &CertifiedTestChain) {
     assert_eq!(fresh.body.finality_proof, original.body.finality_proof);
     assert_eq!(fresh.body.challenge, [52; 32]);
     assert_ne!(fresh.signature, original.signature);
-    fresh.verify().unwrap();
+    fresh
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+        .unwrap();
     let wrong_signer = KeyPair::from_seed(vec![0xD1; 32], Algorithm::BlsNormal);
     assert_ne!(wrong_signer.public_key(), signer.public_key());
     for challenge in [[53; 32], [0; 32]] {
@@ -133,7 +140,7 @@ fn check_signature_and_order(chain: &CertifiedTestChain) {
     }
     finish_selected(&view, chain, &original, [54; 32], &signer, false)
         .unwrap()
-        .verify()
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
         .unwrap();
 }
 
@@ -166,7 +173,9 @@ fn check_body_witness_refusals(chain: &CertifiedTestChain) {
         original.body.genesis_finality_proof
     );
     assert_eq!(restored.body.finality_proof, original.body.finality_proof);
-    restored.verify().unwrap();
+    restored
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+        .unwrap();
 }
 
 #[test]
@@ -190,8 +199,12 @@ fn check_active_original_recipe(chain: &CertifiedTestChain) {
     let actual = actual_budget
         .with(|| finish_selected(&view, chain, &original, [59; 32], &signer, false))
         .unwrap();
-    expected.verify().unwrap();
-    actual.verify().unwrap();
+    expected
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+        .unwrap();
+    actual
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+        .unwrap();
     for budget in [&expected_budget, &actual_budget] {
         assert!(budget.consumed_allocated_bytes() > 1);
         assert!(budget.consumed_allocated_bytes() <= CEILING as u64);
@@ -225,7 +238,7 @@ fn check_active_original_recipe(chain: &CertifiedTestChain) {
     }
     finish_selected(&view, chain, &original, [61; 32], &signer, false)
         .unwrap()
-        .verify()
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
         .unwrap();
     assert_eq!(pool.reserved_bytes(), reserved);
 }

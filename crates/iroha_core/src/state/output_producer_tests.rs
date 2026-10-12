@@ -1164,3 +1164,6 @@ fn poisoned_carrier_refuses_consensus_world_application() {
         Some(ExecutionOutputPlanState::Poisoned)
     ));
 }
+
+#[path = "output_sccp_forgery_tests.rs"]
+mod sccp_forgery;

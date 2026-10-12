@@ -13,26 +13,21 @@
 //! them (ws30–ws33, ws41).
 
 use super::*;
-use crate::smartcontracts::isi::sccp::store;
+use crate::smartcontracts::isi::sccp::{anchors::SccpAnchorV1, store};
+use crate::state::deserialize::StateRestoreError;
 use iroha_data_model::{
     bridge::SccpNetworkV1,
     sccp::{
-        attestation::{
-            SccpAttestationStatusV1, SccpAttestationSubjectV1, SccpBlockCommitmentV1,
-            SccpHistoryStateV1,
-        },
+        commitment::{SccpBlockCommitmentV1, SccpHistoryStateV1},
         control::{SccpControlRecordV1, SccpLeafRefV1},
         governance::SccpGovernanceSubjectV1,
         inbound::SccpInboundRecordV1,
-        keys::{SccpAttestationFaultRecordV1, SccpBridgeKeyStateV1},
-        keys_index::SccpPruneCursorV1,
         light_client::{
             SccpLcCheckpointV1, SccpLcConsensusSetV1, SccpLcProfileActivationV1, SccpLightClientV1,
         },
         outbound::SccpOutboundMessageRecordV1,
         params::SccpParametersV1,
         registry::SccpRouteV1,
-        roster::SccpBridgeRosterV1,
     },
 };
 use norito::json::JsonSerialize as _;
@@ -45,22 +40,18 @@ pub(crate) const SCCP_SNAPSHOT_MEMBER: &str = "sccp";
 pub(crate) struct SnapshotSccpState {
     pub(super) sccp_parameters: Cell<Option<SccpParametersV1>>,
     pub(super) sccp_reset_nonce: Cell<Option<[u8; 32]>>,
-    pub(super) sccp_bridge_keys: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_bridge_key_owners: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_rosters: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_roster_current: Cell<u64>,
-    pub(super) sccp_heartbeat_marker: Cell<Option<u64>>,
+    pub(super) sccp_committee_generations: snapshot_storage::SnapshotStorage,
+    pub(super) sccp_committee_current: Cell<u64>,
+    pub(super) sccp_forgery_offences: snapshot_storage::SnapshotStorage,
+    pub(super) sccp_forgery_max_generation: Cell<Option<u64>>,
+    pub(super) sccp_liability_clock: Cell<u64>,
+    pub(super) sccp_degraded_run: Cell<u32>,
+    pub(super) sccp_anchor_open: Cell<Vec<SccpAnchorV1>>,
+    pub(super) sccp_anchor_chunks: snapshot_storage::SnapshotStorage,
     pub(super) sccp_block_leaves: snapshot_storage::SnapshotStorage,
     pub(super) sccp_block_commitments: snapshot_storage::SnapshotStorage,
     pub(super) sccp_history: Cell<SccpHistoryStateV1>,
     pub(super) sccp_history_leaves: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_attestation_subjects: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_attestation_status: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_attestation_signatures: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_attestation_faults: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_member_last_signed: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_handoff_stalled: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_prune_cursor: Cell<SccpPruneCursorV1>,
     pub(super) sccp_outbound_messages: snapshot_storage::SnapshotStorage,
     pub(super) sccp_outbound_by_nonce: snapshot_storage::SnapshotStorage,
     pub(super) sccp_control_messages: snapshot_storage::SnapshotStorage,
@@ -102,22 +93,18 @@ macro_rules! serialize_sccp_fields {
         serialize_sccp_fields!(@members $world, $out, $serialize;
             cell sccp_parameters,
             cell sccp_reset_nonce,
-            store sccp_bridge_keys,
-            store sccp_bridge_key_owners,
-            store sccp_rosters,
-            cell sccp_roster_current,
-            cell sccp_heartbeat_marker,
+            store sccp_committee_generations,
+            cell sccp_committee_current,
+            store sccp_forgery_offences,
+            cell sccp_forgery_max_generation,
+            cell sccp_liability_clock,
+            cell sccp_degraded_run,
+            cell sccp_anchor_open,
+            store sccp_anchor_chunks,
             store sccp_block_leaves,
             store sccp_block_commitments,
             cell sccp_history,
             store sccp_history_leaves,
-            store sccp_attestation_subjects,
-            store sccp_attestation_status,
-            store sccp_attestation_signatures,
-            store sccp_attestation_faults,
-            store sccp_member_last_signed,
-            store sccp_handoff_stalled,
-            cell sccp_prune_cursor,
             store sccp_outbound_messages,
             store sccp_outbound_by_nonce,
             store sccp_control_messages,
@@ -216,7 +203,7 @@ fn valid_history(history: &SccpHistoryStateV1) -> Result<(), String> {
 
 impl SnapshotSccpState {
     /// Decode and validate every current/predecessor envelope before publishing any field.
-    pub(super) fn restore(self, world: &mut World) -> Result<(), json::Error> {
+    pub(super) fn restore(self, world: &mut World) -> Result<(), StateRestoreError> {
         validate_cell(&self.sccp_parameters, "sccp_parameters", valid_parameters)?;
         validate_cell(
             &self.sccp_reset_nonce,
@@ -224,16 +211,183 @@ impl SnapshotSccpState {
             valid_reset_nonce,
         )?;
         validate_cell(&self.sccp_history, "sccp_history", valid_history)?;
-        let bridge_keys = self
-            .sccp_bridge_keys
-            .decode::<PeerId, SccpBridgeKeyStateV1>("sccp_bridge_keys", |_, _| true)?;
-        let bridge_key_owners = self.sccp_bridge_key_owners.decode::<[u8; 20], PeerId>(
-            "sccp_bridge_key_owners",
-            store::bridge_key_owners::valid_entry,
+        validate_cell(&self.sccp_anchor_open, "sccp_anchor_open", |anchors| {
+            if anchors.len() <= 4096 {
+                Ok(())
+            } else {
+                Err("an open anchor chunk exceeds 4096 entries".to_owned())
+            }
+        })?;
+        let committee_generations = self
+            .sccp_committee_generations
+            .decode_generations(world.sccp_committee_generations.allocation_budget())?;
+        let forgery_offences = self
+            .sccp_forgery_offences
+            .decode_forgery_offences(world.sccp_forgery_offences.allocation_budget())?;
+        let max_current = *self.sccp_forgery_max_generation.view().get();
+        let max_previous = *self.sccp_forgery_max_generation.predecessor_view().get();
+        let snapshot = forgery_offences.snapshot();
+        for (key, previous) in snapshot.revert_map().iter() {
+            if previous
+                .as_ref()
+                .is_some_and(|id| snapshot.current().get(key) != Some(id))
+            {
+                return Err(invalid(
+                    "sccp_forgery_offences",
+                    "permanent offence was removed or rebound",
+                )
+                .into());
+            }
+        }
+        let evidence = world.consensus_evidence.snapshot();
+        // SCCP bodies are permanent; only the independent penalty metadata may change.
+        for (id, old) in evidence.revert_map().iter() {
+            if let Some(old) = old {
+                if matches!(
+                    old.evidence,
+                    iroha_data_model::block::consensus::RecordedEvidenceV1::SccpForgery(_)
+                ) && evidence
+                    .current()
+                    .get(id)
+                    .is_none_or(|current| &**current != &**old)
+                {
+                    return Err(invalid(
+                        "consensus_evidence",
+                        "permanent SCCP evidence body was removed or rebound",
+                    )
+                    .into());
+                }
+            }
+        }
+        // Reconstruct both exact cuts without a copied graph or an intermediate map.
+        let offence_at = |key: &sccp_forgery_custody::OffenceKey, previous: bool| {
+            if previous {
+                if let Some(old) = snapshot.revert_map().get(key) {
+                    return old.as_ref();
+                }
+            }
+            snapshot.current().get(key)
+        };
+        let evidence_at = |id: &Hash, previous: bool| {
+            if previous {
+                if let Some(old) = evidence.revert_map().get(id) {
+                    return old.as_ref();
+                }
+            }
+            evidence.current().get(id)
+        };
+        for previous in [false, true] {
+            for key in snapshot
+                .current()
+                .iter()
+                .map(|(key, _)| key)
+                .chain(snapshot.revert_map().iter().map(|(key, _)| key))
+            {
+                let Some(id) = offence_at(key, previous) else {
+                    continue;
+                };
+                let record = evidence_at(&Hash::prehashed(*id), previous).ok_or_else(|| {
+                    invalid(
+                        "sccp_forgery_offences",
+                        "offence lacks its permanent evidence record in current/undo cut",
+                    )
+                })?;
+                let iroha_data_model::block::consensus::RecordedEvidenceV1::SccpForgery(material) =
+                    &record.evidence
+                else {
+                    return Err(invalid(
+                        "sccp_forgery_offences",
+                        "native evidence cannot back an SCCP offence",
+                    )
+                    .into());
+                };
+                let (generation, lane, validator) = &**key;
+                if record.sccp_evidence_id() != Some(*id)
+                    || material.generation != *generation
+                    || !material
+                        .offenders
+                        .iter()
+                        .any(|o| o.lane_id == *lane && o.validator == *validator)
+                {
+                    return Err(invalid(
+                        "sccp_forgery_offences",
+                        "offence/evidence original tuple differs",
+                    )
+                    .into());
+                }
+            }
+            for id in evidence
+                .current()
+                .iter()
+                .map(|(id, _)| id)
+                .chain(evidence.revert_map().iter().map(|(id, _)| id))
+            {
+                let Some(record) = evidence_at(id, previous) else {
+                    continue;
+                };
+                if let iroha_data_model::block::consensus::RecordedEvidenceV1::SccpForgery(
+                    material,
+                ) = &record.evidence
+                {
+                    let exact = record
+                        .sccp_evidence_id()
+                        .ok_or_else(|| invalid("consensus_evidence", "invalid SCCP identity"))?;
+                    if *id != Hash::prehashed(exact) {
+                        return Err(invalid("consensus_evidence", "SCCP record key differs").into());
+                    }
+                    for offender in &material.offenders {
+                        let key = sccp_forgery_custody::OffenceKey::try_copy(
+                            material.generation,
+                            offender.lane_id,
+                            &offender.validator,
+                            world.sccp_forgery_offences.allocation_budget(),
+                        )?;
+                        if offence_at(&key, previous) != Some(&exact) {
+                            return Err(invalid(
+                                "sccp_forgery_offences",
+                                "SCCP record lacks its exact permanent offence in current/undo cut",
+                            )
+                            .into());
+                        }
+                    }
+                }
+            }
+        }
+        drop(evidence);
+        let current_max = snapshot
+            .current()
+            .iter()
+            .map(|(key, _)| key.generation())
+            .max();
+        let previous_max = snapshot
+            .current()
+            .iter()
+            .filter(|(key, _)| snapshot.revert_map().get(key).is_none())
+            .map(|(key, _)| key.generation())
+            .chain(
+                snapshot
+                    .revert_map()
+                    .iter()
+                    .filter_map(|(key, value)| value.as_ref().map(|_| key.generation())),
+            )
+            .max();
+        if max_current != current_max || max_previous.unwrap_or(max_current) != previous_max {
+            return Err(invalid(
+                "sccp_forgery_max_generation",
+                "maximum does not match permanent current/undo offences",
+            )
+            .into());
+        }
+        // Fund replacement scalar controls under the same original offence pool before publication.
+        let forgery_max_generation = sccp_forgery_custody::initialize_max(
+            max_current,
+            max_previous,
+            world.sccp_forgery_offences.allocation_budget(),
         )?;
-        let rosters = self
-            .sccp_rosters
-            .decode::<u64, SccpBridgeRosterV1>("sccp_rosters", store::rosters::valid_entry)?;
+        drop(snapshot);
+        let anchor_chunks = self
+            .sccp_anchor_chunks
+            .decode::<u64, [u8; 32]>("sccp_anchor_chunks", store::anchor_chunks::valid_entry)?;
         let block_leaves = self.sccp_block_leaves.decode::<(u64, u32), SccpLeafRefV1>(
             "sccp_block_leaves",
             store::block_leaves::valid_entry,
@@ -247,30 +401,6 @@ impl SnapshotSccpState {
         let history_leaves = self
             .sccp_history_leaves
             .decode::<u64, (u64, [u8; 32])>("sccp_history_leaves", |_, _| true)?;
-        let attestation_subjects = self
-            .sccp_attestation_subjects
-            .decode::<u64, SccpAttestationSubjectV1>(
-                "sccp_attestation_subjects",
-                store::attestation_subjects::valid_entry,
-            )?;
-        let attestation_status = self
-            .sccp_attestation_status
-            .decode::<u64, SccpAttestationStatusV1>("sccp_attestation_status", |_, _| true)?;
-        let attestation_signatures = self
-            .sccp_attestation_signatures
-            .decode::<(u64, u8), [u8; 65]>("sccp_attestation_signatures", |_, _| true)?;
-        let attestation_faults = self
-            .sccp_attestation_faults
-            .decode::<([u8; 20], u64), SccpAttestationFaultRecordV1>(
-                "sccp_attestation_faults",
-                |_, _| true,
-            )?;
-        let member_last_signed = self
-            .sccp_member_last_signed
-            .decode::<[u8; 20], u64>("sccp_member_last_signed", |_, _| true)?;
-        let handoff_stalled = self
-            .sccp_handoff_stalled
-            .decode::<u64, u64>("sccp_handoff_stalled", |_, _| true)?;
         let outbound_messages = self
             .sccp_outbound_messages
             .decode::<[u8; 32], SccpOutboundMessageRecordV1>("sccp_outbound_messages", |_, _| {
@@ -332,22 +462,18 @@ impl SnapshotSccpState {
             )?;
         world.sccp_parameters = self.sccp_parameters;
         world.sccp_reset_nonce = self.sccp_reset_nonce;
-        world.sccp_bridge_keys = bridge_keys;
-        world.sccp_bridge_key_owners = bridge_key_owners;
-        world.sccp_rosters = rosters;
-        world.sccp_roster_current = self.sccp_roster_current;
-        world.sccp_heartbeat_marker = self.sccp_heartbeat_marker;
+        world.sccp_committee_generations = committee_generations;
+        world.sccp_committee_current = self.sccp_committee_current;
+        world.sccp_forgery_offences = forgery_offences;
+        world.sccp_forgery_max_generation = forgery_max_generation;
+        world.sccp_liability_clock = self.sccp_liability_clock;
+        world.sccp_degraded_run = self.sccp_degraded_run;
+        world.sccp_anchor_open = self.sccp_anchor_open;
+        world.sccp_anchor_chunks = anchor_chunks;
         world.sccp_block_leaves = block_leaves;
         world.sccp_block_commitments = block_commitments;
         world.sccp_history = self.sccp_history;
         world.sccp_history_leaves = history_leaves;
-        world.sccp_attestation_subjects = attestation_subjects;
-        world.sccp_attestation_status = attestation_status;
-        world.sccp_attestation_signatures = attestation_signatures;
-        world.sccp_attestation_faults = attestation_faults;
-        world.sccp_member_last_signed = member_last_signed;
-        world.sccp_handoff_stalled = handoff_stalled;
-        world.sccp_prune_cursor = self.sccp_prune_cursor;
         world.sccp_outbound_messages = outbound_messages;
         world.sccp_outbound_by_nonce = outbound_by_nonce;
         world.sccp_control_messages = control_messages;

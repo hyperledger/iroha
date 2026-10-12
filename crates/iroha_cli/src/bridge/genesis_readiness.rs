@@ -96,6 +96,7 @@ fn report(
                 iroha::data_model::sumeragi_finality::result_of_preimage(
                     certificate.result_preimage(),
                 )
+                .ok_or_else(|| eyre::eyre!("verified genesis has a malformed certified result"))?
                 .0,
             );
             let bytes = norito::to_bytes(attestation.as_ref())?;

@@ -1,43 +1,33 @@
 //! SCCP v1 EVM ABI (spec §5.1.7, §5.2.2, §4.12.2, §4.16).
 //!
-//! Standard Solidity ABI encoders for every state-changing entry point of `SccpTairaXor.sol`
-//! (`finalizeFromTaira`, `finalizeFromTairaHistorical`, `rotateRosters`, `applyControl`,
-//! `applyControlHistorical`, `voidExpired`, `voidExpiredHistorical`, `voidFrozen` and the
-//! canonical `transferToTaira`), encoders and strict decoders of the view calls, strict decoders
-//! of the calldata Taira proves on TRON (`transferToTaira`, `voidExpired*`, `voidFrozen`), and
-//! strict encoders and decoders of the `SccpTransferToTaira` and `SccpVoided` logs.
+//! Canonical Solidity ABI encoders for native BLS certificate and checkpoint calls,
+//! strict view and void-call decoders, and transfer/void log codecs. These are DATA
+//! encodings: certificate verification and destination authority are separate.
 //!
-//! The encoders produce exactly the calldata Solidity's own encoder produces: heads in argument
-//! order, dynamic values as offsets into the tail relative to the start of their enclosing
-//! sequence, `bytes` length-prefixed and zero-padded to 32 bytes. The decoders are strict: they
-//! accept only that canonical form (canonical offsets, clean integer words, zero padding and no
-//! trailing bytes), which is the only form a destination accepts for the calls Taira proves from
-//! TRON calldata (§5.1.7, §5.1.8, §5.2.2).
-//!
-//! The same calldata runs on ETH, BSC and TRON; TRON addresses are the 20-byte form without the
-//! `0x41` prefix.
+//! Dynamic offsets are relative to their enclosing sequence. Decoders reject gaps,
+//! dirty integer words and padding, and trailing bytes. ETH and BSC share this ABI.
 
 use iroha_data_model::bridge::SccpNetworkV1;
 
 use super::{
-    constants::{
-        MAX_TAIRA_ACCOUNT_BYTES, MAX_VOID_FROZEN_RANGE_EVM, SELECTOR_APPLY_CONTROL,
-        SELECTOR_APPLY_CONTROL_HISTORICAL, SELECTOR_CONTROL_NONCE, SELECTOR_DOMAIN_SEPARATOR,
-        SELECTOR_FINALIZE_FROM_TAIRA, SELECTOR_FINALIZE_FROM_TAIRA_HISTORICAL,
-        SELECTOR_INITIAL_ROSTER_DIGEST, SELECTOR_INITIAL_ROSTER_GENERATION, SELECTOR_IS_CONSUMED,
-        SELECTOR_MAX_ROSTER_VALIDITY_MS, SELECTOR_MAX_WRAPPED_SUPPLY, SELECTOR_MINTING_PAUSED,
-        SELECTOR_OP_COUNT, SELECTOR_ROSTER_STATE, SELECTOR_ROTATE_ROSTERS, SELECTOR_ROUTE_REVISION,
+    constants::{MAX_TAIRA_ACCOUNT_BYTES, MAX_VOID_FROZEN_RANGE_EVM},
+    destination::{
+        BlockRefV1, CheckpointRefV1, ControlProofV1, MessageProofV1, TairaCertificateV1,
+    },
+    destination_abi::{
+        SELECTOR_APPLY_CONTROL, SELECTOR_APPLY_CONTROL_FROM_CHECKPOINT, SELECTOR_CHECKPOINT_HEADER,
+        SELECTOR_COMMITTEE_STATE, SELECTOR_CONSENSUS_INSTANCE, SELECTOR_CONTROL_NONCE,
+        SELECTOR_EQUIVOCATED, SELECTOR_FINALIZE_FROM_CHECKPOINT, SELECTOR_FINALIZE_FROM_TAIRA,
+        SELECTOR_INITIAL_COMMITTEE, SELECTOR_IS_CONSUMED, SELECTOR_MAX_VALIDITY_MS,
+        SELECTOR_MAX_WRAPPED_SUPPLY, SELECTOR_MINTING_PAUSED, SELECTOR_OP_COUNT,
+        SELECTOR_PAUSE_STATE, SELECTOR_ROUTE_REVISION, SELECTOR_SUBMIT_CHECKPOINTS,
         SELECTOR_TAIRA_NETWORK_ID, SELECTOR_TRANSFER_NONCES, SELECTOR_TRANSFER_TO_TAIRA,
-        SELECTOR_VOID_EXPIRED, SELECTOR_VOID_EXPIRED_HISTORICAL, SELECTOR_VOID_FROZEN,
+        SELECTOR_VOID_EXPIRED, SELECTOR_VOID_EXPIRED_FROM_CHECKPOINT, SELECTOR_VOID_FROZEN,
         TOPIC_TRANSFER_TO_TAIRA, TOPIC_VOIDED,
     },
-    eip712::AttestationFieldsV1,
     hashes::{word_address, word_bool, word_u64, word_u128},
     network::external_account_codec,
     payload::SccpTransferPayloadV1,
-    proof::{ControlProofV1, HistoryProofV1, MessageProofV1},
-    roster::{RosterStateV1, RosterV1},
-    signature::SignatureSetV1,
 };
 
 /// Bytes of one ABI word.
@@ -183,248 +173,161 @@ pub fn encode_call(selector: [u8; 4], tokens: &[AbiToken]) -> Vec<u8> {
 // SCCP structs as tokens (§5.2.2)
 // ---------------------------------------------------------------------------------------------
 
-/// `RotationV1 { attestation, current, signatures, next }` (§5.2.2).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct RotationV1 {
-    /// The rotation attestation (`nextRosterDigest ≠ 0`) signed by `current`.
-    pub attestation: AttestationFieldsV1,
-    /// The destination's current roster.
-    pub current: RosterV1,
-    /// At least `t` signatures of `current` over the attestation digest.
-    pub signatures: SignatureSetV1,
-    /// The successor roster.
-    pub next: RosterV1,
-}
-
 fn path_token(path: &[[u8; 32]]) -> AbiToken {
     AbiToken::Array(path.iter().copied().map(AbiToken::Word).collect())
 }
 
-/// `AttestationV1` (a static tuple of ten words).
+/// EVM `TairaCertificateV1`; the TON compressed signature is not an EVM field.
 #[must_use]
-pub fn attestation_token(attestation: &AttestationFieldsV1) -> AbiToken {
+pub fn certificate_token(certificate: &TairaCertificateV1) -> AbiToken {
     AbiToken::Tuple(vec![
-        AbiToken::Word(word_u64(attestation.height)),
-        AbiToken::Word(word_u64(attestation.epoch)),
-        AbiToken::Word(word_u64(attestation.timestamp_ms)),
-        AbiToken::Word(attestation.block_hash),
-        AbiToken::Word(attestation.sccp_root),
-        AbiToken::Word(word_u64(u64::from(attestation.message_count))),
-        AbiToken::Word(attestation.history_root),
-        AbiToken::Word(word_u64(attestation.history_size)),
-        AbiToken::Word(attestation.roster_digest),
-        AbiToken::Word(attestation.next_roster_digest),
+        AbiToken::Bytes(certificate.qc.clone()),
+        AbiToken::Bytes(certificate.header.clone()),
+        AbiToken::Bytes(certificate.signature.clone()),
+        AbiToken::Bytes(certificate.committee.clone()),
+        AbiToken::Bytes(certificate.signer_ys.clone()),
     ])
 }
 
-/// `RosterV1 { generation, validFromMs, validUntilMs, threshold, members }` with
-/// `threshold = ⌊2n/3⌋ + 1` and the members packed in their stored order.
+/// `CheckpointRefV1 { header }`.
 #[must_use]
-pub fn roster_token(roster: &RosterV1) -> AbiToken {
+pub fn checkpoint_ref_token(checkpoint: &CheckpointRefV1) -> AbiToken {
+    AbiToken::Tuple(vec![AbiToken::Bytes(checkpoint.header.clone())])
+}
+
+/// `BlockRefV1 { height, sccpRoot, messageCount, historyIndex, historyPath }`.
+#[must_use]
+pub fn block_ref_token(block: &BlockRefV1) -> AbiToken {
     AbiToken::Tuple(vec![
-        AbiToken::Word(word_u64(roster.generation)),
-        AbiToken::Word(word_u64(roster.valid_from_ms)),
-        AbiToken::Word(word_u64(roster.valid_until_ms)),
-        AbiToken::Word(word_usize(roster.threshold())),
-        AbiToken::Bytes(roster.packed_members()),
+        AbiToken::Word(word_u64(block.height)),
+        AbiToken::Word(block.sccp_root),
+        AbiToken::Word(word_u64(u64::from(block.message_count))),
+        AbiToken::Word(word_u64(block.history_index)),
+        path_token(&block.history_path),
     ])
 }
 
-/// `SignaturesV1 { signerBitmap, signatures }`.
-#[must_use]
-pub fn signatures_token(signatures: &SignatureSetV1) -> AbiToken {
-    AbiToken::Tuple(vec![
-        AbiToken::Word(word_u64(u64::from(signatures.signer_bitmap))),
-        AbiToken::Bytes(signatures.signatures.clone()),
-    ])
-}
-
-/// `MessageProofV1 { payload, leafIndex, path }`.
+/// `MessageProofV1 { payload, leafIndex, path, block }`.
 #[must_use]
 pub fn message_proof_token(proof: &MessageProofV1) -> AbiToken {
     AbiToken::Tuple(vec![
         AbiToken::Bytes(proof.payload.clone()),
         AbiToken::Word(word_u64(u64::from(proof.leaf_index))),
         path_token(&proof.path),
+        block_ref_token(&proof.block),
     ])
 }
 
-/// `HistoryProofV1 { height, sccpRoot, messageCount, leafIndex, path }`.
-#[must_use]
-pub fn history_proof_token(history: &HistoryProofV1) -> AbiToken {
-    AbiToken::Tuple(vec![
-        AbiToken::Word(word_u64(history.block.height)),
-        AbiToken::Word(history.block.sccp_root),
-        AbiToken::Word(word_u64(u64::from(history.block.message_count))),
-        AbiToken::Word(word_u64(history.leaf_index)),
-        path_token(&history.path),
-    ])
-}
-
-/// `ControlProofV1 { controlNonce, paused, leafIndex, path }`.
+/// `ControlProofV1` with all authenticated pause fields and its block reference.
+/// The raw `parliament_paused` byte is preserved; values above 1 produce an ABI
+/// bool the destination rejects, never a silently normalized control.
 #[must_use]
 pub fn control_proof_token(control: &ControlProofV1) -> AbiToken {
     AbiToken::Tuple(vec![
         AbiToken::Word(word_u64(control.control_nonce)),
-        AbiToken::Word(word_bool(control.paused)),
+        AbiToken::Word(word_u64(u64::from(control.track))),
+        AbiToken::Word(word_u64(u64::from(control.parliament_paused))),
+        AbiToken::Word(word_u64(control.fast_pause_until_ms)),
+        AbiToken::Word(control.certificate_id),
+        AbiToken::Word(control.effect_hash),
         AbiToken::Word(word_u64(u64::from(control.leaf_index))),
         path_token(&control.path),
+        block_ref_token(&control.block),
     ])
 }
 
-/// `RotationV1 { attestation, current, signatures, next }`.
+/// `finalizeFromTaira(TairaCertificateV1,MessageProofV1)`.
 #[must_use]
-pub fn rotation_token(rotation: &RotationV1) -> AbiToken {
-    AbiToken::Tuple(vec![
-        attestation_token(&rotation.attestation),
-        roster_token(&rotation.current),
-        signatures_token(&rotation.signatures),
-        roster_token(&rotation.next),
-    ])
-}
-
-// ---------------------------------------------------------------------------------------------
-// State-changing calls
-// ---------------------------------------------------------------------------------------------
-
-/// An attestation with the roster that signed it and its signature set: the common prefix of
-/// every finalize, control and `voidExpired*` call.
-#[derive(Debug, Clone, Copy)]
-pub struct AttestedV1<'a> {
-    /// The attestation.
-    pub attestation: &'a AttestationFieldsV1,
-    /// The accepted roster named by `attestation.rosterDigest`.
-    pub roster: &'a RosterV1,
-    /// At least `t` signatures of `roster` over the attestation digest.
-    pub signatures: &'a SignatureSetV1,
-}
-
-impl AttestedV1<'_> {
-    fn tokens(&self) -> [AbiToken; 3] {
-        [
-            attestation_token(self.attestation),
-            roster_token(self.roster),
-            signatures_token(self.signatures),
-        ]
-    }
-}
-
-/// `finalizeFromTaira(AttestationV1,RosterV1,SignaturesV1,MessageProofV1)` (`0x8056d161`).
-#[must_use]
-pub fn finalize_from_taira_calldata(attested: AttestedV1<'_>, proof: &MessageProofV1) -> Vec<u8> {
-    let [attestation, roster, signatures] = attested.tokens();
-    encode_call(
-        SELECTOR_FINALIZE_FROM_TAIRA,
-        &[attestation, roster, signatures, message_proof_token(proof)],
-    )
-}
-
-/// `finalizeFromTairaHistorical(AttestationV1,RosterV1,SignaturesV1,HistoryProofV1,MessageProofV1)`
-/// (`0x96925736`).
-#[must_use]
-pub fn finalize_from_taira_historical_calldata(
-    attested: AttestedV1<'_>,
-    history: &HistoryProofV1,
+pub fn finalize_from_taira_calldata(
+    certificate: &TairaCertificateV1,
     proof: &MessageProofV1,
 ) -> Vec<u8> {
-    let [attestation, roster, signatures] = attested.tokens();
     encode_call(
-        SELECTOR_FINALIZE_FROM_TAIRA_HISTORICAL,
-        &[
-            attestation,
-            roster,
-            signatures,
-            history_proof_token(history),
-            message_proof_token(proof),
-        ],
+        SELECTOR_FINALIZE_FROM_TAIRA,
+        &[certificate_token(certificate), message_proof_token(proof)],
     )
 }
 
-/// `rotateRosters(RotationV1[])` (`0x909ea456`).
+/// `finalizeFromCheckpoint(CheckpointRefV1,MessageProofV1)`.
 #[must_use]
-pub fn rotate_rosters_calldata(rotations: &[RotationV1]) -> Vec<u8> {
+pub fn finalize_from_checkpoint_calldata(
+    checkpoint: &CheckpointRefV1,
+    proof: &MessageProofV1,
+) -> Vec<u8> {
     encode_call(
-        SELECTOR_ROTATE_ROSTERS,
+        SELECTOR_FINALIZE_FROM_CHECKPOINT,
+        &[checkpoint_ref_token(checkpoint), message_proof_token(proof)],
+    )
+}
+
+/// `submitCheckpoints(TairaCertificateV1[])` in the supplied order.
+/// The destination enforces the nonempty, at-most-16 batch limit.
+#[must_use]
+pub fn submit_checkpoints_calldata(certificates: &[TairaCertificateV1]) -> Vec<u8> {
+    encode_call(
+        SELECTOR_SUBMIT_CHECKPOINTS,
         &[AbiToken::Array(
-            rotations.iter().map(rotation_token).collect(),
+            certificates.iter().map(certificate_token).collect(),
         )],
     )
 }
 
-/// `applyControl(AttestationV1,RosterV1,SignaturesV1,ControlProofV1)` (`0x0ce970d6`).
+/// `applyControl(TairaCertificateV1,ControlProofV1)`.
 #[must_use]
-pub fn apply_control_calldata(attested: AttestedV1<'_>, control: &ControlProofV1) -> Vec<u8> {
-    let [attestation, roster, signatures] = attested.tokens();
-    encode_call(
-        SELECTOR_APPLY_CONTROL,
-        &[
-            attestation,
-            roster,
-            signatures,
-            control_proof_token(control),
-        ],
-    )
-}
-
-/// `applyControlHistorical(AttestationV1,RosterV1,SignaturesV1,HistoryProofV1,ControlProofV1)`
-/// (`0x935a913b`).
-#[must_use]
-pub fn apply_control_historical_calldata(
-    attested: AttestedV1<'_>,
-    history: &HistoryProofV1,
+pub fn apply_control_calldata(
+    certificate: &TairaCertificateV1,
     control: &ControlProofV1,
 ) -> Vec<u8> {
-    let [attestation, roster, signatures] = attested.tokens();
     encode_call(
-        SELECTOR_APPLY_CONTROL_HISTORICAL,
+        SELECTOR_APPLY_CONTROL,
+        &[certificate_token(certificate), control_proof_token(control)],
+    )
+}
+
+/// `applyControlFromCheckpoint(CheckpointRefV1,ControlProofV1)`.
+#[must_use]
+pub fn apply_control_from_checkpoint_calldata(
+    checkpoint: &CheckpointRefV1,
+    control: &ControlProofV1,
+) -> Vec<u8> {
+    encode_call(
+        SELECTOR_APPLY_CONTROL_FROM_CHECKPOINT,
         &[
-            attestation,
-            roster,
-            signatures,
-            history_proof_token(history),
+            checkpoint_ref_token(checkpoint),
             control_proof_token(control),
         ],
     )
 }
 
-/// `voidExpired(uint64,AttestationV1,RosterV1,SignaturesV1,MessageProofV1)` (`0xc3de98ad`).
+/// `voidExpired(uint64,TairaCertificateV1,MessageProofV1)`.
 #[must_use]
 pub fn void_expired_calldata(
     nonce: u64,
-    attested: AttestedV1<'_>,
+    certificate: &TairaCertificateV1,
     proof: &MessageProofV1,
 ) -> Vec<u8> {
-    let [attestation, roster, signatures] = attested.tokens();
     encode_call(
         SELECTOR_VOID_EXPIRED,
         &[
             AbiToken::Word(word_u64(nonce)),
-            attestation,
-            roster,
-            signatures,
+            certificate_token(certificate),
             message_proof_token(proof),
         ],
     )
 }
 
-/// `voidExpiredHistorical(uint64,AttestationV1,RosterV1,SignaturesV1,HistoryProofV1,MessageProofV1)`
-/// (`0xbe335b84`).
+/// `voidExpiredFromCheckpoint(uint64,CheckpointRefV1,MessageProofV1)`.
 #[must_use]
-pub fn void_expired_historical_calldata(
+pub fn void_expired_from_checkpoint_calldata(
     nonce: u64,
-    attested: AttestedV1<'_>,
-    history: &HistoryProofV1,
+    checkpoint: &CheckpointRefV1,
     proof: &MessageProofV1,
 ) -> Vec<u8> {
-    let [attestation, roster, signatures] = attested.tokens();
     encode_call(
-        SELECTOR_VOID_EXPIRED_HISTORICAL,
+        SELECTOR_VOID_EXPIRED_FROM_CHECKPOINT,
         &[
             AbiToken::Word(word_u64(nonce)),
-            attestation,
-            roster,
-            signatures,
-            history_proof_token(history),
+            checkpoint_ref_token(checkpoint),
             message_proof_token(proof),
         ],
     )
@@ -507,20 +410,20 @@ impl TransferToTairaCallV1 {
     }
 
     /// The inbound payload Taira rebuilds from this call (§4.12.2): `source` → Taira with
-    /// `nonce = expectedNonce`, `amount = tokenAmount`, the caller as sender (20 bytes, or the
-    /// 21-byte `0x41` form on TRON) and the route constants.
+    /// `nonce = expectedNonce`, `amount = tokenAmount`, the caller as sender (20 bytes) and the
+    /// route constants.
     ///
     /// # Errors
     ///
-    /// Returns [`AbiError::PayloadMismatch`] when `source` is not an EVM-family profile or the
-    /// payload rules fail.
+    /// Returns [`AbiError::PayloadMismatch`] when `source` is not an EVM profile or the payload
+    /// rules fail.
     pub fn inbound_payload(
         &self,
         source: SccpNetworkV1,
         route_revision: u32,
         caller: &[u8; 20],
     ) -> Result<SccpTransferPayloadV1, AbiError> {
-        let sender = evm_family_account(source, caller)?;
+        let sender = evm_account(source, caller)?;
         SccpTransferPayloadV1::inbound(
             source,
             self.expected_nonce,
@@ -533,22 +436,16 @@ impl TransferToTairaCallV1 {
     }
 }
 
-/// The payload account bytes of a 20-byte EVM-family address on `network` (codec 2 or 5).
-fn evm_family_account(network: SccpNetworkV1, address: &[u8; 20]) -> Result<Vec<u8>, AbiError> {
+/// The payload account bytes of a 20-byte address on the EVM profile `network` (codec 2).
+fn evm_account(network: SccpNetworkV1, address: &[u8; 20]) -> Result<Vec<u8>, AbiError> {
     match external_account_codec(network) {
         Some(super::constants::CODEC_EVM_ADDRESS20) => Ok(address.to_vec()),
-        Some(super::constants::CODEC_TRON_ADDRESS21) => {
-            let mut bytes = Vec::with_capacity(21);
-            bytes.push(super::constants::TRON_ADDRESS_PREFIX);
-            bytes.extend_from_slice(address);
-            Ok(bytes)
-        }
         _ => Err(AbiError::PayloadMismatch),
     }
 }
 
 // ---------------------------------------------------------------------------------------------
-// Canonical-encoding check of the void calls Taira proves from TRON calldata
+// Canonical-encoding check of the void calls
 // ---------------------------------------------------------------------------------------------
 
 /// The ABI type of one value, as far as the canonical-encoding check needs it.
@@ -565,43 +462,20 @@ enum AbiShape {
     Tuple(&'static [AbiShape]),
 }
 
-const SHAPE_U8: AbiShape = AbiShape::Uint(1);
 const SHAPE_U32: AbiShape = AbiShape::Uint(4);
 const SHAPE_U64: AbiShape = AbiShape::Uint(8);
 const SHAPE_B32: AbiShape = AbiShape::Uint(WORD);
-/// `AttestationV1` (§5.2.2).
-const SHAPE_ATTESTATION: AbiShape = AbiShape::Tuple(&[
-    SHAPE_U64, SHAPE_U64, SHAPE_U64, SHAPE_B32, SHAPE_B32, SHAPE_U32, SHAPE_B32, SHAPE_U64,
-    SHAPE_B32, SHAPE_B32,
-]);
-/// `RosterV1`.
-const SHAPE_ROSTER: AbiShape =
-    AbiShape::Tuple(&[SHAPE_U64, SHAPE_U64, SHAPE_U64, SHAPE_U8, AbiShape::Bytes]);
-/// `SignaturesV1`.
-const SHAPE_SIGNATURES: AbiShape = AbiShape::Tuple(&[SHAPE_U32, AbiShape::Bytes]);
-/// `MessageProofV1`.
-const SHAPE_MESSAGE_PROOF: AbiShape =
-    AbiShape::Tuple(&[AbiShape::Bytes, SHAPE_U32, AbiShape::Words]);
-/// `HistoryProofV1`.
-const SHAPE_HISTORY_PROOF: AbiShape =
+const SHAPE_CERTIFICATE: AbiShape = AbiShape::Tuple(&[AbiShape::Bytes; 5]);
+const SHAPE_CHECKPOINT: AbiShape = AbiShape::Tuple(&[AbiShape::Bytes]);
+const SHAPE_BLOCK: AbiShape =
     AbiShape::Tuple(&[SHAPE_U64, SHAPE_B32, SHAPE_U32, SHAPE_U64, AbiShape::Words]);
+const SHAPE_MESSAGE_PROOF: AbiShape =
+    AbiShape::Tuple(&[AbiShape::Bytes, SHAPE_U32, AbiShape::Words, SHAPE_BLOCK]);
 /// Arguments of `voidExpired`.
-const VOID_EXPIRED_ARGS: &[AbiShape] = &[
-    SHAPE_U64,
-    SHAPE_ATTESTATION,
-    SHAPE_ROSTER,
-    SHAPE_SIGNATURES,
-    SHAPE_MESSAGE_PROOF,
-];
-/// Arguments of `voidExpiredHistorical`.
-const VOID_EXPIRED_HISTORICAL_ARGS: &[AbiShape] = &[
-    SHAPE_U64,
-    SHAPE_ATTESTATION,
-    SHAPE_ROSTER,
-    SHAPE_SIGNATURES,
-    SHAPE_HISTORY_PROOF,
-    SHAPE_MESSAGE_PROOF,
-];
+const VOID_EXPIRED_ARGS: &[AbiShape] = &[SHAPE_U64, SHAPE_CERTIFICATE, SHAPE_MESSAGE_PROOF];
+/// Arguments of `voidExpiredFromCheckpoint`.
+const VOID_EXPIRED_CHECKPOINT_ARGS: &[AbiShape] =
+    &[SHAPE_U64, SHAPE_CHECKPOINT, SHAPE_MESSAGE_PROOF];
 /// Arguments of `voidFrozen`.
 const VOID_FROZEN_ARGS: &[AbiShape] = &[SHAPE_U64, SHAPE_U64];
 
@@ -689,8 +563,9 @@ fn canonical_sequence_size(
 
 /// Require `args` (calldata after the selector) to be exactly the canonical ABI encoding of
 /// `members`: canonical offsets, integer words within their widths, zero `bytes` padding and no
-/// trailing bytes. `SccpTairaXor` reverts with `NonCanonicalCalldata` (or in the ABI decoder) on
-/// every other encoding of a void (§5.1.8, §5.2.2), so this is exactly its accepted set.
+/// trailing bytes. This is a local encoding check, not proof or receipt authentication.
+/// The contract requires this exact encoding for `voidFrozen`; its `voidExpired*`
+/// entry points use Solidity's more permissive ABI decoder (§5.1.8, §5.2.2).
 fn check_canonical_args(args: &[u8], members: &[AbiShape]) -> Result<(), AbiError> {
     if canonical_sequence_size(members, args, 0)? == args.len() {
         Ok(())
@@ -699,15 +574,15 @@ fn check_canonical_args(args: &[u8], members: &[AbiShape]) -> Result<(), AbiErro
     }
 }
 
-/// A decoded void call (TRON void proofs are transaction-based, §4.16).
+/// A decoded void call (§5.1.8).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum VoidCallV1 {
-    /// `voidExpired` or `voidExpiredHistorical` of one nonce (the first static head word).
+    /// `voidExpired` or `voidExpiredFromCheckpoint` of one nonce (the first static head word).
     Expired {
         /// The voided nonce.
         nonce: u64,
-        /// Whether the historical variant was called.
-        historical: bool,
+        /// Whether the certificate came from a stored checkpoint.
+        from_checkpoint: bool,
     },
     /// `voidFrozen(firstNonce, count)`.
     Frozen {
@@ -720,10 +595,11 @@ pub enum VoidCallV1 {
 
 impl VoidCallV1 {
     /// Strictly decode a void call. The calldata must be exactly the canonical ABI encoding of
-    /// `voidExpired`, `voidExpiredHistorical` or `voidFrozen` (canonical offsets, integer words
+    /// `voidExpired`, `voidExpiredFromCheckpoint` or `voidFrozen` (canonical offsets, integer words
     /// within their widths, zero `bytes` padding, no trailing bytes), and a `voidFrozen` range
-    /// must hold 1..=256 nonces ending at most at `2^64 - 1`. The destination reverts on every
-    /// other call (§5.1.8), so this is exactly the set of successful void calls Taira can see.
+    /// must hold 1..=256 nonces ending at most at `2^64 - 1`. This local decoder is
+    /// stricter than Solidity's ABI decoder for `voidExpired*`; successful voids are
+    /// established by authenticated events (§5.1.8), not by this encoding check.
     ///
     /// # Errors
     ///
@@ -732,7 +608,7 @@ impl VoidCallV1 {
     pub fn decode(calldata: &[u8]) -> Result<Self, AbiError> {
         let selector = selector_of(calldata)?;
         let args = &calldata[4..];
-        let historical = match selector {
+        let from_checkpoint = match selector {
             SELECTOR_VOID_FROZEN => {
                 check_canonical_args(args, VOID_FROZEN_ARGS)?;
                 let first_nonce = read_u64(args, 0)?;
@@ -746,18 +622,18 @@ impl VoidCallV1 {
                 return Ok(Self::Frozen { first_nonce, count });
             }
             SELECTOR_VOID_EXPIRED => false,
-            SELECTOR_VOID_EXPIRED_HISTORICAL => true,
+            SELECTOR_VOID_EXPIRED_FROM_CHECKPOINT => true,
             _ => return Err(AbiError::WrongSelector),
         };
-        let members = if historical {
-            VOID_EXPIRED_HISTORICAL_ARGS
+        let members = if from_checkpoint {
+            VOID_EXPIRED_CHECKPOINT_ARGS
         } else {
             VOID_EXPIRED_ARGS
         };
         check_canonical_args(args, members)?;
         Ok(Self::Expired {
             nonce: read_u64(args, 0)?,
-            historical,
+            from_checkpoint,
         })
     }
 
@@ -775,11 +651,64 @@ impl VoidCallV1 {
 // View calls
 // ---------------------------------------------------------------------------------------------
 
-/// A view call of §5.2.2.
+/// Decoded `committeeState()` DATA. The latch is a separate `equivocated()` view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CommitteeViewV1 {
+    /// Current committee root.
+    pub root: [u8; 32],
+    /// Current trust deadline.
+    pub until_ms: u64,
+    /// Current generation's first height.
+    pub start: u64,
+    /// Highest certified height.
+    pub high: u64,
+    /// Current generation.
+    pub generation: u64,
+}
+
+/// Decoded immutable `initialCommittee()` pin DATA.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct InitialCommitteeViewV1 {
+    /// Pinned generation.
+    pub generation: u64,
+    /// Pinned committee root.
+    pub root: [u8; 32],
+    /// Pinned first height.
+    pub start: u64,
+    /// Pinned trust deadline.
+    pub until_ms: u64,
+}
+
+/// Decoded `pauseState()` DATA at the queried destination block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PauseStateV1 {
+    /// Applied Parliament pause bit.
+    pub parliament_paused: bool,
+    /// Applied fast-pause deadline.
+    pub fast_pause_until_ms: u64,
+    /// Last applied control nonce.
+    pub control_nonce: u64,
+    /// Effective pause at the queried block's timestamp.
+    pub effective: bool,
+}
+
+/// A view call of §5.2.2. Callers must pin related observations to one block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ViewCallV1 {
-    /// `rosterState()`.
-    RosterState,
+    /// `committeeState()`.
+    CommitteeState,
+    /// `checkpointHeader(uint64)`.
+    CheckpointHeader(u64),
+    /// `pauseState()`.
+    PauseState,
+    /// `consensusInstance()`.
+    ConsensusInstance,
+    /// `initialCommittee()`.
+    InitialCommittee,
+    /// `equivocated()`.
+    Equivocated,
+    /// `maxValidityMs()`.
+    MaxValidityMs,
     /// `isConsumed(uint64)`.
     IsConsumed(u64),
     /// `transferNonces(address)`.
@@ -794,23 +723,19 @@ pub enum ViewCallV1 {
     MintingPaused,
     /// `controlNonce()`.
     ControlNonce,
-    /// `domainSeparator()`.
-    DomainSeparator,
-    /// `initialRosterDigest()`.
-    InitialRosterDigest,
-    /// `initialRosterGeneration()`.
-    InitialRosterGeneration,
     /// `opCount()`.
     OpCount,
-    /// `maxRosterValidityMs()`.
-    MaxRosterValidityMs,
 }
 
-/// A strictly decoded view return value.
+/// A strictly decoded view return value; decoding authenticates no RPC observation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ViewReturnV1 {
-    /// `rosterState()`.
-    RosterState(RosterStateV1),
+    /// Current committee fields, excluding the separately queried latch.
+    CommitteeState(CommitteeViewV1),
+    /// Immutable deployment pin.
+    InitialCommittee(InitialCommitteeViewV1),
+    /// Applied pause state.
+    PauseState(PauseStateV1),
     /// A `bool` return.
     Bool(bool),
     /// A `uint32` return.
@@ -828,7 +753,13 @@ impl ViewCallV1 {
     #[must_use]
     pub const fn selector(&self) -> [u8; 4] {
         match self {
-            Self::RosterState => SELECTOR_ROSTER_STATE,
+            Self::CommitteeState => SELECTOR_COMMITTEE_STATE,
+            Self::CheckpointHeader(_) => SELECTOR_CHECKPOINT_HEADER,
+            Self::PauseState => SELECTOR_PAUSE_STATE,
+            Self::ConsensusInstance => SELECTOR_CONSENSUS_INSTANCE,
+            Self::InitialCommittee => SELECTOR_INITIAL_COMMITTEE,
+            Self::Equivocated => SELECTOR_EQUIVOCATED,
+            Self::MaxValidityMs => SELECTOR_MAX_VALIDITY_MS,
             Self::IsConsumed(_) => SELECTOR_IS_CONSUMED,
             Self::TransferNonces(_) => SELECTOR_TRANSFER_NONCES,
             Self::TairaNetworkId => SELECTOR_TAIRA_NETWORK_ID,
@@ -836,11 +767,7 @@ impl ViewCallV1 {
             Self::MaxWrappedSupply => SELECTOR_MAX_WRAPPED_SUPPLY,
             Self::MintingPaused => SELECTOR_MINTING_PAUSED,
             Self::ControlNonce => SELECTOR_CONTROL_NONCE,
-            Self::DomainSeparator => SELECTOR_DOMAIN_SEPARATOR,
-            Self::InitialRosterDigest => SELECTOR_INITIAL_ROSTER_DIGEST,
-            Self::InitialRosterGeneration => SELECTOR_INITIAL_ROSTER_GENERATION,
             Self::OpCount => SELECTOR_OP_COUNT,
-            Self::MaxRosterValidityMs => SELECTOR_MAX_ROSTER_VALIDITY_MS,
         }
     }
 
@@ -848,8 +775,8 @@ impl ViewCallV1 {
     #[must_use]
     pub fn calldata(&self) -> Vec<u8> {
         match self {
-            Self::IsConsumed(nonce) => {
-                encode_call(self.selector(), &[AbiToken::Word(word_u64(*nonce))])
+            Self::IsConsumed(value) | Self::CheckpointHeader(value) => {
+                encode_call(self.selector(), &[AbiToken::Word(word_u64(*value))])
             }
             Self::TransferNonces(address) => {
                 encode_call(self.selector(), &[AbiToken::Word(word_address(address))])
@@ -858,25 +785,28 @@ impl ViewCallV1 {
         }
     }
 
-    /// Strictly decode the return data of this call.
+    /// Strictly decode the return DATA of this call.
     ///
     /// # Errors
-    ///
     /// Returns [`AbiError::BadLength`], [`AbiError::DirtyWord`] or [`AbiError::BadBool`].
     pub fn decode_return(&self, data: &[u8]) -> Result<ViewReturnV1, AbiError> {
         Ok(match self {
-            Self::RosterState => ViewReturnV1::RosterState(decode_roster_state_return(data)?),
-            Self::IsConsumed(_) | Self::MintingPaused => {
+            Self::CommitteeState => {
+                ViewReturnV1::CommitteeState(decode_committee_state_return(data)?)
+            }
+            Self::InitialCommittee => {
+                ViewReturnV1::InitialCommittee(decode_initial_committee_return(data)?)
+            }
+            Self::PauseState => ViewReturnV1::PauseState(decode_pause_state_return(data)?),
+            Self::IsConsumed(_) | Self::MintingPaused | Self::Equivocated => {
                 ViewReturnV1::Bool(decode_bool_return(data)?)
             }
             Self::RouteRevision => ViewReturnV1::U32(decode_u32_return(data)?),
-            Self::TransferNonces(_)
-            | Self::ControlNonce
-            | Self::InitialRosterGeneration
-            | Self::OpCount
-            | Self::MaxRosterValidityMs => ViewReturnV1::U64(decode_u64_return(data)?),
+            Self::TransferNonces(_) | Self::ControlNonce | Self::OpCount | Self::MaxValidityMs => {
+                ViewReturnV1::U64(decode_u64_return(data)?)
+            }
             Self::MaxWrappedSupply => ViewReturnV1::U128(decode_u128_return(data)?),
-            Self::TairaNetworkId | Self::DomainSeparator | Self::InitialRosterDigest => {
+            Self::TairaNetworkId | Self::ConsensusInstance | Self::CheckpointHeader(_) => {
                 ViewReturnV1::Bytes32(decode_bytes32_return(data)?)
             }
         })
@@ -937,35 +867,86 @@ pub fn decode_bytes32_return(data: &[u8]) -> Result<[u8; 32], AbiError> {
     Ok(read_word(single_word(data)?, 0))
 }
 
-/// Decode `rosterState()`:
-/// `(bytes32 digest, uint64 generation, uint64 validUntilMs, bytes32 prevDigest,
-/// uint64 prevValidUntilMs)`.
+/// Decode `committeeState()` in ABI order: root, untilMs, start, high, generation.
 ///
 /// # Errors
-///
-/// Returns [`AbiError::BadLength`] or [`AbiError::DirtyWord`].
-pub fn decode_roster_state_return(data: &[u8]) -> Result<RosterStateV1, AbiError> {
+/// Returns a length or integer-width error for noncanonical data.
+pub fn decode_committee_state_return(data: &[u8]) -> Result<CommitteeViewV1, AbiError> {
     if data.len() != 5 * WORD {
         return Err(AbiError::BadLength);
     }
-    Ok(RosterStateV1 {
-        digest: read_word(data, 0),
-        generation: read_u64(data, WORD)?,
-        valid_until_ms: read_u64(data, 2 * WORD)?,
-        prev_digest: read_word(data, 3 * WORD),
-        prev_valid_until_ms: read_u64(data, 4 * WORD)?,
+    Ok(CommitteeViewV1 {
+        root: read_word(data, 0),
+        until_ms: read_u64(data, WORD)?,
+        start: read_u64(data, 2 * WORD)?,
+        high: read_u64(data, 3 * WORD)?,
+        generation: read_u64(data, 4 * WORD)?,
     })
 }
 
-/// The canonical return data of `rosterState()` (for tests and fixtures).
+/// Canonical `committeeState()` return data.
 #[must_use]
-pub fn encode_roster_state_return(state: &RosterStateV1) -> Vec<u8> {
+pub fn encode_committee_state_return(state: &CommitteeViewV1) -> Vec<u8> {
     encode_tokens(&[
-        AbiToken::Word(state.digest),
+        AbiToken::Word(state.root),
+        AbiToken::Word(word_u64(state.until_ms)),
+        AbiToken::Word(word_u64(state.start)),
+        AbiToken::Word(word_u64(state.high)),
         AbiToken::Word(word_u64(state.generation)),
-        AbiToken::Word(word_u64(state.valid_until_ms)),
-        AbiToken::Word(state.prev_digest),
-        AbiToken::Word(word_u64(state.prev_valid_until_ms)),
+    ])
+}
+
+/// Decode `initialCommittee()` in ABI order: generation, root, start, untilMs.
+///
+/// # Errors
+/// Returns a length or integer-width error for noncanonical data.
+pub fn decode_initial_committee_return(data: &[u8]) -> Result<InitialCommitteeViewV1, AbiError> {
+    if data.len() != 4 * WORD {
+        return Err(AbiError::BadLength);
+    }
+    Ok(InitialCommitteeViewV1 {
+        generation: read_u64(data, 0)?,
+        root: read_word(data, WORD),
+        start: read_u64(data, 2 * WORD)?,
+        until_ms: read_u64(data, 3 * WORD)?,
+    })
+}
+
+/// Canonical `initialCommittee()` return data.
+#[must_use]
+pub fn encode_initial_committee_return(state: &InitialCommitteeViewV1) -> Vec<u8> {
+    encode_tokens(&[
+        AbiToken::Word(word_u64(state.generation)),
+        AbiToken::Word(state.root),
+        AbiToken::Word(word_u64(state.start)),
+        AbiToken::Word(word_u64(state.until_ms)),
+    ])
+}
+
+/// Decode `pauseState()` in ABI order: parliamentPaused, fastPauseUntilMs, controlNonce, effective.
+///
+/// # Errors
+/// Returns a length, integer-width or bool error for noncanonical data.
+pub fn decode_pause_state_return(data: &[u8]) -> Result<PauseStateV1, AbiError> {
+    if data.len() != 4 * WORD {
+        return Err(AbiError::BadLength);
+    }
+    Ok(PauseStateV1 {
+        parliament_paused: read_bool(data, 0)?,
+        fast_pause_until_ms: read_u64(data, WORD)?,
+        control_nonce: read_u64(data, 2 * WORD)?,
+        effective: read_bool(data, 3 * WORD)?,
+    })
+}
+
+/// Canonical `pauseState()` return data.
+#[must_use]
+pub fn encode_pause_state_return(state: &PauseStateV1) -> Vec<u8> {
+    encode_tokens(&[
+        AbiToken::Word(word_bool(state.parliament_paused)),
+        AbiToken::Word(word_u64(state.fast_pause_until_ms)),
+        AbiToken::Word(word_u64(state.control_nonce)),
+        AbiToken::Word(word_bool(state.effective)),
     ])
 }
 
@@ -980,7 +961,7 @@ pub fn encode_roster_state_return(state: &RosterStateV1) -> Vec<u8> {
 pub struct TransferToTairaLogV1 {
     /// `message_id` of the inbound payload.
     pub message_id: [u8; 32],
-    /// The burning caller (20 bytes; TRON without the `0x41` prefix).
+    /// The burning caller (20 bytes).
     pub sender: [u8; 20],
     /// The caller's per-sender nonce.
     pub nonce: u64,
@@ -1060,7 +1041,7 @@ impl TransferToTairaLogV1 {
     ) -> Result<SccpTransferPayloadV1, AbiError> {
         let payload =
             SccpTransferPayloadV1::decode(&self.payload).map_err(|_| AbiError::PayloadMismatch)?;
-        let sender = evm_family_account(source, &self.sender)?;
+        let sender = evm_account(source, &self.sender)?;
         let bound = payload.source() == Some(source)
             && payload.target() == Some(SccpNetworkV1::SoraTaira)
             && payload.route_revision == route_revision
@@ -1202,9 +1183,8 @@ fn read_address(data: &[u8], offset: usize) -> Result<[u8; 20], AbiError> {
 mod tests {
     use super::*;
     use crate::v1::{
-        constants::{SELECTORS, TOPIC_CONTROL_APPLIED},
+        destination_abi::{SELECTORS, TOPIC_CONTROL_APPLIED},
         hashes::keccak256,
-        proof::HistoryBlockV1,
     };
 
     const TAIRA: [u8; 32] = [0x11; 32];
@@ -1213,34 +1193,25 @@ mod tests {
         crate::v1::hashes::to_hex(&data[index * WORD..(index + 1) * WORD])
     }
 
-    fn roster() -> RosterV1 {
-        RosterV1 {
-            generation: 7,
-            valid_from_ms: 1_800_000_000_000,
-            valid_until_ms: 1_801_209_600_000,
-            members: (1..=4).map(|byte| [byte; 20]).collect(),
+    // Deliberately arbitrary wire bytes: these tests establish ABI encoding, not BLS validity.
+    fn certificate() -> TairaCertificateV1 {
+        TairaCertificateV1 {
+            qc: vec![0x11; 116],
+            header: vec![0x22; 221],
+            signature: vec![0x33; 192],
+            committee: vec![0x44; 192],
+            signer_ys: vec![0x55; 144],
+            ton_signature: vec![0x66; 96],
         }
     }
 
-    fn attestation() -> AttestationFieldsV1 {
-        AttestationFieldsV1 {
-            height: 10,
-            epoch: 1,
-            timestamp_ms: 1_800_000_100_000,
-            block_hash: [0xb1; 32],
-            sccp_root: [0xc2; 32],
-            message_count: 3,
-            history_root: [0xd3; 32],
-            history_size: 2,
-            roster_digest: [0xe4; 32],
-            next_roster_digest: [0; 32],
-        }
-    }
-
-    fn signatures() -> SignatureSetV1 {
-        SignatureSetV1 {
-            signer_bitmap: 0b0111,
-            signatures: vec![0x5a; 3 * 65],
+    fn block() -> BlockRefV1 {
+        BlockRefV1 {
+            height: 3,
+            sccp_root: [1; 32],
+            message_count: 2,
+            history_index: 5,
+            history_path: vec![[2; 32], [3; 32], [4; 32]],
         }
     }
 
@@ -1249,15 +1220,23 @@ mod tests {
         assert!(!AbiToken::Word([0; 32]).is_dynamic());
         assert!(AbiToken::Bytes(vec![]).is_dynamic());
         assert!(AbiToken::Array(vec![]).is_dynamic());
-        let attestation = attestation_token(&attestation());
-        assert!(!attestation.is_dynamic());
-        assert_eq!(attestation.head_len(), 10 * WORD);
-        assert_eq!(attestation.encode().len(), 10 * WORD);
-        let roster = roster_token(&roster());
-        assert!(roster.is_dynamic());
-        assert_eq!(roster.head_len(), WORD);
-        // 4 static words, offset, length, 80 member bytes padded to 96.
-        assert_eq!(roster.encode().len(), 6 * WORD + 96);
+        let static_tuple = AbiToken::Tuple(vec![AbiToken::Word([1; 32]); 2]);
+        assert!(!static_tuple.is_dynamic());
+        assert_eq!(static_tuple.head_len(), 2 * WORD);
+        assert_eq!(static_tuple.encode().len(), 2 * WORD);
+        let cert = certificate_token(&certificate());
+        assert!(cert.is_dynamic());
+        assert_eq!(cert.head_len(), WORD);
+        assert_eq!(cert.encode().len(), 38 * WORD);
+        assert_eq!(block_ref_token(&block()).encode().len(), 9 * WORD);
+        assert_eq!(
+            checkpoint_ref_token(&CheckpointRefV1 {
+                header: vec![9; 221]
+            })
+            .encode()
+            .len(),
+            9 * WORD
+        );
         assert_eq!(padding(0), 0);
         assert_eq!(padding(1), 31);
         assert_eq!(padding(32), 0);
@@ -1293,94 +1272,75 @@ mod tests {
 
     #[test]
     fn finalize_calldata_layout() {
-        let proof = MessageProofV1 {
-            payload: vec![0x02; 100],
-            leaf_index: 1,
-            path: vec![[0x77; 32], [0x88; 32]],
-        };
-        let roster = roster();
-        let attestation = attestation();
-        let signatures = signatures();
-        let attested = AttestedV1 {
-            attestation: &attestation,
-            roster: &roster,
-            signatures: &signatures,
-        };
-        let data = finalize_from_taira_calldata(attested, &proof);
+        let (certificate, proof, _) = void_fixture();
+        let data = finalize_from_taira_calldata(&certificate, &proof);
         assert_eq!(data[..4], SELECTOR_FINALIZE_FROM_TAIRA);
         let args = &data[4..];
-        // Head: 10 attestation words, then three offsets.
-        assert_eq!(word_hex(args, 0), format!("{:064x}", 10));
-        assert_eq!(args[3 * WORD..4 * WORD], [0xb1; 32]);
-        let roster_offset = 13 * WORD;
-        assert_eq!(word_hex(args, 10), format!("{roster_offset:064x}"));
-        let roster_len = 6 * WORD + 96;
-        assert_eq!(
-            word_hex(args, 11),
-            format!("{:064x}", roster_offset + roster_len)
-        );
-        let signatures_len = 3 * WORD + 224; // bitmap, offset, length, 195 bytes padded to 224
-        assert_eq!(
-            word_hex(args, 12),
-            format!("{:064x}", roster_offset + roster_len + signatures_len)
-        );
-        // Roster tuple: generation, from, until, threshold 3, offset 0xa0, length 80.
-        let roster_words = &args[roster_offset..];
-        assert_eq!(word_hex(roster_words, 0), format!("{:064x}", 7));
-        assert_eq!(word_hex(roster_words, 3), format!("{:064x}", 3));
-        assert_eq!(word_hex(roster_words, 4), format!("{:064x}", 5 * WORD));
-        assert_eq!(word_hex(roster_words, 5), format!("{:064x}", 80));
-        // Message proof: offset 0x60 to payload, leaf index, offset to path.
-        let proof_words = &args[roster_offset + roster_len + signatures_len..];
-        assert_eq!(word_hex(proof_words, 0), format!("{:064x}", 3 * WORD));
-        assert_eq!(word_hex(proof_words, 1), format!("{:064x}", 1));
-        assert_eq!(
-            word_hex(proof_words, 2),
-            format!("{:064x}", 3 * WORD + WORD + 128)
-        );
-        assert_eq!(proof_words.len(), 3 * WORD + WORD + 128 + 3 * WORD);
+        assert_eq!(word_hex(args, 0), format!("{:064x}", 2 * WORD));
+        assert_eq!(word_hex(args, 1), format!("{:064x}", 40 * WORD));
+        let cert = &args[2 * WORD..40 * WORD];
+        // Five byte strings in ABI order; each offset is relative to this tuple.
+        let mut tail = 5 * WORD;
+        for (i, bytes) in [
+            &certificate.qc,
+            &certificate.header,
+            &certificate.signature,
+            &certificate.committee,
+            &certificate.signer_ys,
+        ]
+        .iter()
+        .enumerate()
+        {
+            assert_eq!(read_usize(cert, i * WORD).unwrap(), tail);
+            assert_eq!(read_usize(cert, tail).unwrap(), bytes.len());
+            assert_eq!(
+                &cert[tail + WORD..tail + WORD + bytes.len()],
+                bytes.as_slice()
+            );
+            tail += WORD + bytes.len() + padding(bytes.len());
+        }
+        assert_eq!(tail, cert.len());
+        let msg = &args[40 * WORD..];
+        assert_eq!(read_usize(msg, 0), Ok(4 * WORD));
+        assert_eq!(read_u64(msg, WORD), Ok(1));
+        assert_eq!(read_usize(msg, 2 * WORD), Ok(10 * WORD));
+        assert_eq!(read_usize(msg, 3 * WORD), Ok(13 * WORD));
+        assert_eq!(msg.len(), 22 * WORD);
+        let blk = &msg[13 * WORD..];
+        assert_eq!(read_u64(blk, 0), Ok(3));
+        assert_eq!(read_word(blk, WORD), [1; 32]);
+        assert_eq!(read_u64(blk, 2 * WORD), Ok(2));
+        assert_eq!(read_u64(blk, 3 * WORD), Ok(5));
+        assert_eq!(read_usize(blk, 4 * WORD), Ok(5 * WORD));
+        assert_eq!(read_usize(blk, 5 * WORD), Ok(3));
+        // Changing the TON-only signature cannot change EVM calldata.
+        let mut other = certificate.clone();
+        other.ton_signature.clear();
+        assert_eq!(finalize_from_taira_calldata(&other, &proof), data);
     }
 
     #[test]
     fn every_state_changing_call_uses_its_selector() {
-        let roster = roster();
-        let attestation = attestation();
-        let signatures = signatures();
-        let attested = AttestedV1 {
-            attestation: &attestation,
-            roster: &roster,
-            signatures: &signatures,
-        };
-        let proof = MessageProofV1::default();
-        let history = HistoryProofV1 {
-            block: HistoryBlockV1 {
-                height: 3,
-                sccp_root: [1; 32],
-                message_count: 1,
-            },
-            leaf_index: 0,
-            path: vec![[2; 32]],
-        };
+        let (cert, proof, checkpoint) = void_fixture();
         let control = ControlProofV1 {
             control_nonce: 1,
-            paused: true,
+            track: 2,
+            parliament_paused: 0,
+            fast_pause_until_ms: 99,
+            certificate_id: [3; 32],
+            effect_hash: [4; 32],
             leaf_index: 0,
             path: vec![],
-        };
-        let rotation = RotationV1 {
-            attestation,
-            current: roster.clone(),
-            signatures: signatures.clone(),
-            next: roster.clone(),
+            block: block(),
         };
         let calls = [
-            finalize_from_taira_calldata(attested, &proof),
-            finalize_from_taira_historical_calldata(attested, &history, &proof),
-            rotate_rosters_calldata(&[rotation]),
-            apply_control_calldata(attested, &control),
-            apply_control_historical_calldata(attested, &history, &control),
-            void_expired_calldata(9, attested, &proof),
-            void_expired_historical_calldata(9, attested, &history, &proof),
+            finalize_from_taira_calldata(&cert, &proof),
+            finalize_from_checkpoint_calldata(&checkpoint, &proof),
+            submit_checkpoints_calldata(&[cert.clone()]),
+            apply_control_calldata(&cert, &control),
+            apply_control_from_checkpoint_calldata(&checkpoint, &control),
+            void_expired_calldata(9, &cert, &proof),
+            void_expired_from_checkpoint_calldata(9, &checkpoint, &proof),
             void_frozen_calldata(4, 2),
             TransferToTairaCallV1 {
                 taira_recipient: vec![1],
@@ -1391,12 +1351,12 @@ mod tests {
         ];
         let expected = [
             SELECTOR_FINALIZE_FROM_TAIRA,
-            SELECTOR_FINALIZE_FROM_TAIRA_HISTORICAL,
-            SELECTOR_ROTATE_ROSTERS,
+            SELECTOR_FINALIZE_FROM_CHECKPOINT,
+            SELECTOR_SUBMIT_CHECKPOINTS,
             SELECTOR_APPLY_CONTROL,
-            SELECTOR_APPLY_CONTROL_HISTORICAL,
+            SELECTOR_APPLY_CONTROL_FROM_CHECKPOINT,
             SELECTOR_VOID_EXPIRED,
-            SELECTOR_VOID_EXPIRED_HISTORICAL,
+            SELECTOR_VOID_EXPIRED_FROM_CHECKPOINT,
             SELECTOR_VOID_FROZEN,
             SELECTOR_TRANSFER_TO_TAIRA,
         ];
@@ -1405,20 +1365,15 @@ mod tests {
             assert_eq!((calldata.len() - 4) % WORD, 0);
             assert!(SELECTORS.iter().any(|(_, _, known)| *known == selector));
         }
-        assert_eq!(
-            VoidCallV1::decode(&calls[5]),
-            Ok(VoidCallV1::Expired {
-                nonce: 9,
-                historical: false
-            })
-        );
-        assert_eq!(
-            VoidCallV1::decode(&calls[6]),
-            Ok(VoidCallV1::Expired {
-                nonce: 9,
-                historical: true
-            })
-        );
+        for (index, from_checkpoint) in [(5, false), (6, true)] {
+            assert_eq!(
+                VoidCallV1::decode(&calls[index]),
+                Ok(VoidCallV1::Expired {
+                    nonce: 9,
+                    from_checkpoint
+                })
+            );
+        }
         assert_eq!(
             VoidCallV1::decode(&calls[7]),
             Ok(VoidCallV1::Frozen {
@@ -1430,12 +1385,25 @@ mod tests {
         assert_eq!(VoidCallV1::decode(&calls[5]).unwrap().range(), (9, 1));
         assert_eq!(VoidCallV1::decode(&calls[0]), Err(AbiError::WrongSelector));
         assert_eq!(VoidCallV1::decode(&[0x5b]), Err(AbiError::BadLength));
-        let mut long_frozen = calls[7].clone();
-        long_frozen.push(0);
-        assert_eq!(VoidCallV1::decode(&long_frozen), Err(AbiError::BadLength));
-        let mut dirty_nonce = calls[5].clone();
-        dirty_nonce[4] = 1;
-        assert_eq!(VoidCallV1::decode(&dirty_nonce), Err(AbiError::DirtyWord));
+        let mut long = calls[7].clone();
+        long.push(0);
+        assert_eq!(VoidCallV1::decode(&long), Err(AbiError::BadLength));
+        let mut dirty = calls[5].clone();
+        dirty[4] = 1;
+        assert_eq!(VoidCallV1::decode(&dirty), Err(AbiError::DirtyWord));
+        // All new control fields keep their independent ABI positions, including raw bool.
+        let encoded = control_proof_token(&control).encode();
+        for (word, value) in [(0, 1), (1, 2), (2, 0), (3, 99), (6, 0)] {
+            assert_eq!(read_u64(&encoded, word * WORD), Ok(value));
+        }
+        assert_eq!(read_word(&encoded, 4 * WORD), [3; 32]);
+        assert_eq!(read_word(&encoded, 5 * WORD), [4; 32]);
+        let mut malformed = control;
+        malformed.parliament_paused = 2;
+        assert_eq!(
+            read_bool(&control_proof_token(&malformed).encode(), 2 * WORD),
+            Err(AbiError::BadBool)
+        );
     }
 
     /// `calldata` with a zero word inserted at argument offset `at`.
@@ -1453,71 +1421,53 @@ mod tests {
         calldata[low].copy_from_slice(&value.to_be_bytes());
     }
 
-    fn void_fixture() -> (
-        RosterV1,
-        AttestationFieldsV1,
-        SignatureSetV1,
-        MessageProofV1,
-        HistoryProofV1,
-    ) {
+    fn void_fixture() -> (TairaCertificateV1, MessageProofV1, CheckpointRefV1) {
+        let certificate = certificate();
+        let checkpoint = CheckpointRefV1 {
+            header: certificate.header.clone(),
+        };
         let proof = MessageProofV1 {
             payload: vec![0x02; 133],
             leaf_index: 1,
             path: vec![[0x77; 32], [0x88; 32]],
+            block: block(),
         };
-        let history = HistoryProofV1 {
-            block: HistoryBlockV1 {
-                height: 3,
-                sccp_root: [1; 32],
-                message_count: 2,
-            },
-            leaf_index: 5,
-            path: vec![[2; 32], [3; 32], [4; 32]],
-        };
-        (roster(), attestation(), signatures(), proof, history)
+        (certificate, proof, checkpoint)
     }
 
     #[test]
     fn abi_shapes_measure_the_canonical_encoding() {
-        assert!(!SHAPE_ATTESTATION.is_dynamic());
-        assert_eq!(SHAPE_ATTESTATION.head_len(), 10 * WORD);
-        assert!(SHAPE_ROSTER.is_dynamic());
-        assert_eq!(SHAPE_ROSTER.head_len(), WORD);
+        let fixed = AbiShape::Tuple(&[SHAPE_U64, SHAPE_B32]);
+        assert!(!fixed.is_dynamic());
+        assert_eq!(fixed.head_len(), 2 * WORD);
+        assert_eq!(fixed.canonical_size(&[0; 2 * WORD], 0), Ok(2 * WORD));
+        assert!(SHAPE_CERTIFICATE.is_dynamic());
+        assert_eq!(SHAPE_CERTIFICATE.head_len(), WORD);
         assert!(AbiShape::Bytes.is_dynamic() && AbiShape::Words.is_dynamic());
         assert!(!SHAPE_U64.is_dynamic());
-        let (roster, attestation, signatures, proof, history) = void_fixture();
-        let attested = AttestedV1 {
-            attestation: &attestation,
-            roster: &roster,
-            signatures: &signatures,
-        };
-        // The same shapes measure the finalize calls, which share every argument struct.
-        let direct = finalize_from_taira_calldata(attested, &proof);
-        let direct_args = [
-            SHAPE_ATTESTATION,
-            SHAPE_ROSTER,
-            SHAPE_SIGNATURES,
-            SHAPE_MESSAGE_PROOF,
-        ];
-        assert_eq!(check_canonical_args(&direct[4..], &direct_args), Ok(()));
+        let (cert, proof, checkpoint) = void_fixture();
+        for (calldata, shapes) in [
+            (
+                finalize_from_taira_calldata(&cert, &proof),
+                [SHAPE_CERTIFICATE, SHAPE_MESSAGE_PROOF],
+            ),
+            (
+                finalize_from_checkpoint_calldata(&checkpoint, &proof),
+                [SHAPE_CHECKPOINT, SHAPE_MESSAGE_PROOF],
+            ),
+        ] {
+            assert_eq!(check_canonical_args(&calldata[4..], &shapes), Ok(()));
+            assert_eq!(
+                canonical_sequence_size(&shapes, &calldata[4..], 0),
+                Ok(calldata.len() - 4)
+            );
+        }
+        let checkpoint_call = finalize_from_checkpoint_calldata(&checkpoint, &proof);
         assert_eq!(
-            canonical_sequence_size(&direct_args, &direct[4..], 0),
-            Ok(direct.len() - 4)
-        );
-        let historical = finalize_from_taira_historical_calldata(attested, &history, &proof);
-        let historical_args = [
-            SHAPE_ATTESTATION,
-            SHAPE_ROSTER,
-            SHAPE_SIGNATURES,
-            SHAPE_HISTORY_PROOF,
-            SHAPE_MESSAGE_PROOF,
-        ];
-        assert_eq!(
-            check_canonical_args(&historical[4..], &historical_args),
-            Ok(())
-        );
-        assert_eq!(
-            check_canonical_args(&historical[4..], &direct_args),
+            check_canonical_args(
+                &checkpoint_call[4..],
+                &[SHAPE_CERTIFICATE, SHAPE_MESSAGE_PROOF]
+            ),
             Err(AbiError::BadOffset)
         );
         let bytes = encode_tokens(&[AbiToken::Bytes(vec![9; 33])]);
@@ -1533,7 +1483,7 @@ mod tests {
             Err(AbiError::BadLength)
         );
         assert_eq!(
-            SHAPE_U8.canonical_size(&word_u64(0x100), 0),
+            AbiShape::Uint(1).canonical_size(&word_u64(0x100), 0),
             Err(AbiError::DirtyWord)
         );
         assert_eq!(SHAPE_B32.canonical_size(&[0xff; 32], 0), Ok(WORD));
@@ -1541,131 +1491,122 @@ mod tests {
 
     #[test]
     fn void_expired_decodes_only_the_canonical_encoding() {
-        let (roster, attestation, signatures, proof, _) = void_fixture();
-        let attested = AttestedV1 {
-            attestation: &attestation,
-            roster: &roster,
-            signatures: &signatures,
-        };
-        let canonical = void_expired_calldata(9, attested, &proof);
-        let expired = Ok(VoidCallV1::Expired {
-            nonce: 9,
-            historical: false,
-        });
-        assert_eq!(VoidCallV1::decode(&canonical), expired);
+        let (cert, proof, _) = void_fixture();
+        let canonical = void_expired_calldata(9, &cert, &proof);
+        assert_eq!(
+            VoidCallV1::decode(&canonical),
+            Ok(VoidCallV1::Expired {
+                nonce: 9,
+                from_checkpoint: false
+            })
+        );
         let args = &canonical[4..];
-        let roster_at = read_usize(args, 11 * WORD).expect("roster offset");
-        let proof_at = read_usize(args, 13 * WORD).expect("proof offset");
-        let path_at = proof_at + read_usize(args, proof_at + 2 * WORD).expect("path offset");
+        let cert_at = read_usize(args, WORD).unwrap();
+        let proof_at = read_usize(args, 2 * WORD).unwrap();
+        let path_at = proof_at + read_usize(args, proof_at + 2 * WORD).unwrap();
+        let block_at = proof_at + read_usize(args, proof_at + 3 * WORD).unwrap();
         let edit = |change: &dyn Fn(&mut Vec<u8>)| {
-            let mut calldata = canonical.clone();
-            change(&mut calldata);
-            VoidCallV1::decode(&calldata)
+            let mut data = canonical.clone();
+            change(&mut data);
+            VoidCallV1::decode(&data)
         };
-        assert_eq!(edit(&|data| data.push(0)), Err(AbiError::BadLength));
+        assert_eq!(edit(&|d| d.push(0)), Err(AbiError::BadLength));
         assert_eq!(
-            edit(&|data| data.extend_from_slice(&[0; WORD])),
+            edit(&|d| d.extend_from_slice(&[0; WORD])),
             Err(AbiError::BadLength)
         );
         assert_eq!(
-            edit(&|data| {
-                data.pop();
+            edit(&|d| {
+                d.pop();
             }),
             Err(AbiError::BadLength)
         );
-        // Attestation height (uint64), messageCount (uint32), roster threshold (uint8) and the
-        // message leaf index (uint32) with one bit above their width.
+        // Nonce, leaf index, block height/count/history index use their full declared widths.
+        for (at, width) in [
+            (0, 8),
+            (proof_at + WORD, 4),
+            (block_at, 8),
+            (block_at + 2 * WORD, 4),
+            (block_at + 3 * WORD, 8),
+        ] {
+            assert_eq!(
+                edit(&|d| d[4 + at + WORD - width - 1] = 1),
+                Err(AbiError::DirtyWord)
+            );
+        }
+        assert_eq!(edit(&|d| d[4 + WORD] = 1), Err(AbiError::BadOffset));
         assert_eq!(
-            edit(&|data| data[4 + WORD + 23] = 1),
-            Err(AbiError::DirtyWord)
-        );
-        assert_eq!(
-            edit(&|data| data[4 + 6 * WORD + 27] = 1),
-            Err(AbiError::DirtyWord)
-        );
-        assert_eq!(
-            edit(&|data| data[4 + roster_at + 3 * WORD + 30] = 1),
-            Err(AbiError::DirtyWord)
-        );
-        assert_eq!(
-            edit(&|data| data[4 + proof_at + WORD + 27] = 1),
-            Err(AbiError::DirtyWord)
-        );
-        // Offsets: high bits, and a zero word inserted before the roster tail, before the
-        // members bytes and before the path, with every enclosing offset moved accordingly.
-        // Solidity's own decoder reads each of these as the same arguments.
-        assert_eq!(
-            edit(&|data| data[4 + 11 * WORD] = 1),
+            edit(&|d| {
+                *d = with_gap(d, cert_at);
+                bump(d, WORD, 32);
+                bump(d, 2 * WORD, 32);
+            }),
             Err(AbiError::BadOffset)
         );
+        // A gap before the first nested byte string, shifting each later sibling.
         assert_eq!(
-            edit(&|data| {
-                *data = with_gap(data, roster_at);
-                for head in 11..14 {
-                    bump(data, head * WORD, 0x20);
+            edit(&|d| {
+                *d = with_gap(d, cert_at + 5 * WORD);
+                for i in 0..5 {
+                    bump(d, cert_at + i * WORD, 32);
                 }
+                bump(d, 2 * WORD, 32);
             }),
             Err(AbiError::BadOffset)
         );
         assert_eq!(
-            edit(&|data| {
-                *data = with_gap(data, roster_at + 5 * WORD);
-                bump(data, roster_at + 4 * WORD, 0x20);
-                bump(data, 12 * WORD, 0x20);
-                bump(data, 13 * WORD, 0x20);
+            edit(&|d| {
+                *d = with_gap(d, path_at);
+                bump(d, proof_at + 2 * WORD, 32);
+                bump(d, proof_at + 3 * WORD, 32);
             }),
             Err(AbiError::BadOffset)
         );
+        let payload_end = proof_at + 5 * WORD + 160;
         assert_eq!(
-            edit(&|data| {
-                *data = with_gap(data, path_at);
-                bump(data, proof_at + 2 * WORD, 0x20);
-            }),
-            Err(AbiError::BadOffset)
-        );
-        // Nonzero payload padding (133 bytes padded to 160) and a path count past the data.
-        let payload_end = proof_at + 4 * WORD + 160;
-        assert_eq!(
-            edit(&|data| data[4 + payload_end - 1] = 1),
+            edit(&|d| d[4 + payload_end - 1] = 1),
             Err(AbiError::DirtyPadding)
         );
-        assert_eq!(
-            edit(&|data| bump(data, path_at, 1)),
-            Err(AbiError::BadLength)
-        );
+        // QC padding and header padding must also be zero.
+        for i in [0, 1, 4] {
+            let at = cert_at + read_usize(args, cert_at + i * WORD).unwrap();
+            let len = read_usize(args, at).unwrap();
+            assert_eq!(
+                edit(&|d| d[4 + at + WORD + len] = 1),
+                Err(AbiError::DirtyPadding)
+            );
+        }
+        assert!(matches!(
+            edit(&|d| bump(d, path_at, 1)),
+            Err(AbiError::BadLength | AbiError::BadOffset)
+        ));
     }
 
     #[test]
-    fn void_expired_historical_decodes_only_the_canonical_encoding() {
-        let (roster, attestation, signatures, proof, history) = void_fixture();
-        let attested = AttestedV1 {
-            attestation: &attestation,
-            roster: &roster,
-            signatures: &signatures,
-        };
-        let canonical = void_expired_historical_calldata(u64::MAX, attested, &history, &proof);
+    fn void_expired_checkpoint_decodes_only_the_canonical_encoding() {
+        let (cert, proof, checkpoint) = void_fixture();
+        let canonical = void_expired_from_checkpoint_calldata(u64::MAX, &checkpoint, &proof);
         assert_eq!(
             VoidCallV1::decode(&canonical),
             Ok(VoidCallV1::Expired {
                 nonce: u64::MAX,
-                historical: true,
+                from_checkpoint: true
             })
         );
-        let history_at = read_usize(&canonical[4..], 13 * WORD).expect("history offset");
-        let mut dirty_leaf_index = canonical.clone();
-        dirty_leaf_index[4 + history_at + 3 * WORD + 23] = 1;
-        assert_eq!(
-            VoidCallV1::decode(&dirty_leaf_index),
-            Err(AbiError::DirtyWord)
-        );
-        let mut gap = with_gap(&canonical, history_at + 5 * WORD);
-        bump(&mut gap, history_at + 4 * WORD, 0x20);
-        bump(&mut gap, 14 * WORD, 0x20);
+        let proof_at = read_usize(&canonical[4..], 2 * WORD).unwrap();
+        let block_at = proof_at + read_usize(&canonical[4..], proof_at + 3 * WORD).unwrap();
+        let mut dirty = canonical.clone();
+        dirty[4 + block_at + 3 * WORD + 23] = 1;
+        assert_eq!(VoidCallV1::decode(&dirty), Err(AbiError::DirtyWord));
+        let mut gap = with_gap(&canonical, block_at + 5 * WORD);
+        bump(&mut gap, block_at + 4 * WORD, 32);
         assert_eq!(VoidCallV1::decode(&gap), Err(AbiError::BadOffset));
-        // The direct layout is not a historical encoding and vice versa.
-        let mut swapped = void_expired_calldata(1, attested, &proof);
-        swapped[..4].copy_from_slice(&SELECTOR_VOID_EXPIRED_HISTORICAL);
+        let mut swapped = void_expired_calldata(1, &cert, &proof);
+        swapped[..4].copy_from_slice(&SELECTOR_VOID_EXPIRED_FROM_CHECKPOINT);
         assert_eq!(VoidCallV1::decode(&swapped), Err(AbiError::BadOffset));
+        let mut inverse = canonical.clone();
+        inverse[..4].copy_from_slice(&SELECTOR_VOID_EXPIRED);
+        assert_eq!(VoidCallV1::decode(&inverse), Err(AbiError::BadOffset));
         let mut trailing = canonical;
         trailing.push(0);
         assert_eq!(VoidCallV1::decode(&trailing), Err(AbiError::BadLength));
@@ -1675,52 +1616,26 @@ mod tests {
     /// the Solidity type would refuse a void the destination lets succeed.
     #[test]
     fn void_expired_accepts_every_integer_at_its_full_width() {
-        let (mut roster, mut attestation, mut signatures, mut proof, mut history) = void_fixture();
-        attestation.height = u64::MAX;
-        attestation.epoch = u64::MAX;
-        attestation.timestamp_ms = u64::MAX;
-        attestation.message_count = u32::MAX;
-        attestation.history_size = u64::MAX;
-        roster.generation = u64::MAX;
-        roster.valid_from_ms = u64::MAX;
-        roster.valid_until_ms = u64::MAX;
-        signatures.signer_bitmap = u32::MAX;
+        let (cert, mut proof, checkpoint) = void_fixture();
         proof.leaf_index = u32::MAX;
-        history.block.height = u64::MAX;
-        history.block.message_count = u32::MAX;
-        history.leaf_index = u64::MAX;
-        let attested = AttestedV1 {
-            attestation: &attestation,
-            roster: &roster,
-            signatures: &signatures,
-        };
-        // The encoder derives the `uint8` threshold from n, so its low byte is set directly.
-        let max_threshold = |mut calldata: Vec<u8>| {
-            let roster_at = read_usize(&calldata[4..], 11 * WORD).expect("roster offset");
-            calldata[4 + roster_at + 4 * WORD - 1] = 0xff;
-            calldata
-        };
-        let direct = max_threshold(void_expired_calldata(u64::MAX, attested, &proof));
-        assert_eq!(
-            VoidCallV1::decode(&direct),
-            Ok(VoidCallV1::Expired {
-                nonce: u64::MAX,
-                historical: false,
-            })
-        );
-        let historical = max_threshold(void_expired_historical_calldata(
-            u64::MAX,
-            attested,
-            &history,
-            &proof,
-        ));
-        assert_eq!(
-            VoidCallV1::decode(&historical),
-            Ok(VoidCallV1::Expired {
-                nonce: u64::MAX,
-                historical: true,
-            })
-        );
+        proof.block.height = u64::MAX;
+        proof.block.message_count = u32::MAX;
+        proof.block.history_index = u64::MAX;
+        for (data, from_checkpoint) in [
+            (void_expired_calldata(u64::MAX, &cert, &proof), false),
+            (
+                void_expired_from_checkpoint_calldata(u64::MAX, &checkpoint, &proof),
+                true,
+            ),
+        ] {
+            assert_eq!(
+                VoidCallV1::decode(&data),
+                Ok(VoidCallV1::Expired {
+                    nonce: u64::MAX,
+                    from_checkpoint
+                })
+            );
+        }
     }
 
     #[test]
@@ -1752,22 +1667,23 @@ mod tests {
     }
 
     #[test]
-    fn rotate_rosters_layout() {
-        let roster = roster();
-        let rotation = RotationV1 {
-            attestation: attestation(),
-            current: roster.clone(),
-            signatures: signatures(),
-            next: roster,
-        };
-        let data = rotate_rosters_calldata(&[rotation.clone(), rotation]);
+    fn submit_checkpoints_layout() {
+        let cert = certificate();
+        let data = submit_checkpoints_calldata(&[cert.clone(), cert.clone()]);
         let args = &data[4..];
-        assert_eq!(word_hex(args, 0), format!("{:064x}", 0x20));
-        assert_eq!(word_hex(args, 1), format!("{:064x}", 2));
-        assert_eq!(word_hex(args, 2), format!("{:064x}", 0x40));
-        let rotation_len = 13 * WORD + 2 * (6 * WORD + 96) + (3 * WORD + 224);
-        assert_eq!(word_hex(args, 3), format!("{:064x}", 0x40 + rotation_len));
-        assert_eq!(args.len(), 4 * WORD + 2 * rotation_len);
+        assert_eq!(data[..4], SELECTOR_SUBMIT_CHECKPOINTS);
+        assert_eq!(read_usize(args, 0), Ok(WORD));
+        assert_eq!(read_usize(args, WORD), Ok(2));
+        // Dynamic array element offsets start after the array's length word.
+        assert_eq!(read_usize(args, 2 * WORD), Ok(2 * WORD));
+        assert_eq!(read_usize(args, 3 * WORD), Ok(40 * WORD));
+        assert_eq!(
+            &args[4 * WORD..42 * WORD],
+            certificate_token(&cert).encode()
+        );
+        assert_eq!(&args[42 * WORD..], certificate_token(&cert).encode());
+        let empty = submit_checkpoints_calldata(&[]);
+        assert_eq!(read_usize(&empty[4..], WORD), Ok(0));
     }
 
     #[test]
@@ -1863,14 +1779,14 @@ mod tests {
             expected_nonce: 7,
         };
         let caller = [0x33; 20];
-        let tron = call
-            .inbound_payload(SccpNetworkV1::TronMainnet, 2, &caller)
+        let bsc = call
+            .inbound_payload(SccpNetworkV1::BscMainnet, 2, &caller)
             .unwrap();
-        assert_eq!(tron.sender.bytes[0], 0x41);
-        assert_eq!(tron.sender.bytes[1..], caller);
-        assert_eq!(tron.nonce, 7);
-        assert_eq!(tron.amount, 1_000_000_000);
-        assert_eq!(tron.route_id, "taira_tron_xor");
+        assert_eq!(bsc.sender.bytes, caller);
+        assert_eq!(bsc.nonce, 7);
+        assert_eq!(bsc.route_revision, 2);
+        assert_eq!(bsc.amount, 1_000_000_000);
+        assert_eq!(bsc.route_id, "taira_bsc_xor");
         let eth = call
             .inbound_payload(SccpNetworkV1::EthereumMainnet, 1, &caller)
             .unwrap();
@@ -1896,23 +1812,26 @@ mod tests {
         assert_eq!(nonces[4..16], [0; 12]);
         assert_eq!(nonces[16..], [0x44; 20]);
 
-        let state = RosterStateV1 {
-            digest: [1; 32],
+        let state = CommitteeViewV1 {
+            root: [1; 32],
             generation: 8,
-            valid_until_ms: 99,
-            prev_digest: [2; 32],
-            prev_valid_until_ms: 50,
+            until_ms: 99,
+            start: 4,
+            high: 50,
         };
-        let encoded = encode_roster_state_return(&state);
+        let encoded = encode_committee_state_return(&state);
         assert_eq!(
-            ViewCallV1::RosterState.decode_return(&encoded),
-            Ok(ViewReturnV1::RosterState(state))
+            ViewCallV1::CommitteeState.decode_return(&encoded),
+            Ok(ViewReturnV1::CommitteeState(state))
         );
         let mut dirty = encoded.clone();
         dirty[WORD] = 1;
-        assert_eq!(decode_roster_state_return(&dirty), Err(AbiError::DirtyWord));
         assert_eq!(
-            decode_roster_state_return(&encoded[..4 * WORD]),
+            decode_committee_state_return(&dirty),
+            Err(AbiError::DirtyWord)
+        );
+        assert_eq!(
+            decode_committee_state_return(&encoded[..4 * WORD]),
             Err(AbiError::BadLength)
         );
 
@@ -1955,20 +1874,113 @@ mod tests {
         );
         assert_eq!(decode_u64_return(&[0; 33]), Err(AbiError::BadLength));
         for call in [
-            ViewCallV1::RosterState,
+            ViewCallV1::CommitteeState,
             ViewCallV1::TairaNetworkId,
             ViewCallV1::RouteRevision,
             ViewCallV1::MaxWrappedSupply,
             ViewCallV1::MintingPaused,
             ViewCallV1::ControlNonce,
-            ViewCallV1::DomainSeparator,
-            ViewCallV1::InitialRosterDigest,
-            ViewCallV1::InitialRosterGeneration,
+            ViewCallV1::ConsensusInstance,
+            ViewCallV1::InitialCommittee,
+            ViewCallV1::Equivocated,
+            ViewCallV1::PauseState,
             ViewCallV1::OpCount,
-            ViewCallV1::MaxRosterValidityMs,
+            ViewCallV1::MaxValidityMs,
         ] {
             assert_eq!(call.calldata(), call.selector());
         }
+    }
+
+    #[test]
+    fn native_authority_views_preserve_all_fields_and_reject_dirty_values() {
+        let pin = InitialCommitteeViewV1 {
+            generation: u64::MAX,
+            root: [0xff; 32],
+            start: u64::MAX,
+            until_ms: u64::MAX,
+        };
+        let bytes = encode_initial_committee_return(&pin);
+        assert_eq!(
+            ViewCallV1::InitialCommittee.decode_return(&bytes),
+            Ok(ViewReturnV1::InitialCommittee(pin))
+        );
+        for index in [0, 2, 3] {
+            let mut dirty = bytes.clone();
+            dirty[index * WORD + 23] = 1;
+            assert_eq!(
+                decode_initial_committee_return(&dirty),
+                Err(AbiError::DirtyWord)
+            );
+        }
+        assert_eq!(
+            decode_initial_committee_return(&bytes[..bytes.len() - 1]),
+            Err(AbiError::BadLength)
+        );
+        let pause = PauseStateV1 {
+            parliament_paused: false,
+            fast_pause_until_ms: u64::MAX,
+            control_nonce: u64::MAX,
+            effective: true,
+        };
+        let bytes = encode_pause_state_return(&pause);
+        assert_eq!(
+            ViewCallV1::PauseState.decode_return(&bytes),
+            Ok(ViewReturnV1::PauseState(pause))
+        );
+        for index in [0, 3] {
+            let mut dirty = bytes.clone();
+            dirty[index * WORD + WORD - 1] = 2;
+            assert_eq!(decode_pause_state_return(&dirty), Err(AbiError::BadBool));
+        }
+        for index in [1, 2] {
+            let mut dirty = bytes.clone();
+            dirty[index * WORD + 23] = 1;
+            assert_eq!(decode_pause_state_return(&dirty), Err(AbiError::DirtyWord));
+        }
+        assert_eq!(
+            decode_pause_state_return(&bytes[..bytes.len() - 1]),
+            Err(AbiError::BadLength)
+        );
+        let state = CommitteeViewV1 {
+            root: [0xff; 32],
+            until_ms: u64::MAX,
+            start: u64::MAX,
+            high: u64::MAX,
+            generation: u64::MAX,
+        };
+        let bytes = encode_committee_state_return(&state);
+        assert_eq!(decode_committee_state_return(&bytes), Ok(state));
+        for index in 1..5 {
+            let mut dirty = bytes.clone();
+            dirty[index * WORD + 23] = 1;
+            assert_eq!(
+                decode_committee_state_return(&dirty),
+                Err(AbiError::DirtyWord)
+            );
+        }
+        assert_eq!(
+            ViewCallV1::Equivocated.decode_return(&word_bool(true)),
+            Ok(ViewReturnV1::Bool(true))
+        );
+        assert_eq!(
+            ViewCallV1::ConsensusInstance.decode_return(&[0x67; 32]),
+            Ok(ViewReturnV1::Bytes32([0x67; 32]))
+        );
+        assert_eq!(
+            ViewCallV1::MaxValidityMs.decode_return(&word_u64(u64::MAX)),
+            Ok(ViewReturnV1::U64(u64::MAX))
+        );
+        let lookup = ViewCallV1::CheckpointHeader(u64::MAX);
+        assert_eq!(lookup.calldata()[..4], SELECTOR_CHECKPOINT_HEADER);
+        assert_eq!(read_u64(&lookup.calldata()[4..], 0), Ok(u64::MAX));
+        assert_eq!(
+            lookup.decode_return(&[0; 32]),
+            Ok(ViewReturnV1::Bytes32([0; 32]))
+        );
+        assert_eq!(
+            lookup.decode_return(&[0x42; 32]),
+            Ok(ViewReturnV1::Bytes32([0x42; 32]))
+        );
     }
 
     fn inbound_log() -> (TransferToTairaLogV1, SccpTransferPayloadV1) {
@@ -2108,15 +2120,16 @@ mod tests {
     }
 
     #[test]
-    fn evm_family_helpers() {
-        assert_eq!(
-            evm_family_account(SccpNetworkV1::BscMainnet, &[1; 20]),
-            Ok(vec![1; 20])
-        );
-        assert_eq!(
-            evm_family_account(SccpNetworkV1::SoraTaira, &[1; 20]),
-            Err(AbiError::PayloadMismatch)
-        );
+    fn evm_helpers() {
+        for network in [SccpNetworkV1::EthereumMainnet, SccpNetworkV1::BscMainnet] {
+            assert_eq!(evm_account(network, &[1; 20]), Ok(vec![1; 20]));
+        }
+        for network in [SccpNetworkV1::SoraTaira, SccpNetworkV1::TonMainnet] {
+            assert_eq!(
+                evm_account(network, &[1; 20]),
+                Err(AbiError::PayloadMismatch)
+            );
+        }
         assert_eq!(selector_of(&[1, 2, 3]), Err(AbiError::BadLength));
         assert_eq!(read_bool(&word_u64(1), 0), Ok(true));
         assert_eq!(read_address(&word_address(&[5; 20]), 0), Ok([5; 20]));

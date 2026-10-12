@@ -851,12 +851,21 @@ fn ivm_trigger_respects_pipeline_cycle_cap() {
     let err = stx
         .execute_called_trigger(&trigger_id, &evt)
         .expect_err("trigger should exhaust the configured gas budget");
-    match err {
-        TransactionRejectionReason::Validation(ValidationFail::NotPermitted(msg)) => {
-            assert!(msg.contains("max cycles"), "unexpected error: {msg}");
-        }
-        other => panic!("unexpected rejection: {other:?}"),
-    }
+    let TransactionRejectionReason::Validation(ValidationFail::IvmFault(fault)) = err else {
+        panic!("cycle exhaustion must retain its structured execution fault: {err:?}");
+    };
+    assert_eq!(
+        fault.kind,
+        iroha_data_model::executor::fault::IvmFaultKindV1::ExceededMaxCycles
+    );
+    assert_eq!(
+        fault.site.selector,
+        iroha_data_model::executor::fault::IvmInvocationSelectorV1::Generic
+    );
+    assert_eq!(
+        fault.site.position,
+        iroha_data_model::executor::fault::IvmFaultPositionV1::Execute { pc_offset: 4 }
+    );
 }
 #[test]
 fn generic_trigger_resolution_retains_original_allocation_refusal() {

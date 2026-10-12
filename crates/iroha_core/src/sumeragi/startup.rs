@@ -18,7 +18,9 @@ use iroha_primitives::time::TimeSource;
 use iroha_sumeragi::types::Hash32;
 
 use super::{
-    commitment::{encode_result_preimage, execution_result, result_of_preimage},
+    commitment::{
+        CertifiedResultScope, encode_result_preimage, execution_result, result_of_preimage,
+    },
     network_topology::Topology,
     schedule,
 };
@@ -47,7 +49,7 @@ pub enum StartupError {
     LaneStep(#[source] super::lanes::step::LaneStepError),
     /// The original executed genesis and witness cannot form their commitment.
     #[error("genesis execution commitment is invalid: {0}")]
-    ExecutionCommitment(#[source] iroha_data_model::sumeragi_finality::CommitmentError),
+    ExecutionCommitment(#[source] iroha_data_model::sumeragi_finality::CertifiedResultError),
     /// The genesis committee or schedule is invalid.
     #[error("genesis schedule is invalid: {0}")]
     Schedule(String),
@@ -72,6 +74,7 @@ pub struct GenesisTip {
 pub(crate) struct GenesisExecutionAuthorization {
     state: usize,
     tip: crate::state::native_execution_tip::NativeExecutionTipRecord,
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
     telemetry_origin: super::executor::CommitTelemetryOrigin,
 }
 impl GenesisExecutionAuthorization {
@@ -80,9 +83,10 @@ impl GenesisExecutionAuthorization {
     ) -> (
         usize,
         crate::state::native_execution_tip::NativeExecutionTipRecord,
+        iroha_data_model::block::consensus::SumeragiRootScope,
         super::executor::CommitTelemetryOrigin,
     ) {
-        (self.state, self.tip, self.telemetry_origin)
+        (self.state, self.tip, self.root_scope, self.telemetry_origin)
     }
 }
 
@@ -109,8 +113,8 @@ pub fn apply_genesis(
     consensus_mode: ConsensusMode,
     stored: Option<&CommitCertificate>,
 ) -> Result<GenesisTip, StartupError> {
-    let signed_epoch = super::epoch::authenticated_genesis(&genesis)
-        .map(|genesis| genesis.into_parts().0)
+    let (signed_epoch, signed_root_scope) = super::epoch::authenticated_genesis(&genesis)
+        .map(|genesis| genesis.into_parts())
         .map_err(|error| {
             match crate::execution_attempt::genesis_read_attempt_error(error, |error| {
                 StartupError::Schedule(error.to_string())
@@ -140,6 +144,7 @@ pub fn apply_genesis(
         valid,
         overlay,
         &signed_epoch,
+        signed_root_scope,
         block_hash,
         stored,
     )
@@ -155,6 +160,7 @@ fn finish_genesis(
     valid: ValidBlock,
     mut overlay: Box<StateBlock<'_>>,
     signed_epoch: &ValidatorEpochContextV1,
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
     block_hash: Hash32,
     stored: Option<&CommitCertificate>,
 ) -> Result<GenesisTip, StartupError> {
@@ -183,17 +189,24 @@ fn finish_genesis(
     let transition = overlay
         .world_state_transition()
         .map_err(StartupError::Local)?;
+    let sccp_finality_header = overlay
+        .sealed_sccp_finality_header(valid.as_ref())
+        .map_err(StartupError::Local)?;
     let retained_result = execution_result(
         &mut witness,
         valid.as_ref(),
         &transition,
         inputs,
         native_lanes,
+        sccp_finality_header,
+        CertifiedResultScope::from_root_scope(root_scope),
     )
     .map_err(StartupError::ExecutionCommitment)?;
     let preimage = encode_result_preimage(&retained_result, &budget)
         .map_err(|error| StartupError::Local(error.to_string()))?;
-    let result = result_of_preimage(preimage.as_slice());
+    let result = result_of_preimage(preimage.as_slice()).ok_or_else(|| {
+        StartupError::Local("executed genesis has malformed result preimage".into())
+    })?;
     let empty_header = iroha_allocation::ChargedBuffer::new(0, &budget)
         .map_err(|error| StartupError::Local(error.to_string()))?;
     let empty_qc = iroha_allocation::ChargedBuffer::new(0, &budget)
@@ -251,6 +264,7 @@ fn finish_genesis(
             &certificate,
             super::executor::NativeExecutionAuthorization::from_genesis(
                 GenesisExecutionAuthorization {
+                    root_scope,
                     telemetry_origin: match stored {
                         Some(_) => super::executor::CommitTelemetryOrigin::HistoricalReplay,
                         None => super::executor::CommitTelemetryOrigin::Forward,
@@ -318,7 +332,9 @@ pub fn stored_genesis(
     };
     let tip = GenesisTip {
         block_hash: core_hash_of(&block),
-        result: result_of_preimage(certificate.result_preimage()),
+        result: result_of_preimage(certificate.result_preimage()).ok_or_else(|| {
+            StartupError::Local("stored genesis has malformed result preimage".into())
+        })?,
     };
     let proposal = block
         .canonical_resultless_proposal()

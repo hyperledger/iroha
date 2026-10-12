@@ -31,6 +31,31 @@ satisfy all their hypotheses. The arguments below are local derivations for
 this implementation. The canonical construction's caveat about unbounded
 lineage depth remains in force.
 
+### Selected recursive Fiat–Shamir assumption
+
+For the first release, the owner explicitly selects the current Pasta/Poseidon
+construction and accepts the following additional heuristic: instantiating the
+argument and accumulation transcripts with the pinned RP57 function preserves
+the knowledge-soundness and accumulation-security properties required by the
+recursive PCD composition, including when its relations evaluate that concrete
+function inside their verifier circuits. This is an assumption about this
+recursive instantiation, beyond the single-proof ROM claims. It is not a theorem
+from collision resistance, discrete-log hardness or the cited accumulation
+results. [Halo Infinite](https://eprint.iacr.org/2020/1536) likewise distinguishes
+its practical recursive construction from a proved black-box Fiat–Shamir use.
+
+This selection retains the current parameters, curves, relations and proof
+formats. It does not adopt a programmable setup oracle or an algebraic random
+oracle as a new production primitive. In particular, it does not supply the
+missing joint privacy simulator, justify programming a fixed circuit hash, or
+make independently derived local oracle models consistent. The C12 argument
+must still account for the actual public transcript, both fields, correlated
+folds, checkpoints, retries and failure branches under one explicit interface.
+Source-bound artifact admission, adversarial tests, performance gates and
+physical-device qualification remain separate. Unbounded lineage depth remains
+heuristic; accepting this premise does not establish a quantitative security
+bound for arbitrary depth.
+
 ## Injective framing and challenge distributions
 
 PIPA-R has an explicit V2 descriptor and decoder. Its key commits to the

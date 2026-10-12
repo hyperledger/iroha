@@ -29,6 +29,7 @@ mod reuse;
 mod transport;
 pub(crate) use acceptance::{
     open_pinned_engineering_finality_sources, open_pinned_engineering_wallet_sources,
+    reopen_pinned_engineering_wallet_sources,
 };
 
 const OUTPUT_BYTES: u64 = 128 << 30;

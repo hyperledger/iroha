@@ -6022,6 +6022,7 @@ impl Executor {
         fee_sponsor: Option<FeeSponsorProgramId>,
         skip_nexus_fee: bool,
     ) -> Result<(), ValidationFail> {
+        state_transaction.current_direct_sccp_forgery = false;
         state_transaction.current_direct_kagemusha_load_instruction_index = None;
         state_transaction.current_direct_amx_instruction_index = None;
         if require_gas_limit && gas_limit_md.is_none() {
@@ -6369,6 +6370,13 @@ impl Executor {
                             contract_runtime_context.is_none()
                                 && entrypoint_authorization.is_none(),
                         )?;
+                    state_transaction.arm_direct_sccp_forgery(
+                        transaction,
+                        authority,
+                        &isi,
+                        index,
+                        contract_runtime_context.is_none() && entrypoint_authorization.is_none(),
+                    );
                     state_transaction.current_direct_kagemusha_load_instruction_index =
                         (contract_runtime_context.is_none() && entrypoint_authorization.is_none())
                             .then_some(index);
@@ -6386,6 +6394,7 @@ impl Executor {
                         isi,
                         contract_runtime_context,
                     );
+                    state_transaction.current_direct_sccp_forgery = false;
                     state_transaction.current_direct_kagemusha_load_instruction_index = None;
                     state_transaction.current_direct_amx_instruction_index = None;
                     state_transaction.current_direct_stream_token_instruction_index = None;
@@ -6531,6 +6540,7 @@ impl Executor {
         trigger_context: Option<(&TriggerId, u64)>,
     ) -> Result<ContractInvocationOutcome, ValidationFail> {
         // A contract frame cannot inherit a native instruction's signed ordinal.
+        state_transaction.current_direct_sccp_forgery = false;
         state_transaction.current_direct_kagemusha_load_instruction_index = None;
         state_transaction.current_direct_amx_instruction_index = None;
         state_transaction.current_direct_stream_token_gateway_instruction_index = None;
@@ -6561,6 +6571,7 @@ impl Executor {
         trigger_context: Option<(&TriggerId, u64)>,
     ) -> Result<ContractInvocationOutcome, ValidationFail> {
         // A contract frame cannot inherit a native instruction's signed ordinal.
+        state_transaction.current_direct_sccp_forgery = false;
         state_transaction.current_direct_kagemusha_load_instruction_index = None;
         state_transaction.current_direct_amx_instruction_index = None;
         state_transaction.current_direct_stream_token_gateway_instruction_index = None;
@@ -7038,6 +7049,7 @@ impl Executor {
         }
         let result =
             self.execute_transaction_body(state_transaction, authority, transaction, ivm_cache);
+        state_transaction.clear_sccp_forgery_source();
         // The self-claim marker belongs to the signed body only, never to later callbacks.
         state_transaction.sccp_exempt_self_claim = None;
         state_transaction.bind_kagemusha_load_entrypoint_v1(None);

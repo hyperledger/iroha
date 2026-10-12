@@ -75,3 +75,88 @@ impl<K: Key, V: Value> WorldStorageMode<K, V> for Untracked {
         prepared.publish()
     }
 }
+
+// Scope construction can fail before writers exist. Keep the unchanged journal
+// in this same inert slot so aggregate refusal/recovery never drops its authority.
+pub(super) enum PrepaidSlot<'a, K: Key, V: Value, P>
+where
+    P: mv::storage::AdmittedStoragePolicy
+        + concread::bptree::ClonePlanning<K, V>
+        + concread::bptree::ClonePlanning<K, Option<V>>,
+{
+    Ready(mv::storage::AdmittedDetachedPublicationSlot<'a, 'a, K, V, (), P>),
+    Refused {
+        original: Option<mv::storage::Detached<K, V, (), concread::bptree::Prepaid<P>>>,
+        error: AdmittedStorageError,
+    },
+}
+impl<K: Key, V: Value, P> WorldStorageMode<K, V> for concread::bptree::Prepaid<P>
+where
+    P: mv::storage::AdmittedStoragePolicy
+        + concread::bptree::ClonePlanning<K, V>
+        + concread::bptree::ClonePlanning<K, Option<V>>
+        + Send
+        + Sync
+        + 'static,
+{
+    type Slot<'a> = PrepaidSlot<'a, K, V, P>;
+    type Prepared<'a> = mv::storage::AdmittedPreparedPublication<'a, 'a, K, V, (), P>;
+    type Published<'a> = mv::storage::AdmittedPublishedPublication<'a, K, V, (), P>;
+    type Aborted<'a> = mv::storage::AdmittedAbortedPublication<'a>;
+    fn publication_slot<'a>(
+        original: mv::storage::Detached<K, V, (), Self>,
+        target: &'a Storage<K, V, Self>,
+    ) -> Self::Slot<'a> {
+        match crate::state::world_acquisition::original_storage_scope(target.allocation_budget()) {
+            Err(error) => PrepaidSlot::Refused {
+                original: Some(original),
+                error,
+            },
+            Ok(scope) => match original.try_publication_slot_owned(&scope, target) {
+                Ok(slot) => PrepaidSlot::Ready(slot),
+                Err((original, error)) => PrepaidSlot::Refused {
+                    original: Some(original),
+                    error: match error {
+                        PublicationPreparationError::Admission(error) => error,
+                        _ => unreachable!("inert scope construction only checks source identity"),
+                    },
+                },
+            },
+        }
+    }
+    fn try_prepare(slot: &mut Self::Slot<'_>) -> Result<(), Refusal> {
+        match slot {
+            PrepaidSlot::Ready(slot) => slot.try_prepare(),
+            PrepaidSlot::Refused { error, .. } => {
+                Err(PublicationPreparationError::Admission(error.clone()))
+            }
+        }
+    }
+    fn release_writers(slot: &mut Self::Slot<'_>) {
+        if let PrepaidSlot::Ready(slot) = slot {
+            slot.release_writers();
+        }
+    }
+    fn recover_original(slot: &mut Self::Slot<'_>) -> mv::storage::Detached<K, V, (), Self> {
+        match slot {
+            PrepaidSlot::Ready(slot) => slot.recover_original(),
+            PrepaidSlot::Refused { original, .. } => {
+                original.take().expect("original refused journal")
+            }
+        }
+    }
+    fn into_prepared<'a>(slot: Self::Slot<'a>) -> Self::Prepared<'a> {
+        match slot {
+            PrepaidSlot::Ready(slot) => slot.into_prepared(),
+            PrepaidSlot::Refused { .. } => unreachable!("refused scope cannot become prepared"),
+        }
+    }
+    fn abort<'a>(
+        prepared: Self::Prepared<'a>,
+    ) -> (mv::storage::Detached<K, V, (), Self>, Self::Aborted<'a>) {
+        prepared.abort()
+    }
+    fn publish<'a>(prepared: Self::Prepared<'a>) -> Self::Published<'a> {
+        prepared.publish()
+    }
+}

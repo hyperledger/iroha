@@ -6,21 +6,22 @@
 //! ([`admission::classify`]), fee quoting ([`crate::executor::quote_nexus_fee_admission_payload`]),
 //! the per-block cap count ([`admission::exempt_class_of_entrypoint`]) and execution
 //! ([`fees::exempt_class_in_block`]). No test override stands in for a classifier. The
-//! self-claim fee is charged only to exempt self-claims.
+//! self-claim fee is charged only to exempt self-claims. A keeper advance is eligible from any
+//! authority, registered or not, and only such an advance admits an absent authority.
 
 use super::{
     admission::{self, SccpExemptClassV1},
-    bridge_keys, escrow, fees,
+    escrow, fees,
     inbound::{SccpProvenInboundV1, record_proven},
     settle::{self, execute_settle},
     store,
     test_support::{
-        ONE_XOR, assert_escrow_invariant, funded_xor_state, header, install_value_route, peer,
-        sample_bridge_key_state, xor_balance,
+        ONE_XOR, assert_escrow_invariant, funded_xor_state, header, install_value_route,
+        xor_balance,
     },
 };
 use crate::state::{State, StateReadOnly, StateTransaction};
-use iroha_crypto::{Algorithm, Hash, KeyPair, PrivateKey};
+use iroha_crypto::{Algorithm, Hash, KeyPair};
 use iroha_data_model::{
     NetworkId,
     account::{Account, AccountAddress, AccountId},
@@ -40,13 +41,15 @@ use iroha_model_base::topology::DataSpaceId;
 use iroha_primitives::numeric::Quantity;
 use iroha_sccp::{
     light_client::{
+        bsc::BscLcAdvanceV1,
         ethereum::{EthereumHeaderSegmentV1, EthereumLcAdvanceV1},
         proof::{SccpLcAdvanceV1, SccpLcSegmentV1},
     },
-    v1::{key_file::SccpBridgeKeyFileV1, payload::SccpTransferPayloadV1},
+    v1::payload::SccpTransferPayloadV1,
 };
 
 const ETH: SccpNetworkV1 = SccpNetworkV1::EthereumMainnet;
+const BSC: SccpNetworkV1 = SccpNetworkV1::BscMainnet;
 const TON: SccpNetworkV1 = SccpNetworkV1::TonMainnet;
 /// `inbound_self_claim_fee` of the Taira default parameters.
 const FEE: u128 = SccpParametersV1::taira_default().inbound_self_claim_fee;
@@ -54,6 +57,8 @@ const FEE: u128 = SccpParametersV1::taira_default().inbound_self_claim_fee;
 const RELAYER: u8 = 1;
 const RECIPIENT: u8 = 0x21;
 const STRANGER: u8 = 0x22;
+/// A node's keeper key: an Ed25519 key whose account is never registered or funded.
+const KEEPER: u8 = 0x31;
 
 fn ed25519(seed: u8) -> KeyPair {
     KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519).expect("deterministic seed")
@@ -132,30 +137,6 @@ fn set_enabled(stx: &mut StateTransaction<'_, '_>, enabled: bool) {
     store::parameters::set(stx, Some(params));
 }
 
-/// Register `key` as the active bridge key of `peer`, faulted or not.
-fn register_bridge_key(
-    stx: &mut StateTransaction<'_, '_>,
-    key: &SccpBridgeKeyFileV1,
-    peer: iroha_model_base::peer::PeerId,
-    faulted: bool,
-) {
-    let address = key.address().expect("address");
-    let mut binding = sample_bridge_key_state(1);
-    let active = binding.active.as_mut().expect("active key");
-    active.public_key = key.public_key().expect("public key");
-    active.address = address;
-    active.faulted = faulted;
-    store::bridge_key_owners::insert(stx, address, peer.clone()).expect("owner");
-    store::bridge_keys::insert(stx, peer, binding).expect("binding");
-}
-
-fn bridge_key_pair(key: &SccpBridgeKeyFileV1) -> KeyPair {
-    KeyPair::from_private_key(
-        PrivateKey::from_bytes(Algorithm::Secp256k1, key.secret()).expect("bridge scalar"),
-    )
-    .expect("bridge key pair")
-}
-
 /// The committed parent World every case is judged against.
 struct Parent {
     state: State,
@@ -166,14 +147,10 @@ struct Parent {
     at_fee: [u8; 32],
     /// TON message to the recipient held by a liability shortfall.
     shortfall: [u8; 32],
-    keeper: SccpBridgeKeyFileV1,
-    faulted_keeper: SccpBridgeKeyFileV1,
 }
 
 fn parent() -> Parent {
     let state = funded_xor_state(&account(RELAYER), 1_000 * ONE_XOR);
-    let keeper = SccpBridgeKeyFileV1::new([0x31; 32], 0).expect("keeper key");
-    let faulted_keeper = SccpBridgeKeyFileV1::new([0x32; 32], 0).expect("faulted key");
     let recipient = account(RECIPIENT);
     let (settleable, at_fee, shortfall);
     {
@@ -215,8 +192,6 @@ fn parent() -> Parent {
             at_fee = prove(&mut stx, ETH, 1, FEE, &recipient);
             set_enabled(&mut stx, true);
             shortfall = prove(&mut stx, TON, 0, 10 * ONE_XOR, &recipient);
-            register_bridge_key(&mut stx, &keeper, peer(1), false);
-            register_bridge_key(&mut stx, &faulted_keeper, peer(2), true);
             stx.apply();
         }
         block
@@ -228,8 +203,6 @@ fn parent() -> Parent {
         settleable,
         at_fee,
         shortfall,
-        keeper,
-        faulted_keeper,
     }
 }
 
@@ -256,24 +229,31 @@ fn submit(network: SccpNetworkV1, amount: u128, recipient: Vec<u8>) -> Instructi
     .into()
 }
 
-fn advance(backfill: bool) -> InstructionBox {
+/// A decodable advance of `network` (ETH or BSC) that proves nothing, or an ETH `Backfill`.
+fn advance_of(network: SccpNetworkV1, backfill: bool) -> InstructionBox {
     let advance = if backfill {
         SccpLcAdvanceV1::Backfill {
             segment: SccpLcSegmentV1::Ethereum(EthereumHeaderSegmentV1 {
                 headers: Vec::new(),
             }),
         }
+    } else if network == BSC {
+        SccpLcAdvanceV1::Bsc(BscLcAdvanceV1 { steps: Vec::new() })
     } else {
         SccpLcAdvanceV1::Ethereum(EthereumLcAdvanceV1 {
             updates: Vec::new(),
         })
     };
     AdvanceSccpLightClientV1 {
-        network: ETH,
+        network,
         expected_state_hash: None,
         advance: advance.to_bytes().expect("bounded advance"),
     }
     .into()
+}
+
+fn advance(backfill: bool) -> InstructionBox {
+    advance_of(ETH, backfill)
 }
 
 fn self_registration(account: &AccountId) -> InstructionBox {
@@ -315,8 +295,7 @@ fn every_inbound_shape_and_authority_is_classified_quoted_counted_and_executed_a
     let parent = parent();
     let recipient = account(RECIPIENT);
     let to_recipient = address_bytes(&recipient);
-    let keeper = bridge_key_pair(&parent.keeper);
-    let faulted_keeper = bridge_key_pair(&parent.faulted_keeper);
+    let keeper = ed25519(KEEPER);
     let self_claim = SccpExemptClassV1::SelfClaim;
     let keeper_advance = SccpExemptClassV1::KeeperAdvance { network: ETH };
     let ten = 10 * ONE_XOR;
@@ -401,7 +380,7 @@ fn every_inbound_shape_and_authority_is_classified_quoted_counted_and_executed_a
             Expected::Ordinary,
         ),
         (
-            "keeper advance (the light client is not installed)",
+            "advance from an unregistered keeper key (the light client is not installed)",
             keeper.clone(),
             vec![advance(false)],
             Expected::Rejected(keeper_advance),
@@ -413,15 +392,15 @@ fn every_inbound_shape_and_authority_is_classified_quoted_counted_and_executed_a
             Expected::Ordinary,
         ),
         (
-            "standalone advance by anyone",
-            ed25519(STRANGER),
-            vec![advance(false)],
-            Expected::Ordinary,
+            "standalone advance by a registered account (the light client is not installed)",
+            ed25519(RELAYER),
+            vec![advance_of(BSC, false)],
+            Expected::Rejected(SccpExemptClassV1::KeeperAdvance { network: BSC }),
         ),
         (
-            "advance by a faulted bridge key",
-            faulted_keeper,
-            vec![advance(false)],
+            "two advances in one transaction",
+            keeper,
+            vec![advance(false), advance(false)],
             Expected::Ordinary,
         ),
     ];
@@ -489,6 +468,10 @@ fn every_inbound_shape_and_authority_is_classified_quoted_counted_and_executed_a
     }
     assert_eq!(counted, expected_counted);
     assert!(admission::block_exempt_cap_ok(world, &counted));
+    assert!(
+        !admission::block_exempt_cap_ok(world, &[keeper_advance, keeper_advance]),
+        "one exempt advance per network per block, whoever signs it"
+    );
     drop(view);
     // Execution of the next block judges the same predicate against the same parent World,
     // whatever the block itself writes first.
@@ -630,11 +613,39 @@ fn a_relayer_proof_is_charged_once_and_owes_no_self_claim_fee() {
 }
 
 #[test]
-fn a_bridge_key_is_recognised_by_its_secp256k1_account() {
-    let key = SccpBridgeKeyFileV1::new([0x31; 32], 0).expect("key");
-    let pair = bridge_key_pair(&key);
-    assert_eq!(
-        AccountId::new(pair.public_key().clone()),
-        bridge_keys::account_of(&key.public_key().expect("public key")).expect("account")
+fn only_an_eligible_advance_admits_an_absent_authority() {
+    use crate::state::WorldReadOnly as _;
+    let parent = parent();
+    let keeper = account(KEEPER);
+    assert!(
+        parent.state.view().world().account(&keeper).is_err(),
+        "the keeper key has no account"
     );
+    let admits = |instructions: Vec<InstructionBox>| {
+        let transaction = signed(&ed25519(KEEPER), instructions);
+        let sccp = admission::allows_unregistered_authority(transaction.instructions());
+        // The SCCP rule is the only one that can admit these shapes.
+        assert_eq!(
+            crate::tx::allows_unregistered_authority(
+                transaction.instructions(),
+                transaction.authority()
+            ),
+            sccp
+        );
+        sccp
+    };
+    assert!(admits(vec![advance(false)]));
+    assert!(admits(vec![advance_of(BSC, false)]));
+    assert!(
+        !admits(vec![advance(true)]),
+        "a Backfill pays the ordinary fee, so its authority must exist"
+    );
+    assert!(!admits(vec![advance(false), advance(false)]));
+    assert!(!admits(vec![SettleSccpV1::inbound([1; 32]).into()]));
+    assert!(!admits(vec![submit(
+        ETH,
+        10 * ONE_XOR,
+        address_bytes(&keeper)
+    )]));
+    assert!(!admits(vec![SettleSccpV1::refund(ETH, 1, 0).into()]));
 }

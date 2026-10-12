@@ -312,6 +312,7 @@ fn startup_history_retains_original_cold_kura_refusal_and_exact_retry() {
         Staging::new(),
         budget.clone(),
         schedule,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     );
     let assemble = || {
         assemble_init(

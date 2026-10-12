@@ -137,7 +137,7 @@ fn observed_network_inventory_rejects_missing_duplicate_extra_and_invented_heigh
 #[ignore = "requires same retained C custody plus actual four-validator settlement originals from the genuine A→B→C campaign"]
 fn actual_c_confirms_network_unload_after_process_restart() {
     let output = fresh_output("KAGEMUSHA_NATIVE_NETWORK_CONFIRMATION_OUTPUT");
-    let sources = Sources::admit(&output.join("source-admission"));
+    let sources = Sources::requalify(&output.join("source-admission"));
     let setup = LedgerSetup::read(&sources);
     let f = sources.fixture(&setup, 2);
     let exchange_path = selected_path("KAGEMUSHA_NATIVE_EXCHANGE_RESULT");

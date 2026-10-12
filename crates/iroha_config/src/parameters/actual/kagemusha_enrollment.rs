@@ -9,7 +9,7 @@ use std::{path::PathBuf, time::Duration};
 use url::Url;
 
 mod worker;
-pub use worker::{KagemushaEnrollmentGoogle, KagemushaEnrollmentWorker};
+pub use worker::KagemushaEnrollmentWorker;
 
 /// Required deployment dependencies for the optional KAGEMUSHA enrollment service.
 ///

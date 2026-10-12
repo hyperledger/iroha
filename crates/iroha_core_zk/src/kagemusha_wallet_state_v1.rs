@@ -38,6 +38,7 @@ use crate::kagemusha_wallet_advance_v1::{
 };
 
 mod archive;
+mod capacity;
 mod collection;
 mod credit_tree;
 mod custody;
@@ -137,6 +138,16 @@ pub enum Error {
     /// A required native proof, source or key failed verification.
     #[error("native proof rejected: {0}")]
     Proof(&'static str),
+    /// Design §5.3: free custody storage does not cover this operation's reservation and fold
+    /// witnesses. Refused before commit; nothing was debited or credited, and the retained
+    /// Request, receipt or Payment stays deliverable. Retry after freeing storage.
+    #[error("not enough storage for this operation")]
+    NotEnoughStorage,
+    /// Design §5.3: memory available to the app does not cover the peak proving memory of the
+    /// installed relations. Refused before commit; nothing was debited or credited. Retry after
+    /// freeing memory. Never a device verdict.
+    #[error("not enough memory for this operation")]
+    NotEnoughMemory,
 }
 
 fn valid<T>(result: Result<T, KagemushaWalletValidationErrorV1>) -> Result<T, Error> {
@@ -253,6 +264,17 @@ pub trait NativeProofs {
         request: &KagemushaWalletRequestV1,
         payment: &KagemushaWalletPaymentV1,
     ) -> Result<(), Error>;
+
+    /// Design §5.3 bounds derived from the installed, authenticated relations: the largest
+    /// peak proving memory of any relation that proves a step or folds it, and the largest
+    /// fold-witness storage one step adds until a durable Ω covers it. The coordinator adds
+    /// the operation's own custody reservation. No phone model, class or roster is consulted.
+    ///
+    /// # Errors
+    /// Unavailable artifacts or a descriptor whose bound cannot be computed.
+    fn runtime_capacity(
+        &self,
+    ) -> Result<crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeCapacityV1, Error>;
 
     /// Ordered intermediate proof layouts from the authenticated artifact schedule for this
     /// operation. The final Ω follows these checkpoints and keeps its separate wire bound.
@@ -647,6 +669,9 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         if released_receive {
             return Err(Error::WitnessLost("released Receive index"));
         }
+        // Design §5.3: a fresh transition checks this phone again before it commits. Retained
+        // and duplicate outcomes above never depend on current capacity.
+        self.require_runtime_capacity()?;
         let predecessor = manifest
             .indexed
             .map(|sequence| self.indexed_step(&manifest, sequence))

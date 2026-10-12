@@ -1374,17 +1374,17 @@ NATIVE_GOVERNANCE_SDK_CONTRACTS: dict[str, tuple[str, ...]] = {
         *JAVA_GOVERNANCE_WORKFLOW_STEP_MARKERS,
     ),
     SWIFT_GOVERNANCE_VALIDATOR_TEST: (
-        "ABI-28 connect_norito_bridge with Governance DAG symbols is required.",
+        "ABI-29 connect_norito_bridge with Governance DAG symbols is required.",
         "guard try requireGovernanceDagNativeBridge() else",
         "XCTFail(\"\\(Self.nativeValidationRequiredMessage) \\(unavailableMessage)\")",
     ),
     KOTLIN_GOVERNANCE_VALIDATOR_TEST: (
-        "ABI-28 connect_norito_bridge with Governance DAG symbols is required.",
+        "ABI-29 connect_norito_bridge with Governance DAG symbols is required.",
         "        requireGovernanceDagNativeBridge()\n",
         "throw AssertionError(requiredMessage)",
     ),
     JAVA_GOVERNANCE_VALIDATOR_TEST: (
-        "ABI-28 connect_norito_bridge with all SoraFS reference symbols is required.",
+        "ABI-29 connect_norito_bridge with all SoraFS reference symbols is required.",
         "  private static void requireNativeBridge() {\n",
         (
             "  private static void "
@@ -2564,7 +2564,7 @@ def _validate_workflow_source(relative: str, source: str) -> list[str]:
                 'exit "$sdkmanager_status"',
                 "cargo fetch --locked",
                 'java-version: "21"',
-                "Build and authenticate the exact ABI-28 Kotlin bridge",
+                "Build and authenticate the exact ABI-29 Kotlin bridge",
                 'test ! -e "$native_root"',
                 "cargo build --locked --offline --release -p connect_norito_bridge",
                 "cargo build --locked --offline --release -p kotlin-fixture-gen",
@@ -2575,7 +2575,7 @@ def _validate_workflow_source(relative: str, source: str) -> list[str]:
                 'echo "IROHA_NATIVE_LIBRARY_PATH=$native_dir" >> "$GITHUB_ENV"',
                 'echo "IROHA_KOTLIN_FIXTURE_GEN_BIN=$native_dir/kotlin-fixture-gen" >> "$GITHUB_ENV"',
                 'echo "MOBILE_SDK_ANDROID_ARTIFACT_DIR=$artifact_dir" >> "$GITHUB_ENV"',
-                "Require fresh ABI-28 JNI bridge in complete Kotlin and Java suites",
+                "Require fresh ABI-29 JNI bridge in complete Kotlin and Java suites",
                 "working-directory: kotlin",
                 "./gradlew --no-daemon --no-build-cache --rerun-tasks",
                 "--no-configuration-cache",
@@ -2599,14 +2599,14 @@ def _validate_workflow_source(relative: str, source: str) -> list[str]:
                 "runs-on: ubuntu-24.04",
                 'IROHA_REQUIRE_SORAFS_NATIVE_VALIDATION: "1"',
                 "actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9",
-                "Build and authenticate the exact ABI-28 C# bridge",
+                "Build and authenticate the exact ABI-29 C# bridge",
                 "cargo build --locked --release -p connect_norito_bridge",
-                "native-sdk-abi28.json",
+                "native-sdk-abi29.json",
                 "check_native_sdk_artifact.py record",
                 "check_native_sdk_artifact.py verify",
                 "dotnet restore Hyperledger.Iroha.Sdk.sln",
                 "dotnet build Hyperledger.Iroha.Sdk.sln -c Release --no-restore -warnaserror",
-                "Run complete C# ABI-28 parity suite",
+                "Run complete C# ABI-29 parity suite",
                 "dotnet test Hyperledger.Iroha.Sdk.sln -c Release --no-build",
             ),
         }
@@ -2622,9 +2622,9 @@ def _validate_workflow_source(relative: str, source: str) -> list[str]:
                     )
             if job_name == "mobile-parity":
                 stages = (
-                    "Build and authenticate the exact ABI-28 Kotlin bridge",
+                    "Build and authenticate the exact ABI-29 Kotlin bridge",
                     "Prepare canonical Kotlin test outputs",
-                    "Require fresh ABI-28 JNI bridge in complete Kotlin and Java suites",
+                    "Require fresh ABI-29 JNI bridge in complete Kotlin and Java suites",
                     "Validate every mobile parity test lane",
                     "Reauthenticate the consumed Kotlin bridge",
                     "Upload Kotlin and Java native parity evidence",

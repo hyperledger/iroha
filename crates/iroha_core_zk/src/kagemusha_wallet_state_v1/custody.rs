@@ -78,6 +78,13 @@ pub trait Custody {
         owner: &TransitionOwner,
         request: &AdvanceRequest<KagemushaWalletRecoveryCapsuleV1>,
     ) -> Result<AdvanceOutcome<KagemushaWalletCompletionRecordV1>, ProviderError>;
+    /// Free custody storage and memory available to the app now (design §5.3).
+    ///
+    /// # Errors
+    /// Locked protected storage or unreadable free space; never a shortfall.
+    fn runtime_resources(
+        &mut self,
+    ) -> Result<crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeResourcesV1, ProviderError>;
 }
 
 /// Owns the exclusive native provider handle and binds calls to one enrolled slot.
@@ -260,6 +267,12 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> Custody for AdvanceHa
 
     fn status(&mut self) -> Result<SlotStatus, ProviderError> {
         self.lock()?.status(&self.slot)
+    }
+    fn runtime_resources(
+        &mut self,
+    ) -> Result<crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeResourcesV1, ProviderError>
+    {
+        self.lock()?.runtime_resources()
     }
     fn lookup(
         &mut self,

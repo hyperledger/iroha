@@ -8,13 +8,31 @@ use axum::{
 };
 
 fn failure(error: IssuerError) -> Response {
-    let status=match error {
-        IssuerError::Invalid=>StatusCode::BAD_REQUEST,
-        IssuerError::Rejected | IssuerError::Selection=>StatusCode::FORBIDDEN,
-        IssuerError::Journal(iroha_core::kagemusha_wallet_v1::enrollment_journal::EnrollmentJournalErrorV1::Ineligible)=>StatusCode::FORBIDDEN,
-        _=>StatusCode::SERVICE_UNAVAILABLE,
+    use iroha_torii_shared::kagemusha_enrollment::EnrollmentServiceOutcomeV1 as Outcome;
+    let outcome = match error {
+        IssuerError::Refused(reason)
+        | IssuerError::Journal(
+            iroha_core::kagemusha_wallet_v1::enrollment_journal::EnrollmentJournalErrorV1::Ineligible(reason),
+        ) => Some(Outcome::Refused(reason)),
+        IssuerError::DeliveryWithheld(reason) => Some(Outcome::DeliveryWithheld(reason)),
+        IssuerError::OutcomeUnknown => Some(Outcome::OutcomeUnknown),
+        _ => None,
     };
-    (status, "enrollment operation unavailable or rejected").into_response()
+    let status = match (error, outcome) {
+        (_, Some(outcome)) => {
+            StatusCode::from_u16(outcome.status()).unwrap_or(StatusCode::SERVICE_UNAVAILABLE)
+        }
+        (IssuerError::Invalid, None) => StatusCode::BAD_REQUEST,
+        (IssuerError::Selection, None) => StatusCode::FORBIDDEN,
+        _ => StatusCode::SERVICE_UNAVAILABLE,
+    };
+    let mut response = (status, "enrollment operation unavailable or rejected").into_response();
+    if let Some((name, value)) = outcome.map(|outcome| outcome.header()) {
+        if let Ok(value) = HeaderValue::from_str(&value) {
+            response.headers_mut().insert(name, value);
+        }
+    }
+    response
 }
 pub(crate) async fn handler(
     State(app): State<crate::SharedAppState>,

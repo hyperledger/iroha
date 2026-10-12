@@ -24,6 +24,7 @@ pub(crate) struct NativeExecutionAuthorization {
     state: usize,
     tip: crate::state::native_execution_tip::NativeExecutionTipRecord,
     parent: Option<(Hash32, Hash32)>,
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
     telemetry_origin: CommitTelemetryOrigin,
 }
 
@@ -38,11 +39,12 @@ pub(crate) enum CommitTelemetryOrigin {
 impl NativeExecutionAuthorization {
     /// The startup module can transfer only its own original signed-genesis execution.
     pub(super) fn from_genesis(original: super::startup::GenesisExecutionAuthorization) -> Self {
-        let (state, tip, telemetry_origin) = original.into_parts();
+        let (state, tip, root_scope, telemetry_origin) = original.into_parts();
         Self {
             state,
             tip,
             parent: None,
+            root_scope,
             telemetry_origin,
         }
     }
@@ -60,13 +62,14 @@ impl NativeExecutionAuthorization {
         (
             crate::state::native_execution_tip::NativeExecutionTipRecord,
             Option<(Hash32, Hash32)>,
+            iroha_data_model::block::consensus::SumeragiRootScope,
         ),
         String,
     > {
         if self.state != std::ptr::from_ref(state) as usize {
             return Err("native execution authorization belongs to another State".into());
         }
-        Ok((self.tip, self.parent))
+        Ok((self.tip, self.parent, self.root_scope))
     }
 }
 
@@ -95,9 +98,7 @@ use iroha_sumeragi::{
 
 use super::{
     block_store::{StagedBlock, Staging},
-    commitment::{
-        ExecutionResultCommitment, encode_result_preimage, execution_result, result_of_preimage,
-    },
+    commitment::{CertifiedResultV1, encode_result_preimage, execution_result, result_of_preimage},
     driver::traits::{Executor, PublicationDeferral, PublicationError},
     lanes,
     network_topology::Topology,
@@ -734,12 +735,12 @@ enum FinishingPhase {
         inputs: iroha_allocation::RetainedPayload<NativeExecutionInputs>,
         refusal: Option<NativeLaneStateProofError>,
     },
-    Ready(iroha_allocation::RetainedPayload<ExecutionResultCommitment>),
+    Ready(iroha_allocation::RetainedPayload<CertifiedResultV1>),
     /// A one-shot deterministic transition failed or unwound; only recovery may release it.
     Consuming,
 }
 impl FinishingPhase {
-    fn ready(&self) -> Option<&iroha_allocation::RetainedPayload<ExecutionResultCommitment>> {
+    fn ready(&self) -> Option<&iroha_allocation::RetainedPayload<CertifiedResultV1>> {
         match self {
             Self::Ready(commitment) => Some(commitment),
             Self::ContextProof { .. } | Self::Consuming => None,
@@ -786,7 +787,7 @@ struct Live<'s> {
     /// Complete original canonical epoch result and its exact source-bound allocation ledger.
     /// Retained for custody through the same Live lifetime and field drop order, even when
     /// shipping execution no longer reads its value after encoding the original preimage.
-    _commitment: iroha_allocation::RetainedPayload<ExecutionResultCommitment>,
+    _commitment: iroha_allocation::RetainedPayload<CertifiedResultV1>,
     applied_config: AppliedConfig,
     committee: Vec<PeerId>,
     events: Vec<EventBox>,
@@ -795,7 +796,7 @@ struct Live<'s> {
 #[cfg(test)]
 impl Live<'_> {
     /// Borrow the retained canonical result for original-custody assertions.
-    fn commitment(&self) -> &iroha_allocation::RetainedPayload<ExecutionResultCommitment> {
+    fn commitment(&self) -> &iroha_allocation::RetainedPayload<CertifiedResultV1> {
         let Self {
             _commitment: commitment,
             ..
@@ -1429,7 +1430,7 @@ impl<'s> Worker<'s> {
         block: &AvailableBody,
         block_hash: Hash32,
         encode: impl FnOnce(
-            &iroha_allocation::RetainedPayload<ExecutionResultCommitment>,
+            &iroha_allocation::RetainedPayload<CertifiedResultV1>,
             &iroha_allocation::AllocationBudget,
         ) -> Result<
             iroha_allocation::ChargedBuffer<u8>,
@@ -1909,6 +1910,19 @@ impl<'s> Worker<'s> {
         }
         self.finishing.as_mut().unwrap().world_cut_refusal = None;
         let original = self.finishing.as_mut().unwrap();
+        let sccp_finality_header = original
+            .overlay
+            .sealed_sccp_finality_header(original.valid.as_ref())
+            .map_err(PublicationError::RecoveryRequired)?;
+        let scope = original
+            .overlay
+            .native_execution_tip()
+            .ok_or_else(|| {
+                PublicationError::RecoveryRequired(
+                    "original result lacks its authenticated parent root scope".into(),
+                )
+            })?
+            .result_scope();
         let FinishingPhase::ContextProof { inputs, .. } =
             std::mem::replace(&mut original.phase, FinishingPhase::Consuming)
         else {
@@ -1920,6 +1934,8 @@ impl<'s> Worker<'s> {
             &transition,
             inputs,
             proof,
+            sccp_finality_header,
+            scope,
         )
         .map_err(|error| {
             let reason = format!("original result requires recovery: {error}");
@@ -1992,7 +2008,7 @@ impl<'s> Worker<'s> {
     fn finish_execution_with_encoder(
         &mut self,
         encode: impl FnOnce(
-            &iroha_allocation::RetainedPayload<ExecutionResultCommitment>,
+            &iroha_allocation::RetainedPayload<CertifiedResultV1>,
             &iroha_allocation::AllocationBudget,
         ) -> Result<
             iroha_allocation::ChargedBuffer<u8>,
@@ -2027,7 +2043,11 @@ impl<'s> Worker<'s> {
                 return Err(failure);
             }
         };
-        let result = result_of_preimage(preimage.as_slice());
+        let result = result_of_preimage(preimage.as_slice()).ok_or_else(|| {
+            let reason = "original encoded result has no canonical finality header".to_owned();
+            self.recovery = Some(reason.clone());
+            PublicationError::RecoveryRequired(reason)
+        })?;
         let original = self.finishing.take().unwrap();
         let FinishingPhase::Ready(commitment) = original.phase else {
             unreachable!("encoded original result")
@@ -2679,6 +2699,14 @@ impl<'s> Worker<'s> {
                     result: live.result.0,
                 },
                 parent: Some((live.header.parent_hash, live.header.parent_result)),
+                root_scope: overlay
+                    .native_execution_tip()
+                    .ok_or_else(|| {
+                        PublicationError::RecoveryRequired(
+                            "original publication lost its parent scope".into(),
+                        )
+                    })?
+                    .root_scope(),
             };
             overlay.authorize_sumeragi_output_publication(
                 committed,
@@ -2991,19 +3019,32 @@ impl<'s> Worker<'s> {
         let selection: Option<crate::queue::PendingPayloadSelection> =
             queue.begin_pending_payload_selection(self.state, original_generation);
         let mut selected = match payload::select(
-            self.state,
+            &current_view,
             queue,
             max_bytes.saturating_sub(PAYLOAD_OVERHEAD),
-            merges.transactions,
+            &merges,
         ) {
             Ok(selected) => {
                 self.routing_refusal = None;
                 selected
             }
-            Err(reason) => {
+            Err(payload::PayloadError::RoutingDeferred(reason)) => {
                 let message = reason.to_string();
                 self.routing_refusal = Some(reason);
                 return Err(PublicationError::Retryable(message));
+            }
+            Err(error) => {
+                let publication = match &error {
+                    payload::PayloadError::SccpForgeryPreparation(original) => {
+                        preparation::validation_failure(
+                            &BlockValidationError::StateStorageAdmission(original.clone()),
+                        )
+                        .unwrap_or_else(|| PublicationError::RecoveryRequired(error.to_string()))
+                    }
+                    _ => PublicationError::Retryable(error.to_string()),
+                };
+                self.payload_refusal = Some(error);
+                return Err(publication);
             }
         };
         iroha_logger::debug!(
@@ -3025,6 +3066,29 @@ impl<'s> Worker<'s> {
             cadence: Duration::from_millis(scheduled.params.block_time_ms),
         };
         while !selected.is_empty() || !merges.merges.is_empty() {
+            if let Err(error) = payload::recheck_sccp_forgery_for_proposal(
+                &current_view,
+                assembly,
+                &mut selected,
+                &merges,
+            ) {
+                let publication = match &error {
+                    payload::PayloadError::SccpForgeryPreparation(original) => {
+                        preparation::validation_failure(
+                            &BlockValidationError::StateStorageAdmission(original.clone()),
+                        )
+                        .unwrap_or_else(|| PublicationError::RecoveryRequired(error.to_string()))
+                    }
+                    _ => PublicationError::Retryable(error.to_string()),
+                };
+                self.payload_refusal = Some(error);
+                return Err(publication);
+            }
+            if selected.is_empty() && merges.merges.is_empty() {
+                // A queued claim can become genuine or duplicate as the tip advances.
+                // Its removal never authorizes an empty proposal or a pulse signature.
+                return Ok(None);
+            }
             // Every selected Queue input retains its original admission receipt,
             // including mixed sources. Lane-bearing completion retains this same
             // source and rechecks its actual ranges and original lease on every lend.
@@ -3556,6 +3620,7 @@ mod native_execution_authorization_tests {
                 result: [2; 32],
             },
             parent: None,
+            root_scope: iroha_data_model::block::consensus::SumeragiRootScope::Global,
         };
         assert!(token.for_state(&original).is_ok());
         assert!(token.for_state(&foreign).is_err());

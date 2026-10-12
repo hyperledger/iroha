@@ -369,3 +369,53 @@ fn parent_receipt_uses_original_certified_archive_and_survives_native_replay() {
         Some(receipt)
     );
 }
+
+#[test]
+fn private_profile_resource_refusal_retains_instruction_attempt_and_invalid_does_not() {
+    use norito::core::DecodeResourceError;
+    for (resource, expected) in [
+        (
+            DecodeResourceError::AllocationFailed { bytes: 1 },
+            ivm::error::ExecutionDeferral::AllocationUnavailable,
+        ),
+        (
+            DecodeResourceError::TotalAllocationExceeded {
+                attempted: 2,
+                limit: 1,
+            },
+            ivm::error::ExecutionDeferral::ActiveMemoryCapacity,
+        ),
+    ] {
+        let parent = state(Some(SumeragiRootScope::Global), Some(policy()));
+        let mut block = parent.block(header(2));
+        let mut transaction = block.transaction();
+        let error = profile_error(
+            PrivateDataspaceAnchorError::Resource(resource),
+            &mut transaction,
+        );
+        assert!(
+            error
+                .to_string()
+                .contains("local instruction read did not complete")
+        );
+        let retained = transaction
+            .execution_deferral()
+            .expect("original typed refusal retained");
+        assert_eq!(retained.reason(), expected);
+        assert!(
+            retained.allocation_refusal().is_none(),
+            "decoder limits provide no pool release owner"
+        );
+        assert!(transaction.world.private_dataspaces().records().is_empty());
+    }
+    let parent = state(Some(SumeragiRootScope::Global), Some(policy()));
+    let mut block = parent.block(header(2));
+    let mut transaction = block.transaction();
+    let error = profile_error(
+        PrivateDataspaceAnchorError::Invalid("invalid original".into()),
+        &mut transaction,
+    );
+    assert!(error.to_string().contains("invalid original"));
+    assert!(transaction.execution_deferral().is_none());
+    assert!(transaction.world.private_dataspaces().records().is_empty());
+}

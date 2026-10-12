@@ -8,6 +8,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import org.hyperledger.iroha.sdk.crypto.NativeSignerBridge
+import org.hyperledger.iroha.sdk.offline.KagemushaWalletEnrollmentRefusalV1
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
@@ -20,8 +21,21 @@ class KagemushaWalletHostNativeV1Test {
 
     @BeforeEach
     fun requireCurrentNativeBridge() {
-        assertTrue(NativeSignerBridge.isNativeAvailable(), "The supplied ABI-28 native bridge must load")
+        assertTrue(NativeSignerBridge.isNativeAvailable(), "The supplied ABI-29 native bridge must load")
         assertEquals(1, KagemushaWalletNativeV1.revision())
+    }
+
+    @Test
+    fun theKotlinRefusalTableIsExactlyNativesClosedTable() {
+        // Native owns the closed design §2.4 table; the SDK relays codes unchanged. Every code,
+        // including zero, unknown and platform-inapplicable ones, agrees for both platforms.
+        for (android in listOf(true, false)) {
+            for (code in (-1..300) + listOf(65_535, 65_536, Int.MAX_VALUE, Int.MIN_VALUE)) {
+                val reason = KagemushaWalletEnrollmentRefusalV1.fromCode(code)?.takeIf { it.appliesTo(android) }
+                val expected = reason?.let { it.holderClass.ordinal + 1 } ?: -1
+                assertEquals(expected, KagemushaWalletNativeV1.enrollmentRefusal(code, android), "code $code android $android")
+            }
+        }
     }
 
     @Test
@@ -187,7 +201,9 @@ class KagemushaWalletHostNativeV1Test {
         val id = ByteArray(32) { 1 }
         val originals = listOf(
             enrollment(0, id, id, id), enrollment(1, ByteArray(64)), enrollment(2),
-            enrollment(3, byteArrayOf(1), certificates = arrayOf(byteArrayOf(2), byteArrayOf(3))),
+            // Android E5 is the KeyMint chain only (2-8 certificates); no token rides along.
+            enrollment(3, certificates = arrayOf(byteArrayOf(2), byteArrayOf(3))),
+            enrollment(3, certificates = Array(4) { ByteArray(16384) { 7 } }),
             enrollment(4, id, byteArrayOf(1), byteArrayOf(2)), enrollment(5, ByteArray(64)),
             enrollment(6, byteArrayOf(1)), enrollment(7), enrollment(8), enrollment(9, byteArrayOf(1)), enrollment(10),
         )
@@ -200,8 +216,12 @@ class KagemushaWalletHostNativeV1Test {
         val malformed = listOf(
             enrollment(0, ByteArray(33), id, id), enrollment(1, ByteArray(65)),
             enrollment(2, byteArrayOf(1)), enrollment(3, ByteArray(65537)),
-            enrollment(3, byteArrayOf(1), certificates = Array(9) { byteArrayOf(1) }),
-            enrollment(3, byteArrayOf(1), certificates = arrayOf(ByteArray(16385))),
+            // A retired Play Integrity token, a short, long or oversized chain are refused.
+            enrollment(3, byteArrayOf(1), certificates = arrayOf(byteArrayOf(2), byteArrayOf(3))),
+            enrollment(3, certificates = arrayOf(byteArrayOf(2))),
+            enrollment(3, certificates = Array(9) { byteArrayOf(1) }),
+            enrollment(3, certificates = arrayOf(byteArrayOf(2), ByteArray(16385))),
+            enrollment(3, certificates = Array(5) { ByteArray(16384) { 7 } }),
             enrollment(4, id, byteArrayOf(1), ByteArray(4097)),
             enrollment(10, byteArrayOf(1)), enrollment(9, ByteArray(2049)), enrollment(6, ByteArray(262145)), enrollment(7, byteArrayOf(1)), enrollment(99),
         )

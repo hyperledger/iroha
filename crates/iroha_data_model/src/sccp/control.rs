@@ -2,7 +2,7 @@
 //! §4.14.6).
 //!
 //! A block commits its SCCP messages as leaves in `commitment_index` order. A leaf is either a
-//! transfer (an outbound record) or a control (a Parliament-enacted destination pause state).
+//! transfer (an outbound record) or a control (the complete destination pause state after a certified change).
 //! `sccp_block_leaves[(height, commitment_index)]` stores a [`SccpLeafRefV1`] that points at
 //! the record whose stored leaf hash enters the block root.
 //!
@@ -145,16 +145,37 @@ impl SccpLeafRefV1 {
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "iroha_data_model::sccp::control::SccpControlRecordV1")]
 pub struct SccpControlRecordV1 {
-    /// Commanded minting pause state.
-    pub paused: bool,
+    /// Enacting authority: 1 for Parliament, 2 for fast pause.
+    pub track: u8,
+    /// Parliament pause flag after the change.
+    pub parliament_paused: bool,
+    /// Active fast-pause expiry after the change, or zero when none is active.
+    pub fast_pause_until_ms: u64,
+    /// Exact enacting certificate identity; never a proposal identifier.
+    pub certificate_id: [u8; 32],
+    /// Effect preimage hash authenticated by that certificate.
+    pub effect_hash: [u8; 32],
     /// Taira height that recorded the control.
     pub height: u64,
     /// Leaf index within that block.
     pub commitment_index: u32,
     /// §3.4 control leaf.
     pub leaf: [u8; 32],
-    /// Parliament proposal that enacted the control.
-    pub proposal_id: [u8; 32],
+}
+
+impl SccpControlRecordV1 {
+    /// Check the native control fields and the bounded block-leaf index.
+    ///
+    /// This is structural validation; the recorder and native proof reader must
+    /// separately bind the exact certificate authority, route, and leaf hash.
+    #[must_use]
+    pub fn is_well_formed(&self) -> bool {
+        matches!(self.track, 1 | 2)
+            && (self.track != 2 || self.fast_pause_until_ms != 0)
+            && self.certificate_id != [0; 32]
+            && self.effect_hash != [0; 32]
+            && self.commitment_index < super::params::SCCP_MESSAGES_MAX_PER_BLOCK_V1
+    }
 }
 
 #[cfg(test)]
@@ -169,11 +190,14 @@ mod tests {
         roundtrip(&transfer);
         roundtrip(&control);
         roundtrip(&SccpControlRecordV1 {
-            paused: true,
+            track: 1,
+            parliament_paused: true,
+            fast_pause_until_ms: 0,
             height: 99,
             commitment_index: 511,
             leaf: [3; 32],
-            proposal_id: [4; 32],
+            certificate_id: [4; 32],
+            effect_hash: [0x45; 32],
         });
         assert_rejects_unknown_field(&control, &["reference"]);
         assert_rejects_unknown_field(&transfer, &[]);
@@ -209,5 +233,58 @@ mod tests {
         ))
         .expect("json");
         assert!(json.contains("\"leaf\":\"control\""), "{json}");
+    }
+    #[test]
+    fn native_control_fields_are_bounded_and_both_tracks_roundtrip() {
+        let mut record = SccpControlRecordV1 {
+            track: 1,
+            parliament_paused: false,
+            fast_pause_until_ms: 0,
+            certificate_id: [3; 32],
+            effect_hash: [4; 32],
+            height: 7,
+            commitment_index: 511,
+            leaf: [5; 32],
+        };
+        assert!(record.is_well_formed());
+        roundtrip(&record);
+        record.track = 2;
+        assert!(!record.is_well_formed());
+        record.fast_pause_until_ms = 1;
+        assert!(record.is_well_formed());
+        roundtrip(&record);
+        for invalid_track in [0, 3, u8::MAX] {
+            let invalid = SccpControlRecordV1 {
+                track: invalid_track,
+                ..record
+            };
+            assert!(!invalid.is_well_formed());
+        }
+        for invalid in [
+            SccpControlRecordV1 {
+                certificate_id: [0; 32],
+                ..record
+            },
+            SccpControlRecordV1 {
+                effect_hash: [0; 32],
+                ..record
+            },
+            SccpControlRecordV1 {
+                commitment_index: 512,
+                ..record
+            },
+        ] {
+            assert!(!invalid.is_well_formed());
+        }
+        assert_rejects_unknown_field(&record, &[]);
+        for retired in ["paused", "proposal_id"] {
+            let mut value = norito::json::to_value(&record).expect("record JSON");
+            value
+                .as_object_mut()
+                .expect("object")
+                .insert(retired.into(), norito::json::Value::Bool(true));
+            let text = norito::json::to_json(&value).expect("JSON");
+            assert!(norito::json::from_json::<SccpControlRecordV1>(&text).is_err());
+        }
     }
 }

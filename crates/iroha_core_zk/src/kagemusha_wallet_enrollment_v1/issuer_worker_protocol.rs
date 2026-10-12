@@ -91,7 +91,7 @@ impl VerifierPreparationV1 {
                 "account_original_base64": (STANDARD.encode(&account)),
                 "account_owner_public_hex": (hex::encode(owner)),
                 "issued_at_ms": (created_at_ms), "expires_at_ms": (expires_at_ms),
-                "platform": (match dispatch.policy.platform { KagemushaWalletEnrollmentPlatformV1::Android { .. } => "android", KagemushaWalletEnrollmentPlatformV1::Apple { .. } => "apple" }),
+                "platform": (match &dispatch.policy.platform { KagemushaWalletEnrollmentPlatformV1::Android { .. } => "android", KagemushaWalletEnrollmentPlatformV1::Apple { .. } => "apple" }),
                 "app_policy_hex": (hex::encode(challenge.app_policy)),
                 "enrollment_policy_hex": (hex::encode(challenge.enrollment_policy)),
                 "config_sha256": (hex::encode(configuration)),
@@ -103,7 +103,7 @@ impl VerifierPreparationV1 {
             configuration,
             created_at_ms,
             expires_at_ms,
-            policy: dispatch.policy,
+            policy: dispatch.policy.clone(),
             app: dispatch.app.clone(),
             challenge,
             account: dispatch.account.clone(),
@@ -260,6 +260,29 @@ impl VerifierExchangeV1 {
         self.incarnation
     }
 
+    /// Fresh nonzero identifier of this exchange.
+    pub fn exchange_id(&self) -> [u8; 32] {
+        self.exchange
+    }
+
+    /// Action of a Complete, Recover or Inspect exchange; `None` for Journal and Prepare.
+    /// With [`Self::exchange_id`] and [`Self::dispatch_time_ms`] it is the selection a node
+    /// retains with a terminal reply, so the exact exchange can be rebuilt from the retained
+    /// request and the reply checked again against every binding.
+    pub fn action(&self) -> Option<ActionV1> {
+        match self.kind {
+            Kind::Complete => Some(ActionV1::Complete),
+            Kind::Recover => Some(ActionV1::Recover),
+            Kind::Inspect => Some(ActionV1::Inspect),
+            Kind::Journal | Kind::Prepare => None,
+        }
+    }
+
+    /// Trusted dispatch time of a Complete, Recover or Inspect exchange.
+    pub fn dispatch_time_ms(&self) -> Option<u64> {
+        self.dispatch_time_ms
+    }
+
     fn checked_response(&self, frame: &[u8]) -> Result<Value, Error> {
         if frame.len() < 4 || frame.len() > MAX_PACKET + 4 {
             return Err(Error("response frame bound"));
@@ -281,6 +304,7 @@ impl VerifierExchangeV1 {
                 "config_sha256",
                 "outcome",
                 "evidence_base64",
+                "refusal_code",
             ],
         )?;
         let incarnation = digest(&value, "journal_incarnation")?;
@@ -383,24 +407,43 @@ pub(super) fn request_exchange(
 }
 
 fn acknowledgment(value: &Value, expected: &str) -> Result<(), Error> {
-    if text(value, "outcome")? == expected && value.get("evidence_base64") == Some(&Value::Null) {
+    if text(value, "outcome")? == expected
+        && value.get("evidence_base64") == Some(&Value::Null)
+        && value.get("refusal_code") == Some(&Value::Null)
+    {
         return Ok(());
     }
-    match failure(value)? {
+    // Journal and Prepare exchanges carry no evidence, so they can never refuse an E1.
+    match failure(value, None)? {
         OutcomeV1::Unavailable => Err(Error("worker unavailable")),
-        OutcomeV1::Rejected => Err(Error("worker rejected")),
         _ => Err(Error("worker acknowledgment")),
     }
 }
 
-pub(super) fn failure(value: &Value) -> Result<OutcomeV1, Error> {
+/// Classify a non-evidence reply. `android` is the configured platform of an E5 exchange, and
+/// `None` for Journal/Prepare, which never refuse. A refusal carries exactly one closed
+/// platform code (1–10) that can occur on that platform; every other reply carries none.
+pub(super) fn failure(value: &Value, android: Option<bool>) -> Result<OutcomeV1, Error> {
     if value.get("evidence_base64") != Some(&Value::Null) {
         return Err(Error("failure evidence"));
     }
-    match text(value, "outcome")? {
-        "outcome_unknown" => Ok(OutcomeV1::OutcomeUnknown),
-        "unavailable" => Ok(OutcomeV1::Unavailable),
-        "rejected" => Ok(OutcomeV1::Rejected),
-        _ => Err(Error("unknown outcome")),
+    let outcome = text(value, "outcome")?;
+    if outcome != "refused" {
+        if value.get("refusal_code") != Some(&Value::Null) {
+            return Err(Error("refusal code without refusal"));
+        }
+        return match outcome {
+            "outcome_unknown" => Ok(OutcomeV1::OutcomeUnknown),
+            "unavailable" => Ok(OutcomeV1::Unavailable),
+            _ => Err(Error("unknown outcome")),
+        };
+    }
+    let android = android.ok_or(Error("refusal outside verification"))?;
+    let code = u16::try_from(integer(value, "refusal_code")?).map_err(|_| Error("refusal code"))?;
+    match KagemushaWalletEnrollmentRefusalV1::from_code(code) {
+        Some(reason) if !reason.is_eligibility() && reason.applies_to(android) => {
+            Ok(OutcomeV1::Refused(reason))
+        }
+        _ => Err(Error("refusal code")),
     }
 }

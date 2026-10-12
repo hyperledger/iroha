@@ -155,11 +155,17 @@ fn readback_timeout_defaults_and_preserves_its_independent_closed_range() {
             .with_toml_source(TomlSource::inline(table))
             .read_and_complete::<MusubiPublicationInstallation>()
             .unwrap();
-        assert_eq!(read.readback_request_timeout_ms, Some(timeout as u64));
+        assert_eq!(
+            read.readback_request_timeout_ms,
+            Some(u64::try_from(timeout).expect("positive fixture timeout"))
+        );
         let mut complete = selection();
         complete.readback_request_timeout_ms = read.readback_request_timeout_ms;
         let actual = parse(complete).unwrap();
-        assert_eq!(actual.readback_request_timeout_ms, timeout as u64);
+        assert_eq!(
+            actual.readback_request_timeout_ms,
+            u64::try_from(timeout).expect("positive fixture timeout")
+        );
         assert_eq!(actual.pin_authorization_window_ms, 600_000);
         assert_eq!(actual.pin_max_check_rounds, 16);
         assert_eq!(actual.pin_per_transaction_fee_limit, Quantity::from(1u64));

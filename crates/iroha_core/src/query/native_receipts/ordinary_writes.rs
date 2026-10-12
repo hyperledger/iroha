@@ -122,6 +122,7 @@ struct MaterializedProjection<'a> {
     lanes: LanePayload<'a>,
     ordinary_writes: Vec<ExecKv>,
     casting_bindings: Vec<super::CastingBinding>,
+    sccp_delta: &'a [u8],
 }
 impl norito::NoritoSchema for MaterializedProjection<'_> {
     fn nominal_name() -> String {
@@ -313,7 +314,9 @@ pub(super) fn decode_projection<'a>(
         .decode_exact_with::<NativeExecutionProjectionV1, MaterializedProjection<'_>, _>(
             |payload| {
                 let decoded = (|| -> Result<MaterializedProjection<'_>, WriteDecodeError> {
-                    let [height, hash, lanes, writes, casting] = fields::<5>(payload, flags)?;
+                    let [height, hash, lanes, writes, casting, delta] =
+                        fields::<6>(payload, flags)?;
+                    let sccp_delta = raw_bytes(delta)?;
                     let raw = RawWrites::new(writes, flags)?;
                     let raw_casting = RawCasting::new(casting, flags)?;
                     let mut demand = raw.demand()?;
@@ -355,6 +358,7 @@ pub(super) fn decode_projection<'a>(
                         lanes,
                         ordinary_writes,
                         casting_bindings,
+                        sccp_delta,
                     })
                 })();
                 match decoded {
@@ -389,11 +393,17 @@ pub(super) fn decode_projection<'a>(
         lanes,
         ordinary_writes,
         casting_bindings,
+        sccp_delta,
     } = projection;
     let casting_bindings = casting::retain(
         casting_bindings,
         casting_charge.take().expect("complete casting array"),
         budget,
+    )?;
+    crate::smartcontracts::isi::sccp::witness::require_exact_delta(
+        carrier_height,
+        sccp_delta,
+        &ordinary_writes,
     )?;
     let witness = construction
         .take()

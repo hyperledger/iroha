@@ -1,19 +1,22 @@
 // Message and cell layouts of the SCCP v1 TON contracts (§5.3.2, §5.3.3).
 //
 // Field order is serialization order; every struct is the exact TL-B of the
-// spec. The certificate cells (`TairaCert`, `QcFixed`, `XHead`, `XTail`) and
-// the variable-shape cells (`SnakeBytes`, `HashChunk`, `KeyChunk`) are parsed
-// by `sccp-verify.tolk` and `sccp-cells.tolk`, which check that every cell
-// taken from a message is ordinary and has exactly the bit and reference
-// counts of its layout.
+// spec. The minter never reads a referenced cell of a message through these
+// types: the automatic parser resolves library cells and throws exit code 9
+// on a shape mismatch. The certificate cells (`TairaCert`, `QcFixed`,
+// `XHead`, `XTail`, `CheckpointRef`) are opened by `sccp-finality.tolk`, the
+// proof cells (`BlockRef`, `MessageProof`, `ControlProof`) by
+// `sccp-verify.tolk` and the variable-shape cells (`SnakeBytes`, `HashChunk`,
+// `KeyChunk`) by `sccp-cells.tolk`. Each of them checks that the cell is
+// ordinary and has exactly the bit and reference counts of its layout, with
+// the exit codes listed in `sccp-errors.tolk`.
 
-/// `qc_fixed#_` — `QC_FIXED` without its trailing `signers` word (904 bits).
+/// `qc_fixed#_` — `QC_FIXED` without its trailing `signers` word (896 bits).
 struct QcFixed {
     epoch: uint64
     epochContext: uint256
     view: uint64
     blockHash: uint256
-    attest: uint8
     resultBody: uint256
 }
 
@@ -43,7 +46,7 @@ struct CheckpointRef {
     x: Cell<XHead>
 }
 
-/// `block_ref#_` (`BlockRefV1`, §5.1.5).
+/// `block_ref#_` (`BlockRefV1`, §5.1.5; 425 data bits).
 struct BlockRef {
     height: uint64
     sccpRoot: uint256
@@ -54,7 +57,7 @@ struct BlockRef {
     path: cell?
 }
 
-/// `message_proof#_` (`MessageProofV1`, §5.1.5).
+/// `message_proof#_` (`MessageProofV1`, §5.1.5; 41 data bits).
 struct MessageProof {
     leafIndex: uint32
     pathLen: uint8
@@ -104,7 +107,8 @@ struct (0x53434930) SccpInit {
 }
 
 /// One certificate of `submitCheckpoints` (§5.1.2–§5.1.3). `nextKeys` is
-/// required iff a rotation applies with `X.next_committee_root ≠ cur.root`.
+/// required iff a rotation applies with `X.next_committee_root ≠ cur.root`;
+/// otherwise it is ignored and not read.
 struct (0x53434b31) SccpCheckpoint {
     queryId: uint64
     response: address

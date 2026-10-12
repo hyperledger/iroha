@@ -257,8 +257,9 @@ fn raw_ivm_trigger_registration_cannot_carry_a_record() {
                     .map_err(crate::execution_attempt::expect_completed_rejection)
                     .expect_err("CREATE_TRIGGER may not register a record-deriving trigger");
                 assert!(
-                    matches!(&error, ValidationFail::NotPermitted(message)
-                        if message.contains("permission denied")),
+                    matches!(&error, ValidationFail::IvmFault(fault)
+                        if fault.kind
+                            == iroha_data_model::executor::fault::IvmFaultKindV1::PermissionDenied),
                     "{error:?}"
                 );
             } else {

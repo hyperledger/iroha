@@ -33,8 +33,13 @@ pub struct QualifiedBootstrapProgramV1 {
     first: InstalledSourceSealV1<Eq>,
     wrapper: InstalledSourceSealV1<Ep>,
     terminal: InstalledSourceSealV1<Eq>,
+    stage_memory: u64,
 }
 impl QualifiedBootstrapProgramV1 {
+    /// Design §5.3 peak proving memory of the largest of the A1, W0 and A2 stages.
+    pub const fn stage_memory_bytes(&self) -> u64 {
+        self.stage_memory
+    }
     /// Exact authenticated installation and selected program.
     pub const fn identity(&self) -> (([u8; 32], [u8; 32]), u32) {
         (self.installation, self.program)
@@ -144,6 +149,8 @@ impl AuthenticatedProducerInventoryV1 {
         let first = metadata(self.read_verifier_original(record.a[0], originals)?)?;
         let wrapper = metadata(self.read_verifier_original(record.w[0], originals)?)?;
         let terminal = metadata(self.read_verifier_original(record.a[1], originals)?)?;
+        let stage_memory =
+            peak_proving_memory([&first, &terminal])?.max(peak_proving_memory([&wrapper])?);
         let prover = native::Prover::from_artifacts(plan, first, wrapper, terminal)?;
         let first = {
             let original = self.read_original(record.a[0], originals, config.maximum_bytes)?;
@@ -173,6 +180,7 @@ impl AuthenticatedProducerInventoryV1 {
             first,
             wrapper,
             terminal,
+            stage_memory,
         })
     }
 }

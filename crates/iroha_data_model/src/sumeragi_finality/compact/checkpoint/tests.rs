@@ -258,18 +258,13 @@ fn resign(qc: &mut Qc) {
     qc.signers = iroha_sumeragi::types::Bitmap::from_indices(4, [0, 1, 2]).unwrap();
     let shares: Vec<_> = keys[..3]
         .iter()
-        .map(|key| iroha_crypto::Signature::try_new(key.private_key(), &qc.preimage()).unwrap())
+        .map(|key| {
+            iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &qc.preimage()).unwrap()
+        })
         .collect();
-    let refs: Vec<_> = shares
-        .iter()
-        .map(iroha_crypto::Signature::payload)
-        .collect();
-    qc.agg_sig = AggregateSignature(
-        iroha_crypto::bls_normal_aggregate_signatures(&refs)
-            .unwrap()
-            .try_into()
-            .unwrap(),
-    );
+    let refs: Vec<_> = shares.iter().collect();
+    qc.agg_sig =
+        AggregateSignature(iroha_crypto::bls::consensus::aggregate(refs.iter().copied()).unwrap());
 }
 
 /// Produce synthetic execution DATA signed by the genuine four-validator fixture keys.
@@ -288,7 +283,10 @@ fn next_boundary(
         current.authorization.authorization_id().unwrap();
     next.leader_seed = [u8::try_from(next.authorization.epoch).unwrap(); 32];
     next.validate_successor(current).unwrap();
-    let mut result = ExecutionResultCommitment::decode(&template.result_preimage).unwrap();
+    let (original_x, mut result) =
+        CertifiedResultV1::decode(&template.result_preimage, CertifiedResultScope::TairaGlobal)
+            .unwrap()
+            .into_parts();
     result.height = height;
     result.schedule.height = height;
     result.schedule.current = current.clone();
@@ -321,8 +319,14 @@ fn next_boundary(
     qc.height = height;
     qc.epoch = header.epoch;
     qc.block_hash = header.hash(&crypto);
-    let result_preimage = result.preimage().unwrap();
-    qc.result = result_of_preimage(&result_preimage);
+    let x =
+        SccpFinalityHeaderV1::inactive(original_x.network_id(), height, original_x.timestamp_ms())
+            .unwrap();
+    let result_preimage = CertifiedResultV1::new(x, result, CertifiedResultScope::TairaGlobal)
+        .unwrap()
+        .preimage()
+        .unwrap();
+    qc.result = result_of_preimage(&result_preimage).unwrap();
     resign(&mut qc);
     SumeragiCommitCertificateV1 {
         consensus_header: norito::encode_canonical(&header).unwrap(),

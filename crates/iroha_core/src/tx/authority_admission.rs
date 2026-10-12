@@ -58,8 +58,9 @@ pub fn executable_self_registers_authority(executable: &Executable, authority: &
 ///
 /// This includes exact first-instruction account self-registration, the existing multisig
 /// proposal envelope path, whose authorisation is established from multisig membership rather
-/// than a materialised authority account, and the SCCP bridge-key registration from the new
-/// key's own account (`specs/sccp.md` §4.2.3).
+/// than a materialised authority account, and the SCCP rules of
+/// [`crate::smartcontracts::isi::sccp::admission::allows_unregistered_authority`]: a keeper
+/// advance or sole forgery-evidence submission from any authority (`specs/sccp.md` §4.19).
 #[must_use]
 pub fn allows_unregistered_authority(executable: &Executable, authority: &AccountId) -> bool {
     executable_self_registers_authority(executable, authority)
@@ -68,9 +69,7 @@ pub fn allows_unregistered_authority(executable: &Executable, authority: &Accoun
             Executable::Instructions(instructions)
                 if instructions_allow_multisig_envelope_authority(instructions)
         )
-        || crate::smartcontracts::isi::sccp::admission::allows_unregistered_authority(
-            executable, authority,
-        )
+        || crate::smartcontracts::isi::sccp::admission::allows_unregistered_authority(executable)
 }
 
 pub(crate) fn instructions_allow_multisig_envelope_authority(
@@ -123,5 +122,39 @@ mod tests {
             .into(),
         );
         assert!(!allows_unregistered_authority(&log, &authority));
+    }
+
+    #[test]
+    fn a_keeper_advance_admits_any_absent_authority() {
+        use iroha_data_model::{bridge::SccpNetworkV1, isi::sccp::AdvanceSccpLightClientV1};
+        use iroha_sccp::light_client::{
+            ethereum::{EthereumHeaderSegmentV1, EthereumLcAdvanceV1},
+            proof::{SccpLcAdvanceV1, SccpLcSegmentV1},
+        };
+        let executable = |advance: SccpLcAdvanceV1| {
+            Executable::Instructions(
+                vec![InstructionBox::from(AdvanceSccpLightClientV1 {
+                    network: SccpNetworkV1::EthereumMainnet,
+                    expected_state_hash: None,
+                    advance: advance.to_bytes().expect("bounded advance"),
+                })]
+                .into(),
+            )
+        };
+        let advance = executable(SccpLcAdvanceV1::Ethereum(EthereumLcAdvanceV1 {
+            updates: Vec::new(),
+        }));
+        for seed in [1, 2] {
+            assert!(allows_unregistered_authority(&advance, &account(seed)));
+        }
+        let backfill = executable(SccpLcAdvanceV1::Backfill {
+            segment: SccpLcSegmentV1::Ethereum(EthereumHeaderSegmentV1 {
+                headers: Vec::new(),
+            }),
+        });
+        assert!(
+            !allows_unregistered_authority(&backfill, &account(1)),
+            "a Backfill pays the ordinary fee, so its authority must exist"
+        );
     }
 }

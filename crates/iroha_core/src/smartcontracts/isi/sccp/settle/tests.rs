@@ -855,11 +855,33 @@ fn release_stranded_pays_out_only_stranded_value() {
         )],
     };
     let recipient = authority(40);
-    governance::enact(&mut stx, &release(3 * ONE_XOR + 1, &recipient), [1; 32])
-        .expect_err("only 3 XOR is stranded");
-    governance::enact(&mut stx, &release(ONE_XOR, &escrow), [2; 32])
-        .expect_err("an escrow recipient");
-    governance::enact(&mut stx, &release(2 * ONE_XOR, &recipient), [3; 32]).expect("release");
+    governance::enact(
+        &mut stx,
+        &release(3 * ONE_XOR + 1, &recipient),
+        [1; 32],
+        crate::smartcontracts::isi::sccp::controls::ControlCauseV1::for_test(
+            [0x43; 32], [0x45; 32],
+        ),
+    )
+    .expect_err("only 3 XOR is stranded");
+    governance::enact(
+        &mut stx,
+        &release(ONE_XOR, &escrow),
+        [2; 32],
+        crate::smartcontracts::isi::sccp::controls::ControlCauseV1::for_test(
+            [0x43; 32], [0x45; 32],
+        ),
+    )
+    .expect_err("an escrow recipient");
+    governance::enact(
+        &mut stx,
+        &release(2 * ONE_XOR, &recipient),
+        [3; 32],
+        crate::smartcontracts::isi::sccp::controls::ControlCauseV1::for_test(
+            [0x43; 32], [0x45; 32],
+        ),
+    )
+    .expect("release");
     assert_eq!(xor_balance(&*stx.world, &recipient), 2 * ONE_XOR);
     assert_eq!(stranded(&stx, TON), ONE_XOR);
     assert_eq!(
@@ -1382,4 +1404,206 @@ fn refund_outcomes_report_changes_and_holds() {
     assert!(SccpRefundOutcomeV1::Held { changed: true }.is_held());
     assert!(!SccpRefundOutcomeV1::Refunded.is_held());
     assert!(!SccpRefundOutcomeV1::Stranded.is_held());
+}
+
+/// Inject a revision observation to test value-path gates only. These fixtures do not
+/// authenticate evidence, enact Parliament action or qualify route registration.
+fn set_hold_fixture(
+    stx: &mut StateTransaction<'_, '_>,
+    revision: u32,
+    floor: u64,
+    quarantine: bool,
+) {
+    let mut route = store::routes::get(&*stx.world, &ETH).unwrap().clone();
+    let entry = route.revisions.get_mut(&revision).unwrap();
+    entry.forgery_floor = floor;
+    entry.quarantine = quarantine.then_some(iroha_data_model::sccp::native::SccpQuarantineV1 {
+        certificate_id: [0x82; 32],
+        since_height: 4,
+    });
+    store::routes::insert(stx, ETH, route).unwrap();
+}
+
+#[test]
+fn forgery_hold_keeps_inbound_proof_fee_and_value_pending_until_floor_moves() {
+    let state = state();
+    let mut block = state.block(header(5));
+    let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"forgery-held-inbound"));
+    install(&mut stx);
+    set_activation(&mut stx, ETH, 1, SccpRouteActivationV1::InboundOnly);
+    fund(&mut stx, ETH, 1, 3 * ONE_XOR);
+    let recipient = authority(73);
+    set_fee_sink(&mut stx, Some(&holder()));
+    let holder_before = xor_balance(&*stx.world, &holder());
+    let escrow = escrow_of(&stx, ETH);
+    let escrow_before = xor_balance(&*stx.world, &escrow);
+    *stx.world.sccp_forgery_max_generation.get_mut() = Some(1);
+    let id = prove(&mut stx, 0, ONE_XOR, address_bytes(&recipient), FEE);
+    let retained = store::inbound_messages::get(&*stx.world, &id)
+        .unwrap()
+        .clone();
+    assert_eq!(retained.status, pending(SccpPendingReasonV1::Held));
+    assert_eq!(retained.fee_due, FEE);
+    assert!(!inbound_settlement_may_progress(
+        &*stx.world,
+        &retained,
+        ONE_XOR
+    ));
+    assert!(
+        stx.world.account(&recipient).is_err(),
+        "hold precedes registration"
+    );
+    assert_eq!(xor_balance(&*stx.world, &holder()), holder_before);
+    assert_eq!(xor_balance(&*stx.world, &escrow), escrow_before);
+    assert_eq!(liability(&stx, ETH, 1), 3 * ONE_XOR);
+    assert!(!settle_inbound(&mut stx, id).unwrap(), "unchanged retry");
+    assert_eq!(
+        store::inbound_messages::get(&*stx.world, &id),
+        Some(&retained)
+    );
+    assert_pending_counts(&stx, "held proof and retry");
+    assert_escrow_invariant(&*stx.world, "held proof and retry");
+
+    // Simulate an independently enacted floor observation; this is not its authority path.
+    set_hold_fixture(&mut stx, 1, 2, false);
+    assert!(inbound_settlement_may_progress(
+        &*stx.world,
+        &retained,
+        ONE_XOR
+    ));
+    assert!(settle_inbound(&mut stx, id).unwrap());
+    assert!(matches!(
+        inbound_status(&stx, &id),
+        SccpInboundStatusV1::Released(_)
+    ));
+    assert_eq!(xor_balance(&*stx.world, &recipient), ONE_XOR - FEE);
+    assert_eq!(xor_balance(&*stx.world, &holder()), holder_before + FEE);
+    assert_eq!(liability(&stx, ETH, 1), 2 * ONE_XOR);
+    assert_pending_counts(&stx, "released after floor advance");
+    assert_escrow_invariant(&*stx.world, "released after floor advance");
+
+    // Newer evidence re-arms the inclusive hold; raising a floor is not permanent immunity.
+    *stx.world.sccp_forgery_max_generation.get_mut() = Some(2);
+    let id2 = prove(&mut stx, 1, ONE_XOR, address_bytes(&recipient), FEE);
+    assert_eq!(
+        inbound_status(&stx, &id2),
+        pending(SccpPendingReasonV1::Held)
+    );
+    assert_eq!(xor_balance(&*stx.world, &recipient), ONE_XOR - FEE);
+    assert_eq!(xor_balance(&*stx.world, &holder()), holder_before + FEE);
+    assert_pending_counts(&stx, "rearmed hold");
+    assert_escrow_invariant(&*stx.world, "rearmed hold");
+}
+
+#[test]
+fn quarantine_prevents_bounce_and_never_infers_reconciliation_from_a_floor() {
+    let state = state();
+    let mut block = state.block(header(5));
+    let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"quarantine-held-inbound"));
+    install(&mut stx);
+    fund(&mut stx, ETH, 1, 2 * ONE_XOR);
+    set_hold_fixture(&mut stx, 1, u64::MAX, true);
+    let escrow = escrow_of(&stx, ETH);
+    let leaves_before = leaves::leaf_count_at(&*stx.world, 5);
+    let id = prove(&mut stx, 0, ONE_XOR, address_bytes(&escrow), 0);
+    assert_eq!(
+        inbound_status(&stx, &id),
+        pending(SccpPendingReasonV1::Held)
+    );
+    assert_eq!(leaves::leaf_count_at(&*stx.world, 5), leaves_before);
+    assert!(store::outbound_messages::is_empty(&*stx.world));
+    set_activation(&mut stx, ETH, 1, SccpRouteActivationV1::InboundOnly);
+    assert!(!settle_inbound(&mut stx, id).unwrap());
+    assert_eq!(liability(&stx, ETH, 1), 2 * ONE_XOR);
+    assert_eq!(stranded(&stx, ETH), 0);
+    assert_pending_counts(&stx, "quarantine prevents bounce");
+    assert_escrow_invariant(&*stx.world, "quarantine prevents bounce");
+}
+
+#[test]
+fn held_refunds_keep_voids_pending_without_registration_release_or_stranding() {
+    for quarantine in [false, true] {
+        let state = state();
+        let mut block = state.block(header(5));
+        let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"held-refunds"));
+        install(&mut stx);
+        let escrow = escrow_of(&stx, ETH);
+        let absent = authority(74);
+        let ids = [
+            seed_outbound(&mut stx, ETH, 0, &holder(), ONE_XOR),
+            seed_outbound(&mut stx, ETH, 1, &escrow, ONE_XOR),
+            seed_outbound(&mut stx, ETH, 2, &absent, ONE_XOR),
+        ];
+        set_activation(&mut stx, ETH, 1, SccpRouteActivationV1::InboundOnly);
+        set_hold_fixture(&mut stx, 1, 1, quarantine);
+        if !quarantine {
+            *stx.world.sccp_forgery_max_generation.get_mut() = Some(1);
+        }
+        let holder_before = xor_balance(&*stx.world, &holder());
+        let escrow_before = xor_balance(&*stx.world, &escrow);
+        for (nonce, id) in ids.iter().enumerate() {
+            void_expired(&mut stx, ETH, u64::try_from(nonce).unwrap()).expect("void retained");
+            assert!(outbound_status(&stx, id).is_refund_pending());
+            assert_eq!(
+                attempt_refund(&mut stx, *id).unwrap(),
+                SccpRefundOutcomeV1::Held { changed: false }
+            );
+        }
+        assert!(
+            stx.world.account(&absent).is_err(),
+            "hold precedes registration"
+        );
+        assert_eq!(xor_balance(&*stx.world, &holder()), holder_before);
+        assert_eq!(xor_balance(&*stx.world, &escrow), escrow_before);
+        assert_eq!(liability(&stx, ETH, 1), 3 * ONE_XOR);
+        assert_eq!(
+            stranded(&stx, ETH),
+            0,
+            "an escrow sender cannot bypass the hold by stranding"
+        );
+        assert_eq!(store::pending_count(&*stx.world, &(ETH, 1)), (0, 3));
+        assert_pending_counts(&stx, "held voids");
+        assert_escrow_invariant(&*stx.world, "held voids");
+    }
+}
+
+#[test]
+fn bounce_never_moves_liability_into_a_held_newer_revision() {
+    for quarantine in [false, true] {
+        let state = state();
+        let mut block = state.block(header(5));
+        let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"held-bounce-target"));
+        install_value_route(
+            &mut stx,
+            ETH,
+            1,
+            SccpRouteActivationV1::InboundOnly,
+            100 * ONE_XOR,
+        );
+        install_value_route(
+            &mut stx,
+            ETH,
+            2,
+            SccpRouteActivationV1::Bidirectional,
+            100 * ONE_XOR,
+        );
+        fund(&mut stx, ETH, 1, 2 * ONE_XOR);
+        set_hold_fixture(&mut stx, 1, 2, false);
+        set_hold_fixture(&mut stx, 2, 1, quarantine);
+        if !quarantine {
+            *stx.world.sccp_forgery_max_generation.get_mut() = Some(1);
+        }
+        let escrow = escrow_of(&stx, ETH);
+        let id = prove_on(&mut stx, (ETH, 1), 0, ONE_XOR, address_bytes(&escrow), 0);
+        let SccpInboundStatusV1::Bounced(bounce) = inbound_status(&stx, &id) else {
+            panic!("unheld source remains a valid bounce target");
+        };
+        let outbound =
+            store::outbound_messages::get(&*stx.world, &bounce.bounce_message_id).unwrap();
+        assert_eq!(outbound.revision, 1);
+        assert_eq!(liability(&stx, ETH, 1), 2 * ONE_XOR);
+        assert_eq!(liability(&stx, ETH, 2), 0);
+        assert_pending_counts(&stx, "bounce avoids held target");
+        assert_escrow_invariant(&*stx.world, "bounce avoids held target");
+    }
 }

@@ -374,16 +374,71 @@ impl PreparedQuantityDecode {
         budget: &AllocationBudget,
     ) -> Result<ChargedQuantity, QuantityDecodeAdmissionError> {
         let mut retained = None;
+        Self::decode_payload_retained(bytes, budget, &mut retained)?;
+        retained
+            .ok_or(QuantityDecodeAdmissionError::Incomplete)?
+            .finish()
+            .map_err(|_| QuantityDecodeAdmissionError::Incomplete)
+    }
+
+    /// Recheck canonical Quantity fields without replacing retained native digits.
+    ///
+    /// Uses the same scalar walk and nominal backing admission as an original
+    /// attempt. The enclosing owner authenticates its unchanged source and keeps
+    /// the original Quantity allocation; this function creates no value graph.
+    ///
+    /// # Errors
+    /// Preserves every original field, cumulative-work and numeric-domain error.
+    pub fn recheck_payload(bytes: &[u8]) -> Result<(), Error> {
+        QuantityDecodePlan::decode_payload_with_probe(bytes, true).map(|_| ())
+    }
+
+    /// Fill or resume the original mantissa backing through the canonical field walk.
+    ///
+    /// Admission remains before scale/domain validation. A later refusal leaves
+    /// the exact digits in `destination`, without refund, clone or replacement.
+    /// Re-entry consumes the ordinary logical work in the enclosing original
+    /// context; it does not reset counters or change any ceiling. The enclosing
+    /// record owner must authenticate the unchanged source before each call.
+    ///
+    /// # Errors
+    /// Returns the unchanged codec, physical admission or destination cause.
+    pub fn decode_payload_retained(
+        bytes: &[u8],
+        budget: &AllocationBudget,
+        destination: &mut Option<Self>,
+    ) -> Result<(), QuantityDecodeAdmissionError> {
+        if let Some(retained) = destination.as_mut() {
+            if !retained.belongs_to(budget) {
+                return Err(QuantityDecodeAdmissionError::Incomplete);
+            }
+            retained.reset();
+        }
         let plan = {
             let mut retain_mantissa = |payload: &[u8]| {
                 let canonical = crate::bigint::CanonicalNativeDigits::from_payload(payload);
                 canonical.reserve_decode_backing()?;
-                let mut digits = ChargedBuffer::new(canonical.as_slice().len(), budget)
-                    .map_err(DecodeIntoError::Destination)?;
-                for &digit in canonical.as_slice() {
-                    digits.push_reserved(digit);
+                if destination.is_none() {
+                    let digits = ChargedBuffer::new(canonical.as_slice().len(), budget)
+                        .map_err(DecodeIntoError::Destination)?;
+                    *destination = Some(Self {
+                        digits,
+                        scale: None,
+                    });
                 }
-                retained = Some(digits);
+                let retained = destination
+                    .as_mut()
+                    .ok_or_else(|| DecodeIntoError::Codec(Error::LengthMismatch))?;
+                if retained.digits.capacity() != canonical.as_slice().len() {
+                    return Err(DecodeIntoError::Codec(Error::LengthMismatch));
+                }
+                if retained.digits.as_slice().is_empty() {
+                    for &digit in canonical.as_slice() {
+                        retained.digits.push_reserved(digit);
+                    }
+                } else if retained.digits.as_slice() != canonical.as_slice() {
+                    return Err(DecodeIntoError::Codec(Error::LengthMismatch));
+                }
                 Ok::<_, DecodeIntoError<ChargedBufferError>>(())
             };
             let mut fields = NumericPlanFields::new(&mut retain_mantissa);
@@ -394,10 +449,11 @@ impl PreparedQuantityDecode {
             }
             fields.finish()?
         };
-        let digits = retained.ok_or(QuantityDecodeAdmissionError::Incomplete)?;
-        // Valid Quantity's canonical magnitude is positive, minimal and bounded
-        // by the same scalar relation. This exact filled Vec cannot resize.
-        Ok(Self::bind_complete(digits, plan.scale))
+        destination
+            .as_mut()
+            .ok_or(QuantityDecodeAdmissionError::Incomplete)?
+            .scale = Some(plan.scale);
+        Ok(())
     }
 
     /// Physically allocate the exact final magnitude before decoding a value.

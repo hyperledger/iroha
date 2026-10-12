@@ -89,6 +89,8 @@ pub(crate) mod frame_test_support;
 pub mod kagemusha_wallet_advance_v1;
 /// Complete installed wallet verifier inventory and native artifact identity owner.
 pub mod kagemusha_wallet_artifacts_v1;
+/// Design §5.3 runtime capacity check: storage and memory bounds from installed relations.
+pub mod kagemusha_wallet_capacity_v1;
 /// Actual enrolled custody, issuer/account originals and fresh existing-account admission.
 pub mod kagemusha_wallet_enrollment_v1;
 pub mod kagemusha_wallet_intake_v1;

@@ -338,6 +338,7 @@ mod committed_transaction_context;
 mod da_hydration;
 mod exec_witness_capture;
 mod kagemusha_load_entrypoint;
+mod sccp_forgery_entrypoint;
 /// Original local owners and completed errors from witness capture.
 pub use exec_witness_capture::WitnessCaptureError;
 #[cfg(any(test, feature = "iroha-core-tests"))]
@@ -1391,7 +1392,6 @@ macro_rules! with_world_overlay_fields {
             parliament_timed_ovn_casting_candidates,
             parliament_required_beacon_pulse_slots,
             parliament_certified_enactments,
-            parliament_unavailable_beacon_pulse_slots,
             parliament_tle_key_session_retention_deadlines,
             tle_key_session_selection_intervals,
             tle_key_sessions,
@@ -1410,22 +1410,18 @@ macro_rules! with_world_overlay_fields {
             merge_global_state_root,
             sccp_parameters,
             sccp_reset_nonce,
-            sccp_bridge_keys,
-            sccp_bridge_key_owners,
-            sccp_rosters,
-            sccp_roster_current,
-            sccp_heartbeat_marker,
+            sccp_committee_generations,
+            sccp_forgery_offences,
+            sccp_committee_current,
+            sccp_forgery_max_generation,
+            sccp_liability_clock,
+            sccp_degraded_run,
+            sccp_anchor_open,
+            sccp_anchor_chunks,
             sccp_block_leaves,
             sccp_block_commitments,
             sccp_history,
             sccp_history_leaves,
-            sccp_attestation_subjects,
-            sccp_attestation_status,
-            sccp_attestation_signatures,
-            sccp_attestation_faults,
-            sccp_member_last_signed,
-            sccp_handoff_stalled,
-            sccp_prune_cursor,
             sccp_outbound_messages,
             sccp_outbound_by_nonce,
             sccp_control_messages,
@@ -1503,11 +1499,22 @@ mod world_attached_publication_tests;
 #[macro_use]
 mod world_acquisition;
 pub(crate) mod scalar_cell_custody;
+pub(crate) mod sccp_forgery_custody;
+pub(crate) mod sccp_generation_custody;
 #[cfg(test)]
 use scalar_cell_custody::ScalarCellFixtureBlock;
 
 // Execution-pool cells reserve their original capacity; other fields start empty.
 macro_rules! initial_world_field {
+    (sccp_forgery_offences, $execution:ident) => {
+        sccp_forgery_custody::OffenceStorage::try_new_admitted($execution.clone())?
+    };
+    (sccp_forgery_max_generation, $execution:ident) => {
+        sccp_forgery_custody::initialize_max(None, None, $execution)?
+    };
+    (sccp_committee_generations, $execution:ident) => {
+        sccp_generation_custody::GenerationStorage::try_new_admitted($execution.clone())?
+    };
     (sumeragi_amx_participant, $execution:ident) => {
         crate::sumeragi::amx::empty_participant_cell($execution)?
     };
@@ -1545,6 +1552,12 @@ impl Default for WorldData {
 
 // Quantity storages wrap their child checkpoints; other fields open ordinary ones.
 macro_rules! world_field_transaction {
+    ($field:expr, sccp_forgery_offences) => {
+        $field.try_transaction_admitted()?
+    };
+    ($field:expr, sccp_committee_generations) => {
+        $field.try_transaction_admitted()?
+    };
     ($field:expr, assets) => {
         fastpq_quantity_storage::QuantityStorageTransaction::new($field.transaction())
     };
@@ -3323,6 +3336,19 @@ impl SmartContractCodeUploadKey {
             )
     }
 }
+// Preserve the canonical Model key owner's exact refusal before adding diagnostic context.
+// This changes no key grammar, decoder scope, source authority or resource provenance.
+fn account_key_json_error(
+    error: json::Error,
+    terminal: impl FnOnce(json::Error) -> json::Error,
+) -> json::Error {
+    if error.is_decode_resource_limit() && !cfg!(all(test, sumeragi_core_mutation = "HC220")) {
+        error
+    } else {
+        terminal(error)
+    }
+}
+
 impl norito::json::JsonKeyCodec for SmartContractCodeUploadKey {
     fn encode_json_key(&self, out: &mut String) {
         let key = format!(
@@ -3337,8 +3363,12 @@ impl norito::json::JsonKeyCodec for SmartContractCodeUploadKey {
         let (authority, artifact) = encoded.split_once('|').ok_or_else(|| {
             json::Error::Message("expected authority|dataspace|artifact-hash upload key".into())
         })?;
-        let authority = AccountId::parse_encoded(authority)
-            .map_err(|error| json::Error::Message(format!("invalid upload owner: {error}")))?;
+        let authority = <AccountId as json::JsonObjectKeyOwned>::from_json_key_text(authority)
+            .map_err(|error| {
+                account_key_json_error(error, |error| {
+                    json::Error::Message(format!("invalid upload owner: {error}"))
+                })
+            })?;
         let artifact_id = ContractArtifactId::decode_json_key(artifact)?;
         Ok(Self::new(authority, artifact_id))
     }
@@ -3754,6 +3784,39 @@ enum ParliamentTimedOvnResourceReservationErrorV1 {
     TooManyConcurrentCastingContexts,
 }
 
+/// A failed World construction, before publishing the new World.
+///
+/// Storage refusal retains its original pool/release observation. Derived-state
+/// rebuilds distinguish an incomplete local attempt from invalid supplied entities.
+/// This error does not authenticate a complete State or fund its nested graphs.
+#[derive(Debug, thiserror::Error)]
+pub enum WorldConstructionError {
+    /// Original initial-cell admission refused before consuming entity iterators.
+    #[error("World storage initialization refused: {0}")]
+    Storage(#[source] mv::storage::AdmittedStorageError),
+    /// Supplied entities failed validation, or the original decoder could not finish.
+    #[error("World initialization failed: {0}")]
+    Initialization(#[source] ExecutionAttemptError<String>),
+}
+
+impl From<mv::storage::AdmittedStorageError> for WorldConstructionError {
+    fn from(error: mv::storage::AdmittedStorageError) -> Self {
+        Self::Storage(error)
+    }
+}
+
+impl From<ExecutionAttemptError<String>> for WorldConstructionError {
+    fn from(error: ExecutionAttemptError<String>) -> Self {
+        Self::Initialization(error)
+    }
+}
+
+impl From<String> for WorldConstructionError {
+    fn from(error: String) -> Self {
+        Self::Initialization(ExecutionAttemptError::Rejected(error))
+    }
+}
+
 /// The global entity consisting of `domains`, `triggers` and etc.
 /// For example registration of domain, will have this as an ISI target.
 ///
@@ -3762,6 +3825,9 @@ enum ParliamentTimedOvnResourceReservationErrorV1 {
 /// of storage owners through nested stack frames.
 #[derive(Default)]
 pub struct World(Box<WorldData>);
+
+#[cfg(test)]
+mod world_construction_tests;
 
 impl std::ops::Deref for World {
     type Target = WorldData;
@@ -4490,17 +4556,17 @@ pub struct WorldData {
     #[norito(skip)]
     pub(crate) parliament_timed_ovn_casting_candidates:
         Storage<BallotAttemptId, ParliamentTimedOvnCastingCandidateV1>,
-    /// Governance attempts that currently require a logical beacon slot.
+    /// Governance-local read index of the beacon slots that live attempts await.
+    ///
+    /// It creates no consensus obligation: no pulse is demanded, vetoed or checked against it.
+    /// TODO: rename and re-scope with the governance due-item iterator when timed-OVN is
+    /// retired (specs/parliament_private_ballot_design.md 12.2 step 4).
     #[norito(skip)]
     pub(crate) parliament_required_beacon_pulse_slots:
         Storage<(BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>>,
     /// Certified governance attempts keyed by their exact enactment height.
     #[norito(skip)]
     pub(crate) parliament_certified_enactments: Storage<u64, BTreeSet<GovernanceAttemptId>>,
-    /// Governance attempts that terminally classified a logical beacon slot as unavailable.
-    #[norito(skip)]
-    pub(crate) parliament_unavailable_beacon_pulse_slots:
-        Storage<(BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>>,
     /// Exact attempt contributors grouped by TLE key session and opening deadline.
     #[norito(skip)]
     pub(crate) parliament_tle_key_session_retention_deadlines:
@@ -4543,22 +4609,30 @@ pub struct WorldData {
     /// Genesis reset nonce of this Taira identity (§4.18).
     #[norito(skip)]
     pub(crate) sccp_reset_nonce: Cell<Option<[u8; 32]>>,
-    /// Bridge-key state per peer (§4.2.1).
+    /// Committee generations with canonical ordered keys and liability metadata (§4.2.1).
     #[norito(skip)]
-    pub(crate) sccp_bridge_keys:
-        Storage<PeerId, iroha_data_model::sccp::keys::SccpBridgeKeyStateV1>,
-    /// Permanent bridge-key address to owning peer index; an address is never reused (§4.2.1).
+    pub(crate) sccp_committee_generations: sccp_generation_custody::GenerationStorage,
+    /// Current SCCP committee generation (§4.2.1).
     #[norito(skip)]
-    pub(crate) sccp_bridge_key_owners: Storage<[u8; 20], PeerId>,
-    /// Bridge roster generations by generation number (§4.3.1).
+    pub(crate) sccp_committee_current: Cell<u64>,
+    /// Permanent exact-once forgery offences (§4.9), in original-pool custody.
     #[norito(skip)]
-    pub(crate) sccp_rosters: Storage<u64, iroha_data_model::sccp::roster::SccpBridgeRosterV1>,
-    /// Current bridge roster generation (§4.3.1).
+    pub(crate) sccp_forgery_offences: sccp_forgery_custody::OffenceStorage,
+    /// Highest recorded forgery generation; absent before any offence (§4.10).
     #[norito(skip)]
-    pub(crate) sccp_roster_current: Cell<u64>,
-    /// Generation whose heartbeat block was forced (§4.3.2).
+    pub(crate) sccp_forgery_max_generation: Cell<Option<u64>, iroha_allocation::AllocationCharge>,
+    /// Liability clock of the latest block (§4.8).
     #[norito(skip)]
-    pub(crate) sccp_heartbeat_marker: Cell<Option<u64>>,
+    pub(crate) sccp_liability_clock: Cell<u64>,
+    /// Consecutive degraded blocks ending at the tip (§4.6).
+    #[norito(skip)]
+    pub(crate) sccp_degraded_run: Cell<u32>,
+    /// Consensus anchors in the open chunk, in height order (§4.2.1).
+    #[norito(skip)]
+    pub(crate) sccp_anchor_open: Cell<Vec<crate::smartcontracts::isi::sccp::anchors::SccpAnchorV1>>,
+    /// Merkle roots of completed consensus-anchor chunks (§4.2.1).
+    #[norito(skip)]
+    pub(crate) sccp_anchor_chunks: Storage<u64, [u8; 32]>,
     /// Leaf references by `(height, commitment_index)` (§4.5).
     #[norito(skip)]
     pub(crate) sccp_block_leaves:
@@ -4566,37 +4640,13 @@ pub struct WorldData {
     /// Block commitment roots of SCCP-bearing heights (§4.5).
     #[norito(skip)]
     pub(crate) sccp_block_commitments:
-        Storage<u64, iroha_data_model::sccp::attestation::SccpBlockCommitmentV1>,
+        Storage<u64, iroha_data_model::sccp::commitment::SccpBlockCommitmentV1>,
     /// History accumulator size and peaks (§3.5).
     #[norito(skip)]
-    pub(crate) sccp_history: Cell<iroha_data_model::sccp::attestation::SccpHistoryStateV1>,
+    pub(crate) sccp_history: Cell<iroha_data_model::sccp::commitment::SccpHistoryStateV1>,
     /// History leaves by index as `(height, leaf)` (§3.5).
     #[norito(skip)]
     pub(crate) sccp_history_leaves: Storage<u64, (u64, [u8; 32])>,
-    /// Attestation subjects by height (§4.6).
-    #[norito(skip)]
-    pub(crate) sccp_attestation_subjects:
-        Storage<u64, iroha_data_model::sccp::attestation::SccpAttestationSubjectV1>,
-    /// Attestation signer bitmaps by subject height (§4.6).
-    #[norito(skip)]
-    pub(crate) sccp_attestation_status:
-        Storage<u64, iroha_data_model::sccp::attestation::SccpAttestationStatusV1>,
-    /// Stored attestation signatures by `(height, signer_index)` (§4.8).
-    #[norito(skip)]
-    pub(crate) sccp_attestation_signatures: Storage<(u64, u8), [u8; 65]>,
-    /// Equivocation faults by `(address, height)` (§4.11).
-    #[norito(skip)]
-    pub(crate) sccp_attestation_faults:
-        Storage<([u8; 20], u64), iroha_data_model::sccp::keys::SccpAttestationFaultRecordV1>,
-    /// Last height each bridge-key address signed (§4.9 liveness).
-    #[norito(skip)]
-    pub(crate) sccp_member_last_signed: Storage<[u8; 20], u64>,
-    /// Stalled rotation heights to the outgoing generation (§4.3.3).
-    #[norito(skip)]
-    pub(crate) sccp_handoff_stalled: Storage<u64, u64>,
-    /// Resumable position of the bounded pruning step (§4.10).
-    #[norito(skip)]
-    pub(crate) sccp_prune_cursor: Cell<iroha_data_model::sccp::keys_index::SccpPruneCursorV1>,
     /// Outbound message records by message id (§4.4).
     #[norito(skip)]
     pub(crate) sccp_outbound_messages:
@@ -5490,7 +5540,11 @@ pub struct WorldBlockFields<'world> {
     #[norito(skip)]
     pub(crate) parliament_timed_ovn_casting_candidates:
         StorageField<'world, BallotAttemptId, ParliamentTimedOvnCastingCandidateV1>,
-    /// Governance attempts that currently require a logical beacon slot.
+    /// Governance-local read index of the beacon slots that live attempts await.
+    ///
+    /// It creates no consensus obligation: no pulse is demanded, vetoed or checked against it.
+    /// TODO: rename and re-scope with the governance due-item iterator when timed-OVN is
+    /// retired (specs/parliament_private_ballot_design.md 12.2 step 4).
     #[norito(skip)]
     pub(crate) parliament_required_beacon_pulse_slots:
         StorageField<'world, (BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>>,
@@ -5498,10 +5552,6 @@ pub struct WorldBlockFields<'world> {
     #[norito(skip)]
     pub(crate) parliament_certified_enactments:
         StorageField<'world, u64, BTreeSet<GovernanceAttemptId>>,
-    /// Governance attempts that terminally classified a logical beacon slot as unavailable.
-    #[norito(skip)]
-    pub(crate) parliament_unavailable_beacon_pulse_slots:
-        StorageField<'world, (BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>>,
     /// Exact attempt contributors grouped by TLE key session and opening deadline.
     #[norito(skip)]
     pub(crate) parliament_tle_key_session_retention_deadlines:
@@ -5556,23 +5606,42 @@ pub struct WorldBlockFields<'world> {
     /// Genesis reset nonce of this Taira identity (§4.18).
     #[norito(skip)]
     pub(crate) sccp_reset_nonce: CellField<'world, Option<[u8; 32]>>,
-    /// Bridge-key state per peer (§4.2.1).
+    /// Committee generations with canonical ordered keys and liability metadata (§4.2.1).
     #[norito(skip)]
-    pub(crate) sccp_bridge_keys:
-        StorageField<'world, PeerId, iroha_data_model::sccp::keys::SccpBridgeKeyStateV1>,
-    /// Permanent bridge-key address to owning peer index; an address is never reused (§4.2.1).
+    pub(crate) sccp_committee_generations: StorageField<
+        'world,
+        u64,
+        sccp_generation_custody::RetainedGeneration,
+        sccp_generation_custody::GenerationMode,
+    >,
+    /// Current SCCP committee generation (§4.2.1).
     #[norito(skip)]
-    pub(crate) sccp_bridge_key_owners: StorageField<'world, [u8; 20], PeerId>,
-    /// Bridge roster generations by generation number (§4.3.1).
+    pub(crate) sccp_committee_current: CellField<'world, u64>,
+    /// Permanent exact-once forgery offences (§4.9), in original-pool custody.
     #[norito(skip)]
-    pub(crate) sccp_rosters:
-        StorageField<'world, u64, iroha_data_model::sccp::roster::SccpBridgeRosterV1>,
-    /// Current bridge roster generation (§4.3.1).
+    pub(crate) sccp_forgery_offences: StorageField<
+        'world,
+        sccp_forgery_custody::OffenceKey,
+        [u8; 32],
+        sccp_forgery_custody::OffenceMode,
+    >,
+    /// Highest recorded forgery generation; absent before any offence (§4.10).
     #[norito(skip)]
-    pub(crate) sccp_roster_current: CellField<'world, u64>,
-    /// Generation whose heartbeat block was forced (§4.3.2).
+    pub(crate) sccp_forgery_max_generation:
+        CellField<'world, Option<u64>, iroha_allocation::AllocationCharge>,
+    /// Liability clock of the latest block (§4.8).
     #[norito(skip)]
-    pub(crate) sccp_heartbeat_marker: CellField<'world, Option<u64>>,
+    pub(crate) sccp_liability_clock: CellField<'world, u64>,
+    /// Consecutive degraded blocks ending at the tip (§4.6).
+    #[norito(skip)]
+    pub(crate) sccp_degraded_run: CellField<'world, u32>,
+    /// Consensus anchors in the open chunk, in height order (§4.2.1).
+    #[norito(skip)]
+    pub(crate) sccp_anchor_open:
+        CellField<'world, Vec<crate::smartcontracts::isi::sccp::anchors::SccpAnchorV1>>,
+    /// Merkle roots of completed consensus-anchor chunks (§4.2.1).
+    #[norito(skip)]
+    pub(crate) sccp_anchor_chunks: StorageField<'world, u64, [u8; 32]>,
     /// Leaf references by `(height, commitment_index)` (§4.5).
     #[norito(skip)]
     pub(crate) sccp_block_leaves:
@@ -5580,42 +5649,14 @@ pub struct WorldBlockFields<'world> {
     /// Block commitment roots of SCCP-bearing heights (§4.5).
     #[norito(skip)]
     pub(crate) sccp_block_commitments:
-        StorageField<'world, u64, iroha_data_model::sccp::attestation::SccpBlockCommitmentV1>,
+        StorageField<'world, u64, iroha_data_model::sccp::commitment::SccpBlockCommitmentV1>,
     /// History accumulator size and peaks (§3.5).
     #[norito(skip)]
     pub(crate) sccp_history:
-        CellField<'world, iroha_data_model::sccp::attestation::SccpHistoryStateV1>,
+        CellField<'world, iroha_data_model::sccp::commitment::SccpHistoryStateV1>,
     /// History leaves by index as `(height, leaf)` (§3.5).
     #[norito(skip)]
     pub(crate) sccp_history_leaves: StorageField<'world, u64, (u64, [u8; 32])>,
-    /// Attestation subjects by height (§4.6).
-    #[norito(skip)]
-    pub(crate) sccp_attestation_subjects:
-        StorageField<'world, u64, iroha_data_model::sccp::attestation::SccpAttestationSubjectV1>,
-    /// Attestation signer bitmaps by subject height (§4.6).
-    #[norito(skip)]
-    pub(crate) sccp_attestation_status:
-        StorageField<'world, u64, iroha_data_model::sccp::attestation::SccpAttestationStatusV1>,
-    /// Stored attestation signatures by `(height, signer_index)` (§4.8).
-    #[norito(skip)]
-    pub(crate) sccp_attestation_signatures: StorageField<'world, (u64, u8), [u8; 65]>,
-    /// Equivocation faults by `(address, height)` (§4.11).
-    #[norito(skip)]
-    pub(crate) sccp_attestation_faults: StorageField<
-        'world,
-        ([u8; 20], u64),
-        iroha_data_model::sccp::keys::SccpAttestationFaultRecordV1,
-    >,
-    /// Last height each bridge-key address signed (§4.9 liveness).
-    #[norito(skip)]
-    pub(crate) sccp_member_last_signed: StorageField<'world, [u8; 20], u64>,
-    /// Stalled rotation heights to the outgoing generation (§4.3.3).
-    #[norito(skip)]
-    pub(crate) sccp_handoff_stalled: StorageField<'world, u64, u64>,
-    /// Resumable position of the bounded pruning step (§4.10).
-    #[norito(skip)]
-    pub(crate) sccp_prune_cursor:
-        CellField<'world, iroha_data_model::sccp::keys_index::SccpPruneCursorV1>,
     /// Outbound message records by message id (§4.4).
     #[norito(skip)]
     pub(crate) sccp_outbound_messages: StorageField<
@@ -6247,7 +6288,6 @@ impl WorldBlock<'_> {
             parliament_timed_ovn_casting_candidates,
             parliament_required_beacon_pulse_slots,
             parliament_certified_enactments,
-            parliament_unavailable_beacon_pulse_slots,
             parliament_tle_key_session_retention_deadlines,
             tle_key_session_selection_intervals,
             tle_key_sessions,
@@ -6275,37 +6315,44 @@ impl WorldBlock<'_> {
     /// (`specs/sccp.md` §4.5, `crate::smartcontracts::isi::sccp::witness`).
     pub(crate) fn sccp_execution_write_set_bytes(&self) -> Vec<u8> {
         let mut out = Vec::new();
+        self.write_sccp_execution_delta(&mut out)
+            .expect("canonical SCCP write set always encodes");
+        out
+    }
+
+    /// Stream the exact canonical SCCP delta without allocating an intermediate byte graph.
+    /// The caller owns and admits its output; field order and fixed bare Norito remain unchanged.
+    pub(crate) fn write_sccp_execution_delta<W: std::io::Write>(
+        &self,
+        out: &mut W,
+    ) -> Result<(), norito::Error> {
         macro_rules! storage {
             ($($field:ident),* $(,)?) => {
-                $(append_merge_storage_delta(&mut out, stringify!($field), &self.$field);)*
+                $(sccp_delta::storage(out, stringify!($field), &self.$field)?;)*
             };
         }
         macro_rules! cell {
             ($($field:ident),* $(,)?) => {
-                $(append_merge_cell_delta(&mut out, stringify!($field), &self.$field);)*
+                $(sccp_delta::cell(out, stringify!($field), &self.$field)?;)*
             };
         }
         cell!(
             sccp_parameters,
             sccp_reset_nonce,
-            sccp_roster_current,
-            sccp_heartbeat_marker,
+            sccp_committee_current,
+            sccp_forgery_max_generation,
+            sccp_liability_clock,
+            sccp_degraded_run,
+            sccp_anchor_open,
             sccp_history,
-            sccp_prune_cursor,
         );
         storage!(
-            sccp_bridge_keys,
-            sccp_bridge_key_owners,
-            sccp_rosters,
+            sccp_committee_generations,
+            sccp_forgery_offences,
+            sccp_anchor_chunks,
             sccp_block_leaves,
             sccp_block_commitments,
             sccp_history_leaves,
-            sccp_attestation_subjects,
-            sccp_attestation_status,
-            sccp_attestation_signatures,
-            sccp_attestation_faults,
-            sccp_member_last_signed,
-            sccp_handoff_stalled,
             sccp_outbound_messages,
             sccp_outbound_by_nonce,
             sccp_control_messages,
@@ -6320,7 +6367,7 @@ impl WorldBlock<'_> {
             sccp_light_client_stride_index,
             sccp_light_client_profiles,
         );
-        out
+        Ok(())
     }
 }
 /// Aggregated changes and original rollback journals for one transaction.
@@ -7123,15 +7170,16 @@ pub struct WorldTransaction<'block, 'world> {
     /// Active hidden-ballot phase windows eligible for compact casting snapshots.
     pub(crate) parliament_timed_ovn_casting_candidates:
         StorageTransaction<'block, BallotAttemptId, ParliamentTimedOvnCastingCandidateV1>,
-    /// Governance attempts that currently require a logical beacon slot.
+    /// Governance-local read index of the beacon slots that live attempts await.
+    ///
+    /// It creates no consensus obligation: no pulse is demanded, vetoed or checked against it.
+    /// TODO: rename and re-scope with the governance due-item iterator when timed-OVN is
+    /// retired (specs/parliament_private_ballot_design.md 12.2 step 4).
     pub(crate) parliament_required_beacon_pulse_slots:
         StorageTransaction<'block, (BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>>,
     /// Certified governance attempts keyed by their exact enactment height.
     pub(crate) parliament_certified_enactments:
         StorageTransaction<'block, u64, BTreeSet<GovernanceAttemptId>>,
-    /// Governance attempts that terminally classified a logical beacon slot as unavailable.
-    pub(crate) parliament_unavailable_beacon_pulse_slots:
-        StorageTransaction<'block, (BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>>,
     /// Exact attempt contributors grouped by TLE key session and opening deadline.
     pub(crate) parliament_tle_key_session_retention_deadlines:
         StorageTransaction<'block, TleKeySessionId, ParliamentTleKeySessionRetentionIndexV1>,
@@ -7178,56 +7226,48 @@ pub struct WorldTransaction<'block, 'world> {
         CellTransaction<'block, 'world, Option<iroha_data_model::sccp::params::SccpParametersV1>>,
     /// Genesis reset nonce of this Taira identity (§4.18).
     pub(crate) sccp_reset_nonce: CellTransaction<'block, 'world, Option<[u8; 32]>>,
-    /// Bridge-key state per peer (§4.2.1).
-    pub(crate) sccp_bridge_keys:
-        StorageTransaction<'block, PeerId, iroha_data_model::sccp::keys::SccpBridgeKeyStateV1>,
-    /// Permanent bridge-key address to owning peer index; an address is never reused (§4.2.1).
-    pub(crate) sccp_bridge_key_owners: StorageTransaction<'block, [u8; 20], PeerId>,
-    /// Bridge roster generations by generation number (§4.3.1).
-    pub(crate) sccp_rosters:
-        StorageTransaction<'block, u64, iroha_data_model::sccp::roster::SccpBridgeRosterV1>,
-    /// Current bridge roster generation (§4.3.1).
-    pub(crate) sccp_roster_current: CellTransaction<'block, 'world, u64>,
-    /// Generation whose heartbeat block was forced (§4.3.2).
-    pub(crate) sccp_heartbeat_marker: CellTransaction<'block, 'world, Option<u64>>,
+    /// Committee generations with canonical ordered keys and liability metadata (§4.2.1).
+    pub(crate) sccp_committee_generations: StorageTransaction<
+        'block,
+        u64,
+        sccp_generation_custody::RetainedGeneration,
+        sccp_generation_custody::GenerationMode,
+    >,
+    /// Current SCCP committee generation (§4.2.1).
+    pub(crate) sccp_committee_current: CellTransaction<'block, 'world, u64>,
+    /// Permanent exact-once forgery offences (§4.9), in original-pool custody.
+    pub(crate) sccp_forgery_offences: StorageTransaction<
+        'block,
+        sccp_forgery_custody::OffenceKey,
+        [u8; 32],
+        sccp_forgery_custody::OffenceMode,
+    >,
+    /// Highest recorded forgery generation; absent before any offence (§4.10).
+    pub(crate) sccp_forgery_max_generation:
+        CellTransaction<'block, 'world, Option<u64>, iroha_allocation::AllocationCharge>,
+    /// Liability clock of the latest block (§4.8).
+    pub(crate) sccp_liability_clock: CellTransaction<'block, 'world, u64>,
+    /// Consecutive degraded blocks ending at the tip (§4.6).
+    pub(crate) sccp_degraded_run: CellTransaction<'block, 'world, u32>,
+    /// Consensus anchors in the open chunk, in height order (§4.2.1).
+    pub(crate) sccp_anchor_open: CellTransaction<
+        'block,
+        'world,
+        Vec<crate::smartcontracts::isi::sccp::anchors::SccpAnchorV1>,
+    >,
+    /// Merkle roots of completed consensus-anchor chunks (§4.2.1).
+    pub(crate) sccp_anchor_chunks: StorageTransaction<'block, u64, [u8; 32]>,
     /// Leaf references by `(height, commitment_index)` (§4.5).
     pub(crate) sccp_block_leaves:
         StorageTransaction<'block, (u64, u32), iroha_data_model::sccp::control::SccpLeafRefV1>,
     /// Block commitment roots of SCCP-bearing heights (§4.5).
     pub(crate) sccp_block_commitments:
-        StorageTransaction<'block, u64, iroha_data_model::sccp::attestation::SccpBlockCommitmentV1>,
+        StorageTransaction<'block, u64, iroha_data_model::sccp::commitment::SccpBlockCommitmentV1>,
     /// History accumulator size and peaks (§3.5).
     pub(crate) sccp_history:
-        CellTransaction<'block, 'world, iroha_data_model::sccp::attestation::SccpHistoryStateV1>,
+        CellTransaction<'block, 'world, iroha_data_model::sccp::commitment::SccpHistoryStateV1>,
     /// History leaves by index as `(height, leaf)` (§3.5).
     pub(crate) sccp_history_leaves: StorageTransaction<'block, u64, (u64, [u8; 32])>,
-    /// Attestation subjects by height (§4.6).
-    pub(crate) sccp_attestation_subjects: StorageTransaction<
-        'block,
-        u64,
-        iroha_data_model::sccp::attestation::SccpAttestationSubjectV1,
-    >,
-    /// Attestation signer bitmaps by subject height (§4.6).
-    pub(crate) sccp_attestation_status: StorageTransaction<
-        'block,
-        u64,
-        iroha_data_model::sccp::attestation::SccpAttestationStatusV1,
-    >,
-    /// Stored attestation signatures by `(height, signer_index)` (§4.8).
-    pub(crate) sccp_attestation_signatures: StorageTransaction<'block, (u64, u8), [u8; 65]>,
-    /// Equivocation faults by `(address, height)` (§4.11).
-    pub(crate) sccp_attestation_faults: StorageTransaction<
-        'block,
-        ([u8; 20], u64),
-        iroha_data_model::sccp::keys::SccpAttestationFaultRecordV1,
-    >,
-    /// Last height each bridge-key address signed (§4.9 liveness).
-    pub(crate) sccp_member_last_signed: StorageTransaction<'block, [u8; 20], u64>,
-    /// Stalled rotation heights to the outgoing generation (§4.3.3).
-    pub(crate) sccp_handoff_stalled: StorageTransaction<'block, u64, u64>,
-    /// Resumable position of the bounded pruning step (§4.10).
-    pub(crate) sccp_prune_cursor:
-        CellTransaction<'block, 'world, iroha_data_model::sccp::keys_index::SccpPruneCursorV1>,
     /// Outbound message records by message id (§4.4).
     pub(crate) sccp_outbound_messages: StorageTransaction<
         'block,
@@ -9002,50 +9042,44 @@ pub struct WorldView<'world> {
         CellView<'world, Option<iroha_data_model::sccp::params::SccpParametersV1>>,
     /// Genesis reset nonce of this Taira identity (§4.18).
     pub(crate) sccp_reset_nonce: CellView<'world, Option<[u8; 32]>>,
-    /// Bridge-key state per peer (§4.2.1).
-    pub(crate) sccp_bridge_keys:
-        StorageView<'world, PeerId, iroha_data_model::sccp::keys::SccpBridgeKeyStateV1>,
-    /// Permanent bridge-key address to owning peer index; an address is never reused (§4.2.1).
-    pub(crate) sccp_bridge_key_owners: StorageView<'world, [u8; 20], PeerId>,
-    /// Bridge roster generations by generation number (§4.3.1).
-    pub(crate) sccp_rosters:
-        StorageView<'world, u64, iroha_data_model::sccp::roster::SccpBridgeRosterV1>,
-    /// Current bridge roster generation (§4.3.1).
-    pub(crate) sccp_roster_current: CellView<'world, u64>,
-    /// Generation whose heartbeat block was forced (§4.3.2).
-    pub(crate) sccp_heartbeat_marker: CellView<'world, Option<u64>>,
+    /// Committee generations with canonical ordered keys and liability metadata (§4.2.1).
+    pub(crate) sccp_committee_generations: StorageView<
+        'world,
+        u64,
+        sccp_generation_custody::RetainedGeneration,
+        sccp_generation_custody::GenerationMode,
+    >,
+    /// Current SCCP committee generation (§4.2.1).
+    pub(crate) sccp_committee_current: CellView<'world, u64>,
+    /// Permanent exact-once forgery offences (§4.9), in original-pool custody.
+    pub(crate) sccp_forgery_offences: StorageView<
+        'world,
+        sccp_forgery_custody::OffenceKey,
+        [u8; 32],
+        sccp_forgery_custody::OffenceMode,
+    >,
+    /// Highest recorded forgery generation; absent before any offence (§4.10).
+    pub(crate) sccp_forgery_max_generation: CellView<'world, Option<u64>>,
+    /// Liability clock of the latest block (§4.8).
+    pub(crate) sccp_liability_clock: CellView<'world, u64>,
+    /// Consecutive degraded blocks ending at the tip (§4.6).
+    pub(crate) sccp_degraded_run: CellView<'world, u32>,
+    /// Consensus anchors in the open chunk, in height order (§4.2.1).
+    pub(crate) sccp_anchor_open:
+        CellView<'world, Vec<crate::smartcontracts::isi::sccp::anchors::SccpAnchorV1>>,
+    /// Merkle roots of completed consensus-anchor chunks (§4.2.1).
+    pub(crate) sccp_anchor_chunks: StorageView<'world, u64, [u8; 32]>,
     /// Leaf references by `(height, commitment_index)` (§4.5).
     pub(crate) sccp_block_leaves:
         StorageView<'world, (u64, u32), iroha_data_model::sccp::control::SccpLeafRefV1>,
     /// Block commitment roots of SCCP-bearing heights (§4.5).
     pub(crate) sccp_block_commitments:
-        StorageView<'world, u64, iroha_data_model::sccp::attestation::SccpBlockCommitmentV1>,
+        StorageView<'world, u64, iroha_data_model::sccp::commitment::SccpBlockCommitmentV1>,
     /// History accumulator size and peaks (§3.5).
     pub(crate) sccp_history:
-        CellView<'world, iroha_data_model::sccp::attestation::SccpHistoryStateV1>,
+        CellView<'world, iroha_data_model::sccp::commitment::SccpHistoryStateV1>,
     /// History leaves by index as `(height, leaf)` (§3.5).
     pub(crate) sccp_history_leaves: StorageView<'world, u64, (u64, [u8; 32])>,
-    /// Attestation subjects by height (§4.6).
-    pub(crate) sccp_attestation_subjects:
-        StorageView<'world, u64, iroha_data_model::sccp::attestation::SccpAttestationSubjectV1>,
-    /// Attestation signer bitmaps by subject height (§4.6).
-    pub(crate) sccp_attestation_status:
-        StorageView<'world, u64, iroha_data_model::sccp::attestation::SccpAttestationStatusV1>,
-    /// Stored attestation signatures by `(height, signer_index)` (§4.8).
-    pub(crate) sccp_attestation_signatures: StorageView<'world, (u64, u8), [u8; 65]>,
-    /// Equivocation faults by `(address, height)` (§4.11).
-    pub(crate) sccp_attestation_faults: StorageView<
-        'world,
-        ([u8; 20], u64),
-        iroha_data_model::sccp::keys::SccpAttestationFaultRecordV1,
-    >,
-    /// Last height each bridge-key address signed (§4.9 liveness).
-    pub(crate) sccp_member_last_signed: StorageView<'world, [u8; 20], u64>,
-    /// Stalled rotation heights to the outgoing generation (§4.3.3).
-    pub(crate) sccp_handoff_stalled: StorageView<'world, u64, u64>,
-    /// Resumable position of the bounded pruning step (§4.10).
-    pub(crate) sccp_prune_cursor:
-        CellView<'world, iroha_data_model::sccp::keys_index::SccpPruneCursorV1>,
     /// Outbound message records by message id (§4.4).
     pub(crate) sccp_outbound_messages: StorageView<
         'world,
@@ -9411,7 +9445,11 @@ pub struct WorldView<'world> {
     /// Active hidden-ballot phase windows eligible for compact casting snapshots.
     pub(crate) parliament_timed_ovn_casting_candidates:
         StorageView<'world, BallotAttemptId, ParliamentTimedOvnCastingCandidateV1>,
-    /// Governance attempts that currently require a logical beacon slot.
+    /// Governance-local read index of the beacon slots that live attempts await.
+    ///
+    /// It creates no consensus obligation: no pulse is demanded, vetoed or checked against it.
+    /// TODO: rename and re-scope with the governance due-item iterator when timed-OVN is
+    /// retired (specs/parliament_private_ballot_design.md 12.2 step 4).
     pub(crate) parliament_required_beacon_pulse_slots:
         StorageView<'world, (BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>>,
     /// Certified governance attempts keyed by their exact enactment height.
@@ -9421,9 +9459,6 @@ pub struct WorldView<'world> {
     )]
     pub(crate) parliament_certified_enactments:
         StorageView<'world, u64, BTreeSet<GovernanceAttemptId>>,
-    /// Governance attempts that terminally classified a logical beacon slot as unavailable.
-    pub(crate) parliament_unavailable_beacon_pulse_slots:
-        StorageView<'world, (BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>>,
     /// Exact attempt contributors grouped by TLE key session and opening deadline.
     pub(crate) parliament_tle_key_session_retention_deadlines:
         StorageView<'world, TleKeySessionId, ParliamentTleKeySessionRetentionIndexV1>,
@@ -10899,7 +10934,6 @@ impl GovernanceLockRecord {
 )]
 pub struct GovernanceLocksForReferendum {
     /// Map of voter account -> lock record for this referendum.
-    #[norito(with = "governance_locks_map_json")]
     pub locks:
         std::collections::BTreeMap<iroha_data_model::account::AccountId, GovernanceLockRecord>,
 }
@@ -11124,48 +11158,6 @@ impl CitizenshipRecord {
         }
     }
 }
-#[cfg(feature = "json")]
-mod governance_locks_map_json {
-    use super::GovernanceLockRecord;
-    use iroha_data_model::account::AccountId;
-    use norito::json::{self, JsonSerialize as JsonSerializeTrait, MapVisitor, Parser};
-    use std::collections::BTreeMap;
-    pub fn serialize(locks: &BTreeMap<AccountId, GovernanceLockRecord>, out: &mut String) {
-        out.push('{');
-        let mut first = true;
-        for (account, record) in locks {
-            if first {
-                first = false;
-            } else {
-                out.push(',');
-            }
-            json::write_json_string(&account.to_string(), out);
-            out.push(':');
-            JsonSerializeTrait::json_serialize(record, out);
-        }
-        out.push('}');
-    }
-    pub fn deserialize(
-        parser: &mut Parser<'_>,
-    ) -> Result<BTreeMap<AccountId, GovernanceLockRecord>, json::Error> {
-        let mut visitor = MapVisitor::new(parser)?;
-        let mut out = BTreeMap::new();
-        while let Some(key) = visitor.next_key()? {
-            let acc_str = key.as_str();
-            let account: AccountId = AccountId::parse_encoded(acc_str).map_err(|err| {
-                json::Error::Message(format!("invalid account id `{acc_str}`: {err}"))
-            })?;
-            let record: GovernanceLockRecord = visitor.parse_value()?;
-            if out.insert(account, record).is_some() {
-                return Err(json::Error::DuplicateField {
-                    field: acc_str.to_owned(),
-                });
-            }
-        }
-        visitor.finish()?;
-        Ok(out)
-    }
-}
 /// Record of slashing/restitution applied to a specific voter for a referendum.
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "iroha_core::state::GovernanceSlashEntry")]
@@ -11190,51 +11182,8 @@ pub struct GovernanceSlashEntry {
 )]
 pub struct GovernanceSlashLedger {
     /// Map of voter account -> slashing ledger entry.
-    #[norito(with = "governance_slash_map_json")]
     pub slashes:
         std::collections::BTreeMap<iroha_data_model::account::AccountId, GovernanceSlashEntry>,
-}
-#[cfg(feature = "json")]
-mod governance_slash_map_json {
-    use super::GovernanceSlashEntry;
-    use iroha_data_model::account::AccountId;
-    use norito::json::{self, JsonSerialize as JsonSerializeTrait, MapVisitor, Parser};
-    use std::collections::BTreeMap;
-    pub fn serialize(slashes: &BTreeMap<AccountId, GovernanceSlashEntry>, out: &mut String) {
-        out.push('{');
-        let mut first = true;
-        for (account, record) in slashes {
-            if first {
-                first = false;
-            } else {
-                out.push(',');
-            }
-            json::write_json_string(&account.to_string(), out);
-            out.push(':');
-            JsonSerializeTrait::json_serialize(record, out);
-        }
-        out.push('}');
-    }
-    pub fn deserialize(
-        parser: &mut Parser<'_>,
-    ) -> Result<BTreeMap<AccountId, GovernanceSlashEntry>, json::Error> {
-        let mut visitor = MapVisitor::new(parser)?;
-        let mut out = BTreeMap::new();
-        while let Some(key) = visitor.next_key()? {
-            let acc_str = key.as_str();
-            let account: AccountId = AccountId::parse_encoded(acc_str).map_err(|err| {
-                json::Error::Message(format!("invalid account id `{acc_str}`: {err}"))
-            })?;
-            let record: GovernanceSlashEntry = visitor.parse_value()?;
-            if out.insert(account, record).is_some() {
-                return Err(json::Error::DuplicateField {
-                    field: acc_str.to_owned(),
-                });
-            }
-        }
-        visitor.finish()?;
-        Ok(out)
-    }
 }
 #[derive(Debug, Clone)]
 pub(crate) struct PipelineParallelism {
@@ -13921,6 +13870,10 @@ pub struct StateTransaction<'block, 'state> {
         Option<kagemusha_load_entrypoint::KagemushaLoadEntrypointBindingV1>,
     /// Currently executing direct instruction ordinal; nested frames receive no Load authority.
     pub(crate) current_direct_kagemusha_load_instruction_index: Option<usize>,
+    /// Fixed-size original native forgery source; admission and direct execution are required.
+    sccp_forgery_entrypoint_binding: Option<sccp_forgery_entrypoint::SccpForgeryEntrypointBinding>,
+    /// One-shot direct native frame; contracts and callbacks cannot inherit this marker.
+    pub(crate) current_direct_sccp_forgery: bool,
     /// Storage-only ordinal of a directly signed AMX instruction; grants no authority.
     pub(crate) current_direct_amx_instruction_index: Option<usize>,
     /// Borrow of the actual native Worker attempt, confined to this transaction.
@@ -18101,14 +18054,12 @@ struct ParliamentDerivedReadIndexesV1 {
     timed_ovn_casting_candidates: BTreeMap<BallotAttemptId, ParliamentTimedOvnCastingCandidateV1>,
     required_beacon_pulse_slots: BTreeMap<(BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>>,
     certified_enactments: BTreeMap<u64, BTreeSet<GovernanceAttemptId>>,
-    unavailable_beacon_pulse_slots: BTreeMap<(BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>>,
     tle_key_session_retention_deadlines:
         BTreeMap<TleKeySessionId, ParliamentTleKeySessionRetentionIndexV1>,
 }
 
 fn parliament_derived_read_indexes_v1<'a>(
     attempts: impl IntoIterator<Item = (&'a GovernanceAttemptId, &'a ParliamentAttemptStateV1)>,
-    finalized_beacon_pulse_slots: &BTreeSet<(BeaconSessionId, u64)>,
 ) -> Result<ParliamentDerivedReadIndexesV1, String> {
     let attempts = attempts.into_iter().collect::<Vec<_>>();
     let member_reference_counts = parliament_member_reference_counts_v1(attempts.iter().copied())
@@ -18127,8 +18078,6 @@ fn parliament_derived_read_indexes_v1<'a>(
     let mut required_beacon_pulse_slots =
         BTreeMap::<(BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>>::new();
     let mut certified_enactments = BTreeMap::<u64, BTreeSet<GovernanceAttemptId>>::new();
-    let mut unavailable_beacon_pulse_slots =
-        BTreeMap::<(BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>>::new();
     let mut tle_key_session_retention_deadlines =
         BTreeMap::<TleKeySessionId, ParliamentTleKeySessionRetentionIndexV1>::new();
     for (governance_attempt_id, attempt) in attempts {
@@ -18140,17 +18089,6 @@ fn parliament_derived_read_indexes_v1<'a>(
         }
         for pulse_slot in attempt.required_beacon_pulse_slots_v1() {
             required_beacon_pulse_slots
-                .entry(pulse_slot)
-                .or_default()
-                .insert(*governance_attempt_id);
-        }
-        for pulse_slot in attempt.unavailable_beacon_pulse_slots_v1() {
-            if finalized_beacon_pulse_slots.contains(&pulse_slot) {
-                return Err(format!(
-                    "Parliament attempt {governance_attempt_id:?} classifies finalized logical beacon slot {pulse_slot:?} as unavailable"
-                ));
-            }
-            unavailable_beacon_pulse_slots
                 .entry(pulse_slot)
                 .or_default()
                 .insert(*governance_attempt_id);
@@ -18205,7 +18143,6 @@ fn parliament_derived_read_indexes_v1<'a>(
         timed_ovn_casting_candidates,
         required_beacon_pulse_slots,
         certified_enactments,
-        unavailable_beacon_pulse_slots,
         tle_key_session_retention_deadlines,
     })
 }
@@ -18849,6 +18786,10 @@ impl World {
     }
     /// Creates a World whose asset supplies equal the supplied initial balances.
     /// Repeated asset identities retain their last supplied balance.
+    ///
+    /// # Panics
+    /// Panics if supplied entities are invalid or their rebuild cannot
+    /// complete. Production callers use [`Self::try_with_execution_budget`].
     pub fn with_assets<D, A, Ad, As, N>(
         domains: D,
         accounts: A,
@@ -18863,7 +18804,7 @@ impl World {
         As: IntoIterator<Item = Asset>,
         N: IntoIterator<Item = Nft>,
     {
-        Self::with_assets_on(
+        Self::try_with_assets_on(
             WorldData::default(),
             domains,
             accounts,
@@ -18871,38 +18812,49 @@ impl World {
             assets,
             nfts,
         )
+        .expect("invalid World initialization in convenience constructor")
     }
     /// Construct World with its configured original execution pool.
-    /// Local resource refusal occurs before consuming the supplied entity iterators.
+    ///
+    /// Initial storage refusal occurs before consuming the supplied entity iterators.
+    /// Later validation/rebuild failure drops consumed entities and returns the
+    /// original typed cause; retry therefore requires the caller's source values.
+    ///
+    /// # Errors
+    /// Returns original cell admission refusal, malformed entity state, or typed
+    /// local execution deferral. No partially rebuilt World escapes on failure.
+    /// TODO(S6): ordinary input tables, indexes and nested Kaigi/crypto graphs still
+    /// need complete original-pool physical ownership; codec quotas do not fund them.
     pub fn try_with_execution_budget<D, A, Ad>(
         domains: D,
         accounts: A,
         asset_definitions: Ad,
         execution_budget: &iroha_allocation::AllocationBudget,
-    ) -> Result<Self, mv::storage::AdmittedStorageError>
+    ) -> Result<Self, WorldConstructionError>
     where
         D: IntoIterator<Item = Domain>,
         A: IntoIterator<Item = Account>,
         Ad: IntoIterator<Item = AssetDefinition>,
     {
         let fields = WorldData::try_new_with_execution_budget(execution_budget)?;
-        Ok(Self::with_assets_on(
-            fields,
-            domains,
-            accounts,
-            asset_definitions,
-            [],
-            [],
-        ))
+        let result = Self::try_with_assets_on(fields, domains, accounts, asset_definitions, [], []);
+        #[cfg(all(test, sumeragi_core_mutation = "HC221"))]
+        {
+            return Ok(
+                result.expect("invalid World initialization in restored infallible boundary")
+            );
+        }
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC221")))]
+        result
     }
-    fn with_assets_on<D, A, Ad, As, N>(
+    fn try_with_assets_on<D, A, Ad, As, N>(
         initial: WorldData,
         domains: D,
         accounts: A,
         asset_definitions: Ad,
         assets: As,
         nfts: N,
-    ) -> Self
+    ) -> Result<Self, WorldConstructionError>
     where
         D: IntoIterator<Item = Domain>,
         A: IntoIterator<Item = Account>,
@@ -18934,25 +18886,30 @@ impl World {
             if definition.balance_scope_policy() == AssetBalancePolicy::DataspaceRestricted
                 && definition.owning_domain().is_none()
             {
-                panic!(
+                return Err(format!(
                     "dataspace-restricted asset definition {definition_id} requires an explicit owning domain"
-                );
+                ).into());
             }
             if let Some(domain_id) = definition.owning_domain().as_ref() {
-                assert!(
-                    domain_view.get(domain_id).is_some(),
-                    "asset definition {definition_id} references missing owning domain {domain_id}"
-                );
+                if domain_view.get(domain_id).is_none() {
+                    return Err(format!(
+                        "asset definition {definition_id} references missing owning domain {domain_id}"
+                    ).into());
+                }
                 definition_domains.insert(definition_id.clone(), domain_id.clone());
             }
             if let Some(alias) = definition.alias.take() {
                 if let Some(domain) = alias.domain_segment() {
-                    let domain_id = DomainId::try_new(domain, alias.dataspace_segment())
-                        .expect("qualified asset alias must contain a valid domain");
-                    assert!(
-                        domain_view.get(&domain_id).is_some(),
-                        "qualified asset alias `{alias}` references missing domain {domain_id}"
-                    );
+                    let domain_id =
+                        DomainId::try_new(domain, alias.dataspace_segment()).map_err(|error| {
+                            format!("qualified asset alias must contain a valid domain: {error}")
+                        })?;
+                    if domain_view.get(&domain_id).is_none() {
+                        return Err(format!(
+                            "qualified asset alias `{alias}` references missing domain {domain_id}"
+                        )
+                        .into());
+                    }
                 }
                 definition_alias_bindings.insert(
                     definition_id.clone(),
@@ -18977,15 +18934,19 @@ impl World {
         for (id, quantity) in &asset_pairs {
             let definition = definition_pairs
                 .get_mut(id.definition())
-                .expect("initial asset must have its original definition");
-            ensure_asset_quantity_value(&quantity.0, definition.spec())
-                .expect("initial asset quantity must satisfy its definition");
+                .ok_or_else(|| "initial asset must have its original definition".to_owned())?;
+            ensure_asset_quantity_value(&quantity.0, definition.spec()).map_err(|error| {
+                format!("initial asset quantity must satisfy its definition: {error:?}")
+            })?;
             definition.total_quantity = definition
                 .total_quantity
                 .checked_add(&quantity.0)
-                .expect("initial asset supply must fit its quantity representation");
-            ensure_asset_quantity_value(&definition.total_quantity, definition.spec())
-                .expect("initial asset supply must satisfy its definition");
+                .map_err(|error| {
+                    format!("initial asset supply must fit its quantity representation: {error:?}")
+                })?;
+            ensure_asset_quantity_value(&definition.total_quantity, definition.spec()).map_err(
+                |error| format!("initial asset supply must satisfy its definition: {error:?}"),
+            )?;
         }
         let asset_definitions = definition_pairs.into_iter().collect();
         let asset_definition_alias_bindings = definition_alias_bindings.into_iter().collect();
@@ -19067,62 +19028,80 @@ impl World {
             parliament_attempts: Storage::default(),
             ..initial
         }));
-        world
-            .validate_numeric_asset_invariants()
-            .expect("invalid numeric asset state in world constructor");
+        world.validate_numeric_asset_invariants().map_err(|error| {
+            format!("invalid numeric asset state in world constructor: {error}")
+        })?;
         world
             .validate_quantity_ledger_invariants()
-            .expect("invalid quantity ledger state in world constructor");
+            .map_err(|error| {
+                error.map_rejection(|error| {
+                    format!("invalid quantity ledger state in world constructor: {error}")
+                })
+            })?;
         world.rebuild_domain_owner_index();
         world
             .rebuild_account_identity_indexes()
-            .expect("duplicate UAID in world constructor");
+            .map_err(|error| format!("duplicate UAID in world constructor: {error}"))?;
         world
             .rebuild_account_alias_index()
-            .expect("duplicate account alias in world constructor");
-        world
-            .rebuild_account_scope_directory()
-            .expect("invalid account scope directory in world constructor");
-        world
-            .rebuild_account_rekey_records()
-            .expect("invalid account rekey state in world constructor");
-        crate::smartcontracts::isi::kaigi::rebuild_kaigi_relay_registry(&mut world)
-            .expect("invalid Kaigi relay registry in world constructor");
-        crate::smartcontracts::isi::kaigi::rebuild_kaigi_account_dependencies(&mut world)
-            .expect("invalid Kaigi account dependencies in world constructor");
+            .map_err(|error| format!("duplicate account alias in world constructor: {error}"))?;
+        world.rebuild_account_scope_directory().map_err(|error| {
+            format!("invalid account scope directory in world constructor: {error}")
+        })?;
+        world.rebuild_account_rekey_records().map_err(|error| {
+            format!("invalid account rekey state in world constructor: {error}")
+        })?;
+        crate::smartcontracts::isi::kaigi::rebuild_kaigi_relay_registry(&mut world).map_err(
+            |error| {
+                error.map_rejection(|error| {
+                    format!("invalid Kaigi relay registry in world constructor: {error}")
+                })
+            },
+        )?;
+        crate::smartcontracts::isi::kaigi::rebuild_kaigi_account_dependencies(&mut world).map_err(
+            |error| {
+                error.map_rejection(|error| {
+                    format!("invalid Kaigi account dependencies in world constructor: {error}")
+                })
+            },
+        )?;
         world
             .rebuild_asset_definition_alias_indexes()
-            .expect("duplicate asset definition alias in world constructor");
+            .map_err(|error| {
+                format!("duplicate asset definition alias in world constructor: {error}")
+            })?;
         world
             .rebuild_contract_alias_indexes()
-            .expect("duplicate contract alias in world constructor");
-        world
-            .rebuild_asset_definition_indexes()
-            .expect("invalid asset definition domain context in world constructor");
+            .map_err(|error| format!("duplicate contract alias in world constructor: {error}"))?;
+        world.rebuild_asset_definition_indexes().map_err(|error| {
+            format!("invalid asset definition domain context in world constructor: {error}")
+        })?;
         world
             .rebuild_confidential_policy_transition_index()
-            .expect("invalid confidential-policy transition in world constructor");
-        world
-            .rebuild_governance_read_indexes()
-            .expect("invalid governance read indexes in world constructor");
+            .map_err(|error| {
+                format!("invalid confidential-policy transition in world constructor: {error}")
+            })?;
+        world.rebuild_governance_read_indexes().map_err(|error| {
+            format!("invalid governance read indexes in world constructor: {error}")
+        })?;
         world.rebuild_nft_owner_index();
         world
             .rebuild_nft_custody_indexes()
-            .expect("invalid native NFT custody in world constructor");
+            .map_err(|error| format!("invalid native NFT custody in world constructor: {error}"))?;
         world.rebuild_rwa_indexes();
         world.rebuild_escrow_indexes();
-        world
-            .rebuild_game_session_indexes()
-            .expect("invalid game session indexes in world constructor");
+        world.rebuild_game_session_indexes().map_err(|error| {
+            format!("invalid game session indexes in world constructor: {error}")
+        })?;
         world
             .rebuild_vpn_lease_indexes()
-            .expect("invalid VPN lease indexes in world constructor");
+            .map_err(|error| format!("invalid VPN lease indexes in world constructor: {error}"))?;
         world.rebuild_repo_agreement_indexes();
         world.rebuild_proof_status_index();
-        world
-            .validate_identifier_claims()
-            .expect("identifier claims must match account bindings in world constructor");
-        world
+        world.validate_identifier_claims().map_err(|error| {
+            format!("identifier claims must match account bindings in world constructor: {error}")
+        })?;
+        Ok(world)
     }
     #[cfg(any(test, feature = "iroha-core-tests"))]
     /// Creates a [`World`] populated with assets and pre-defined roles.
@@ -19295,21 +19274,9 @@ impl World {
             let proposals = self.governance_proposals.view();
             validation_fee_proposal_index_v1(proposals.iter())
         };
-        let finalized_beacon_pulse_slots = {
-            let pulses = self.global_beacon_pulses.view();
-            pulses
-                .iter()
-                .map(|(_, pulse)| {
-                    (
-                        BeaconSessionId::for_network_v1(&pulse.network_id),
-                        pulse.height,
-                    )
-                })
-                .collect::<BTreeSet<_>>()
-        };
         let current_parliament = {
             let attempts = self.parliament_attempts.view();
-            parliament_derived_read_indexes_v1(attempts.iter(), &finalized_beacon_pulse_slots)?
+            parliament_derived_read_indexes_v1(attempts.iter())?
         };
         let tle_key_session_selection_intervals = {
             let lifecycles = self.tle_key_session_lifecycles.view();
@@ -19340,7 +19307,6 @@ impl World {
             let reverted_attempts = self.parliament_attempts.block_and_revert();
             let reverted_lifecycles = self.tle_key_session_lifecycles.block_and_revert();
             let reverted_active_key_sessions = self.tle_active_key_session.block_and_revert();
-            let reverted_pulses = self.global_beacon_pulses.block_and_revert();
 
             if reverted_citizens.len() > maximum_citizens {
                 return Err(format!(
@@ -19356,26 +19322,13 @@ impl World {
                 })?;
             let previous_validation_fee_proposal_index =
                 validation_fee_proposal_index_v1(reverted_proposals.iter());
-            let previous_finalized_beacon_pulse_slots = reverted_pulses
-                .iter()
-                .map(|(_, pulse)| {
-                    (
-                        BeaconSessionId::for_network_v1(&pulse.network_id),
-                        pulse.height,
-                    )
-                })
-                .collect::<BTreeSet<_>>();
-            let previous_parliament = parliament_derived_read_indexes_v1(
-                reverted_attempts.iter(),
-                &previous_finalized_beacon_pulse_slots,
-            )?;
+            let previous_parliament = parliament_derived_read_indexes_v1(reverted_attempts.iter())?;
             let previous_tle_key_session_selection_intervals =
                 tle_key_session_selection_intervals_v1(
                     reverted_lifecycles.iter(),
                     reverted_active_key_sessions.iter(),
                 )?;
 
-            drop(reverted_pulses);
             drop(reverted_active_key_sessions);
             drop(reverted_lifecycles);
             drop(reverted_attempts);
@@ -19397,7 +19350,6 @@ impl World {
             timed_ovn_casting_candidates,
             required_beacon_pulse_slots,
             certified_enactments,
-            unavailable_beacon_pulse_slots,
             tle_key_session_retention_deadlines,
         } = current_parliament;
         let ParliamentDerivedReadIndexesV1 {
@@ -19407,7 +19359,6 @@ impl World {
             timed_ovn_casting_candidates: previous_timed_ovn_casting_candidates,
             required_beacon_pulse_slots: previous_required_beacon_pulse_slots,
             certified_enactments: previous_certified_enactments,
-            unavailable_beacon_pulse_slots: previous_unavailable_beacon_pulse_slots,
             tle_key_session_retention_deadlines: previous_tle_key_session_retention_deadlines,
         } = previous_parliament;
 
@@ -19438,10 +19389,6 @@ impl World {
         self.parliament_certified_enactments = rebuild_derived_storage_with_previous(
             certified_enactments,
             previous_certified_enactments,
-        );
-        self.parliament_unavailable_beacon_pulse_slots = rebuild_derived_storage_with_previous(
-            unavailable_beacon_pulse_slots,
-            previous_unavailable_beacon_pulse_slots,
         );
         self.parliament_tle_key_session_retention_deadlines = rebuild_derived_storage_with_previous(
             tle_key_session_retention_deadlines,
@@ -20984,11 +20931,8 @@ macro_rules! world_ro_accessors {
             storage parliament_attempts:
                 iroha_data_model::governance::types::GovernanceAttemptId =>
                 ParliamentAttemptStateV1;
-            /// Exact pending Parliament beacon-slot requests (read-only).
+            /// Governance-local index of beacon slots that live attempts await (read-only).
             storage parliament_required_beacon_pulse_slots:
-                (BeaconSessionId, u64) => BTreeSet<GovernanceAttemptId>;
-            /// Exact terminally unavailable Parliament beacon slots (read-only).
-            storage parliament_unavailable_beacon_pulse_slots:
                 (BeaconSessionId, u64) => BTreeSet<GovernanceAttemptId>;
             /// Exact retention-deadline contributors grouped by TLE key session.
             storage parliament_tle_key_session_retention_deadlines:
@@ -21036,38 +20980,30 @@ macro_rules! world_ro_accessors {
             cell_ref sccp_parameters: Option<iroha_data_model::sccp::params::SccpParametersV1>;
             /// Genesis reset nonce of this Taira identity (§4.18).
             cell_ref sccp_reset_nonce: Option<[u8; 32]>;
-            /// Bridge-key state per peer (§4.2.1).
-            storage sccp_bridge_keys: PeerId => iroha_data_model::sccp::keys::SccpBridgeKeyStateV1;
-            /// Permanent bridge-key address to owning peer index; an address is never reused (§4.2.1).
-            storage sccp_bridge_key_owners: [u8; 20] => PeerId;
-            /// Bridge roster generations by generation number (§4.3.1).
-            storage sccp_rosters: u64 => iroha_data_model::sccp::roster::SccpBridgeRosterV1;
-            /// Current bridge roster generation (§4.3.1).
-            cell_ref sccp_roster_current: u64;
-            /// Generation whose heartbeat block was forced (§4.3.2).
-            cell_ref sccp_heartbeat_marker: Option<u64>;
+            /// Committee generations with canonical ordered keys and liability metadata (§4.2.1).
+            storage sccp_committee_generations: u64 => sccp_generation_custody::RetainedGeneration;
+            /// Current SCCP committee generation (§4.2.1).
+            cell_ref sccp_committee_current: u64;
+            /// Permanent exact-once forgery offences (§4.9).
+            storage sccp_forgery_offences: sccp_forgery_custody::OffenceKey => [u8; 32];
+            /// Highest recorded forgery generation (§4.10).
+            cell_ref sccp_forgery_max_generation: Option<u64>;
+            /// Liability clock of the latest block (§4.8).
+            cell_ref sccp_liability_clock: u64;
+            /// Consecutive degraded blocks ending at the tip (§4.6).
+            cell_ref sccp_degraded_run: u32;
+            /// Consensus anchors in the open chunk, in height order (§4.2.1).
+            cell_ref sccp_anchor_open: Vec<crate::smartcontracts::isi::sccp::anchors::SccpAnchorV1>;
+            /// Merkle roots of completed consensus-anchor chunks (§4.2.1).
+            storage sccp_anchor_chunks: u64 => [u8; 32];
             /// Leaf references by `(height, commitment_index)` (§4.5).
             storage sccp_block_leaves: (u64, u32) => iroha_data_model::sccp::control::SccpLeafRefV1;
             /// Block commitment roots of SCCP-bearing heights (§4.5).
-            storage sccp_block_commitments: u64 => iroha_data_model::sccp::attestation::SccpBlockCommitmentV1;
+            storage sccp_block_commitments: u64 => iroha_data_model::sccp::commitment::SccpBlockCommitmentV1;
             /// History accumulator size and peaks (§3.5).
-            cell_ref sccp_history: iroha_data_model::sccp::attestation::SccpHistoryStateV1;
+            cell_ref sccp_history: iroha_data_model::sccp::commitment::SccpHistoryStateV1;
             /// History leaves by index as `(height, leaf)` (§3.5).
             storage sccp_history_leaves: u64 => (u64, [u8; 32]);
-            /// Attestation subjects by height (§4.6).
-            storage sccp_attestation_subjects: u64 => iroha_data_model::sccp::attestation::SccpAttestationSubjectV1;
-            /// Attestation signer bitmaps by subject height (§4.6).
-            storage sccp_attestation_status: u64 => iroha_data_model::sccp::attestation::SccpAttestationStatusV1;
-            /// Stored attestation signatures by `(height, signer_index)` (§4.8).
-            storage sccp_attestation_signatures: (u64, u8) => [u8; 65];
-            /// Equivocation faults by `(address, height)` (§4.11).
-            storage sccp_attestation_faults: ([u8; 20], u64) => iroha_data_model::sccp::keys::SccpAttestationFaultRecordV1;
-            /// Last height each bridge-key address signed (§4.9 liveness).
-            storage sccp_member_last_signed: [u8; 20] => u64;
-            /// Stalled rotation heights to the outgoing generation (§4.3.3).
-            storage sccp_handoff_stalled: u64 => u64;
-            /// Resumable position of the bounded pruning step (§4.10).
-            cell_ref sccp_prune_cursor: iroha_data_model::sccp::keys_index::SccpPruneCursorV1;
             /// Outbound message records by message id (§4.4).
             storage sccp_outbound_messages: [u8; 32] => iroha_data_model::sccp::outbound::SccpOutboundMessageRecordV1;
             /// Outbound message ids by `(network, revision, nonce)` (§4.4).
@@ -22214,10 +22150,6 @@ impl<'world> WorldBlock<'world> {
             || self.global_beacon_pulses.iter().next().is_some()
             || self.global_beacon_pulse_slots.iter().next().is_some()
             || self.global_beacon_latest_pulse.iter().next().is_some()
-            || self
-                .parliament_unavailable_beacon_pulse_slots
-                .get(&pulse_slot)
-                .is_some_and(|attempts| !attempts.is_empty())
         {
             return Err(crate::beacon::GlobalThresholdBeaconError::PersistenceConflict);
         }
@@ -23529,17 +23461,21 @@ impl WorldTransaction<'_, '_> {
             .unwrap_or_default();
         let previous_enactment_height =
             previous_attempt.and_then(ParliamentAttemptStateV1::certified_enactment_height_v1);
-        let previous_unavailable_slots = previous_attempt
-            .map(ParliamentAttemptStateV1::unavailable_beacon_pulse_slots_v1)
-            .unwrap_or_default();
         let previous_tle_retention_contributions = previous_attempt
             .map(ParliamentAttemptStateV1::tle_key_session_retention_contributions_v1)
             .unwrap_or_default();
         let next_required_slots = attempt.required_beacon_pulse_slots_v1();
         let next_enactment_height = attempt.certified_enactment_height_v1();
-        let next_unavailable_slots = attempt.unavailable_beacon_pulse_slots_v1();
         let next_tle_retention_contributions = attempt.tle_key_session_retention_contributions_v1();
-        if next_unavailable_slots
+        // Governance-internal integrity check on the attempt write, computed directly from
+        // the attempt: a timed-OVN ballot may not be classified `ReleasePulseUnavailable`
+        // at a release slot that already holds a finalized pulse. It never constrains the
+        // pulse, and no sortition slot participates: a sortition election has no
+        // unavailable classification at all.
+        // TODO: delete with the timed-OVN ballot path
+        // (specs/parliament_private_ballot_design.md 12.2 step 4).
+        if attempt
+            .unavailable_release_pulse_slots_v1()
             .iter()
             .any(|slot| self.global_beacon_pulse_slots.get(slot).is_some())
         {
@@ -23648,22 +23584,6 @@ impl WorldTransaction<'_, '_> {
                     .insert(height, attempts);
             }
         }
-        for slot in previous_unavailable_slots.difference(&next_unavailable_slots) {
-            let Some(mut attempts) = self
-                .parliament_unavailable_beacon_pulse_slots
-                .get(slot)
-                .cloned()
-            else {
-                continue;
-            };
-            attempts.remove(&id);
-            if attempts.is_empty() {
-                self.parliament_unavailable_beacon_pulse_slots.remove(*slot);
-            } else {
-                self.parliament_unavailable_beacon_pulse_slots
-                    .insert(*slot, attempts);
-            }
-        }
         for (key_session_id, opening_deadline) in previous_tle_retention_contributions {
             self.remove_parliament_tle_retention_contribution(id, key_session_id, opening_deadline);
         }
@@ -23699,16 +23619,6 @@ impl WorldTransaction<'_, '_> {
             attempts.insert(id);
             self.parliament_certified_enactments
                 .insert(height, attempts);
-        }
-        for slot in next_unavailable_slots.difference(&previous_unavailable_slots) {
-            let mut attempts = self
-                .parliament_unavailable_beacon_pulse_slots
-                .get(slot)
-                .cloned()
-                .unwrap_or_default();
-            attempts.insert(id);
-            self.parliament_unavailable_beacon_pulse_slots
-                .insert(*slot, attempts);
         }
         for (key_session_id, opening_deadline) in next_tle_retention_contributions {
             self.insert_parliament_tle_retention_contribution(id, key_session_id, opening_deadline);
@@ -24179,16 +24089,6 @@ impl WorldTransaction<'_, '_> {
         if self.global_beacon_pulse_slots.get(&pulse_slot).is_some() {
             return Err(GlobalThresholdBeaconError::ReusedPulse);
         }
-        if self
-            .parliament_unavailable_beacon_pulse_slots
-            .get(&(logical_beacon_session_id, pulse.height))
-            .is_some_and(|attempts| !attempts.is_empty())
-        {
-            // Once consensus has objectively closed an absent sortition or release slot,
-            // accepting a late pulse would make the persisted Parliament transcript
-            // contradictory and non-restartable.
-            return Err(GlobalThresholdBeaconError::PersistenceConflict);
-        }
         let cursor = self
             .global_beacon_latest_pulse
             .get(&GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY)
@@ -24301,22 +24201,6 @@ impl WorldTransaction<'_, '_> {
                 self.parliament_required_beacon_pulse_slots.remove(slot);
             } else {
                 self.parliament_required_beacon_pulse_slots
-                    .insert(slot, attempts);
-            }
-        }
-        for slot in ParliamentAttemptStateV1::unavailable_beacon_pulse_slots_v1(&removed) {
-            let Some(mut attempts) = self
-                .parliament_unavailable_beacon_pulse_slots
-                .get(&slot)
-                .cloned()
-            else {
-                continue;
-            };
-            attempts.remove(id);
-            if attempts.is_empty() {
-                self.parliament_unavailable_beacon_pulse_slots.remove(slot);
-            } else {
-                self.parliament_unavailable_beacon_pulse_slots
                     .insert(slot, attempts);
             }
         }
@@ -24620,7 +24504,6 @@ impl WorldTransaction<'_, '_> {
             parliament_timed_ovn_casting_candidates: _,
             parliament_required_beacon_pulse_slots: _,
             parliament_certified_enactments: _,
-            parliament_unavailable_beacon_pulse_slots: _,
             parliament_tle_key_session_retention_deadlines: _,
             tle_key_session_selection_intervals: _,
             tle_key_sessions: _,
@@ -24642,22 +24525,18 @@ impl WorldTransaction<'_, '_> {
             merge_global_state_root: _,
             sccp_parameters: _,
             sccp_reset_nonce: _,
-            sccp_bridge_keys: _,
-            sccp_bridge_key_owners: _,
-            sccp_rosters: _,
-            sccp_roster_current: _,
-            sccp_heartbeat_marker: _,
+            sccp_committee_generations: _,
+            sccp_committee_current: _,
+            sccp_forgery_offences: _,
+            sccp_forgery_max_generation: _,
+            sccp_liability_clock: _,
+            sccp_degraded_run: _,
+            sccp_anchor_open: _,
+            sccp_anchor_chunks: _,
             sccp_block_leaves: _,
             sccp_block_commitments: _,
             sccp_history: _,
             sccp_history_leaves: _,
-            sccp_attestation_subjects: _,
-            sccp_attestation_status: _,
-            sccp_attestation_signatures: _,
-            sccp_attestation_faults: _,
-            sccp_member_last_signed: _,
-            sccp_handoff_stalled: _,
-            sccp_prune_cursor: _,
             sccp_outbound_messages: _,
             sccp_outbound_by_nonce: _,
             sccp_control_messages: _,
@@ -24848,7 +24727,6 @@ impl WorldTransaction<'_, '_> {
         self.parliament_timed_ovn_casting_candidates.apply();
         self.parliament_required_beacon_pulse_slots.apply();
         self.parliament_certified_enactments.apply();
-        self.parliament_unavailable_beacon_pulse_slots.apply();
         self.parliament_tle_key_session_retention_deadlines.apply();
         self.tle_key_session_selection_intervals.apply();
         self.tle_key_sessions.apply();
@@ -24958,22 +24836,18 @@ impl WorldTransaction<'_, '_> {
         self.kaigi_account_dependencies.apply();
         self.sccp_parameters.apply();
         self.sccp_reset_nonce.apply();
-        self.sccp_bridge_keys.apply();
-        self.sccp_bridge_key_owners.apply();
-        self.sccp_rosters.apply();
-        self.sccp_roster_current.apply();
-        self.sccp_heartbeat_marker.apply();
+        self.sccp_committee_generations.apply();
+        self.sccp_committee_current.apply();
+        self.sccp_forgery_offences.apply();
+        self.sccp_forgery_max_generation.apply();
+        self.sccp_liability_clock.apply();
+        self.sccp_degraded_run.apply();
+        self.sccp_anchor_open.apply();
+        self.sccp_anchor_chunks.apply();
         self.sccp_block_leaves.apply();
         self.sccp_block_commitments.apply();
         self.sccp_history.apply();
         self.sccp_history_leaves.apply();
-        self.sccp_attestation_subjects.apply();
-        self.sccp_attestation_status.apply();
-        self.sccp_attestation_signatures.apply();
-        self.sccp_attestation_faults.apply();
-        self.sccp_member_last_signed.apply();
-        self.sccp_handoff_stalled.apply();
-        self.sccp_prune_cursor.apply();
         self.sccp_outbound_messages.apply();
         self.sccp_outbound_by_nonce.apply();
         self.sccp_control_messages.apply();
@@ -26959,24 +26833,44 @@ impl State {
     pub fn metrics(&self) -> &StateTelemetry {
         &self.telemetry
     }
-    pub(crate) fn rebuild_derived_state_indexes(&mut self) -> core::result::Result<(), String> {
+    pub(crate) fn rebuild_derived_state_indexes(
+        &mut self,
+    ) -> core::result::Result<(), ExecutionAttemptError<String>> {
         let kaigi_retained_timestamp_ceiling = self.latest_block_creation_time_ms_fast();
-        crate::smartcontracts::isi::kaigi::rebuild_kaigi_relay_registry(&mut self.world)
-            .map_err(|error| format!("failed to rebuild Kaigi relay registry: {error}"))?;
+        crate::smartcontracts::isi::kaigi::rebuild_kaigi_relay_registry(&mut self.world).map_err(
+            |error| {
+                error.map_rejection(|error| {
+                    format!("failed to rebuild Kaigi relay registry: {error}")
+                })
+            },
+        )?;
         crate::smartcontracts::isi::kaigi::rebuild_kaigi_account_dependencies_at(
             &mut self.world,
             kaigi_retained_timestamp_ceiling,
         )
-        .map_err(|error| format!("failed to rebuild Kaigi account dependencies: {error}"))?;
+        .map_err(|error| {
+            error.map_rejection(|error| {
+                format!("failed to rebuild Kaigi account dependencies: {error}")
+            })
+        })?;
         let nexus = self.nexus_snapshot();
         let world = self.world_view_with_nexus(&nexus);
-        crate::smartcontracts::isi::kaigi::validate_rebuilt_kaigi_relay_registry(&world)
-            .map_err(|error| format!("failed to validate Kaigi relay registry: {error}"))?;
+        crate::smartcontracts::isi::kaigi::validate_rebuilt_kaigi_relay_registry(&world).map_err(
+            |error| {
+                error.map_rejection(|error| {
+                    format!("failed to validate Kaigi relay registry: {error}")
+                })
+            },
+        )?;
         crate::smartcontracts::isi::kaigi::validate_rebuilt_kaigi_account_dependencies_at(
             &world,
             kaigi_retained_timestamp_ceiling,
         )
-        .map_err(|error| format!("failed to validate Kaigi account dependencies: {error}"))?;
+        .map_err(|error| {
+            error.map_rejection(|error| {
+                format!("failed to validate Kaigi account dependencies: {error}")
+            })
+        })?;
         drop(world);
         self.world
             .rebuild_asset_definition_alias_indexes()
@@ -27025,7 +26919,7 @@ impl State {
     pub(crate) fn finalize_snapshot_derived_state_indexes(
         &mut self,
         emergency_fast: bool,
-    ) -> core::result::Result<(), String> {
+    ) -> core::result::Result<(), ExecutionAttemptError<String>> {
         if emergency_fast {
             iroha_logger::warn!(
                 "emergency Fast snapshot restore skipped final derived account and dataspace indexes"
@@ -27035,13 +26929,22 @@ impl State {
         let kaigi_retained_timestamp_ceiling = self.latest_block_creation_time_ms_fast();
         let nexus = self.nexus_snapshot();
         let world = self.world_view_with_nexus(&nexus);
-        crate::smartcontracts::isi::kaigi::validate_rebuilt_kaigi_relay_registry(&world)
-            .map_err(|error| format!("failed to validate Kaigi relay registry: {error}"))?;
+        crate::smartcontracts::isi::kaigi::validate_rebuilt_kaigi_relay_registry(&world).map_err(
+            |error| {
+                error.map_rejection(|error| {
+                    format!("failed to validate Kaigi relay registry: {error}")
+                })
+            },
+        )?;
         crate::smartcontracts::isi::kaigi::validate_rebuilt_kaigi_account_dependencies_at(
             &world,
             kaigi_retained_timestamp_ceiling,
         )
-        .map_err(|error| format!("failed to validate Kaigi account dependencies: {error}"))?;
+        .map_err(|error| {
+            error.map_rejection(|error| {
+                format!("failed to validate Kaigi account dependencies: {error}")
+            })
+        })?;
         drop(world);
         self.validate_musubi_pin_outbox_high_waters()?;
         let leases = self.world.vpn_leases.view();
@@ -27049,7 +26952,7 @@ impl State {
             validate_vpn_lease_network(record, &self.network_id)?;
         }
         drop(leases);
-        self.rebuild_snapshot_root_indexes()
+        self.rebuild_snapshot_root_indexes().map_err(Into::into)
     }
 
     fn validate_musubi_pin_outbox_high_waters(&self) -> core::result::Result<(), String> {
@@ -27068,7 +26971,7 @@ impl State {
 
     fn validate_kaigi_account_dependencies_at_authenticated_time(
         &self,
-    ) -> core::result::Result<(), String> {
+    ) -> core::result::Result<(), ExecutionAttemptError<String>> {
         let kaigi_retained_timestamp_ceiling = self.latest_block_creation_time_ms_fast();
         let nexus = self.nexus_snapshot();
         let world = self.world_view_with_nexus(&nexus);
@@ -27077,7 +26980,11 @@ impl State {
             kaigi_retained_timestamp_ceiling,
         )
         .map_err(|error| {
-            format!("failed to validate authenticated snapshot Kaigi account dependencies: {error}")
+            error.map_rejection(|error| {
+                format!(
+                    "failed to validate authenticated snapshot Kaigi account dependencies: {error}"
+                )
+            })
         })
     }
 
@@ -27768,7 +27675,14 @@ impl State {
             backend.attach_telemetry(telemetry_seed.clone());
         }
         s.rebuild_derived_state_indexes()
-            .map_err(MergeLedgerCommitError::ExecutionStatePublication)?;
+            .map_err(|error| match error {
+                ExecutionAttemptError::Rejected(error) => {
+                    MergeLedgerCommitError::ExecutionStatePublication(error)
+                }
+                ExecutionAttemptError::Deferred(reason) => {
+                    MergeLedgerCommitError::ExecutionDeferred(reason)
+                }
+            })?;
         #[cfg(feature = "telemetry")]
         {
             telemetry_seed.set_musubi_replication_shortfall_releases(
@@ -28551,44 +28465,6 @@ impl State {
         block.commit_world_overlay_for_testing()?;
         Ok(started_at.elapsed())
     }
-    /// Detect deterministic start-of-block work for the exact committed successor.
-    ///
-    /// The ordinary block-start hooks run in a discarded overlay, so this also
-    /// covers scheduled work without an external entrypoint, such as privacy
-    /// protocol-limit tightening. The same predicate excludes that work from a pristine merge
-    /// execution carrier and admits the ordinary carrier which must apply it.
-    /// A stale parent or concurrent state publication returns `None`.
-    pub(crate) fn deterministic_start_work_pending(
-        &self,
-        header: &BlockHeader,
-    ) -> Result<Option<bool>, StateBlockStartError<iroha_data_model::executor::IvmAdmissionError>>
-    {
-        let generation = self.state_view_generation();
-        let next_height = u64::try_from(self.committed_height())
-            .ok()
-            .and_then(|h| h.checked_add(1));
-        if generation % 2 != 0
-            || next_height != Some(header.height().get())
-            || header.is_genesis()
-            || header.prev_block_hash() != self.latest_block_hash_fast()
-        {
-            return Ok(None);
-        }
-        // SCCP heartbeat block-start work is judged against the committed parent (§4.3.2).
-        let sccp_heartbeat_pending = {
-            let view = self.world_view();
-            crate::smartcontracts::isi::sccp::hook::heartbeat_start_work_pending(&view, header)
-        };
-        let probe = self.try_block(header.clone())?;
-        let pending = sccp_heartbeat_pending
-            || !probe.world.merge_execution_write_set_bytes().is_empty()
-            || !probe.world.external_event_buf.is_empty();
-        drop(probe);
-        Ok(
-            is_stable_state_view_generation(generation, self.state_view_generation())
-                .then_some(pending),
-        )
-    }
     /// Create a block for synchronous tests and development callers.
     ///
     /// Contention waits on its original release observation after all failed
@@ -28841,12 +28717,11 @@ impl State {
         // large stack slots live throughout that execution in debug builds.
         Self::apply_block_start_private_settlement_expiry(&mut sb, now_h)
             .map_err(StateBlockStartError::Storage)?;
-        Self::apply_block_start_parliament_enactments(&mut sb, now_h)?;
-        // SCCP block-start work (the heartbeat marker, `specs/sccp.md` §4.3.2) runs with the
-        // due Parliament certificates, before the block's transactions.
+        // SCCP liability time is fixed before governance can change its parameters.
         let sccp_header = sb._curr_block;
         crate::smartcontracts::isi::sccp::hook::apply_block_start(&mut sb, &sccp_header)
             .map_err(StateBlockStartError::Storage)?;
+        Self::apply_block_start_parliament_enactments(&mut sb, now_h)?;
         let current_slot =
             current_axt_slot_from_block(&sb._curr_block, sb.nexus.axt.slot_length_ms);
         // Keep independent transaction phases in separate frames. Unoptimized
@@ -30792,19 +30667,6 @@ impl State {
     pub(crate) fn try_view_once(&self) -> Result<StateView<'_>, StateViewError> {
         StateViewReleases::new(self).try_view_once()
     }
-    /// Borrow the same view kernel while the enclosing owner retains every read notice.
-    #[track_caller]
-    fn view_with_index_releases(&self, releases: &mut LaneLifecycleReleases<'_>) -> StateView<'_> {
-        loop {
-            match self.try_view_once_with_index_releases(releases) {
-                Ok(view) => return view,
-                Err(StateViewError::Busy(_)) => {}
-                Err(error) => panic!("persisted State reader failed: {error}"),
-            }
-            self.note_view_generation_contention(core::panic::Location::caller());
-            std::thread::yield_now();
-        }
-    }
     #[track_caller]
     fn try_view_once_with_index_releases(
         &self,
@@ -30961,15 +30823,6 @@ impl State {
                 created_at: Instant::now(),
             });
         }
-    }
-    fn encode_pointer_abi_tlv(pointer_type: ivm::PointerType, payload: &[u8]) -> Option<Vec<u8>> {
-        let mut encoded = Vec::with_capacity(7 + payload.len() + Hash::LENGTH);
-        encoded.extend_from_slice(&(pointer_type as u16).to_be_bytes());
-        encoded.push(1);
-        encoded.extend_from_slice(&u32::try_from(payload.len()).ok()?.to_be_bytes());
-        encoded.extend_from_slice(payload);
-        encoded.extend_from_slice(Hash::new(payload).as_ref());
-        Some(encoded)
     }
     fn prune_lane_lifecycle_world_block_state_for_lanes(
         world: &mut WorldBlock<'_>,
@@ -34397,30 +34250,6 @@ fn ensure_autoscale_managed_lane_created_height_not_future(
     ensure_no_retired_physical_drain_metadata(lane)?;
     Ok(())
 }
-fn ensure_autoscale_managed_lane_created_height_is_current(
-    lane: &iroha_data_model::nexus::LaneConfig,
-    block_height: u64,
-) -> Result<(), LaneLifecycleError> {
-    let created_height =
-        lane.autoscale_created_height()
-            .ok_or(LaneLifecycleError::InvalidAutoscaleManagedLane {
-                lane: lane.id,
-                reason: "autoscale.created_height must be a positive integer",
-            })?;
-    if created_height != block_height {
-        return Err(LaneLifecycleError::InvalidAutoscaleManagedLane {
-            lane: lane.id,
-            reason: "autoscale.created_height must equal the current block height",
-        });
-    }
-    Ok(())
-}
-fn ensure_autoscale_transition_matches_plan(
-    plan: &iroha_data_model::nexus::LaneLifecyclePlan,
-    _transition: &PendingAutoscaleTransition,
-) -> Result<(), LaneLifecycleError> {
-    ensure_physical_catalog_additions_only(plan)
-}
 #[cfg(test)]
 fn ensure_autoscale_managed_created_heights_not_future(
     nexus: &iroha_config::parameters::actual::Nexus,
@@ -36224,16 +36053,6 @@ pub fn compute_zk_consensus_policy_hash(
     );
     zk_policy_put_u32(
         &mut h,
-        "sccp.max_secp256k1_recoveries_per_transaction",
-        sccp.max_secp256k1_recoveries_per_transaction.get(),
-    );
-    zk_policy_put_u32(
-        &mut h,
-        "sccp.max_secp256k1_recoveries_per_block",
-        sccp.max_secp256k1_recoveries_per_block.get(),
-    );
-    zk_policy_put_u32(
-        &mut h,
         "sccp.max_ed25519_signature_checks_per_transaction",
         sccp.max_ed25519_signature_checks_per_transaction.get(),
     );
@@ -37759,6 +37578,8 @@ impl<'state> StateBlock<'state> {
             current_tx_hash: None,
             governance_ballot_entrypoint_binding: None,
             kagemusha_load_entrypoint_binding: None,
+            sccp_forgery_entrypoint_binding: None,
+            current_direct_sccp_forgery: false,
             current_direct_kagemusha_load_instruction_index: None,
             current_direct_amx_instruction_index: None,
             native_amx_leg_execution: None,
@@ -38129,52 +37950,6 @@ impl<'state> StateBlock<'state> {
             .into(),
         );
         Ok(self.world.take_external_events())
-    }
-    fn ensure_prospective_autoscale_lane_committee(
-        &self,
-        lane_id: LaneId,
-        lifecycle_update: &LaneLifecycleCatalogUpdate,
-        _proposal_height: u64,
-    ) -> Result<(), LaneLifecycleError> {
-        let dataspace = lifecycle_update
-            .updated_catalog
-            .lanes()
-            .iter()
-            .find(|lane| lane.id == lane_id)
-            .map_or(self.nexus.routing_policy.default_dataspace, |lane| {
-                lane.dataspace_id
-            });
-        let mut prospective_nexus = self.nexus.clone();
-        prospective_nexus.lane_catalog = lifecycle_update.updated_catalog.clone();
-        prospective_nexus.lane_config = lifecycle_update.updated_lane_config.clone();
-        let required = nexus_lane_committee_size(&prospective_nexus, dataspace).ok_or(
-            LaneLifecycleError::AutoscaleCommitteeSizeInvalid {
-                lane: lane_id,
-                dataspace,
-            },
-        )?;
-        let committee = prospective_nexus
-            .lane_catalog
-            .lanes()
-            .iter()
-            .find(|lane| lane.id == lane_id && lane.dataspace_id == dataspace)
-            .and_then(autoscale_lane_pinned_committee_with_pops)
-            .map(|committee| {
-                committee
-                    .into_iter()
-                    .map(|(peer, _)| peer)
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        if committee.len() != required {
-            return Err(LaneLifecycleError::AutoscaleCommitteeUnavailable {
-                lane: lane_id,
-                dataspace,
-                required,
-                actual: committee.len(),
-            });
-        }
-        Ok(())
     }
     #[cfg(test)]
     fn stage_autoscale_sample_record(&mut self, block: &CommittedBlock) -> bool {
@@ -41610,6 +41385,12 @@ impl StateTransaction<'_, '_> {
         self.sccp_parent_state.world.view()
     }
 
+    /// Original finite record-preparation pool of this transaction's immutable parent.
+    /// This borrow neither replaces the pool nor acquires a new State observation.
+    pub(crate) fn sccp_evidence_preparation_budget(&self) -> &iroha_allocation::AllocationBudget {
+        self.sccp_parent_state.evidence_preparation_budget()
+    }
+
     /// Authorize only the block-start sweep's pre-admitted retained obligations.
     fn authorize_fastpq_governance_source_scope(&mut self) {
         self.fastpq_source_quota.authorize_governance_purposes();
@@ -43640,6 +43421,7 @@ pub(crate) mod contract_subject_restore;
 mod contract_subject_validation;
 mod ownership_index_restore;
 mod proof_status_restore;
+mod sccp_delta;
 pub(crate) mod sccp_snapshot_state;
 pub(crate) mod snapshot_service_state;
 pub(crate) mod snapshot_storage;

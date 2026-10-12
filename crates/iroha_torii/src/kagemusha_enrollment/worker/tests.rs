@@ -111,10 +111,7 @@ fn synthetic_configuration_owner() -> (tempfile::TempDir, PrivateVerifier) {
         python: original(),
         archive: original(),
         openssl: original(),
-        root: original(),
-        root_bytes,
-        google: None,
-        oauth: None,
+        apple_root: Some((original(), root_bytes)),
         directory,
         generation,
         configuration: None,
@@ -168,7 +165,12 @@ fn refused_configuration_publication_does_not_reset_store_or_reinterpret_old_con
     let a = super::super::test_fixture::asset(31, 0);
     let b = super::super::test_fixture::asset(32, 28);
     let first = owner.configuration(&provider, &a).unwrap();
-    let blocked = derive_configuration(&provider, &b, &owner.root_bytes, None).unwrap();
+    let blocked = derive_configuration(
+        &provider,
+        &b,
+        owner.apple_root.as_ref().map(|(_, bytes)| bytes.as_slice()),
+    )
+    .unwrap();
     let name = format!("native-config-{}.json", hex::encode(blocked.digest()));
     owner
         .directory

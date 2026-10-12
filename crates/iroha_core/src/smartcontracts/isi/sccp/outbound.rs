@@ -1,13 +1,13 @@
 //! Outbound value path: `RecordSccpMessage` (`specs/sccp.md` §4.4). Owner: ws32.
 //!
-//! Recording checks activation, attestation liveness, amount, sender and recipient rules and
+//! Recording checks activation, committed-parent finality health, amount, sender and recipient rules and
 //! the supply cap, locks XOR into the route escrow and then records the message per §4.4 steps
 //! 9–14 through [`record_outbound_message`], which inbound bounces (§4.12.5) reuse.
 //!
 //! The message id binds the escrow lock, so the record is planned ([`plan`]) before the lock
 //! and written ([`write_planned`]) after it; a failed transaction rolls back both.
 
-use super::{Error, escrow, leaves, roster, store};
+use super::{Error, escrow, holds, leaves, store};
 use crate::state::{StateReadOnly, StateTransaction, WorldReadOnly};
 use iroha_data_model::{
     account::{AccountAddress, AccountId},
@@ -74,7 +74,7 @@ pub fn sender_bytes(account: &AccountId) -> Result<Vec<u8>, Error> {
 }
 
 /// Check §4.4 step 5: `recipient` is valid for `network`'s codec and is not the destination
-/// deployment itself (the EVM/TRON contract or the TON minter).
+/// deployment itself (the EVM contract or the TON minter).
 fn check_recipient(
     network: SccpNetworkV1,
     deployment: &SccpDeploymentV1,
@@ -85,7 +85,6 @@ fn check_recipient(
     }
     let is_deployment = match deployment {
         SccpDeploymentV1::Evm(evm) => recipient == evm.address.as_slice(),
-        SccpDeploymentV1::Tron(tron) => recipient == tron.address.as_slice(),
         SccpDeploymentV1::Ton(ton) => recipient.get(4..) == Some(ton.master_account.as_slice()),
     };
     if is_deployment {
@@ -94,36 +93,12 @@ fn check_recipient(
     Ok(())
 }
 
-/// Check §4.4 step 2 at block time `now_ms` and `height`: the signing generation is not inert
-/// and its most recent subject older than `attestation_stall_ms` is attested.
-fn check_liveness(
-    world: &(impl WorldReadOnly + ?Sized),
-    height: u64,
-    now_ms: u64,
-    stall_ms: u64,
-) -> Result<(), Error> {
-    let generation = roster::generation_for_height(world, height)
-        .ok_or_else(|| refuse("no roster generation signs this height"))?;
-    let signing = store::rosters::get(world, &generation)
-        .ok_or_else(|| refuse(format_args!("generation {generation} is unknown")))?;
-    if roster::is_inert(signing) {
-        return Err(refuse(format_args!("generation {generation} is inert")));
-    }
-    let cutoff = now_ms.saturating_sub(stall_ms);
-    // Subjects are written in height order with non-decreasing generations, so the newest
-    // subject at or before the cutoff decides: an older generation's subject means this
-    // generation has none that old.
-    let stale = store::attestation_subjects::range(world, ..height)
-        .rev()
-        .find(|(_, subject)| subject.timestamp_ms <= cutoff);
-    if let Some((stale_height, subject)) = stale
-        && subject.generation == generation
-        && store::attestation_status::get(world, stale_height)
-            .is_none_or(|status| status.attested_at_height.is_none())
-    {
-        return Err(refuse(format_args!(
-            "subject {stale_height} of generation {generation} is unattested past the stall window"
-        )));
+/// Check §4.4 step 2 against the committed parent, not this block's own updates.
+fn check_finality(parent: &(impl WorldReadOnly + ?Sized)) -> Result<(), Error> {
+    if *store::degraded_run::get(parent) != 0 {
+        return Err(refuse(
+            "SccpFinalityDegraded: the committed parent has degraded finality",
+        ));
     }
     Ok(())
 }
@@ -133,7 +108,7 @@ fn check_liveness(
 /// # Errors
 ///
 /// Refuses when SCCP is absent or disabled, the revision is not the route's unpaused
-/// `Bidirectional` one, attestation is stalled, the amount, sender or recipient breaks a rule,
+/// `Bidirectional` one, the parent finality is degraded, the amount, sender or recipient breaks a rule,
 /// the supply cap or the block's leaf limit would be exceeded, or the escrow lock fails.
 pub fn execute_record(
     instruction: RecordSccpMessage,
@@ -148,7 +123,7 @@ pub fn execute_record(
     if !params.enabled {
         return Err(refuse("SCCP is disabled"));
     }
-    let (min_outbound_amount, stall_ms) = (params.min_outbound_amount, params.attestation_stall_ms);
+    let min_outbound_amount = params.min_outbound_amount;
     let network = instruction.network;
     let route = store::routes::get(world, &network)
         .ok_or_else(|| refuse(format_args!("no route to {}", network.profile_key())))?;
@@ -165,10 +140,15 @@ pub fn execute_record(
     if revision.destination_paused {
         return Err(refuse("the destination is paused by the Parliament"));
     }
-    // Step 2: attestation liveness.
+    if holds::forgery_or_quarantine(world, revision) {
+        return Err(refuse("SccpForgeryHold: the revision is held"));
+    }
+    // TODO: WP-S5: apply authenticated fast-pause state when that authority lands.
+    // RegisterRoute remains refused until every launch requirement is complete;
+    // existing injected-state tests do not qualify deployable routes.
+    // Step 2 is exactly the committed parent's degraded state (§4.4, §4.6).
+    check_finality(&state_transaction.sccp_parent_world_view())?;
     let height = state_transaction._curr_block.height().get();
-    let now_ms = state_transaction.block_unix_timestamp_ms();
-    check_liveness(world, height, now_ms, stall_ms)?;
     // Step 3: exact Taira units within the floor and the lane bound.
     let amount = taira_units(&instruction.amount)
         .map_err(|error| refuse(format_args!("amount: {error}")))?;
@@ -234,8 +214,8 @@ pub fn execute_record(
 ///
 /// # Errors
 ///
-/// Fails when the route revision is unknown, the payload breaks a §3.2 rule, or the message id
-/// is already recorded.
+/// Fails when the route revision is unknown or held, the payload breaks a §3.2 rule,
+/// or the message id is already recorded.
 pub fn plan(
     state_transaction: &StateTransaction<'_, '_>,
     args: &OutboundRecordArgsV1,
@@ -247,6 +227,10 @@ pub fn plan(
     let revision = store::routes::get(world, &args.network)
         .and_then(|route| route.revisions.get(&args.revision))
         .ok_or_else(|| refuse(format_args!("revision {} is unknown", args.revision)))?;
+    // Internal bounce callers obey the same permanent quarantine and forgery gate.
+    if holds::forgery_or_quarantine(world, revision) {
+        return Err(refuse("SccpForgeryHold: the revision is held"));
+    }
     let nonce = revision.next_outbound_nonce;
     let deadline_ms = state_transaction
         .block_unix_timestamp_ms()
@@ -285,7 +269,8 @@ pub fn plan(
 ///
 /// # Errors
 ///
-/// Fails when the revision's nonce moved since planning, or the block's leaves are full.
+/// Fails when the revision is held, its nonce moved since planning, or the block's leaves
+/// are full.
 pub fn write_planned(
     state_transaction: &mut StateTransaction<'_, '_>,
     args: &OutboundRecordArgsV1,
@@ -299,6 +284,10 @@ pub fn write_planned(
         .get_mut(&args.revision)
         .filter(|revision| revision.next_outbound_nonce == planned.nonce)
         .ok_or_else(|| refuse("the planned nonce is stale"))?;
+    // The hold may have changed since planning; refuse before the first write.
+    if holds::forgery_or_quarantine(&*state_transaction.world, revision) {
+        return Err(refuse("SccpForgeryHold: the revision is held"));
+    }
     revision.next_outbound_nonce = planned
         .nonce
         .checked_add(1)
@@ -369,7 +358,7 @@ mod tests {
     use crate::{
         kura::Kura,
         query::store::LiveQueryStore,
-        smartcontracts::isi::sccp::test_support::{ONE_XOR, authority, header, sample_roster},
+        smartcontracts::isi::sccp::test_support::{ONE_XOR, authority, header, sample_generation},
         state::{State, World},
     };
     use iroha_data_model::{
@@ -377,11 +366,8 @@ mod tests {
         account::Account,
         asset::{Asset, AssetBalancePolicy, AssetDefinition, AssetId},
         sccp::{
-            attestation::{SccpAttestationStatusV1, SccpAttestationSubjectV1},
-            deployment::SccpEvmDeploymentV1,
-            escrow::sccp_taira_xor_asset_definition_id,
-            params::SccpParametersV1,
-            registry::SccpRouteRevisionV1,
+            deployment::SccpEvmDeploymentV1, escrow::sccp_taira_xor_asset_definition_id,
+            params::SccpParametersV1, registry::SccpRouteRevisionV1,
         },
     };
     use iroha_primitives::numeric::Numeric;
@@ -417,12 +403,13 @@ mod tests {
         )
     }
 
-    /// Initialize SCCP with a live generation 1 and a Bidirectional Ethereum revision 1.
+    /// Inject existing state with a native generation and Bidirectional Ethereum revision.
+    /// This does not establish the currently blocked RegisterRoute or launch requirements.
     fn setup(stx: &mut StateTransaction<'_, '_>, max_wrapped_supply: u128) {
         store::parameters::set(stx, Some(SccpParametersV1::taira_default()));
         escrow::create_route_escrows(stx).expect("escrows");
-        store::rosters::insert(stx, 1, sample_roster(1, 1)).expect("roster");
-        store::roster_current::set(stx, 1);
+        store::committee_generations::insert(stx, 1, sample_generation(1, 1)).expect("generation");
+        store::committee_current::set(stx, 1);
         let mut route = store::routes::get(&*stx.world, &SccpNetworkV1::EthereumMainnet)
             .cloned()
             .expect("route");
@@ -432,9 +419,10 @@ mod tests {
                 address: CONTRACT,
                 runtime_code_hash: [0x34; 32],
             }),
+            crate::smartcontracts::isi::sccp::test_support::sample_pin(
+                store::committee_generations::get(&*stx.world, &1).expect("generation"),
+            ),
             max_wrapped_supply,
-            1,
-            [0x35; 32],
             2,
         );
         revision.activation = SccpRouteActivationV1::Bidirectional;
@@ -453,6 +441,64 @@ mod tests {
 
     fn refusal(result: Result<(), Error>) -> String {
         result.expect_err("refused").to_string()
+    }
+
+    #[test]
+    fn a_hold_refuses_record_plan_and_publication_before_any_value_effect() {
+        let state = funded_state();
+        let mut block = state.block(header(5));
+        let mut stx = block.transaction_for_fastpq_testing(iroha_crypto::Hash::new(b"hold-record"));
+        setup(&mut stx, 100 * ONE_XOR);
+        let args = OutboundRecordArgsV1 {
+            network: SccpNetworkV1::EthereumMainnet,
+            revision: 1,
+            amount: ONE_XOR,
+            sender: authority(1),
+            recipient: vec![0x22; 20],
+        };
+        let planned = plan(&stx, &args).expect("unheld plan");
+        let before_route = store::routes::get(&*stx.world, &args.network)
+            .unwrap()
+            .clone();
+        let before_balance =
+            crate::smartcontracts::isi::sccp::test_support::xor_balance(&*stx.world, &authority(1));
+        // A recorded generation equal to the floor holds even a plan made earlier.
+        *stx.world.sccp_forgery_max_generation.get_mut() = Some(1);
+        assert!(
+            refusal(execute_record(
+                record(1, [0x22; 20]),
+                &authority(1),
+                &mut stx
+            ))
+            .contains("SccpForgeryHold")
+        );
+        assert!(
+            plan(&stx, &args)
+                .unwrap_err()
+                .to_string()
+                .contains("SccpForgeryHold")
+        );
+        assert!(
+            write_planned(&mut stx, &args, planned)
+                .unwrap_err()
+                .to_string()
+                .contains("SccpForgeryHold")
+        );
+        assert_eq!(
+            store::routes::get(&*stx.world, &args.network),
+            Some(&before_route)
+        );
+        assert_eq!(
+            crate::smartcontracts::isi::sccp::test_support::xor_balance(&*stx.world, &authority(1),),
+            before_balance
+        );
+        assert!(store::outbound_messages::is_empty(&*stx.world));
+        assert!(store::outbound_by_nonce::is_empty(&*stx.world));
+        assert_eq!(leaves::leaf_count_at(&*stx.world, 5), 0);
+        crate::smartcontracts::isi::sccp::test_support::assert_escrow_invariant(
+            &*stx.world,
+            "held outbound",
+        );
     }
 
     #[test]
@@ -564,55 +610,65 @@ mod tests {
     }
 
     #[test]
-    fn a_stalled_or_inert_generation_blocks_recording() {
+    fn a_degraded_parent_refuses_recording_without_escrow_or_leaf_changes() {
+        for parent_run in [1, 2, u32::MAX] {
+            let state = funded_state();
+            {
+                let mut parent = state.world.block();
+                *parent.sccp_degraded_run.get_mut() = parent_run;
+                parent.commit();
+            }
+            let mut block = state.block(header(5));
+            let mut stx = block.transaction_for_fastpq_testing(iroha_crypto::Hash::new(
+                b"a_degraded_parent_refuses_recording_without_escrow_or_leaf_changes",
+            ));
+            setup(&mut stx, 100 * ONE_XOR);
+            // Even a repair in this block cannot change the committed-parent verdict.
+            store::degraded_run::set(&mut stx, 0);
+            let network = SccpNetworkV1::EthereumMainnet;
+            let before_route = store::routes::get(&*stx.world, &network)
+                .cloned()
+                .expect("route");
+            let asset = AssetId::of(sccp_taira_xor_asset_definition_id(), authority(1));
+            let before_balance = stx.world.assets.get(&asset).map(|v| v.as_ref().clone());
+            let error = refusal(execute_record(
+                record(2, [0x22; 20]),
+                &authority(1),
+                &mut stx,
+            ));
+            assert!(error.contains("SccpFinalityDegraded"), "{error}");
+            assert_eq!(
+                store::routes::get(&*stx.world, &network),
+                Some(&before_route)
+            );
+            assert_eq!(
+                stx.world.assets.get(&asset).map(|v| v.as_ref().clone()),
+                before_balance
+            );
+            assert_eq!(leaves::leaf_count_at(&*stx.world, 5), 0);
+            assert_eq!(store::outbound_messages::len(&*stx.world), 0);
+            assert_eq!(store::outbound_by_nonce::len(&*stx.world), 0);
+        }
+    }
+
+    #[test]
+    fn a_current_block_degradation_does_not_rewrite_the_parent_gate() {
         let state = funded_state();
-        let mut block = state.block(header(500));
+        let mut block = state.block(header(5));
         let mut stx = block.transaction_for_fastpq_testing(iroha_crypto::Hash::new(
-            b"a_stalled_or_inert_generation_blocks_recording",
+            b"a_current_block_degradation_does_not_rewrite_the_parent_gate",
         ));
         setup(&mut stx, 100 * ONE_XOR);
-        let now = stx.block_unix_timestamp_ms();
-        let stall = SccpParametersV1::taira_default().attestation_stall_ms;
-        let subject = |height: u64, timestamp_ms: u64| SccpAttestationSubjectV1 {
-            height,
-            epoch: 0,
-            timestamp_ms,
-            sccp_root: [0; 32],
-            message_count: 0,
-            history_root: [0; 32],
-            history_size: 0,
-            generation: 1,
-            roster_digest: [5; 32],
-            next_roster_digest: [0; 32],
-        };
-        store::attestation_subjects::insert(&mut stx, 10, subject(10, now - stall - 1))
-            .expect("subject");
-        let error = refusal(execute_record(
-            record(2, [0x22; 20]),
-            &authority(1),
-            &mut stx,
-        ));
-        assert!(error.contains("unattested"), "{error}");
-        let status = SccpAttestationStatusV1 {
-            attested_at_height: Some(11),
-            ..SccpAttestationStatusV1::default()
-        };
-        store::attestation_status::insert(&mut stx, 10, status).expect("status");
-        // A recent unattested subject is still inside its window.
-        store::attestation_subjects::insert(&mut stx, 20, subject(20, now - 1)).expect("subject");
-        execute_record(record(2, [0x22; 20]), &authority(1), &mut stx).expect("live");
-
-        let mut inert = sample_roster(1, 1);
-        for member in &mut inert.members {
-            member.address = [0; 20];
-        }
-        store::rosters::insert(&mut stx, 1, inert).expect("roster");
-        let error = refusal(execute_record(
-            record(2, [0x22; 20]),
-            &authority(1),
-            &mut stx,
-        ));
-        assert!(error.contains("inert"), "{error}");
+        assert_eq!(*store::degraded_run::get(&stx.sccp_parent_world_view()), 0);
+        store::degraded_run::set(&mut stx, 2);
+        execute_record(record(2, [0x22; 20]), &authority(1), &mut stx).expect("healthy parent");
+        assert_eq!(leaves::leaf_count_at(&*stx.world, 5), 1);
+        assert_eq!(store::outbound_messages::len(&*stx.world), 1);
+        let route =
+            store::routes::get(&*stx.world, &SccpNetworkV1::EthereumMainnet).expect("route");
+        let revision = route.revisions.get(&1).expect("revision");
+        assert_eq!(revision.liability, 2 * ONE_XOR);
+        assert_eq!(revision.next_outbound_nonce, 1);
     }
 
     #[test]

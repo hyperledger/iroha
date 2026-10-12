@@ -466,8 +466,17 @@ fn execute(block: &mut StateBlock<'_>, source: &SignedBlock) {
     cache_canonical_test_transaction_set(block, source.external_entrypoints_slice());
 }
 
-fn seal_metadata(block: &mut StateBlock<'_>) -> Result<ExecutionOutputSealMetadata, String> {
+fn seal_metadata(
+    block: &mut StateBlock<'_>,
+    original: &SignedBlock,
+) -> Result<ExecutionOutputSealMetadata, String> {
     Ok(ExecutionOutputSealMetadata {
+        sccp_finality_header: iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+            block.network_id().as_bytes().to_owned(),
+            original.header().height().get(),
+            original.header().creation_time_ms,
+        )
+        .unwrap(),
         committed_fragment_count: u64::try_from(block.committed_fragment_count()).unwrap(),
     })
 }
@@ -591,9 +600,9 @@ fn actual_three_phase_zero_transcript_inventory_retains_every_call_in_output_ord
             .is_empty()
     );
     block
-        .seal_execution_outputs(&mut source, |block, _, routes| {
+        .seal_execution_outputs(&mut source, |block, original, routes| {
             assert_eq!(routes.len(), 2);
-            seal_metadata(block)
+            seal_metadata(block, original)
         })
         .unwrap();
     let inventory = block
@@ -742,7 +751,9 @@ fn known_rejected_call_capture_and_typed_protocol_extra_remain_owned() {
         (1, 1, 1)
     );
     block
-        .seal_execution_outputs(&mut source, |block, _, _| seal_metadata(block))
+        .seal_execution_outputs(&mut source, |block, original, _| {
+            seal_metadata(block, original)
+        })
         .unwrap();
     let inventory = block
         .verified_fastpq_source_inventory_for_capture()
@@ -835,7 +846,9 @@ fn unknown_internal_capture_and_changed_known_capture_refuse_and_latch() {
         }
         assert!(
             block
-                .seal_execution_outputs(&mut source, |block, _, _| seal_metadata(block))
+                .seal_execution_outputs(&mut source, |block, original, _| seal_metadata(
+                    block, original
+                ))
                 .is_err()
         );
         let error = block.fastpq_source_inventory().unwrap_err().to_owned();
@@ -849,7 +862,9 @@ fn unknown_internal_capture_and_changed_known_capture_refuse_and_latch() {
         block.fastpq_source_captures = Default::default();
         assert!(
             block
-                .seal_execution_outputs(&mut source, |block, _, _| seal_metadata(block))
+                .seal_execution_outputs(&mut source, |block, original, _| seal_metadata(
+                    block, original
+                ))
                 .is_err()
         );
         assert_eq!(block.fastpq_source_inventory(), Err(error.as_str()));
@@ -885,7 +900,7 @@ fn foreign_proposal_and_frozen_context_refuse_before_digest_mutation() {
         let original_context = block.fastpq_source_context.clone();
         assert!(
             block
-                .seal_execution_outputs(&mut source, |block, _, _| {
+                .seal_execution_outputs(&mut source, |block, original, _| {
                     // Mutation inside the finalizer reaches source reconciliation after
                     // the original proposal owner has passed the outer seal preflight.
                     match mutation {
@@ -918,7 +933,7 @@ fn foreign_proposal_and_frozen_context_refuse_before_digest_mutation() {
                         }
                         _ => unreachable!(),
                     }
-                    seal_metadata(block)
+                    seal_metadata(block, original)
                 })
                 .is_err()
         );
@@ -935,7 +950,9 @@ fn foreign_proposal_and_frozen_context_refuse_before_digest_mutation() {
         block.fastpq_source_context = original_context;
         assert!(
             block
-                .seal_execution_outputs(&mut source, |block, _, _| seal_metadata(block))
+                .seal_execution_outputs(&mut source, |block, original, _| seal_metadata(
+                    block, original
+                ))
                 .is_err()
         );
         assert_eq!(block.fastpq_source_inventory(), Err(error.as_str()));
@@ -967,7 +984,9 @@ fn owned_seal_still_rejects_late_applied_capture_after_transcript_drain() {
     let call = *block.fastpq_transcripts.keys().next().unwrap();
     let captured = block.captured_fastpq_transcript_sources().unwrap()[&call];
     block
-        .seal_execution_outputs(&mut source, |block, _, _| seal_metadata(block))
+        .seal_execution_outputs(&mut source, |block, original, _| {
+            seal_metadata(block, original)
+        })
         .unwrap();
     let inventory = block
         .verified_fastpq_source_inventory_for_capture()
@@ -1049,10 +1068,10 @@ fn actual_private_root_pipeline_and_time_keep_authenticated_invocation_dataspace
         matches!(&rows[3], ExecutionOutputV1::Time(output) if output.invocation.trigger.trigger_id == time)
     );
     block
-        .seal_execution_outputs(&mut source, |block, _, routes| {
+        .seal_execution_outputs(&mut source, |block, original, routes| {
             assert_eq!(routes.len(), 2);
             assert!(routes.iter().all(|route| route.dataspace_id == dataspace));
-            seal_metadata(block)
+            seal_metadata(block, original)
         })
         .unwrap();
     let inventory = block

@@ -945,6 +945,16 @@ fn classify_local_moderation_queue_rejection(
 ) -> Result<(), ModerationStrictIngressFailureV1> {
     match error {
         iroha_core::queue::Error::InBlockchain | iroha_core::queue::Error::IsInQueue => Ok(()),
+        iroha_core::queue::Error::SccpForgeryIngress(error) => {
+            // Defensive exhaustive handling: SCCP does not create a moderation receipt.
+            Err(if error.is_local() {
+                ModerationStrictIngressFailureV1::Unavailable
+            } else if error.is_throttled() {
+                ModerationStrictIngressFailureV1::Backpressure
+            } else {
+                ModerationStrictIngressFailureV1::PermanentRejection
+            })
+        }
         iroha_core::queue::Error::Full
         | iroha_core::queue::Error::Deferred(_)
         | iroha_core::queue::Error::LatencySaturated
@@ -1723,6 +1733,33 @@ mod tests {
             }),
             Err(ModerationStrictIngressFailureV1::Unavailable)
         );
+    }
+    #[test]
+    fn native_queue_refusal_never_becomes_a_moderation_replay_receipt() {
+        use iroha_core::queue::{Error, ForgeryIngressError};
+        for (native, expected) in [
+            (
+                ForgeryIngressError::PoolMismatch,
+                ModerationStrictIngressFailureV1::Unavailable,
+            ),
+            (
+                ForgeryIngressError::Seen,
+                ModerationStrictIngressFailureV1::Backpressure,
+            ),
+            (
+                ForgeryIngressError::RateLimited,
+                ModerationStrictIngressFailureV1::Backpressure,
+            ),
+            (
+                ForgeryIngressError::Duplicate,
+                ModerationStrictIngressFailureV1::PermanentRejection,
+            ),
+        ] {
+            assert_eq!(
+                classify_local_moderation_queue_rejection(&Error::SccpForgeryIngress(native)),
+                Err(expected)
+            );
+        }
     }
     #[test]
     fn torii_strict_ingress_public_binding_preflight_is_exact() {

@@ -830,7 +830,6 @@ fn native_amx_enrolled_receiver_records_certified_no_without_monetary_or_mainten
 
 #[test]
 fn native_amx_global_source_requires_signed_parent_real_h2_and_exact_instance() {
-    use crate::sumeragi::commitment::ExecutionResultCommitment;
     use iroha_data_model::block::CommitCertificate;
     let config = global_config();
     let chain_id = config.chain_id.clone();
@@ -911,7 +910,8 @@ fn native_amx_global_source_requires_signed_parent_real_h2_and_exact_instance() 
     let shared_bytes = iroha_data_model::block::SharedSignedBlock::allocation_layout().size();
     let frame_bytes =
         std::alloc::Layout::new::<crate::sumeragi::certified_chain::CommittedBlock>().size();
-    let result_bytes = std::alloc::Layout::new::<ExecutionResultCommitment>().size();
+    let result_bytes =
+        std::alloc::Layout::new::<iroha_data_model::sumeragi_finality::CertifiedResultV1>().size();
     for (prior_slots, requested_slot_bytes) in [
         (shared_bytes, prefix_bytes),
         (shared_bytes + prefix_bytes, frame_bytes),
@@ -1022,7 +1022,13 @@ fn native_amx_global_source_requires_signed_parent_real_h2_and_exact_instance() 
         .is_err()
     );
     let certificate = genesis.commit_certificate().unwrap();
-    let mut result = ExecutionResultCommitment::decode(certificate.result_preimage()).unwrap();
+    let (result_header, mut result) =
+        iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+            certificate.result_preimage(),
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        )
+        .unwrap()
+        .into_parts();
     result.execution.world_state_root =
         iroha_crypto::Hash::new(b"unsigned AMX genesis R substitution");
     let changed =
@@ -1031,7 +1037,12 @@ fn native_amx_global_source_requires_signed_parent_real_h2_and_exact_instance() 
             .with_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
                 Vec::new(),
                 Vec::new(),
-                result.preimage().unwrap(),
+                iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
+                    result_header,
+                    result.clone(),
+                )
+                .preimage()
+                .unwrap(),
                 Vec::new(),
             )));
     assert_eq!(
@@ -1617,6 +1628,12 @@ pub(super) fn with_paid_prepare_retry_fixture(
     paid_borrowed_custody::with_paid_prepare_retry_fixture(test);
 }
 
+pub(super) fn with_paid_multisig_prepare_retry_fixture(
+    test: impl FnOnce(&CertifiedTestChain, InstructionBox, KeyPair),
+) {
+    paid_borrowed_custody::with_paid_multisig_prepare_retry_fixture(test);
+}
+
 pub(super) fn with_paid_prepare_pruning_fixture(
     test: impl FnOnce(&CertifiedTestChain, [InstructionBox; 3], KeyPair, [[u8; 32]; 2]),
 ) {
@@ -1624,3 +1641,5 @@ pub(super) fn with_paid_prepare_pruning_fixture(
 }
 
 mod returned_context;
+
+mod multisig_semantic;

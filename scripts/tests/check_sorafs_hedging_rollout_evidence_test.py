@@ -198,7 +198,7 @@ def metrics_alerts(*, critical: bool = False) -> dict:
 
 def native_bridge_release(
     *,
-    abi: int = 28,
+    abi: int = 29,
     artifacts: list[dict[str, str]] | None = None,
 ) -> dict:
     artifacts = artifacts or [
@@ -1649,7 +1649,7 @@ def test_native_bridge_abi_must_equal_twenty_four(tmp_path: Path, abi: int) -> N
     payload = json.loads(summary.read_text(encoding="utf-8"))
     artifact = payload["required"]["native_bridge_release"]["artifacts"][0]
     assert (
-        "bridge_abi_version must equal the sole first-release ABI 28"
+        "bridge_abi_version must equal the sole first-release ABI 29"
         in artifact["errors"]
     )
 

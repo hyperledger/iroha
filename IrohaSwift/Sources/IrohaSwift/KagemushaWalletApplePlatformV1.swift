@@ -120,13 +120,13 @@ public struct KagemushaWalletAppleSlotV1: Equatable, Hashable, Sendable {
   var applicationTag: Data { Data(keychainName.utf8) }
 }
 
-/// Hardware key policy of one enrollment (Rust `KagemushaWalletKeyProfileV1`). On iPhone both
-/// profiles generate a Secure Enclave key; the tag is recorded with the key.
+/// Hardware key profile of one enrollment (Rust `KagemushaWalletKeyProfileV1`); the tag is
+/// recorded with the key. Each platform has exactly one profile and Native never selects
+/// another on iPhone: Android's StrongBox-or-TEE tag 2, the retired TEE-only tag 3 and every
+/// other tag fail closed here.
 public enum KagemushaWalletAppleKeyProfileV1: UInt8, Equatable, Hashable, Sendable {
-  /// The dedicated secure element only.
+  /// The Secure Enclave, the Apple platform's only profile.
   case secureElement = 1
-  /// The secure element or, on Android, the TEE.
-  case secureElementOrTee = 2
 }
 
 /// What a payment-key generation binds (Rust `KagemushaWalletKeyGenerationRequestV1`): the

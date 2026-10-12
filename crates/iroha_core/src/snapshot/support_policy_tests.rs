@@ -112,9 +112,7 @@ fn snapshot_evidence_fixture(network_id: NetworkId) -> (Evidence, EvidenceAttrib
             sig: NativeSignature([0; SIGNATURE_LEN]),
         };
         vote.sig = NativeSignature(
-            Signature::new(key.private_key(), &vote.preimage())
-                .payload()
-                .try_into()
+            iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &vote.preimage())
                 .unwrap(),
         );
         vote
@@ -145,23 +143,24 @@ fn snapshot_evidence_fixture_preserves_original_signed_bytes() {
     else {
         panic!("native vote pair")
     };
+    let public: [u8; 48] = attribution.offenders[0]
+        .peer_id
+        .public_key()
+        .try_to_bytes()
+        .unwrap()
+        .1
+        .try_into()
+        .unwrap();
+    let verify = |vote: &iroha_sumeragi::message::Vote| {
+        let digest =
+            iroha_crypto::bls::consensus::ConsensusDigest::from_preimage(&vote.preimage()).unwrap();
+        iroha_crypto::bls::consensus::verify_single(&public, &digest, &vote.sig.0)
+    };
     for vote in [&first, &second] {
-        Signature::from_bytes(&vote.sig.0)
-            .verify(
-                attribution.offenders[0].peer_id.public_key(),
-                &vote.preimage(),
-            )
-            .unwrap();
+        assert!(verify(vote));
     }
     second.epoch.context.0[0] ^= 1;
-    assert!(
-        Signature::from_bytes(&second.sig.0)
-            .verify(
-                attribution.offenders[0].peer_id.public_key(),
-                &second.preimage()
-            )
-            .is_err()
-    );
+    assert!(!verify(&second));
 }
 fn current_generation_name(store_dir: &Path) -> String {
     let pointer_path = store_dir.join(SNAPSHOT_CURRENT_FILE_NAME);
@@ -833,7 +832,7 @@ fn staged_and_committed_wsv_hashes_commit_consensus_evidence() {
         evidence_key,
         crate::state::RetainedEvidenceRecord::from_fixture(
             EvidenceRecord {
-                evidence,
+                evidence: iroha_data_model::block::consensus::RecordedEvidenceV1::Native(evidence),
                 attribution,
                 recorded_at_height: 2,
                 recorded_at_view: 0,
@@ -949,7 +948,9 @@ async fn staged_snapshot_wsv_hash_commits_consensus_evidence() {
                 key,
                 crate::state::RetainedEvidenceRecord::from_fixture(
                     EvidenceRecord {
-                        evidence,
+                        evidence: iroha_data_model::block::consensus::RecordedEvidenceV1::Native(
+                            evidence,
+                        ),
                         attribution,
                         recorded_at_height: 1,
                         recorded_at_view: 0,

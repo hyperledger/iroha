@@ -100,6 +100,13 @@ beside development; there is no mandatory 90-day wait.
 - Capture Apple evidence separately. App Attest authenticates its own key and
   supplied transcript; it does not independently attest a separate payment
   key or report payment-time OS integrity.
+- Record each [proposal §9.1 cutover acceptance](kagemusha_single_design_proposal.md#91-cutover-sequencing)
+  case for E1 admission with its chain provenance: the adapter profile, root,
+  provisioning kind and, for a device chain, the phone, OS build and whether
+  Google Mobile Services are present. A Huawei case counts only with a genuine
+  chain from a post-2019 Huawei phone without Google Mobile Services; an
+  emulator chain ends at a software root and qualifies no profile. Record what
+  each pinned root's independent ownership evidence is.
 - Identify which trusted component owns the current head, enforces
   `expected_head`, commits the successor and retains the recovery outcome.
   Document how a verifier authenticates the provider and its contract.
@@ -258,13 +265,32 @@ Expected invariants:
   that no delayed incoming Payment exists. Intentional custody deletion reports
   the loss of late incoming value; it is not a safe monetary drain certificate.
 - Interrupted enrollment: try funding a load before the ledger records the
-  completed Bootstrap receipt; the transaction fails without debit. Abandon is permitted
-  only while the original enrollment marker remains selected and Bootstrap has
-  never committed. Once Bootstrap commits, including an uncertain activation
-  response, resume that incarnation and use Retiring; do not select Abandon.
-  If a load is funded, consume its original receipt once without cancelling its
-  obligation, refunding its mint, resetting ordinals or initializing a second
-  authority. Abandoning an unused enrollment changes no monetary balance.
+  completed Bootstrap receipt; the transaction fails without debit. Abandon is
+  permitted only while Bootstrap has never been selected, in the proposal §3.2
+  form the slot's durable state selects: local with no ledger bytes when no
+  marker exists, or the signed Abandonment frame while the generation-zero
+  marker is current. Once Bootstrap is selected or commits, including an
+  uncertain activation response, resume that incarnation and use Retiring; do
+  not select Abandon. If a load is funded, consume its original receipt once
+  without cancelling its obligation, refunding its mint, resetting ordinals or
+  initializing a second authority. Abandoning an unused enrollment changes no
+  monetary balance.
+- Local abandonment: deliver a delayed platform generation result after the
+  abandoned-slot record is durable, and restart into every recovery path; each
+  returns `SlotAbandoned` without a key probe and adopts no key. Make storage
+  unavailable or uncertain, or lose the marker: abandonment writes no record and
+  reports `Unavailable`. Race local abandonment against Bootstrap selection,
+  marker installation and generation recovery; exactly one wins. On Android API
+  26–30 the spent grant and an unknown lookup never regenerate the alias. Also
+  on API 26–30, crash after Slot publication and before intent creation, then
+  abandon locally: the authenticated pre-E2 evidence and readable absence of
+  intent, generation-attempt, marker, E5, E6 and initialized-state records
+  admit abandonment while the null lookup stays unknown; the slot reconciles to
+  `SlotAbandoned`, no grant is issued and the alias is never regenerated. Lose
+  a required Client, Accepted permit or Slot original, or make one of those
+  records unreadable: abandonment reports `Unavailable` and writes nothing. With
+  quota controls enabled, race two enrollments for the last share; one fails,
+  and the old share is released only on finalized successful Abandonment.
 - Time anchors: delay the issuer's response to near the response-age bound and
   sign it just before a lease end; the wallet must treat the lease as ended.
   Sleep the device for hours while anchored; elapsed time must include the
@@ -364,10 +390,13 @@ untested combinations without claiming platform or vendor universality.
   little free custody storage or available memory for the operation's
   relations), activation, Load, Send, Receive and RefreshPolicy refuse before
   commit with `NotEnoughStorage` or `NotEnoughMemory`, and the load receipt or
-  Payment stays deliverable. No device class, model list or published budget
-  gates any phone. On each measured phone, record fold time, peak memory and
-  energy per operation as evidence, including folds interrupted by app
-  suspension and resumed at the next app run. With a
+  Payment stays deliverable. Kill the app for memory during proving and during
+  commit (the Android low-memory killer, iOS jetsam): at the next start an
+  uncommitted operation leaves the head unchanged and stays deliverable, and a
+  committed one completes from its retained outcome. No device class, model
+  list or published budget gates any phone. On each measured phone, record fold
+  time, peak memory and energy per operation as evidence, including folds
+  interrupted by app suspension and resumed at the next app run. With a
   receiver's Request-issuance policy (minimum amount, rate limit, maximum
   unfolded backlog), new quotes stop at the configured limit and committed
   Payments stay receivable.
@@ -629,14 +658,280 @@ The regenerated fixture SHA is
 then inventories229 wallet model tests, zero ignored, and passes all229 with the
 fixture unchanged (`capsule-coherent-model-validation-1/step-04/result.json`, SHA
 `275180ce7ba72eefe407b6c0ca7b8bf05ea2152c0d9ea6a50365cf185677f626`).
-The first native bridge build passed compilation but failed provenance admission
+Before the subsequent integration merge, the first native bridge build passed
+compilation but failed provenance admission
 because `manifest.rs` changed during compilation; that refusal is retained.
 After preserving its required generic type annotation and removing two unused
 preparation wrappers, the fresh native build passes compilation and guarded
 source/ABI28 admission with345 exports and no source drift
-(`kotlin-current-native-abi28-2/capture/pins.json`). Shared-wallet tests and the
-current Kotlin/Swift consumer suites remain pending; earlier consumer captures
-do not qualify this migration.
+(`kotlin-current-native-abi28-2/capture/pins.json`). The first current CoreZK
+test build exposed 16 test-only migration errors. The reviewed nine-file repair
+updates fixture ownership/accessors and retained Request decoding. Its compiled
+inventory then exposed the incorrectly selected freeze test module. An explicit
+`freeze/tests.rs` path now selects all six intended tests instead of seven
+parent duplicates. Those six controls, the six Omega mask-boundary controls and
+the complete-route descriptor-capacity control pass in the subsequent suites.
+The preceding Kotlin run reports 1,906 tests and two stale-expectation failures;
+its source, generator and native postchecks pass. Those failures remain retained.
+
+After the integration merge, the fresh ABI 29 capture passes guarded admission
+with 345 exports, 499 artifacts and 499 depfiles, with no source/identity/tool
+errors (`kotlin-current-native-abi29-2/admitted-review.json`). The earlier ABI 29
+attempt correctly refused a concurrent test-source edit despite successful
+compilation. The current generator capture and 31 focused Kotlin tests pass,
+then the unfiltered JVM suite passes 1,882 tests in 211 fresh XML suites, with
+zero failures, errors or skips and clean provenance postchecks
+(`kotlin-current-core-jvm-2/result.json`). Its 1,906→1,882 selector change is
+reconciled against the incoming enrollment migration; this execution does not
+claim retirement completeness. This SDK receipt predates the three test/vector
+corrections below. Current Swift uses a fresh guarded rebuild after them. The
+first run passes 2,240 of 2,241 tests and fails one stale negative selector
+assertion: selector 20 is now the valid AbandonLedgerInstruction. The correction
+moves only that negative assertion to unsupported selector 21 and retains the
+positive selector-20 assertion. The maintained rerun passes all 2,241 tests
+(4 + 2,165 + 72), with zero failures or skips and successful native verification
+after the suite; source and fixture postchecks remain unchanged
+(`swift-current-abi29-launch-2/result.json`, elapsed 1,693.741 s). The failed
+first run and exact correction remain in `swift-current-abi29-launch-1` and
+`swift-enrollment-selector-test-repair-1`. This is host/simulator evidence,
+not physical-phone qualification.
+
+The merged main fixture
+`fb58fa5336515cb18f804c732feb6aa413455c8b6524e44cabff3159969a413b`
+passes all 233 current wallet model tests, with zero ignored and unchanged bytes
+(`capsule-coherent-model-validation-2/step-04/result.json`). The first ordinary
+wallet run reports 794 passes, three failures and 25 explicit ignores. Two
+private enrollment-worker vectors retained the prior provider-bound scheme;
+the maintained Rust writers regenerate both from the current scheme. Their
+readbacks and the actual Rust-to-Python exchange pass; all 67 selected Python
+policy/worker tests pass. The recovery regression now separates loss of private
+W from loss of the authenticated StepEntry index: the former preserves exact
+Complete bytes, while the latter returns WitnessLost; neither path re-signs.
+This is a test correction to the existing bounded retry implementation.
+The rebuilt follow-up inventories 822 tests and passes all 797 ordinary cases,
+with 25 explicit ignores and zero failures in 339.545 s
+(`capsule-coherent-corezk-validation-4/step-07/result.json`, SHA
+`f25dc44956f622c53154c81662521febb4881fe1b55313e246eace8997a0b3ef`).
+The failed run and correction receipts remain in
+`capsule-coherent-corezk-validation-3` and
+`capsule-corezk-three-failures-repair-1`. Ordinary component tests do not supply
+release compiler closure, proof performance or physical-phone qualification.
+
+The current two-target proof capture compiles and passes independent emitted-
+input custody review (`c12-load-q-capture6-independent-review-1/closure-review.json`).
+All three actual-original consuming controls and genuine cases 19–21 pass.
+Case 21 verifies oversized-envelope rejection with real proof inputs in
+842.45 s; the complete serial component job exits naturally with zero failures
+(`native-funded-remaining-components-4/result.json`, SHA
+`4d67bae8d1c64b876fe5086b269179e68ef5f7ca36e9c1f5726d301b149c2374`).
+Case 19 retains the Unload/Retiring differential,
+checkpoint replay and hard-owner rejection controls; case 20 retains both
+all-owner circuit chains. Receipts are in
+`native-funded-remaining-components-4/case-{19,20,21}/result.json`. Historical
+external-input provenance limits remain explicit. Core replaces retired
+attestation/roster state with native committee generations, liability time and
+original anchors. The storage, hook and consumer migration compiles and passes
+223 SCCP tests plus all three public-boundary tests
+(`sccp-native-core-validation-5/result.json`, natural exit 0, unchanged captured
+Core sources). These include snapshot, fee, routing and block callers. The prior
+incoming 206-error build, repair attempts and earlier 176-test component pass
+remain retained. The first inventory selector matched zero tests and provides
+no coverage. The corrected selector ran 29 cases: 26 passed, two stale expected
+source/classification assertions failed, and the explicit regeneration case was
+ignored (`sccp-native-consumer-validation-6`). The repaired suite passes all
+28 ordinary cases with the explicit regeneration case ignored, unchanged captured
+sources and natural exit 0 (`sccp-native-consumer-validation-7/inventory/result.json`).
+Codec and retired-prover source guards also pass
+(`kagemusha-retirement-guards-20261012-1/result.json`). The five retired Torii
+proof/roster routes are removed while all 14 current routes remain. The first Torii
+consumer build stopped on 12 Rust SDK references to the removed API; that failed
+attempt is retained (`sccp-native-consumer-validation-7`). After removing the obsolete
+SDK methods, the next source-stable run passes all 3 focused SDK tests, 15 Torii
+SCCP tests and 101 route-catalog tests, with natural exit 0
+(`sccp-native-consumer-validation-8/result.json`). This does not qualify the pending
+native proof/committee API or its CLI and wallet consumers. The coordinated
+153-file certified-result producer/reader switch is applied
+(`sccp-certified-result-coherent-candidate-1/application.json`). After repairing
+its missed model projection and Core consumers, 26 certified-result tests,
+10 private-dataspace model tests and 231 Core SCCP tests pass. The three ordinary
+Load fixtures are regenerated by their Rust writers and all three readbacks
+pass (`sccp-ordinary-load-fixtures-regeneration-1`). The captured matching model
+binary subsequently passes all 275 KAGEMUSHA tests with five explicit ignores;
+its source, binary and fixtures remain unchanged
+(`kagemusha-model-after-certified-result-1/result.json`). The new terminal-scope
+coverage first exposed a private fixture missing its signed SNS fee policy;
+that failed attempt and the following test-only enum-name compile failure are
+retained. The corrected terminal-scope and genuine private-export selections
+pass all 12 tests (`sccp-certified-result-current-validation-5`). The publication
+suite first reports 46 passes and one pool-accounting failure; the unchanged
+single test passes in isolation. A test-only epoch pin prevents unrelated
+reclamation during its exact refund assertions. The current rerun passes all
+47 publication tests with unchanged sources
+(`sccp-certified-result-current-validation-6/result.json`). This does not
+qualify eventual epoch reclamation. The same binary exports an actual H1/H2
+ledger setup (`kagemusha-executed-setup-after-certified-result-2`); its signed
+genesis, network identity and asset incarnation differ from the prior catalog,
+so that catalog cannot yet supply the current monetary acceptance inputs.
+
+The separate native consumer candidate passes 179 isolated library cases,
+including all 15 TON cell cases and the complete committee DATA decoding
+controls, plus 17 wallet EVM integration cases
+(`sccp-native-committee-ton-isolated-validation-2`). The initial committee
+missing-field test failure is retained; required optional fields are now explicit. Authenticated
+EVM artifacts pass all 297 candidate fixture runtime tests on Prague and Osaka
+(`sccp-native-evm-runtime-validation-2/result.json`). The first runtime attempt's
+reporter-count refusal and earlier isolated compilation failures remain retained.
+The combined 120-file Core, Torii, SDK, CLI and evidence consumer migration is
+applied with its original index preserved
+(`sccp-native-consumers-coherent-candidate-1/application.json`). Its model fixture readback passes 336 tests with six explicit ignores, the
+consensus schema controls pass two with one explicit ignore, and the SCCP model
+selection passes 149 with two explicit ignores
+(`sccp-native-consumers-model-validation-4`). The grouped evidence codec and
+consensus roundtrip selections pass eight and nine tests respectively. A later
+standalone test exposed a misplaced native import; that failure is retained and
+the import is corrected. The subsequent focused run passes all 487 tests:
+28 standalone roundtrip, 43 governance, three event-filter, 344 native SCCP
+library, 52 wallet-library and 17 EVM signing cases, with zero failures or
+ignores and unchanged captured sources
+(`sccp-native-retirement-runtime-validation-1`). Combined Core/Torii/SDK/CLI
+consumer validation remains in progress.
+
+The retired SCCP modules and fixtures are removed while ordinary Ethereum
+signing remains. The maintained Rust writer, both Rust readbacks, TON renderer
+and drift check, and two independent Python tree/history tests pass
+(`sccp-native-retirement-fixture-generation-3`). The tree uses native 199-byte
+controls; payload and native EVM calldata bytes remain exact. The two prior
+compile failures are retained: missing new-event filter arms and a missing
+scalar `Copy` derive. The filter repair includes a regression for global
+evidence versus route-specific holds. No contract or network qualification
+follows from fixture generation.
+
+The combined Core selection now compiles and executes: 277 of 284 tests pass
+(`sccp-native-core-integration-validation-3`). Its seven retained failures
+include two genuine-certificate signature failures: production Core/model
+consensus used the w3f transcript while the native SCCP verifier requires
+the accepted allowlisted `ConsensusDigest`/`DST_SIG` path. The signature check
+is not relaxed. The other failures cover missing forgery Execute registration,
+canonical-time fixture assumptions, an invariant-error assertion and a malformed
+control fixture. Original World journal/publication checks pass 21 tests in the
+separate continuing tail selection; no failed group is counted as passed.
+The subsequent source-stable tail passes 77 checks before the public-boundary
+test fails compilation on its missing root-scope argument; that call is repaired.
+Permanent forgery custody and exact current/undo snapshot joins are applied.
+Their first compile exposes seven type, fixture and refusal-classification
+errors; the reviewed repair preserves original resource categories. Native
+consensus production and genuine fixture consumers are now migrated to the
+unchanged allowlisted suite, with explicit old-suite rejection controls.
+The first combined native run passes 397 tests in its first eight groups,
+including all 117 certified-chain cases. Its next custody group passes seven
+and fails one test whose predecessor-cell fixture encodes the undo value as a
+scalar instead of the required object; that test-only repair preserves both
+mixed-cut rejection assertions (`sumeragi-native-consensus-current-validation-1`).
+The subsequent explicit-feature model selection passes 188 with one failure
+and one explicit fixture-writer ignore: a test compares Debug strings containing
+distinct per-attempt resource-owner identities. The repaired test compares exact
+refusal fields and origin classification and rejects reuse under a later owner;
+the current explicit-feature rerun passes all 189 ordinary cases with its one
+fixture-writer ignore. That fresh attempt passes 324 tests across six groups,
+then Core test compilation exposes 14 fixture API errors (MV cell/storage writers
+and a nonexistent JSON macro), with unchanged sampled sources
+(`sccp-native-consumer-combined-validation-3`). The two-file repair uses actual
+block writers and supported Norito value construction, retaining all assertions;
+the first focused compile retains one missed MV type namespace error. After its
+single-path correction, the fresh focused run passes all 21 cases: custody 8,
+shared hold predicate 2, liability 6 and staking 5, with unchanged sampled sources
+(`sccp-hold-liability-custody-focused-validation-2`). No failed group is counted
+as passed. The shared forgery/quarantine value-path predicate, closed Held
+status and original-registration liability guards are applied with consumer and
+adversarial tests. A second unchanged-source selection passes all 26 outbound,
+settlement and self-claim cases (6/17/3), including held proof/fee/value, pending
+refund and bounce guards (`sccp-held-value-flow-focused-validation-1`). These
+47 focused checks do not replace the incomplete combined consumer qualification.
+The coherent submission, current-parent selection, direct signed-source execution
+and delayed-penalty paths are now applied across 45 files. The candidate preserves
+the original Queue rows when skipping stale claims, checks forgery validity before
+spending block quota, and refuses late execution-output failures before publication.
+Independent source reviews found no remaining scoped blocker. The first 77-group
+combined attempt passes the six model/crypto groups (324 checks, two fixture-writer
+ignores), then exposes nine Core compile errors in imports and one migrated Queue
+test helper (`sccp-forgery-focused-validation-1`). Those errors are repaired; a
+subsequent compile catches the unsupported anonymous lifetime in a generic control
+argument. The verifier now takes its actual control enum directly. The repaired
+Core test binary compiles and lists all 28 expected forgery cases; runtime passes
+19 and fails nine (`sccp-forgery-archive-validation-3`). The failing fixtures repeat
+the SCCP clock transition already owned by `State::block`; the missing-clock
+negative also mistakenly assumes that block creation omits it. Production checks
+remain unchanged; the fixture repair removes the duplicate transitions and
+explicitly removes only the local child-clock effect in the missing-S0 negative.
+The mandatory sixth archive
+field now retains the exact SCCP delta, joins its sole synthetic write and original
+certified root, and rejects the retired layout. Its separate diagnostics pass all
+45 archive checks and the original Queue owner check, then fail all four signed
+Network cases (`sccp-archive-network-diagnostics-1`). Source inspection identifies
+BLS consensus keys incorrectly used for ordinary transaction envelopes and a
+missing global-trigger permission in the callback's signed genesis. The repaired
+fixtures retain the original ordinary account key and grant the exact trigger
+capability; they preserve BLS committee verification and all rollback assertions.
+The fresh combined rerun passes all 28 direct forgery cases and three of the four
+Network cases, including original-pool retry and the exact callback output boundary
+(`sccp-forgery-archive-validation-4`). Its duplicate case stops at the new diagnostic
+assertion: the outer rejection displays only "Validation failed", hiding its
+instruction cause. The terminal-cause diagnostic repair retains the exact duplicate
+assertion; the next combined rerun is pending. Later groups are not counted as run.
+The committed-view verifier supplies no reusable execution grant,
+and authenticated historical record/lifecycle restoration remains incomplete. SCCP
+and current node/network readiness remain open.
+
+The ten native TON unit suites and the first-release committee journal label
+are migrated. The original 141/145 run and full diagnostics remain in
+`sccp-native-ton-validation-2` and `sccp-native-ton-emulator-diagnostics-1`.
+Three failed trace assertions now check the exact typed raw out-messages;
+compiler placement annotations resolve the measured storage overrun without
+changing function bodies, ABIs or limits. Minter code is 140 cells/72,824 bits;
+the n31/three-checkpoint/four-retry state is 204 cells/101,322 bits against
+205/102,000. This sampled case does not bound arbitrary retry history.
+The maintained current-source `--offline all` run passes 145 tests, vector and
+wrapper freshness, and independently agrees on StateInit in Tolk and Python
+(`sccp-native-ton-validation-3`). Its 34 measured gas rows form the initial
+baseline; the subsequent fresh full run passes the 1.1× comparison and all hard
+limits with unchanged sources (`sccp-native-ton-validation-4`). A fresh full run
+after correcting stale fee comments also passes all 145 cases, the unchanged
+34-row baseline and independent StateInit check (`sccp-native-ton-validation-5`).
+The builder now
+refuses a missing baseline while retaining measurements; all 49 builder tests
+pass. Deployment and current node/network qualification remain open.
+
+The complete 52-route catalog passes its exact engineering test with zero
+failures in 9,661.205 s (`corezk-native-full52-current-reuse-1/result.json`).
+It performs 4,798 strict original reads, 16 active sigma imports, 89 active Q
+imports and three active seal-acquisition cases; cancelled imports open no
+source and the unavailable-source retry succeeds. The source and executable
+remain unchanged through completion. Independent terminal review verifies the
+retained outputs, original source closure and authorized raw-source hard links
+(`corezk-native-full52-terminal-independent-review-1/review.json`, SHA
+`e3b9502a3e49726ce9bbf48b50a416b6c9d8302dde93d769f25bbd74648a4539`).
+This is engineering catalog construction and strict source qualification for
+the captured pre-migration source. It supplies no deployment authority, genuine
+receipt, native wallet-open result or C12 closure. Current node/network, actual
+Payment envelopes, real-proof monetary exchange and phone qualification remain
+open.
+
+A later optimized wallet component capture passes strict emitted-input review
+(`corezk-native-network-capture16-independent-review-1/review.json`) and all
+14 source-locator, output-separation and native storage tests
+(`kagemusha-sealed-originals-current-validation-1/result.json`). The test
+harness can reopen the same sealed originals while repeating authentication
+and qualification; it does not copy retained wallet authority or skip proof
+checks. This evidence covers its recorded source boundary before the combined
+120-file migration, and does not establish an actual catalog requalification
+or monetary exchange.
+
+The owner has explicitly accepted the current Pasta/Poseidon recursive
+Fiat–Shamir security-preservation assumption for the first release, as recorded
+in the [soundness memo](kagemusha_recursion_soundness_v1.md#selected-recursive-fiatshamir-assumption).
+This resolves the design choice to retain the construction. It does not close
+C12, establish a fixed-RP57 privacy simulator, or substitute for the remaining
+composition argument and candidate acceptance tests.
 
 The preceding CoreZK14 shared-wallet capture passes all739 ordinary tests,
 with zero failures and25 explicit ignored cases, in188.357 s. It includes the

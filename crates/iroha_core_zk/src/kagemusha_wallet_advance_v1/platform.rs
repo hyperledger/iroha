@@ -361,18 +361,18 @@ pub enum KagemushaWalletKeyGenerationV1 {
     Unavailable(KagemushaWalletUnavailableV1),
 }
 
-/// Hardware key policy of one enrollment, taken from the issuer's enrollment policy and kept
-/// in the slot's intent, so a resumed enrollment generates under the same policy.
+/// Hardware key profile of one enrollment, fixed by the enrollment platform and kept in the
+/// slot's intent, so a resumed enrollment generates under the same profile. There is exactly
+/// one profile per platform and no policy-driven selector or refusal plan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum KagemushaWalletKeyProfileV1 {
-    /// The platform's dedicated secure element only: Android StrongBox (a
-    /// `StrongBoxUnavailableException` refuses enrollment); iPhone Secure Enclave.
+    /// iPhone Secure Enclave (the Apple platform's only profile).
     SecureElement,
-    /// Android StrongBox when available, otherwise the TEE; iPhone Secure Enclave. A TEE key
-    /// is generated only while the slot's probe is still definitively absent.
+    /// Android: StrongBox where the phone declares it, otherwise the TEE (the Android
+    /// platform's only profile). A StrongBox failure before key creation never falls back on
+    /// the same slot: the slot is abandoned locally and a fresh enrollment, with a new
+    /// challenge and slot, may carry only the platform adapter's TEE hint (design §2.2).
     SecureElementOrTee,
-    /// Android TEE only, even when StrongBox exists; unsupported on Apple.
-    AndroidTee,
 }
 
 impl KagemushaWalletKeyProfileV1 {
@@ -382,17 +382,16 @@ impl KagemushaWalletKeyProfileV1 {
         match self {
             Self::SecureElement => 1,
             Self::SecureElementOrTee => 2,
-            Self::AndroidTee => 3,
         }
     }
 
-    /// Profile of a stored tag.
+    /// Profile of a stored tag; the retired tag 3 (a policy-selected TEE-only profile) and
+    /// every other tag fail closed.
     #[must_use]
     pub const fn from_tag(tag: u8) -> Option<Self> {
         match tag {
             1 => Some(Self::SecureElement),
             2 => Some(Self::SecureElementOrTee),
-            3 => Some(Self::AndroidTee),
             _ => None,
         }
     }
@@ -401,12 +400,11 @@ impl KagemushaWalletKeyProfileV1 {
 /// What a payment-key generation must bind (design E3; spec §2.2).
 ///
 /// Bridge mapping. Android (JNI): `KeyGenParameterSpec.Builder(alias, PURPOSE_SIGN)` with
-/// secp256r1, `DIGEST_SHA256`, `setAttestationChallenge(challenge_digest)`,
-/// `setIsStrongBoxBacked(true)` and, for [`KagemushaWalletKeyProfileV1::SecureElementOrTee`]
-/// only, a TEE retry after `StrongBoxUnavailableException`. A platform without definitive
-/// absence requires a new explicit enrollment and fresh slot for that retry. A signed
-/// [`KagemushaWalletKeyProfileV1::AndroidTee`] selection requests hardware TEE directly.
-/// Never any user-authentication,
+/// secp256r1, `DIGEST_SHA256`, `setAttestationChallenge(challenge_digest)` and
+/// `setIsStrongBoxBacked(true)` where the phone declares StrongBox, otherwise the TEE. A
+/// StrongBox failure never retries on the same alias, grant or challenge: the platform reports
+/// it, the provider abandons the slot locally and a fresh enrollment uses a new slot and
+/// challenge. Never any user-authentication,
 /// unlocked-device, usage-count or confirmation option. iPhone (C vtable): a Secure Enclave
 /// P-256 signing key with `.privateKeyUsage`; the challenge digest is the App Attest
 /// `clientDataHash` used at E5. The alias or keychain account is derived from the slot
@@ -533,7 +531,7 @@ pub trait KagemushaWalletPlatformV1: Send + Sync {
     ) -> KagemushaWalletProbeV1<KagemushaDevicePublicKeyV1>;
 
     /// Leaf-first original DER attestation chain for the actual existing payment key.
-    /// This is bounded evidence DATA; no certificate or Play Integrity verdict is inferred.
+    /// This is bounded evidence DATA; no certificate or vendor verdict is inferred.
     fn key_attestation_chain(
         &self,
         _slot: &KagemushaWalletSlotIdV1,
@@ -662,6 +660,13 @@ pub trait KagemushaWalletPlatformV1: Send + Sync {
     /// Returns the reason the clock cannot be read.
     fn monotonic_ms(&self) -> Result<u64, KagemushaWalletUnavailableV1> {
         kagemusha_wallet_native_monotonic_ms_v1()
+    }
+
+    /// Memory currently available to the app for the design §5.3 runtime capacity check, or
+    /// `None` when the OS gives no answer. The default reads the Linux/Android kernel estimate;
+    /// Apple adapters answer with `os_proc_available_memory()`. No answer never refuses.
+    fn available_memory(&self) -> Option<u64> {
+        crate::kagemusha_wallet_capacity_v1::kagemusha_wallet_native_available_memory_v1()
     }
 }
 

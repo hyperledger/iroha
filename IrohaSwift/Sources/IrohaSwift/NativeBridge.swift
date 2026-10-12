@@ -167,7 +167,7 @@ enum NoritoBridgeLoader {
     }
 
     static func expectedBridgeAbiVersion(for identifier: String) -> UInt32 {
-        return 28
+        return 29
     }
 
     static func isSupportedBridgeAbiVersion(_ actual: UInt32?, for identifier: String = currentIdentifier()) -> Bool {
@@ -726,7 +726,7 @@ public struct ParliamentTimedOvnPublicRecordV1: Equatable, Sendable {
 
 /// Fail-closed errors from secret-local Parliament timed-OVN wallet operations.
 public enum ParliamentTimedOvnNativeWalletError: Error, Equatable, Sendable {
-    /// The exact ABI-28 bridge and all proof-gated V1 wallet symbols are unavailable.
+    /// The exact ABI-29 bridge and all proof-gated V1 wallet symbols are unavailable.
     case bridgeUnavailable
     /// The canonical proof response is empty or exceeds 8 MiB.
     case invalidCastingProof
@@ -791,7 +791,7 @@ public final class NoritoNativeBridge: @unchecked Sendable {
     static let privacyExact12FixtureBundleMaxBytes = 2 * 1024 * 1024
     private static let detachedTransactionNativeMaximumBytes = 16 * 1024 * 1024
     private static let parliamentTimedOvnCastingProofMaximumBytes = 8 * 1024 * 1024
-    /// Exact ABI-28 diagnostic summary width; complete checkpoint bytes are separate.
+    /// Exact ABI-29 diagnostic summary width; complete checkpoint bytes are separate.
     public static let parliamentTimedOvnCastingProofPageSummaryBytes = 41
     private static let parliamentTimedOvnSeedBytes = 32
     private static let parliamentTimedOvnAuthorityMaximumBytes = 8 * 1024
@@ -2181,7 +2181,7 @@ public final class NoritoNativeBridge: @unchecked Sendable {
         }) else {
             self.loadedBridgeAbiVersion = nil
             NSLog(
-                "[NoritoNativeBridge] statically linked bridge is missing mandatory ABI-28 exports"
+                "[NoritoNativeBridge] statically linked bridge is missing mandatory ABI-29 exports"
             )
             return
         }
@@ -3290,7 +3290,7 @@ public final class NoritoNativeBridge: @unchecked Sendable {
         #endif
     }
 
-    /// Whether the exact ABI-28 bridge exposes the complete proof-gated Parliament wallet.
+    /// Whether the exact ABI-29 bridge exposes the complete proof-gated Parliament wallet.
     public var isParliamentTimedOvnWalletAvailable: Bool {
         #if canImport(Darwin)
         guard bridgeEnabledForRuntime else { return false }

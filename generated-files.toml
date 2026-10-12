@@ -383,6 +383,28 @@ inputs = [
 check = "cargo run --locked -p ivm --features dev-tools --bin gen_header_doc -- --check && cargo run --locked -p ivm --features dev-tools --bin gen_abi_hash_doc -- --check"
 
 [[generated]]
+name = "kotodama-entrypoint-argument-record-v1"
+kind = "file"
+outputs = ["fixtures/kotodama/entrypoint_argument_record_v1.json"]
+generator = "cargo run --locked -p ivm --example entrypoint_argument_record_v1_fixture -- --write fixtures/kotodama/entrypoint_argument_record_v1.json"
+generator_sources = [
+  "crates/ivm/examples/entrypoint_argument_record_v1_fixture.rs",
+  "crates/ivm/examples/support/atomic_write.rs",
+]
+inputs = [
+  "Cargo.lock",
+  "Cargo.toml",
+  "crates/ivm/Cargo.toml",
+  "crates/ivm/src/**/*.rs",
+  "crates/ivm_abi/src/**/*.rs",
+  "crates/kotodama_lang/src/**/*.rs",
+  "crates/iroha_crypto/src/**/*.rs",
+  "crates/iroha_primitives/src/**/*.rs",
+  "crates/norito/src/**/*.rs",
+]
+check = "cargo run --locked -p ivm --example entrypoint_argument_record_v1_fixture -- --check fixtures/kotodama/entrypoint_argument_record_v1.json"
+
+[[generated]]
 name = "ivm-repository-fixtures"
 kind = "file"
 outputs = [
@@ -753,6 +775,8 @@ check = "CARGO_TARGET_DIR=\"${IROHA_MOCHI_REPLAY_FIXTURE_CARGO_TARGET_DIR:?set a
 name = "kotodama-v1-artifacts-and-manifests"
 kind = "file"
 outputs = [
+  "crates/iroha/tests/fixtures/contract_code_readback/code_readback.manifest.json",
+  "crates/iroha/tests/fixtures/contract_code_readback/code_readback.to",
   "crates/ivm/docs/examples/01_hajimari.to",
   "crates/ivm/docs/examples/02_view_public_fn.to",
   "crates/ivm/docs/examples/03_kaizen_permission.to",
@@ -771,6 +795,7 @@ outputs = [
   "crates/ivm/docs/examples/16_register_domain.to",
   "crates/ivm/docs/examples/18_ternary.to",
   "crates/ivm/docs/examples/19_contract_flow_test.to",
+  "crates/ivm/docs/examples/20_commit_reveal.to",
   "crates/ivm/tests/data/add.to",
   "crates/ivm/tests/data/amm.to",
   "crates/ivm/tests/data/complex.to",

@@ -128,7 +128,7 @@ fn require_block(row: &norito::json::Value, block: &VerifiedSumeragiBlock) {
     assert_eq!(row["height"].as_u64(), Some(block.height()));
     assert_eq!(
         raw(&row["result_preimage_hex"]),
-        block.commitment().preimage().unwrap()
+        certificate.result_preimage()
     );
     assert_eq!(fixed::<32>(&row["result_hash_hex"]), block.result().0);
     assert_eq!(raw(&row["commit_vote_preimage_hex"]), qc.preimage());
@@ -399,7 +399,11 @@ fn inputs(genesis: &SumeragiFinalityVerifier, installation: InstallationV1) -> I
     );
     assert_eq!(
         raw(&row["result_preimage_hex"]),
-        terminal.commitment().preimage().unwrap()
+        terminal
+            .block()
+            .commit_certificate()
+            .unwrap()
+            .result_preimage()
     );
     let commitment = terminal.execution().event_commitment.as_ref().unwrap();
     assert_eq!(

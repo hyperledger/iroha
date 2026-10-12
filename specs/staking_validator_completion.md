@@ -56,8 +56,10 @@ effect-owner test under the unchanged default four-million-gas limit. Both the
 full DLMM and funded-pool cases preserve nested pool authorities and exact
 output through the signed callback. The artifact's nested byte charge remains
 3,837,504 gas at the unchanged 64-gas-per-byte price; no metering or policy
-allowance was relaxed. Complete scheduled conversion, automatic accrual,
-certified replay and signed nominator-claim qualification remains in progress.
+allowance was relaxed. Focused native integration tests pass scheduled full-DLMM
+and funded-pool conversion, automatic accrual for multiple validators and
+nominators, authenticated signed claims and certified suffix replay. Real
+four-peer network qualification remains open.
 The strict workspace source inventory refuses an unsafe nested checkout path;
 component measurements do not establish candidate or network qualification.
 TODO: qualify the actual enacted payout under the default policy on the
@@ -216,10 +218,14 @@ readers must retain actual release owners, with callbacks outside enclosing fenc
   its independent evidence sources within the 8 MiB block corpus. Mandatory
   accrual runs before the optional idle-wallet sweep, whose complete batch
   rolls back when its additional receipts exceed the remaining budget.
+  Before customer instructions, each committed block advances at most one funded
+  exposure page per retained payout binding. Reward cursors create no blocks or
+  transactions; a completely idle chain waits for ordinary submitted Network
+  work or certified lane merges to produce the next block.
   Each changed tail also enters the original block's independent native archive
   projection. At most 31 tails, each with a bounded predecessor reference, fit
   within 4 MiB alongside the monetary corpus inside the 16 MiB native archive
-  budget. World retains one mutable tail and a fixed-size head per outstanding
+  budget. World retains at most one mutable tail and a fixed-size head per outstanding
   validator/month. Rollover removes the previous tail body after its original
   certified archive is available. Every predecessor link binds the complete
   canonical archive wrapper. Accrual follows those links newest first while
@@ -334,11 +340,11 @@ node's own certificates (certificates are per node, `specs/sumeragi.md` §12.7):
 | Outcome | Exact dependency and completion criterion | Owners |
 | --- | --- | --- |
 | Dynamic validator election | The native E+2 selector/producer, retained epoch graph, BLS-authenticated control paths and immediate next-epoch application barrier are integrated. TODO: qualify complete preparation and certified retention with the exact authenticated BLS committee on actual networks. Registration alone must never add voting authority. | Core/data model, Sumeragi and deployment |
-| Prepared beacon transition | The signed encrypted all-edge DKG model and reducer bind the frozen exact roster and fail closed before finalization if an edge or acceptance is absent. The deterministic Core fixture still constructs secrets centrally; daemon per-seat custody, authenticated exchange, genesis orchestration, current/pending session restart and atomic activation need qualification. Parliament can require an early pulse independently of the next epoch-end election pulse. Do not bypass finalized pulse or certificate checks. | Beacon, Parliament, Sumeragi and daemon |
+| Prepared beacon transition | The signed encrypted all-edge DKG model and reducer bind the frozen exact roster and fail closed before finalization if an edge or acceptance is absent. The deterministic Core fixture still constructs secrets centrally; daemon per-seat custody, authenticated exchange, genesis orchestration, current/pending session restart and atomic activation need qualification. Parliament creates no pulse demand: its sortition waits governance-locally for the consensus-native epoch-end pulse ([ballot design](parliament_private_ballot_design.md) section 9). Do not bypass finalized pulse or certificate checks. | Beacon, Parliament, Sumeragi and daemon |
 | Staking under the enacted validation-fee policy | `RetailMonthlyAllowance` is the canonical policy: calendar maintenance, included retail payments and overage, with an institutional per-payment fee and separate immutable reward custody. Native assessment checks qualifying payments of the enacted fee asset. TODO: complete and qualify staking integration, distinct fee-asset accounting, bounded claims, multisig/proved overlays and signed payer bounds through original execution. Staking principal cannot satisfy a fee obligation. | Core/native execution and fees |
 | Production liveness | Complete the original Validate-to-Apply owner, admitted resources, durable publication and autonomous lane runner together. TODO: qualify silent authors, saturation, final-transaction progress and retirement/restart cuts, with named deterministic regressions and mutation controls. | Core/Sumeragi, Queue, Kura and formal owners |
 | Reward allocation | Funded canonical-XOR conversion preserves validator service-count gross rewards and automatically divides them using historical eligible stake cohorts, with zero commission. TODO: qualify monthly funding, multiple nominator claims and restart together on a real four-peer network. | Core finalized service, fee conversion and staking custody |
-| Network qualification | TODO: one unchanged candidate proves admission, prepared 4→7→4 rotation, queued Parliament pulse, missing target signer, all-seat restart, replay rejection, rewards, slashing and final withdrawal. Run the maintained fault/DA/formal gates and complete workspace checks. | Integration, release and subsystem owners |
+| Network qualification | TODO: one unchanged candidate proves admission, prepared 4→7→4 rotation, Parliament sortition consuming the boundary pulse after rotation, missing target signer, all-seat restart, replay rejection, rewards, slashing and final withdrawal. Run the maintained fault/DA/formal gates and complete workspace checks. | Integration, release and subsystem owners |
 
 The current fee owners are `iroha_data_model::validation_fee`,
 `iroha_core::retail_fee` and the common numeric-asset mutation path. The native

@@ -301,7 +301,10 @@ fn authenticate_original_prepared(
     assert_eq!(registration.tracker.instance, chain.instance().0);
     let verified = registration
         .tracker
-        .verify_record(proof)
+        .verify_record(
+            proof,
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::NonGlobal,
+        )
         .expect("genuine exact registered source certificate and writes");
     assert_eq!(verified.height, chain.height());
     assert!(
@@ -826,8 +829,49 @@ fn native_amx_paid_owned_queue_and_payload_clones_retain_original_proof_graph_an
 pub(super) fn with_paid_prepare_retry_fixture(
     test: impl FnOnce(&CertifiedTestChain, InstructionBox, KeyPair),
 ) {
+    with_paid_prepare_retry_fixture_with_receiver(false, test);
+}
+
+pub(super) fn with_paid_multisig_prepare_retry_fixture(
+    test: impl FnOnce(&CertifiedTestChain, InstructionBox, KeyPair),
+) {
+    with_paid_prepare_retry_fixture_with_receiver(true, test);
+}
+
+fn with_paid_prepare_retry_fixture_with_receiver(
+    multisig_receiver: bool,
+    test: impl FnOnce(&CertifiedTestChain, InstructionBox, KeyPair),
+) {
     let mut roots = paid_roots();
-    let transaction = roots.transaction(100, 0x64);
+    let mut transaction = roots.transaction(100, 0x64);
+    if multisig_receiver {
+        use iroha_data_model::account::{MultisigMember, MultisigPolicy};
+        // Change the canonical receiver before transaction identity, the real
+        // signed Begin, its certified write proof and the paid Prepare are made.
+        let leg = transaction
+            .legs
+            .iter_mut()
+            .find(|leg| leg.dataspace == FIRST)
+            .unwrap();
+        let mut transfer = norito::decode_canonical::<AmxTransferLegV1>(&leg.payload).unwrap();
+        transfer.destination = AccountId::new_multisig(
+            MultisigPolicy::new(
+                2,
+                vec![
+                    MultisigMember::new(payer().public_key().clone(), 1).unwrap(),
+                    MultisigMember::new(
+                        KeyPair::from_seed(vec![0xD4; 32], Algorithm::Ed25519)
+                            .public_key()
+                            .clone(),
+                        1,
+                    )
+                    .unwrap(),
+                ],
+            )
+            .unwrap(),
+        );
+        leg.payload = norito::encode_canonical(&transfer).unwrap();
+    }
     let tx = transaction.id().unwrap();
     let signed = paid_global_sign(
         &roots.global,

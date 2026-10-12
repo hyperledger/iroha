@@ -53,6 +53,7 @@ fn stored_body_retains_original_certificate_and_projected_payload_across_refusal
         Some(block.clone()),
         budget.clone(),
         crypto.clone(),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     );
     assert!(matches!(read.poll(&budget), Ok(BodyReadPoll::Pending(_))));
     assert_eq!(read.source(), &source);
@@ -117,7 +118,13 @@ fn stored_body_retains_original_certificate_and_projected_payload_across_refusal
 fn absence_foreign_pool_and_corrupt_storage_are_separate_outcomes() {
     let (block, source, crypto) = fixture();
     let budget = AllocationBudget::new(1 << 25);
-    let mut absent = StoredBodyRead::new(source.clone(), None, budget.clone(), crypto.clone());
+    let mut absent = StoredBodyRead::new(
+        source.clone(),
+        None,
+        budget.clone(),
+        crypto.clone(),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+    );
     assert!(matches!(
         absent.poll(&AllocationBudget::new(1 << 25)),
         Err(BodyReadError::ForeignBudget)
@@ -129,7 +136,13 @@ fn absence_foreign_pool_and_corrupt_storage_are_separate_outcomes() {
     ));
     let corrupt = crate::block::reserve_block_for_tests()
         .initialize(block.as_ref().clone().with_commit_certificate(None));
-    let mut read = StoredBodyRead::new(source, Some(corrupt), budget.clone(), crypto);
+    let mut read = StoredBodyRead::new(
+        source,
+        Some(corrupt),
+        budget.clone(),
+        crypto,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+    );
     for _ in 0..2 {
         assert!(
             matches!(read.poll(&budget), Err(BodyReadError::Io(ref e)) if e.kind() == io::ErrorKind::InvalidData)
@@ -149,7 +162,13 @@ fn requested_hash_cannot_be_replaced_by_the_stored_certificate() {
     )
     .unwrap();
     let budget = AllocationBudget::new(1 << 25);
-    let mut read = StoredBodyRead::new(source.clone(), Some(block.clone()), budget.clone(), crypto);
+    let mut read = StoredBodyRead::new(
+        source.clone(),
+        Some(block.clone()),
+        budget.clone(),
+        crypto,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+    );
     for _ in 0..2 {
         assert!(
             matches!(read.poll(&budget), Err(BodyReadError::Io(ref e)) if e.kind() == io::ErrorKind::InvalidData)
@@ -187,7 +206,13 @@ fn canonical_but_invalid_author_signature_never_becomes_available_custody() {
             .with_commit_certificate(Some(certificate)),
     );
     let budget = AllocationBudget::new(1 << 25);
-    let mut read = StoredBodyRead::new(source, Some(changed), budget.clone(), crypto.clone());
+    let mut read = StoredBodyRead::new(
+        source,
+        Some(changed),
+        budget.clone(),
+        crypto.clone(),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+    );
     let BodyReadPoll::Ready(restoration) = read.poll(&budget).unwrap() else {
         panic!("canonical untrusted input only")
     };
@@ -209,8 +234,13 @@ fn stored_result_decode_refusal_retains_original_decoded_owners_and_retries() {
         .unwrap_or_else(|_| panic!("original decoded certificate"));
     let table = decoded.availability.as_slice().as_ptr();
     let bitmap = decoded.commit_qc.signers.as_bytes().as_ptr();
-    let mut read =
-        StoredBodyRead::from_decoded(source.clone(), decoded, budget.clone(), crypto.clone());
+    let mut read = StoredBodyRead::from_decoded(
+        source.clone(),
+        decoded,
+        budget.clone(),
+        crypto.clone(),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+    );
     let retained = budget.reserved_bytes();
     for _ in 0..2 {
         let outcome = norito::with_decode_limits_scope(
@@ -255,12 +285,12 @@ fn stored_result_decode_refusal_retains_original_decoded_owners_and_retries() {
 
 #[test]
 fn malformed_result_preimage_remains_terminal_storage_corruption() {
-    use iroha_data_model::sumeragi_finality::CommitmentError;
+    use iroha_data_model::sumeragi_finality::{CertifiedResultError, CommitmentError};
 
     let (block, _, _) = fixture();
     let original = block.commit_certificate().unwrap();
     let mut preimage = original.result_preimage().to_vec();
-    preimage[0] ^= 0xff;
+    preimage[iroha_data_model::sumeragi_finality::certified_result::X_LEN] ^= 0xff;
     let certificate = CommitCertificate::from_untrusted_parts(
         original.consensus_header().to_vec(),
         original.commit_qc().to_vec(),
@@ -271,15 +301,19 @@ fn malformed_result_preimage_remains_terminal_storage_corruption() {
         .as_ref()
         .clone()
         .with_commit_certificate(Some(certificate));
-    let Attempt::Rejected(error) = super::super::execution::validate(&changed).unwrap_err() else {
+    let Attempt::Rejected(error) = super::super::execution::validate(
+        &changed,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap_err() else {
         panic!("malformed result must remain terminal");
     };
     assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     assert!(matches!(
         error
             .get_ref()
-            .and_then(|error| error.downcast_ref::<CommitmentError>()),
-        Some(CommitmentError::Encoding(_))
+            .and_then(|error| error.downcast_ref::<CertifiedResultError>()),
+        Some(CertifiedResultError::Body(CommitmentError::Encoding(_)))
     ));
 }
 
@@ -293,6 +327,7 @@ fn stored_certificate_allocator_refusal_keeps_original_read_and_retries() {
         Some(Clone::clone(&block)),
         budget.clone(),
         crypto.clone(),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     );
     let (result, refused) =
         refuse_one_layout_during(std::alloc::Layout::array::<u8>(8).unwrap(), || {
@@ -365,6 +400,7 @@ fn stored_body_projection_accepts_the_payload_limit_and_refuses_one_over() {
         Some(block.clone()),
         budget.clone(),
         crypto.clone(),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     );
     let BodyReadPoll::Ready(restoration) = read.poll(&budget).unwrap() else {
         panic!("a stored proposal of exactly the payload limit is restored");
@@ -380,6 +416,7 @@ fn stored_body_projection_accepts_the_payload_limit_and_refuses_one_over() {
         Some(block.clone()),
         budget.clone(),
         crypto,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     );
     for _ in 0..2 {
         assert!(

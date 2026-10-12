@@ -12,7 +12,8 @@ use iroha_data_model::{
         private_dataspace::{AnchorPrivateDataspace, RegisterPrivateDataspace},
     },
     private_dataspace::{
-        PrivateDataspaceAdmissionPolicy, PrivateDataspaceAnchor, PrivateDataspaceRegistration,
+        PrivateDataspaceAdmissionPolicy, PrivateDataspaceAnchor, PrivateDataspaceAnchorError,
+        PrivateDataspaceRegistration,
     },
 };
 use iroha_model_base::topology::DataSpaceId;
@@ -25,6 +26,28 @@ use crate::{
 
 fn invalid(error: impl std::fmt::Display) -> Error {
     Error::InvariantViolation(format!("private dataspace: {error}").into())
+}
+
+// The model has already captured whether a decoder refusal belongs to this local
+// attempt. Preserve it before crossing the model-owned instruction error interface.
+fn profile_error(
+    error: PrivateDataspaceAnchorError,
+    state: &mut StateTransaction<'_, '_>,
+) -> Error {
+    let attempt = match error {
+        PrivateDataspaceAnchorError::Invalid(message) => {
+            crate::execution_attempt::ExecutionAttemptError::Rejected(invalid(message))
+        }
+        PrivateDataspaceAnchorError::Resource(resource) => {
+            crate::execution_attempt::ExecutionAttemptError::Deferred(match resource {
+                norito::core::DecodeResourceError::AllocationFailed { .. } => {
+                    ivm::error::ExecutionDeferral::AllocationUnavailable.into()
+                }
+                _ => ivm::error::ExecutionDeferral::ActiveMemoryCapacity.into(),
+            })
+        }
+    };
+    state.attempt_error_to_instruction_error(attempt)
 }
 
 fn require_parent(state: &StateTransaction<'_, '_>, authority: &AccountId) -> Result<(), Error> {
@@ -92,8 +115,8 @@ impl Execute for RegisterPrivateDataspace {
         state: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         require_parent(state, authority)?;
-        let registration =
-            PrivateDataspaceRegistration::decode(&self.registration).map_err(invalid)?;
+        let registration = PrivateDataspaceRegistration::decode(&self.registration)
+            .map_err(|error| profile_error(error, state))?;
         let SumeragiRootScope::Dataspace {
             parent_network_id,
             dataspace_id,
@@ -174,14 +197,14 @@ impl Execute for RegisterPrivateDataspace {
             .get(&PrivateDataspaceAdmissionPolicy::parameter_id())
             .map(PrivateDataspaceAdmissionPolicy::from_custom_parameter)
             .transpose()
-            .map_err(invalid)?
+            .map_err(|error| profile_error(error, state))?
             .unwrap_or_default();
         state
             .world
             .private_dataspaces
             .get_mut()
             .register_authorized(policy, self.alias, owner, generation, registration)
-            .map_err(invalid)?;
+            .map_err(|error| profile_error(error, state))?;
         let record = state
             .world
             .private_dataspaces()
@@ -198,7 +221,8 @@ impl Execute for AnchorPrivateDataspace {
         state: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         require_parent(state, authority)?;
-        let anchor = PrivateDataspaceAnchor::decode(&self.anchor).map_err(invalid)?;
+        let anchor = PrivateDataspaceAnchor::decode(&self.anchor)
+            .map_err(|error| profile_error(error, state))?;
         let record = state
             .world
             .private_dataspaces()
@@ -227,7 +251,7 @@ impl Execute for AnchorPrivateDataspace {
             .private_dataspaces
             .get_mut()
             .apply_authorized(self.dataspace_id, &owner, generation, &anchor)
-            .map_err(invalid)?;
+            .map_err(|error| profile_error(error, state))?;
         let record = state
             .world
             .private_dataspaces()

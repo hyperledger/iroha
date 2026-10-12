@@ -888,7 +888,7 @@ fn assert_original_lane_observer_record(
     use iroha_data_model::block::consensus::EvidencePenaltyStatus;
     let view = state.view();
     let record = view.world().consensus_evidence().get(&key).unwrap();
-    assert_eq!(record.evidence, *proof);
+    assert_eq!(record.native_evidence(), Some(proof));
     assert_eq!(record.recorded_at_height, carrier);
     assert_eq!(record.penalty_status, EvidencePenaltyStatus::Pending);
     assert_eq!(

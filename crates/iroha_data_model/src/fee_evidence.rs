@@ -378,14 +378,20 @@ impl FeeEvidenceWitnessProofV1 {
     /// Verify the fixed synthetic write against an ordinary-write SMT root.
     #[must_use]
     pub fn verify(&self, expected_ordinary_writes_root: Hash) -> bool {
+        self.verified_commitment(expected_ordinary_writes_root)
+            .is_ok_and(|commitment| commitment.is_some())
+    }
+
+    fn verified_commitment(
+        &self,
+        expected_ordinary_writes_root: Hash,
+    ) -> Result<Option<FeeEvidenceSnapshotV1>, norito::Error> {
         if self.key != FEE_EVIDENCE_WITNESS_KEY_V1 || self.siblings.len() != 256 {
-            return false;
+            return Ok(None);
         }
-        let Ok(commitment) = norito::decode_canonical::<FeeEvidenceSnapshotV1>(&self.value) else {
-            return false;
-        };
+        let commitment = norito::decode_canonical::<FeeEvidenceSnapshotV1>(&self.value)?;
         if !commitment.is_valid() {
-            return false;
+            return Ok(None);
         }
         let path = Hash::new(&self.key);
         let value_hash = Hash::new(&self.value);
@@ -404,7 +410,7 @@ impl FeeEvidenceWitnessProofV1 {
                 fee_ordinary_smt_node_hash(current, sibling)
             };
         }
-        current == expected_ordinary_writes_root
+        Ok((current == expected_ordinary_writes_root).then_some(commitment))
     }
 
     /// Decode and return the exact canonical snapshot commitment.
@@ -458,15 +464,35 @@ pub struct FeeEvidenceBlockProofV1 {
 impl FeeEvidenceBlockProofV1 {
     /// Check complete corpus equality against an authenticated ordinary-write root.
     pub fn verify(&self, root: Hash) -> bool {
-        let Ok(snapshot) = self.snapshot_witness.commitment() else {
-            return false;
+        self.verify_checked(root)
+            .is_ok_and(|snapshot| snapshot.is_some())
+    }
+
+    /// Verify the complete proof and return its authenticated snapshot without
+    /// erasing canonical decoder resource refusals.
+    ///
+    /// `Ok(None)` means a completed structural, membership or corpus mismatch.
+    /// Consensus execution must use this method rather than the boolean
+    /// reporting predicate so local resource exhaustion remains retryable.
+    ///
+    /// # Errors
+    /// Returns the original canonical snapshot decode error, including an active
+    /// decode-budget refusal. A successful snapshot is decoded exactly once.
+    pub fn verify_checked(
+        &self,
+        root: Hash,
+    ) -> Result<Option<FeeEvidenceSnapshotV1>, norito::Error> {
+        let Some(snapshot) = self.snapshot_witness.verified_commitment(root)? else {
+            return Ok(None);
         };
-        self.snapshot_witness.verify(root)
-            && FeeEvidenceSnapshotV1::from_records(snapshot.evaluated_height, &self.records)
+        Ok(
+            FeeEvidenceSnapshotV1::from_records(snapshot.evaluated_height, &self.records)
                 .is_ok_and(|mut observed| {
                     observed.account_heads_root = snapshot.account_heads_root;
                     observed == snapshot
                 })
+                .then_some(snapshot),
+        )
     }
     /// Retrieve the exact retained registry preimage from the complete native corpus.
     pub fn registry(&self) -> Option<&crate::validation_fee::ValidationFeePolicyRegistryV1> {

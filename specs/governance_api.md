@@ -199,8 +199,18 @@ locally signed transaction pipeline using two closed Norito instructions:
   survivor offset and accepts them only after verifying every record.
 
 Sortition requests must carry `request_height` equal to the containing block,
-the complete Core-derived eligible-citizen snapshot, and a strictly later pulse
-height for the network's canonical logical beacon. That logical Parliament
+the complete Core-derived eligible-citizen snapshot, and the Core-derived pulse
+height for the network's canonical logical beacon: the first consensus-native
+pulse height (`(h + 1) % L == 0` for the NPoS epoch length `L` frozen in the
+attempt) at or above both `request_height +
+parliament_sortition_pulse_delay_blocks` and one above the highest slot of an
+earlier generation of the same attempt. Any other height is rejected. Attempt
+creation is rejected on a chain without an NPoS cadence
+(`Parliament sortition requires the consensus-native NPoS pulse cadence`). A
+registered request creates no consensus pulse demand. It waits, possibly
+indefinitely, for exactly that pulse; there is no missing-pulse failure, and
+`FailBodyElectionNoRoster` is rejected while an election awaits its pulse.
+That logical Parliament
 identifier is independent of the threshold key session that will be active at
 the requested height, so a valid key rotation cannot strand an already
 committed request. Initial pulse consumption is a complete, strictly ordered
@@ -230,9 +240,10 @@ global beacon, an install or retirement included in block `H` is effective at
 `H + 1`; the session active at pulse height `H`, rather than the singleton
 successor pointer after transaction execution, verifies and persists a pulse
 authorized from `H`'s parent state. This prevents a same-block rotation from
-invalidating or reinterpreting either a consensus-required Parliament pulse or
-an NPoS pulse. TLE lifecycle changes use the same one-block
-boundary: an instruction in block
+invalidating or reinterpreting an NPoS pulse, including one that a Parliament
+sortition request consumes in a later block: consumption re-verifies the pulse
+against the session retained for the pulse's own height. TLE lifecycle
+changes use the same one-block boundary: an instruction in block
 `H` keeps the predecessor selectable through `H` and activates its successor at
 `H + 1`. Predecessor public state remains available for ballots already bound
 to it.
@@ -325,12 +336,15 @@ manual release, or fallback electorate.
 eligible failure class and evidence commitment from persisted phase state and
 current height; the caller cannot select either. In particular, Core derives
 release-pulse availability from the authoritative committed
-network/session/height pulse lookup. Every committed Parliament pulse request
-is consensus-mandatory, so a fresh-genesis chain cannot advance past an absent
-release pulse or selectively omit one to obtain a retry;
-`ReleasePulseUnavailable` is retained only as a fail-closed malformed-restore
-classification. A ballot still awaiting release or opening after its deadline produces
-`OpeningDeadlineExpired`. A retry must use the exact next sequence and fresh
+network/session/height pulse lookup. The timed-OVN release slot creates no
+consensus pulse demand, and the ballot schedule is not aligned to native pulse
+heights. Until timed-OVN is retired
+([ballot design](parliament_private_ballot_design.md) section 12.2 step 4), a
+ballot opens only if a consensus-native pulse is committed at exactly its
+release height; otherwise it ends `ReleasePulseUnavailable` once the chain is
+past that height. Core rejects that classification for a slot that holds a
+finalized pulse. A ballot still awaiting release or opening after its deadline
+produces `OpeningDeadlineExpired`. A retry must use the exact next sequence and fresh
 TLE session and cannot exceed the frozen retry limit (default three retries
 after the initial attempt; protocol cap 16). `NoResult` on the final permitted
 sequence rejects the governance attempt, so an exhausted attempt cannot remain
@@ -806,11 +820,13 @@ land and released on expiry; their bond lifecycle is emitted via
 use the sealed body roster and immutable original-seat quorum denominator; they
 do not derive weight from a public conviction lock.
 
-Attempt sortition freezes its own complete eligible-citizen snapshot and the
-one future pulse at exactly
-`request_height + parliament_sortition_pulse_delay_blocks`; it does not reuse
-any standing roster. The delay is consensus-hashed, nonzero, frozen into the
-attempt, and checked with overflow rejection at admission and restore.
+Attempt sortition freezes its own complete eligible-citizen snapshot and one
+future pulse slot: the first consensus-native pulse height at or above
+`request_height + parliament_sortition_pulse_delay_blocks` and above every
+earlier generation slot of the attempt. It does not reuse any standing roster.
+The delay is a minimum lead. It is consensus-hashed, nonzero and frozen into
+the attempt together with the NPoS epoch length, and the slot is rechecked from
+those frozen fields with overflow rejection at admission and restore.
 `parliament_invitation_phase_blocks` fixes the response window;
 `parliament_public_finding_phase_blocks` independently fixes the endorsement
 window from entry into Reflection. Both are nonzero and have no environment
@@ -1126,6 +1142,14 @@ Any script that rotates <i105-account-id>s or applies slashing **must not** atte
     committed state at startup and after accepted attempt mutations. These
     families have no identifier, root, account, registration, ballot, share,
     or opening labels.
+  - A sortition request legitimately waits for its native pulse slot: up to
+    `delay + epoch_length_blocks - 1` blocks when no earlier generation slot
+    of the attempt lies at or above `request_height + delay`, otherwise until
+    the next boundary after that slot (one further epoch), and without bound
+    in wall time on an idle chain. No transition is counted during that wait, so
+    `SoraParliamentActiveAttemptStalled`
+    (`dashboards/alerts/sora_parliament_rules.yml`: an active attempt with no
+    transition for 45 minutes) can fire on a healthy attempt.
   - `governance_proposals_status{status}` (gauge) tracks proposal counts by status.
   - `governance_protected_namespace_total{outcome}` (counter) increments when protected namespace admission allows or rejects a deploy.
   - `governance_manifest_activations_total{event}` (counter) records manifest insertions (`event="manifest_inserted"`) and namespace bindings (`event="instance_bound"`).

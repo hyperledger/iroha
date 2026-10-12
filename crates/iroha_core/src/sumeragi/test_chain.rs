@@ -523,6 +523,10 @@ impl CertifiedTestChain {
             .collect::<Vec<_>>();
         let genesis_account = AccountId::new(validated_genesis.public_key().clone());
         let consensus_mode = validated_genesis.consensus_metadata().mode;
+        let root_scope = validated_genesis
+            .consensus_metadata()
+            .sumeragi_context
+            .root_scope;
         let tip = startup::apply_genesis(
             &state,
             genesis.clone(),
@@ -578,6 +582,7 @@ impl CertifiedTestChain {
             staging.clone(),
             state.ivm_execution_budget(),
             Arc::clone(&availability),
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::from_root_scope(root_scope),
         );
         let (events, event_receiver) = tokio::sync::broadcast::channel(4096);
         let executor = StateExecutor::spawn(ExecutorContext {

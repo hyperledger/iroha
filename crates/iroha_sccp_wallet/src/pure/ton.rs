@@ -1,52 +1,52 @@
 //! TON destination encodings (spec §5.3.2, §5.3.3, §7.1, §7.2).
 //!
 //! Minter message bodies built from verified bundles and rotation plans (`sccp_finalize*`,
-//! `sccp_void_*`, `sccp_rotate`, `sccp_apply_control*`, `sccp_init`, `sccp_deploy_buckets`,
+//! `sccp_void_*`, `sccp_checkpoint`, `sccp_apply_control*`, `sccp_init`, `sccp_deploy_buckets`,
 //! `sccp_retry`), internal messages, wallet-v5 (`v5r1`) external messages signed with an
 //! owner-only Ed25519 key file, the TVM stack encoding of get-method arguments and results, and
 //! the values a sender attaches (§5.3.5): a margin over the minter's quotes and the deployment
-//! funding of `MINTER_FLOOR`. Roster members are never sent: the minter reads them from storage.
+//! funding of `MINTER_FLOOR`. Current committee keys come from storage; a key-changing checkpoint supplies successor keys.
 
 use std::path::Path;
 
 use ed25519_dalek::{Signer as _, SigningKey};
 use iroha_sccp::v1::{
-    eip712::AttestationFieldsV1,
-    evm_abi::RotationV1,
-    proof::{ControlProofV1, HistoryProofV1, MessageProofV1},
-    roster::RosterV1,
-    signature::SignatureSetV1,
+    destination::{
+        BlockRefV1, CertificateSourceV1, CheckpointRefV1, ControlProofV1, MessageProofV1,
+        MessagePurposeV1, TairaCertificateV1,
+    },
     ton_cell::{
-        Cell, CellBuilder, TonCellError, cell_from_boc, hash_chunks, member_chunks, snake_bytes,
+        Cell, CellBuilder, TonCellError, cell_from_boc, hash_chunks, snake_bytes,
         ton_minter_floor_at_mainnet_prices,
     },
 };
 use zeroize::Zeroizing;
 
 use super::{
-    bundle::{BundlePurposeV1, VerifiedMessageBundleV1},
+    bundle::VerifiedMessageBundleV1,
     control::VerifiedControlBundleV1,
     evm::{KeyFileError, load_key_file_secret},
+    rotation::VerifiedCheckpointV1,
 };
 
 /// `sccp_init`.
 pub const OP_SCCP_INIT: u32 = 0x5343_4930;
 /// `sccp_finalize`.
 pub const OP_SCCP_FINALIZE: u32 = 0x5343_4631;
-/// `sccp_finalize_historical`.
-pub const OP_SCCP_FINALIZE_HISTORICAL: u32 = 0x5343_4632;
+/// `sccp_finalize_checkpoint`.
+pub const OP_SCCP_FINALIZE_CHECKPOINT: u32 = 0x5343_4632;
 /// `sccp_void_expired`.
 pub const OP_SCCP_VOID_EXPIRED: u32 = 0x5343_5631;
-/// `sccp_void_expired_historical`.
-pub const OP_SCCP_VOID_EXPIRED_HISTORICAL: u32 = 0x5343_5632;
+/// `sccp_void_expired_checkpoint`.
+pub const OP_SCCP_VOID_EXPIRED_CHECKPOINT: u32 = 0x5343_5632;
 /// `sccp_void_frozen`.
 pub const OP_SCCP_VOID_FROZEN: u32 = 0x5343_5633;
-/// `sccp_rotate`.
-pub const OP_SCCP_ROTATE: u32 = 0x5343_5231;
+/// `sccp_checkpoint`.
+pub const OP_SCCP_CHECKPOINT: u32 = 0x5343_4b31;
 /// `sccp_apply_control`.
 pub const OP_SCCP_APPLY_CONTROL: u32 = 0x5343_4d31;
-/// `sccp_apply_control_historical`.
-pub const OP_SCCP_APPLY_CONTROL_HISTORICAL: u32 = 0x5343_4d32;
+/// `sccp_apply_control_checkpoint`.
+pub const OP_SCCP_APPLY_CONTROL_CHECKPOINT: u32 = 0x5343_4d32;
 /// `sccp_deploy_buckets`.
 pub const OP_SCCP_DEPLOY_BUCKETS: u32 = 0x5343_4431;
 /// `sccp_retry`.
@@ -70,7 +70,9 @@ pub enum TonError {
     Cell(TonCellError),
     /// The bundle was verified for another purpose.
     WrongPurpose,
-    /// A path, roster or signature set does not fit its TL-B field.
+    /// The proof was qualified for another destination profile.
+    WrongNetwork,
+    /// A native certificate, path or committee does not fit its TL-B field.
     FieldTooLarge,
     /// A wallet transfer carries no message or more than 255.
     BadActionCount,
@@ -84,6 +86,9 @@ impl core::fmt::Display for TonError {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Cell(error) => write!(formatter, "TON cell: {error}"),
+            Self::WrongNetwork => {
+                formatter.write_str("proof evidence is not for a TON destination")
+            }
             Self::WrongPurpose => {
                 formatter.write_str("the bundle was verified for another purpose")
             }
@@ -109,119 +114,125 @@ impl From<TonCellError> for TonError {
 // Cell formats (§5.3.2)
 // ---------------------------------------------------------------------------------------------
 
-/// `attestation#_ height epoch timestamp_ms message_count history_size block_hash sccp_root
-/// tail:^AttestationTail`.
+/// The exact 221-byte `X`, split into the canonical 872-bit head and 896-bit tail.
 ///
 /// # Errors
-///
-/// Never fails for well-formed fields; the `Result` mirrors the builder.
-pub fn attestation_cell(attestation: &AttestationFieldsV1) -> Result<Cell, TonError> {
-    let mut tail = CellBuilder::new();
-    tail.store_bytes(&attestation.history_root)?
-        .store_bytes(&attestation.roster_digest)?
-        .store_bytes(&attestation.next_roster_digest)?;
-    let mut cell = CellBuilder::new();
-    cell.store_uint(u128::from(attestation.height), 64)?
-        .store_uint(u128::from(attestation.epoch), 64)?
-        .store_uint(u128::from(attestation.timestamp_ms), 64)?
-        .store_uint(u128::from(attestation.message_count), 32)?
-        .store_uint(u128::from(attestation.history_size), 64)?
-        .store_bytes(&attestation.block_hash)?
-        .store_bytes(&attestation.sccp_root)?
-        .store_ref(tail.build())?;
-    Ok(cell.build())
-}
-
-/// `signatures#_ signer_bitmap first:^SignatureCell`, one `r s v next` cell per signature in
-/// ascending bitmap order.
-///
-/// # Errors
-///
-/// Returns [`TonError::FieldTooLarge`] for a set without signatures or with a partial one.
-pub fn signatures_cell(set: &SignatureSetV1) -> Result<Cell, TonError> {
-    if set.signatures.is_empty() || !set.signatures.len().is_multiple_of(65) {
+/// Refuses any other header length before slicing or allocating cells.
+pub fn header_cell(bytes: &[u8]) -> Result<Cell, TonError> {
+    if bytes.len() != 221 {
         return Err(TonError::FieldTooLarge);
     }
-    let mut next: Option<Cell> = None;
-    for signature in set.signatures.chunks_exact(65).rev() {
-        let mut cell = CellBuilder::new();
-        cell.store_bytes(&signature[..64])?
-            .store_uint(u128::from(signature[64]), 8)?
-            .store_maybe_ref(next.take())?;
-        next = Some(cell.build());
+    let mut tail = CellBuilder::new();
+    tail.store_bytes(&bytes[109..])?;
+    let mut head = CellBuilder::new();
+    head.store_bytes(&bytes[..109])?.store_ref(tail.build())?;
+    Ok(head.build())
+}
+/// Native `TairaCert`: compressed aggregate, signer word, exact QC prefix and exact X.
+/// This encoder preserves bytes; certificate authentication belongs to preflight.
+///
+/// # Errors
+/// Rejects non-exact native fields before building cells.
+pub fn certificate_cell(certificate: &TairaCertificateV1) -> Result<Cell, TonError> {
+    if certificate.qc.len() != 116 || certificate.ton_signature.len() != 96 {
+        return Err(TonError::FieldTooLarge);
     }
+    let mut qc = CellBuilder::new();
+    qc.store_bytes(&certificate.qc[..112])?;
     let mut cell = CellBuilder::new();
-    cell.store_uint(u128::from(set.signer_bitmap), 32)?
-        .store_ref(next.ok_or(TonError::FieldTooLarge)?)?;
+    cell.store_bytes(&certificate.ton_signature)?
+        .store_bytes(&certificate.qc[112..])?
+        .store_ref(qc.build())?
+        .store_ref(header_cell(&certificate.header)?)?;
     Ok(cell.build())
 }
-
-fn path_len(path: &[[u8; 32]]) -> Result<u128, TonError> {
+/// Stored-checkpoint reference: one reference to the exact X head.
+///
+/// # Errors
+/// Refuses a non-exact header length.
+pub fn checkpoint_ref_cell(reference: &CheckpointRefV1) -> Result<Cell, TonError> {
+    let mut cell = CellBuilder::new();
+    cell.store_ref(header_cell(&reference.header)?)?;
+    Ok(cell.build())
+}
+/// Maximal two-key chunks of canonical compressed BLS keys, each with a Maybe continuation.
+///
+/// # Errors
+/// Rejects a noncanonical native committee geometry/order before encoding.
+pub fn key_chunks(keys: &[[u8; 48]]) -> Result<Cell, TonError> {
+    if iroha_sccp::v1::committee::quorum(keys.len()).is_none()
+        || !iroha_sccp::v1::committee::is_canonical_order(keys)
+    {
+        return Err(TonError::FieldTooLarge);
+    }
+    let mut next = None;
+    for chunk in keys.chunks(2).rev() {
+        let mut cell = CellBuilder::new();
+        for key in chunk {
+            cell.store_bytes(key)?;
+        }
+        cell.store_maybe_ref(next.take())?;
+        next = Some(cell.build());
+    }
+    next.ok_or(TonError::FieldTooLarge)
+}
+fn path_len(path: &[[u8; 32]], maximum: usize) -> Result<u128, TonError> {
+    if path.len() > maximum {
+        return Err(TonError::FieldTooLarge);
+    }
     u8::try_from(path.len())
         .map(u128::from)
         .map_err(|_| TonError::FieldTooLarge)
 }
-
-/// `message_proof#_ leaf_index path_len payload:^SnakeBytes path:(Maybe ^HashChunk)`.
+/// Native block reference: direct or historical proof geometry lives in one tuple.
 ///
 /// # Errors
+/// Refuses a history path exceeding 32 siblings.
+pub fn block_ref_cell(block: &BlockRefV1) -> Result<Cell, TonError> {
+    let mut cell = CellBuilder::new();
+    cell.store_uint(u128::from(block.height), 64)?
+        .store_bytes(&block.sccp_root)?
+        .store_uint(u128::from(block.message_count), 32)?
+        .store_uint(u128::from(block.history_index), 64)?
+        .store_uint(path_len(&block.history_path, 32)?, 8)?
+        .store_maybe_ref(hash_chunks(&block.history_path)?)?;
+    Ok(cell.build())
+}
+/// Native message proof: leaf index, path length, payload, path and block references.
 ///
-/// Returns a cell error or [`TonError::FieldTooLarge`].
+/// # Errors
+/// Refuses payloads exceeding 4096 bytes and block paths exceeding nine siblings.
 pub fn message_proof_cell(proof: &MessageProofV1) -> Result<Cell, TonError> {
+    if proof.payload.len() > 4096 {
+        return Err(TonError::FieldTooLarge);
+    }
     let mut cell = CellBuilder::new();
     cell.store_uint(u128::from(proof.leaf_index), 32)?
-        .store_uint(path_len(&proof.path)?, 8)?
+        .store_uint(path_len(&proof.path, 9)?, 8)?
         .store_ref(snake_bytes(&proof.payload)?)?
-        .store_maybe_ref(hash_chunks(&proof.path)?)?;
+        .store_maybe_ref(hash_chunks(&proof.path)?)?
+        .store_ref(block_ref_cell(&proof.block)?)?;
     Ok(cell.build())
 }
-
-/// `history_proof#_ height sccp_root message_count leaf_index path_len path:(Maybe ^HashChunk)`.
+/// Native complete control proof, including track, both pause mechanisms and effect identity.
 ///
 /// # Errors
-///
-/// Returns a cell error or [`TonError::FieldTooLarge`].
-pub fn history_proof_cell(history: &HistoryProofV1) -> Result<Cell, TonError> {
-    let mut cell = CellBuilder::new();
-    cell.store_uint(u128::from(history.block.height), 64)?
-        .store_bytes(&history.block.sccp_root)?
-        .store_uint(u128::from(history.block.message_count), 32)?
-        .store_uint(u128::from(history.leaf_index), 64)?
-        .store_uint(path_len(&history.path)?, 8)?
-        .store_maybe_ref(hash_chunks(&history.path)?)?;
-    Ok(cell.build())
-}
-
-/// `control_proof#_ control_nonce paused leaf_index path_len path:(Maybe ^HashChunk)`.
-///
-/// # Errors
-///
-/// Returns a cell error or [`TonError::FieldTooLarge`].
+/// Refuses nonboolean pause bytes and paths exceeding the native bounds.
 pub fn control_proof_cell(control: &ControlProofV1) -> Result<Cell, TonError> {
+    if control.parliament_paused > 1 {
+        return Err(TonError::FieldTooLarge);
+    }
     let mut cell = CellBuilder::new();
     cell.store_uint(u128::from(control.control_nonce), 64)?
-        .store_bit(control.paused)?
+        .store_uint(u128::from(control.track), 8)?
+        .store_bit(control.parliament_paused != 0)?
+        .store_uint(u128::from(control.fast_pause_until_ms), 64)?
+        .store_bytes(&control.certificate_id)?
+        .store_bytes(&control.effect_hash)?
         .store_uint(u128::from(control.leaf_index), 32)?
-        .store_uint(path_len(&control.path)?, 8)?
-        .store_maybe_ref(hash_chunks(&control.path)?)?;
-    Ok(cell.build())
-}
-
-/// `roster_spec#_ generation valid_from_ms valid_until_ms n t members:^MemberChunk`.
-///
-/// # Errors
-///
-/// Returns a cell error or [`TonError::FieldTooLarge`].
-pub fn roster_spec_cell(roster: &RosterV1) -> Result<Cell, TonError> {
-    let n = u8::try_from(roster.n()).map_err(|_| TonError::FieldTooLarge)?;
-    let t = u8::try_from(roster.threshold()).map_err(|_| TonError::FieldTooLarge)?;
-    let mut cell = CellBuilder::new();
-    cell.store_uint(u128::from(roster.generation), 64)?
-        .store_uint(u128::from(roster.valid_from_ms), 64)?
-        .store_uint(u128::from(roster.valid_until_ms), 64)?
-        .store_uint(u128::from(n), 8)?
-        .store_uint(u128::from(t), 8)?
-        .store_ref(member_chunks(&roster.members)?)?;
+        .store_uint(path_len(&control.path, 9)?, 8)?
+        .store_maybe_ref(hash_chunks(&control.path)?)?
+        .store_ref(block_ref_cell(&control.block)?)?;
     Ok(cell.build())
 }
 
@@ -240,64 +251,64 @@ fn header(op: u32, query_id: u64, response: &TonAccountV1) -> Result<CellBuilder
     Ok(cell)
 }
 
-/// `sccp_finalize` (or `sccp_finalize_historical`) for a bundle verified with
-/// [`BundlePurposeV1::Finalize`]; excess value returns to `response`.
+/// Encode the explicitly selected native finalize form, with history inside its block ref.
 ///
 /// # Errors
-///
-/// Returns [`TonError::WrongPurpose`] or a cell error.
+/// Refuses the wrong verified purpose or a malformed cell field.
 pub fn finalize_body(
     bundle: &VerifiedMessageBundleV1,
     query_id: u64,
     response: &TonAccountV1,
 ) -> Result<Cell, TonError> {
-    if bundle.purpose != BundlePurposeV1::Finalize {
+    if bundle.network() != iroha_data_model::bridge::SccpNetworkV1::TonMainnet {
+        return Err(TonError::WrongNetwork);
+    }
+
+    if bundle.purpose() != MessagePurposeV1::Finalize {
         return Err(TonError::WrongPurpose);
     }
-    let signed = &bundle.attested.signed;
-    let op = if bundle.history.is_some() {
-        OP_SCCP_FINALIZE_HISTORICAL
-    } else {
-        OP_SCCP_FINALIZE
+    let (op, source) = match bundle.source() {
+        CertificateSourceV1::Inline(certificate) => {
+            (OP_SCCP_FINALIZE, certificate_cell(certificate)?)
+        }
+        CertificateSourceV1::Checkpoint(reference) => {
+            (OP_SCCP_FINALIZE_CHECKPOINT, checkpoint_ref_cell(reference)?)
+        }
     };
     let mut body = header(op, query_id, response)?;
-    body.store_ref(attestation_cell(&signed.attestation)?)?
-        .store_ref(signatures_cell(&signed.signatures)?)?;
-    if let Some(history) = &bundle.history {
-        body.store_ref(history_proof_cell(history)?)?;
-    }
-    body.store_ref(message_proof_cell(&bundle.proof)?)?;
+    body.store_ref(source)?
+        .store_ref(message_proof_cell(bundle.proof())?)?;
     Ok(body.build())
 }
-
-/// `sccp_void_expired` (or its historical variant) for a bundle verified with
-/// [`BundlePurposeV1::VoidExpired`]; the `nonce` field is the payload nonce.
+/// Encode the explicitly selected native expired-transfer form and authenticated nonce.
 ///
 /// # Errors
-///
-/// Returns [`TonError::WrongPurpose`] or a cell error.
+/// Refuses the wrong verified purpose or a malformed cell field.
 pub fn void_expired_body(
     bundle: &VerifiedMessageBundleV1,
     query_id: u64,
     response: &TonAccountV1,
 ) -> Result<Cell, TonError> {
-    if bundle.purpose != BundlePurposeV1::VoidExpired {
+    if bundle.network() != iroha_data_model::bridge::SccpNetworkV1::TonMainnet {
+        return Err(TonError::WrongNetwork);
+    }
+
+    if bundle.purpose() != MessagePurposeV1::VoidExpired {
         return Err(TonError::WrongPurpose);
     }
-    let signed = &bundle.attested.signed;
-    let op = if bundle.history.is_some() {
-        OP_SCCP_VOID_EXPIRED_HISTORICAL
-    } else {
-        OP_SCCP_VOID_EXPIRED
+    let (op, source) = match bundle.source() {
+        CertificateSourceV1::Inline(certificate) => {
+            (OP_SCCP_VOID_EXPIRED, certificate_cell(certificate)?)
+        }
+        CertificateSourceV1::Checkpoint(reference) => (
+            OP_SCCP_VOID_EXPIRED_CHECKPOINT,
+            checkpoint_ref_cell(reference)?,
+        ),
     };
     let mut body = header(op, query_id, response)?;
     body.store_uint(u128::from(bundle.nonce()), 64)?
-        .store_ref(attestation_cell(&signed.attestation)?)?
-        .store_ref(signatures_cell(&signed.signatures)?)?;
-    if let Some(history) = &bundle.history {
-        body.store_ref(history_proof_cell(history)?)?;
-    }
-    body.store_ref(message_proof_cell(&bundle.proof)?)?;
+        .store_ref(source)?
+        .store_ref(message_proof_cell(bundle.proof())?)?;
     Ok(body.build())
 }
 
@@ -312,7 +323,12 @@ pub fn void_frozen_body(
     query_id: u64,
     response: &TonAccountV1,
 ) -> Result<Cell, TonError> {
-    if count == 0 || count > 512 {
+    if count == 0
+        || count > 512
+        || first_nonce
+            .checked_add(u64::from(count) - 1)
+            .is_none_or(|last| first_nonce / 512 != last / 512)
+    {
         return Err(TonError::FieldTooLarge);
     }
     let mut body = header(OP_SCCP_VOID_FROZEN, query_id, response)?;
@@ -321,46 +337,50 @@ pub fn void_frozen_body(
     Ok(body.build())
 }
 
-/// `sccp_rotate` of one verified rotation (TON rotates one generation per message).
+/// One native `sccp_checkpoint` with verified successor keys only when the rotation needs them.
 ///
 /// # Errors
-///
-/// Returns a cell error or [`TonError::FieldTooLarge`].
-pub fn rotate_body(
-    rotation: &RotationV1,
+/// Refuses malformed native cell fields.
+pub fn checkpoint_body(
+    checkpoint: &VerifiedCheckpointV1,
     query_id: u64,
     response: &TonAccountV1,
 ) -> Result<Cell, TonError> {
-    let mut body = header(OP_SCCP_ROTATE, query_id, response)?;
-    body.store_ref(attestation_cell(&rotation.attestation)?)?
-        .store_ref(signatures_cell(&rotation.signatures)?)?
-        .store_ref(roster_spec_cell(&rotation.next)?)?;
+    if checkpoint.flavor() != iroha_sccp::v1::destination::DestinationFlavor::Ton {
+        return Err(TonError::WrongNetwork);
+    }
+
+    let next_keys = checkpoint.next_keys().map(key_chunks).transpose()?;
+    let mut body = header(OP_SCCP_CHECKPOINT, query_id, response)?;
+    body.store_ref(certificate_cell(checkpoint.certificate())?)?
+        .store_maybe_ref(next_keys)?;
     Ok(body.build())
 }
-
-/// `sccp_apply_control` (or its historical variant) for a verified control bundle.
+/// Encode the explicitly selected native control form and complete control proof.
 ///
 /// # Errors
-///
-/// Returns a cell error.
+/// Refuses malformed native cell fields.
 pub fn apply_control_body(
     bundle: &VerifiedControlBundleV1,
     query_id: u64,
     response: &TonAccountV1,
 ) -> Result<Cell, TonError> {
-    let signed = &bundle.attested.signed;
-    let op = if bundle.history.is_some() {
-        OP_SCCP_APPLY_CONTROL_HISTORICAL
-    } else {
-        OP_SCCP_APPLY_CONTROL
+    if bundle.network() != iroha_data_model::bridge::SccpNetworkV1::TonMainnet {
+        return Err(TonError::WrongNetwork);
+    }
+
+    let (op, source) = match bundle.source() {
+        CertificateSourceV1::Inline(certificate) => {
+            (OP_SCCP_APPLY_CONTROL, certificate_cell(certificate)?)
+        }
+        CertificateSourceV1::Checkpoint(reference) => (
+            OP_SCCP_APPLY_CONTROL_CHECKPOINT,
+            checkpoint_ref_cell(reference)?,
+        ),
     };
     let mut body = header(op, query_id, response)?;
-    body.store_ref(attestation_cell(&signed.attestation)?)?
-        .store_ref(signatures_cell(&signed.signatures)?)?;
-    if let Some(history) = &bundle.history {
-        body.store_ref(history_proof_cell(history)?)?;
-    }
-    body.store_ref(control_proof_cell(&bundle.control)?)?;
+    body.store_ref(source)?
+        .store_ref(control_proof_cell(bundle.proof())?)?;
     Ok(body.build())
 }
 
@@ -631,6 +651,36 @@ pub fn stack_of_ints(values: &[i64]) -> Result<Vec<u8>, TonError> {
     Ok(builder.build().to_boc()?)
 }
 
+/// Encode full-width unsigned nonce arguments as canonical positive TVM `int257` values.
+///
+/// # Errors
+/// Returns [`TonError::FieldTooLarge`] above 64 arguments, or a cell encoding failure.
+pub fn stack_of_uints(values: &[u64]) -> Result<Vec<u8>, TonError> {
+    if values.len() > 64 {
+        return Err(TonError::FieldTooLarge);
+    }
+    let mut list = CellBuilder::new().build();
+    for &value in values {
+        let mut node = CellBuilder::new();
+        node.store_ref(list)?
+            .store_uint(2, 8)?
+            .store_uint(0, 7)?
+            .store_uint(0, 1)?
+            .store_uint(0, 128)?
+            .store_uint(u128::from(value), 128)?;
+        list = node.build();
+    }
+    let mut root = CellBuilder::new();
+    root.store_uint(values.len() as u128, 24)?;
+    for child in list.refs() {
+        root.store_ref(child.clone())?;
+    }
+    for bit in 0..list.bit_len() {
+        root.store_bit(list.data()[bit / 8] & (0x80 >> (bit % 8)) != 0)?;
+    }
+    Ok(root.build().to_boc()?)
+}
+
 /// A TVM integer as a 33-byte two's-complement big-endian value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TvmIntV1(pub [u8; 33]);
@@ -702,25 +752,64 @@ fn read_value(bits: &mut Bits<'_>) -> Result<Option<TvmIntV1>, TonError> {
     }
 }
 
-/// The integers of a get-method result stack, bottom (first returned value) first; `None` for
-/// a null entry.
+/// A bounded native get-method stack value. Unsupported TVM values are refused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TvmStackValueV1 {
+    /// `vm_stk_null#00`.
+    Null,
+    /// A signed tiny integer or canonical `int257` carrier.
+    Int(TvmIntV1),
+    /// `vm_stk_cell#03`; the complete referenced cell is retained.
+    Cell(Cell),
+}
+
+/// Parse the integer/null/cell surface used by native SCCP get methods, bottom first.
+///
+/// This decodes DATA only. The caller supplies the independent account/block observation.
+/// The input is bounded to 64 KiB and 64 values before allocation; list depth, exact bit and
+/// reference consumption, and the terminal empty list are mandatory. No alternative stack
+/// layout is inferred and unsupported tags are refused.
 ///
 /// # Errors
-///
-/// Returns [`TonError::BadStack`] for a malformed stack or a non-integer entry.
-pub fn parse_int_stack(boc: &[u8]) -> Result<Vec<Option<TvmIntV1>>, TonError> {
+/// Returns [`TonError::BadStack`] for malformed, oversized or unsupported stacks.
+pub fn parse_native_stack(boc: &[u8]) -> Result<Vec<TvmStackValueV1>, TonError> {
+    if boc.len() > 65_536 {
+        return Err(TonError::BadStack);
+    }
     let root = cell_from_boc(boc)?;
     let mut bits = Bits {
         cell: &root,
         offset: 0,
     };
     let depth = usize::try_from(bits.read(24)?).map_err(|_| TonError::BadStack)?;
+    if depth > 64 {
+        return Err(TonError::BadStack);
+    }
     let mut values = Vec::with_capacity(depth);
     let mut node = &root;
     let mut offset = 24;
     for _ in 0..depth {
         let mut reader = Bits { cell: node, offset };
-        values.push(read_value(&mut reader)?);
+        let tag = reader.read(8)?;
+        let value = if tag == 3 {
+            if node.refs().len() != 2 {
+                return Err(TonError::BadStack);
+            }
+            TvmStackValueV1::Cell(node.refs()[1].cell().ok_or(TonError::BadStack)?.clone())
+        } else {
+            if node.refs().len() != 1 {
+                return Err(TonError::BadStack);
+            }
+            reader.offset = offset;
+            match read_value(&mut reader)? {
+                None => TvmStackValueV1::Null,
+                Some(value) => TvmStackValueV1::Int(value),
+            }
+        };
+        if reader.offset != node.bit_len() {
+            return Err(TonError::BadStack);
+        }
+        values.push(value);
         node = node
             .refs()
             .first()
@@ -728,8 +817,66 @@ pub fn parse_int_stack(boc: &[u8]) -> Result<Vec<Option<TvmIntV1>>, TonError> {
             .ok_or(TonError::BadStack)?;
         offset = 0;
     }
+    if node.bit_len() != offset || !node.refs().is_empty() {
+        return Err(TonError::BadStack);
+    }
     values.reverse();
     Ok(values)
+}
+
+/// The integers of a strictly decoded native get-method result stack, bottom first.
+///
+/// # Errors
+/// Returns [`TonError::BadStack`] for a malformed stack or a non-integer entry.
+pub fn parse_int_stack(boc: &[u8]) -> Result<Vec<Option<TvmIntV1>>, TonError> {
+    parse_native_stack(boc)?
+        .into_iter()
+        .map(|value| match value {
+            TvmStackValueV1::Null => Ok(None),
+            TvmStackValueV1::Int(value) => Ok(Some(value)),
+            TvmStackValueV1::Cell(_) => Err(TonError::BadStack),
+        })
+        .collect()
+}
+
+/// Decode the exact maximal two-key `KeyChunk` chain returned by `get_sccp_committee`.
+///
+/// Root binding and curve validity belong to the independently pinned destination
+/// observation. This parser checks committee count geometry and consumes every bit/reference.
+///
+/// # Errors
+/// Returns [`TonError::BadStack`] for invalid count, chunk geometry, links or trailing data.
+pub fn parse_key_chunks(cell: &Cell, count: usize) -> Result<Vec<[u8; 48]>, TonError> {
+    if !iroha_sccp::v1::committee::is_valid_committee_size(count) {
+        return Err(TonError::BadStack);
+    }
+    let mut keys = Vec::with_capacity(count);
+    let mut node = cell;
+    while keys.len() < count {
+        let take = (count - keys.len()).min(2);
+        let mut bits = Bits {
+            cell: node,
+            offset: 0,
+        };
+        for _ in 0..take {
+            let mut key = [0; 48];
+            for part in key.chunks_exact_mut(16) {
+                part.copy_from_slice(&bits.read(128)?.to_be_bytes());
+            }
+            keys.push(key);
+        }
+        let more = bits.read(1)? != 0;
+        if bits.offset != node.bit_len()
+            || more != (keys.len() < count)
+            || node.refs().len() != usize::from(more)
+        {
+            return Err(TonError::BadStack);
+        }
+        if more {
+            node = node.refs()[0].cell().ok_or(TonError::BadStack)?;
+        }
+    }
+    Ok(keys)
 }
 
 #[cfg(test)]
@@ -804,14 +951,375 @@ mod tests {
         let retry = retry_body(513, 1, &[3; 32]).expect("body");
         assert_eq!(&retry.data()[..4], &OP_SCCP_RETRY.to_be_bytes());
         assert_eq!(retry.bit_len(), 32 + 64 + 267 + 64);
-        let set = SignatureSetV1 {
-            signer_bitmap: 0b11,
-            signatures: vec![1; 130],
+        let certificate = TairaCertificateV1 {
+            qc: vec![1; 116],
+            header: vec![2; 221],
+            ton_signature: vec![3; 96],
+            ..TairaCertificateV1::default()
         };
-        let cell = signatures_cell(&set).expect("signatures");
-        assert_eq!(cell.bit_len(), 32);
-        let first = cell.refs()[0].cell().expect("first");
-        assert_eq!(first.bit_len(), 521);
-        assert_eq!(first.refs().len(), 1);
+        let cell = certificate_cell(&certificate).expect("native certificate");
+        assert_eq!(cell.bit_len(), 800);
+        assert_eq!(cell.refs().len(), 2);
+        let qc = cell.refs()[0].cell().expect("QC");
+        assert_eq!(qc.bit_len(), 896);
+        assert_eq!(qc.refs().len(), 0);
+        let x = cell.refs()[1].cell().expect("X head");
+        assert_eq!(x.bit_len(), 872);
+        assert_eq!(x.refs().len(), 1);
+        assert_eq!(x.refs()[0].cell().expect("X tail").bit_len(), 896);
+        assert_eq!(&cell.data()[96..100], &certificate.qc[112..116]);
+        assert_eq!(qc.data(), &certificate.qc[..112]);
+    }
+    #[test]
+    fn native_ton_cells_preserve_exact_bytes_and_reject_field_overflow() {
+        use crate::pure::test_support::{Fixture, NETWORK};
+        use iroha_sccp::v1::destination::DestinationFlavor;
+        let f = Fixture::new(DestinationFlavor::Ton);
+        let b = f.message(true);
+        let certificate = b.certificate.to_destination_certificate().unwrap();
+        let encoded = certificate_cell(&certificate).unwrap();
+        assert_eq!(
+            encoded.data(),
+            [&certificate.ton_signature[..], &certificate.qc[112..]].concat()
+        );
+        assert_eq!(
+            encoded.refs()[0].cell().unwrap().data(),
+            &certificate.qc[..112]
+        );
+        let head = encoded.refs()[1].cell().unwrap();
+        assert_eq!(
+            [head.data(), head.refs()[0].cell().unwrap().data()].concat(),
+            certificate.header
+        );
+        assert_eq!(cell_from_boc(&encoded.to_boc().unwrap()).unwrap(), encoded);
+        let reference = checkpoint_ref_cell(&CheckpointRefV1 {
+            header: certificate.header.clone(),
+        })
+        .unwrap();
+        assert_eq!((reference.bit_len(), reference.refs().len()), (0, 1));
+        assert_eq!(reference.refs()[0].cell().unwrap(), head);
+        for length in [0, 220, 222] {
+            assert_eq!(header_cell(&vec![0; length]), Err(TonError::FieldTooLarge));
+        }
+        let mut bad = certificate.clone();
+        bad.qc.pop();
+        assert_eq!(certificate_cell(&bad), Err(TonError::FieldTooLarge));
+        let mut bad = certificate;
+        bad.ton_signature.push(0);
+        assert_eq!(certificate_cell(&bad), Err(TonError::FieldTooLarge));
+        let proof = b.message_proof(&NETWORK, &b.message_id).unwrap();
+        let block = block_ref_cell(&proof.block).unwrap();
+        assert_eq!((block.bit_len(), block.refs().len()), (425, 1));
+        let message = message_proof_cell(&proof).unwrap();
+        assert_eq!((message.bit_len(), message.refs().len()), (41, 3));
+        assert_eq!(message.refs()[2].cell().unwrap(), &block);
+        assert_eq!(cell_from_boc(&message.to_boc().unwrap()).unwrap(), message);
+        let mut bad = proof.clone();
+        bad.payload.resize(4097, 0);
+        assert_eq!(message_proof_cell(&bad), Err(TonError::FieldTooLarge));
+        let mut bad = proof.clone();
+        bad.path.resize(10, [0; 32]);
+        assert_eq!(message_proof_cell(&bad), Err(TonError::FieldTooLarge));
+        let mut bad = proof.block;
+        bad.history_path.resize(33, [0; 32]);
+        assert_eq!(block_ref_cell(&bad), Err(TonError::FieldTooLarge));
+        bad.history_path.truncate(32);
+        assert!(block_ref_cell(&bad).is_ok());
+    }
+
+    #[test]
+    fn native_ton_key_chunks_and_full_control_leaf_are_exact() {
+        use crate::pure::test_support::{Fixture, NOW};
+        use iroha_sccp::v1::destination::DestinationFlavor;
+        let f = Fixture::new(DestinationFlavor::Ton);
+        let keys: Vec<_> = f.members.iter().map(|(key, _)| *key).collect();
+        let chunk = key_chunks(&keys).unwrap();
+        assert_eq!((chunk.bit_len(), chunk.refs().len()), (769, 1));
+        assert_eq!(&chunk.data()[..96], keys[..2].concat());
+        let last = chunk.refs()[0].cell().unwrap();
+        assert_eq!((last.bit_len(), last.refs().len()), (769, 0));
+        assert_eq!(&last.data()[..96], keys[2..].concat());
+        assert_eq!(chunk.data()[96], 0x80);
+        assert_eq!(last.data()[96], 0);
+        assert_eq!(cell_from_boc(&chunk.to_boc().unwrap()).unwrap(), chunk);
+        assert_eq!(key_chunks(&keys[..3]), Err(TonError::FieldTooLarge));
+        let mut wrong = keys.clone();
+        wrong.swap(0, 1);
+        assert_eq!(key_chunks(&wrong), Err(TonError::FieldTooLarge));
+        let mut wrong = keys;
+        wrong[1] = wrong[0];
+        assert_eq!(key_chunks(&wrong), Err(TonError::FieldTooLarge));
+        let b = f.control(true, false, NOW + 1000);
+        let proof = b.control_proof(f.deployment.network, 1).unwrap();
+        let cell = control_proof_cell(&proof).unwrap();
+        assert_eq!((cell.bit_len(), cell.refs().len()), (690, 2));
+        let mut bits = Bits {
+            cell: &cell,
+            offset: 0,
+        };
+        assert_eq!(bits.read(64).unwrap(), 4);
+        assert_eq!(bits.read(8).unwrap(), 2);
+        assert_eq!(bits.read(1).unwrap(), 0);
+        assert_eq!(bits.read(64).unwrap(), u128::from(NOW + 1000));
+        for expected in [proof.certificate_id, proof.effect_hash] {
+            assert_eq!(
+                bits.read(128).unwrap(),
+                u128::from_be_bytes(expected[..16].try_into().unwrap())
+            );
+            assert_eq!(
+                bits.read(128).unwrap(),
+                u128::from_be_bytes(expected[16..].try_into().unwrap())
+            );
+        }
+        assert_eq!(bits.read(32).unwrap(), u128::from(proof.leaf_index));
+        assert_eq!(bits.read(8).unwrap(), proof.path.len() as u128);
+        assert_eq!(bits.read(1).unwrap(), 1);
+        assert_eq!(bits.offset, cell.bit_len());
+        assert_eq!(cell_from_boc(&cell.to_boc().unwrap()).unwrap(), cell);
+        let mut bad = proof.clone();
+        bad.parliament_paused = 2;
+        assert_eq!(control_proof_cell(&bad), Err(TonError::FieldTooLarge));
+        let mut bad = proof;
+        bad.path.resize(10, [0; 32]);
+        assert_eq!(control_proof_cell(&bad), Err(TonError::FieldTooLarge));
+    }
+
+    #[test]
+    fn native_ton_message_bodies_use_explicit_sources_and_purposes() {
+        use crate::pure::{
+            bundle::{BundleSourceV1, verify_message_bundle},
+            control::verify_control_bundle,
+            test_support::{DAY, Fixture, NOW, T0, reads},
+        };
+        use iroha_sccp::v1::destination::DestinationFlavor;
+        let f = Fixture::new(DestinationFlavor::Ton);
+        for historical in [false, true] {
+            let b = f.message(historical);
+            for (source, stored, finalize_op, void_op, control_op) in [
+                (
+                    BundleSourceV1::Inline,
+                    false,
+                    OP_SCCP_FINALIZE,
+                    OP_SCCP_VOID_EXPIRED,
+                    OP_SCCP_APPLY_CONTROL,
+                ),
+                (
+                    BundleSourceV1::Checkpoint,
+                    true,
+                    OP_SCCP_FINALIZE_CHECKPOINT,
+                    OP_SCCP_VOID_EXPIRED_CHECKPOINT,
+                    OP_SCCP_APPLY_CONTROL_CHECKPOINT,
+                ),
+            ] {
+                let view = f.observation(NOW, reads(&b.certificate, stored));
+                let verified = verify_message_bundle(
+                    &b,
+                    &b.message_id,
+                    &view,
+                    source,
+                    MessagePurposeV1::Finalize,
+                )
+                .unwrap();
+                let body = finalize_body(&verified, 7, &[0x31; 32]).unwrap();
+                assert_eq!(&body.data()[..4], &finalize_op.to_be_bytes());
+                assert_eq!((body.bit_len(), body.refs().len()), (363, 2));
+                assert_eq!(cell_from_boc(&body.to_boc().unwrap()).unwrap(), body);
+                assert_eq!(
+                    void_expired_body(&verified, 7, &[0x31; 32]),
+                    Err(TonError::WrongPurpose)
+                );
+                let expired = f.observation(T0 + DAY + 1, reads(&b.certificate, stored));
+                let void = verify_message_bundle(
+                    &b,
+                    &b.message_id,
+                    &expired,
+                    source,
+                    MessagePurposeV1::VoidExpired,
+                )
+                .unwrap();
+                let body = void_expired_body(&void, 8, &[0x31; 32]).unwrap();
+                assert_eq!(&body.data()[..4], &void_op.to_be_bytes());
+                assert_eq!((body.bit_len(), body.refs().len()), (427, 2));
+                let mut nonce = Bits {
+                    cell: &body,
+                    offset: 363,
+                };
+                assert_eq!(nonce.read(64).unwrap(), 5);
+                assert_eq!(
+                    finalize_body(&void, 8, &[0x31; 32]),
+                    Err(TonError::WrongPurpose)
+                );
+                let b = f.control(historical, false, NOW + 1000);
+                let view = f.observation(NOW, reads(&b.certificate, stored));
+                let verified = verify_control_bundle(&b, &view, source).unwrap();
+                let body = apply_control_body(&verified, 9, &[0x31; 32]).unwrap();
+                assert_eq!(&body.data()[..4], &control_op.to_be_bytes());
+                assert_eq!((body.bit_len(), body.refs().len()), (363, 2));
+                assert_eq!(body.refs()[1].cell().unwrap().bit_len(), 690);
+            }
+        }
+        for (first, count) in [(511, 2), (u64::MAX, 2), (0, 513)] {
+            assert_eq!(
+                void_frozen_body(first, count, 1, &[1; 32]),
+                Err(TonError::FieldTooLarge)
+            );
+        }
+        assert!(void_frozen_body(512, 512, 1, &[1; 32]).is_ok());
+    }
+
+    #[test]
+    fn native_ton_checkpoints_bind_successor_keys_and_refuse_evm_qualification() {
+        use crate::pure::{
+            bundle::{BundleSourceV1, verify_message_bundle},
+            control::verify_control_bundle,
+            rotation::verify_rotation_steps,
+            test_support::{Fixture, NOW, reads},
+        };
+        use iroha_sccp::v1::{committee::committee_root, destination::DestinationFlavor};
+        use std::collections::BTreeMap;
+        for flavor in [DestinationFlavor::Ton, DestinationFlavor::Evm] {
+            let f = Fixture::new(flavor);
+            let rotations = f.rotations(1);
+            let view = f.observation(NOW, reads(&rotations[0].certificate, false));
+            let plan = verify_rotation_steps(&rotations, None, &view, 8).unwrap();
+            let checkpoint = &plan.checkpoints()[0];
+            if flavor == DestinationFlavor::Ton {
+                let body = checkpoint_body(checkpoint, 10, &[0x31; 32]).unwrap();
+                assert_eq!(&body.data()[..4], &OP_SCCP_CHECKPOINT.to_be_bytes());
+                assert_eq!((body.bit_len(), body.refs().len()), (364, 1));
+                assert!(checkpoint.next_keys().is_none());
+                // A genuine old-committee certificate authenticates a distinct canonical successor.
+                let mut fields = f.fields(150, 7);
+                fields.flags |= iroha_sccp::v1::finality::FLAG_ROTATION;
+                fields.validity_ms = 14 * crate::pure::test_support::DAY;
+                // Regenerate keys with a separate deterministic BLS seed; never take them as the pin.
+                let mut next: Vec<[u8; 48]> = (0_u8..4)
+                    .map(|i| {
+                        let pair = iroha_crypto::KeyPair::from_seed(
+                            vec![99, i],
+                            iroha_crypto::Algorithm::BlsNormal,
+                        );
+                        let (_, raw) = pair.public_key().to_bytes();
+                        <[u8; 48]>::try_from(raw).unwrap()
+                    })
+                    .collect();
+                next.sort();
+                fields.next_committee_root = committee_root(&next).unwrap();
+                let rotation = iroha_sccp::api::SccpRotationV1 {
+                    certificate: f.certificate(&fields, 7),
+                    next_committee: next.clone(),
+                };
+                let view = f.observation(NOW, BTreeMap::new());
+                let plan = verify_rotation_steps(&[rotation], None, &view, 8).unwrap();
+                let checkpoint = &plan.checkpoints()[0];
+                assert_eq!(checkpoint.next_keys(), Some(next.as_slice()));
+                let body = checkpoint_body(checkpoint, 11, &[0x31; 32]).unwrap();
+                assert_eq!((body.bit_len(), body.refs().len()), (364, 2));
+                assert_eq!(body.refs()[1].cell().unwrap(), &key_chunks(&next).unwrap());
+                assert_eq!(cell_from_boc(&body.to_boc().unwrap()).unwrap(), body);
+            } else {
+                assert_eq!(
+                    checkpoint_body(checkpoint, 10, &[0x31; 32]),
+                    Err(TonError::WrongNetwork)
+                );
+                let b = f.message(false);
+                let view = f.observation(NOW, reads(&b.certificate, false));
+                let verified = verify_message_bundle(
+                    &b,
+                    &b.message_id,
+                    &view,
+                    BundleSourceV1::Inline,
+                    MessagePurposeV1::Finalize,
+                )
+                .unwrap();
+                assert_eq!(
+                    finalize_body(&verified, 10, &[0x31; 32]),
+                    Err(TonError::WrongNetwork)
+                );
+                let b = f.control(false, true, 0);
+                let view = f.observation(NOW, reads(&b.certificate, false));
+                let verified = verify_control_bundle(&b, &view, BundleSourceV1::Inline).unwrap();
+                assert_eq!(
+                    apply_control_body(&verified, 10, &[0x31; 32]),
+                    Err(TonError::WrongNetwork)
+                );
+            }
+        }
+    }
+    #[test]
+    fn native_stack_preserves_cells_and_rejects_ambiguous_shapes() {
+        let cell = CellBuilder::new().build();
+        let rest = CellBuilder::new().build();
+        let mut root = CellBuilder::new();
+        root.store_uint(1, 24)
+            .unwrap()
+            .store_ref(rest)
+            .unwrap()
+            .store_uint(3, 8)
+            .unwrap()
+            .store_ref(cell.clone())
+            .unwrap();
+        let bytes = root.build().to_boc().unwrap();
+        assert_eq!(
+            parse_native_stack(&bytes).unwrap(),
+            vec![TvmStackValueV1::Cell(cell)]
+        );
+        assert!(parse_int_stack(&bytes).is_err());
+        root.store_bit(false).unwrap();
+        assert!(parse_native_stack(&root.build().to_boc().unwrap()).is_err());
+        let mut oversized = CellBuilder::new();
+        oversized.store_uint(65, 24).unwrap();
+        assert!(parse_native_stack(&oversized.build().to_boc().unwrap()).is_err());
+        let mut trailing = CellBuilder::new();
+        trailing
+            .store_uint(0, 24)
+            .unwrap()
+            .store_bit(false)
+            .unwrap();
+        assert!(parse_native_stack(&trailing.build().to_boc().unwrap()).is_err());
+        let mut extra_ref = CellBuilder::new();
+        extra_ref
+            .store_uint(0, 24)
+            .unwrap()
+            .store_ref(CellBuilder::new().build())
+            .unwrap();
+        assert!(parse_native_stack(&extra_ref.build().to_boc().unwrap()).is_err());
+        assert!(parse_native_stack(&vec![0; 65_537]).is_err());
+    }
+
+    #[test]
+    fn native_key_chunks_consume_exact_geometry() {
+        let keys = vec![[1; 48], [2; 48], [3; 48], [4; 48]];
+        let cell = iroha_sccp::v1::ton_cell::key_chunks(&keys).unwrap();
+        assert_eq!(parse_key_chunks(&cell, 4).unwrap(), keys);
+        assert!(parse_key_chunks(&cell, 7).is_err());
+        assert!(parse_key_chunks(&cell, 3).is_err());
+        let mut trailing = CellBuilder::new();
+        trailing
+            .store_bytes(&keys[0])
+            .unwrap()
+            .store_bytes(&keys[1])
+            .unwrap()
+            .store_bit(false)
+            .unwrap();
+        assert!(parse_key_chunks(&trailing.build(), 4).is_err());
+    }
+    #[test]
+    fn unsigned_stack_preserves_full_nonce_range() {
+        let values = [0, 1, i64::MAX as u64, (i64::MAX as u64) + 1, u64::MAX];
+        let actual = parse_int_stack(&stack_of_uints(&values).unwrap()).unwrap();
+        assert_eq!(
+            actual
+                .into_iter()
+                .map(|value| value.unwrap().to_u64().unwrap())
+                .collect::<Vec<_>>(),
+            values
+        );
+        assert!(
+            parse_int_stack(&stack_of_uints(&[]).unwrap())
+                .unwrap()
+                .is_empty()
+        );
+        assert!(stack_of_uints(&[0; 65]).is_err());
     }
 }

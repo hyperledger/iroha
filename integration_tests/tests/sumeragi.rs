@@ -729,14 +729,29 @@ mod rs16_hold {
                 Instant::now() < deadline,
                 "native prefix verification deadline elapsed"
             );
-            let proof = client
-                .client()
-                .get_sumeragi_finality_proof(NonZeroU64::new(at).unwrap())?;
+            let proof = client.client().get_sumeragi_finality_proof(
+                NonZeroU64::new(at).unwrap(),
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::from_root_scope(
+                    iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(
+                        &genesis,
+                    )?
+                    .sumeragi_context
+                    .root_scope,
+                ),
+            )?;
             ensure!(
                 proof.height() == at,
                 "finality source substituted requested height"
             );
-            proof.decode_checked()?;
+            proof.decode_checked(
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::from_root_scope(
+                    iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(
+                        &genesis,
+                    )?
+                    .sumeragi_context
+                    .root_scope,
+                ),
+            )?;
             let block = iroha_data_model::block::decode_framed_signed_block(&proof.block_wire)?;
             let block = iroha_data_model::block::SharedSignedBlock::try_new(block, &budget)
                 .map_err(|(_, error)| error)?;

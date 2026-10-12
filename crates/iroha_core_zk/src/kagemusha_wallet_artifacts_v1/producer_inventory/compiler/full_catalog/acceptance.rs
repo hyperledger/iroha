@@ -446,6 +446,118 @@ pub(crate) fn open_pinned_engineering_wallet_sources(output: &Path) -> Engineeri
     )
 }
 
+/// Independently qualify an existing sealed DATA directory under freshly authenticated pins.
+///
+/// The locator and any earlier admission marker confer no source or wallet authority. This
+/// opens strict read-only originals, repeats the complete ordinary qualification and all active
+/// import controls, and writes evidence only into this process's fresh admission directory.
+/// A refused original is never replaced, copied from another source or accepted from a cache.
+pub(crate) fn reopen_pinned_engineering_wallet_sources(
+    output: &Path,
+    originals: &Path,
+) -> EngineeringWalletSources {
+    // Reopening creates only a reader. Reject even an explicit evidence output beneath the
+    // source directory before creating it; canonicalize the existing output parent only.
+    let mut sealed =
+        DirectoryOriginalsV1::open_existing(originals, PROVING_KEY_MAX_BYTES_V1).unwrap();
+    assert!(output.is_absolute());
+    let output_parent = output.parent().unwrap().canonicalize().unwrap();
+    assert!(
+        !output_parent.starts_with(sealed.root().unwrap()),
+        "fresh admission evidence must not mutate the selected original directory"
+    );
+    let PinnedEngineeringInputs {
+        installed,
+        authenticated,
+        native,
+        inventory_pin,
+        pack_pin,
+        ..
+    } = pinned_engineering_inputs(output);
+    let config = ReadConfig {
+        maximum_bytes: PROVING_KEY_MAX_BYTES_V1,
+        maximum_rows: 1 << 16,
+        coset_cache: CosetCachePolicy::OnDemand,
+        msm_budget: MemoryBudget::DEFAULT,
+    };
+    let (installed, qualified) = qualify_authenticated(
+        output,
+        installed,
+        authenticated,
+        &mut sealed,
+        &native,
+        config,
+    );
+    publish(
+        &output.join("reopened-originals.norito"),
+        &norito::to_bytes(&(
+            b"existing sealed DATA independently requalified; no copied bytes or retained grant"
+                .to_vec(),
+            inventory_pin,
+            pack_pin,
+            sealed.root().unwrap().to_str().unwrap().to_owned(),
+        ))
+        .unwrap(),
+    )
+    .unwrap();
+    (
+        std::sync::Arc::new(installed),
+        std::sync::Arc::new(qualified),
+        native,
+        sealed,
+    )
+}
+
+#[test]
+fn reopen_refuses_evidence_inside_originals_before_creating_anything() {
+    let temporary = tempfile::tempdir().unwrap();
+    let private =
+        iroha_fs::PrivateDirectory::open_or_create(temporary.path().join("originals")).unwrap();
+    let output = private.path().join("must-not-be-created");
+    let refusal = match std::panic::catch_unwind(|| {
+        reopen_pinned_engineering_wallet_sources(&output, private.path())
+    }) {
+        Err(refusal) => refusal,
+        Ok(_) => panic!("source directory must not receive new admission evidence"),
+    };
+    let message = refusal
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| refusal.downcast_ref::<String>().map(String::as_str))
+        .unwrap();
+    assert_eq!(
+        message,
+        "fresh admission evidence must not mutate the selected original directory"
+    );
+    assert!(!output.exists());
+    assert_eq!(fs::read_dir(private.path()).unwrap().count(), 0);
+}
+
+#[test]
+#[ignore = "independently pinned complete catalog and existing sealed DATA; repeats all complete source and active import controls"]
+fn requalify_signed_wallet_catalog_from_retained_originals() {
+    let output = PathBuf::from(std::env::var_os("KAGEMUSHA_WALLET_ACCEPTANCE_OUTPUT").unwrap());
+    let originals = PathBuf::from(std::env::var_os("KAGEMUSHA_WALLET_RETAINED_ORIGINALS").unwrap());
+    let (_installed, _qualified, _native, retained) =
+        reopen_pinned_engineering_wallet_sources(&output, &originals);
+    assert_eq!(retained.root().unwrap(), originals.as_path());
+    assert!(
+        !output.join("originals").exists(),
+        "no duplicate original store"
+    );
+    assert!(
+        !output.join("sealed-transport.norito").exists(),
+        "no copied-data claim"
+    );
+    assert!(output.join("reopened-originals.norito").is_file());
+    assert!(output.join("qualified-source-membership.json").is_file());
+    assert!(
+        output
+            .join("engineering-source-acceptance.norito")
+            .is_file()
+    );
+}
+
 /// Native finality owner selected independently of any proving original.
 pub(crate) type EngineeringFinalitySources = (
     std::sync::Arc<InstalledVerifierPackV1>,

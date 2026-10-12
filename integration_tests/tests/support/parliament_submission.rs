@@ -23,6 +23,17 @@ use iroha_model_base::metadata::Metadata;
 
 pub(crate) const OPERATION_TIMEOUT: Duration = Duration::from_secs(300);
 
+const FEE_QUOTE_BACKPRESSURE_ATTEMPTS: usize = 8;
+// A single attempt would make the backpressure retry unreachable.
+const _: () = assert!(FEE_QUOTE_BACKPRESSURE_ATTEMPTS > 1);
+const FEE_QUOTE_BACKPRESSURE_RETRY_AFTER: Duration = Duration::from_secs(1);
+
+// Exact transient admission backpressure of the read path; nothing else is retried.
+fn is_query_capacity_backpressure(rendered: &str) -> bool {
+    rendered.contains("429 Too Many Requests")
+        && rendered.contains("Reached the limit of parallel queries")
+}
+
 pub(crate) fn fee() -> FeePaymentIntent {
     FeePaymentIntent::authority(Vec::new(), None)
 }
@@ -39,12 +50,29 @@ pub(crate) async fn prepare_parliament_transaction(
         fee(),
         Metadata::default(),
     ))?;
-    let quote = tokio::time::timeout(
-        OPERATION_TIMEOUT,
-        account.quote_fees(FeeQuoteRequest::AccountSignature { payload: &payload }),
-    )
-    .await
-    .map_err(|_| eyre!("Parliament fee quote exceeded {OPERATION_TIMEOUT:?}"))??;
+    // The fee quote is a read against the bounded live-query store. Under local load the
+    // node answers 429 with a one-second retry hint; honour it a bounded number of times
+    // and surface every other failure unchanged.
+    let mut quote_attempt = 1_usize;
+    let quote = loop {
+        let quoted = tokio::time::timeout(
+            OPERATION_TIMEOUT,
+            account.quote_fees(FeeQuoteRequest::AccountSignature { payload: &payload }),
+        )
+        .await
+        .map_err(|_| eyre!("Parliament fee quote exceeded {OPERATION_TIMEOUT:?}"))?;
+        match quoted {
+            Ok(quote) => break quote,
+            Err(error)
+                if quote_attempt < FEE_QUOTE_BACKPRESSURE_ATTEMPTS
+                    && is_query_capacity_backpressure(&format!("{error:#}")) =>
+            {
+                quote_attempt += 1;
+                tokio::time::sleep(FEE_QUOTE_BACKPRESSURE_RETRY_AFTER).await;
+            }
+            Err(error) => return Err(error),
+        }
+    };
     if !payload
         .fee_payment
         .has_same_payer_and_gas_bound(&quote.intent)
@@ -232,6 +260,20 @@ pub(crate) async fn stage_contract_artifact(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_exact_query_capacity_backpressure_is_retried() {
+        assert!(is_query_capacity_backpressure(
+            "failed to quote transaction fees; status: 429 Too Many Requests; response body: \
+             query_validation_failed: Reached the limit of parallel queries. Either wait"
+        ));
+        assert!(!is_query_capacity_backpressure(
+            "status: 429 Too Many Requests; response body: rate limited"
+        ));
+        assert!(!is_query_capacity_backpressure(
+            "status: 400 Bad Request; Reached the limit of parallel queries"
+        ));
+    }
 
     #[test]
     fn parliament_artifacts_bind_identity_and_current_abi_before_submission() {

@@ -494,7 +494,7 @@ mod tests {
                 .into_iter()
                 .filter(|instruction| !is_sccp_outbound_record(instruction))
                 .collect();
-        assert_eq!(others.len(), 9);
+        assert_eq!(others.len(), 6);
         assert_eq!(check(&others, None), Ok(()));
         assert!(
             OpaqueDeferredAuthorityError::SccpOutboundRecord {

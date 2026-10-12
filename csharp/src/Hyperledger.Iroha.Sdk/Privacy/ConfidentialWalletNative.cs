@@ -74,7 +74,7 @@ internal sealed class ConfidentialWalletNative : IConfidentialWalletDriver
     private static bool DetectAvailable()
     {
         IntPtr handle = IntPtr.Zero;
-        try { return NativeLibrary.TryLoad(Library, typeof(ConfidentialWalletNative).Assembly, null, out handle) && RequiredExports.All(symbol => NativeLibrary.TryGetExport(handle, symbol, out _)) && Abi() == 28 && Revision() == 1 && DerivationRevision() == 1; }
+        try { return NativeLibrary.TryLoad(Library, typeof(ConfidentialWalletNative).Assembly, null, out handle) && RequiredExports.All(symbol => NativeLibrary.TryGetExport(handle, symbol, out _)) && Abi() == 29 && Revision() == 1 && DerivationRevision() == 1; }
         catch (Exception error) when (error is DllNotFoundException or EntryPointNotFoundException or BadImageFormatException) { return false; }
         finally { if (handle != IntPtr.Zero) NativeLibrary.Free(handle); }
     }

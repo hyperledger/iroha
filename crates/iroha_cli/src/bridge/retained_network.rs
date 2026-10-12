@@ -332,7 +332,11 @@ fn verify_peer(
     network: NetworkId,
     verifier: &SumeragiFinalityVerifier,
 ) -> Result<()> {
-    attestation.verify()?;
+    attestation.verify(
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::from_root_scope(
+            verifier.root_scope(),
+        ),
+    )?;
     let body = &attestation.body;
     ensure!(
         peer.read_start_ns > 0 && peer.read_start_ns <= peer.read_finish_ns,

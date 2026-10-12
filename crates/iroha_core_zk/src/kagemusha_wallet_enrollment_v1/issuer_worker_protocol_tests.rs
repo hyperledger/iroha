@@ -92,9 +92,22 @@ fn journal_and_prepare_replies_bind_every_exact_packet_field() {
             change(&mut wrong, field, Value::from(hex::encode([0; 32])));
             assert!(check(&wrong).is_err(), "{field}");
         }
-        for failure in ["outcome_unknown", "unavailable", "rejected", "evidence"] {
+        for failure in [
+            "outcome_unknown",
+            "unavailable",
+            "rejected",
+            "evidence",
+            "refused",
+        ] {
             assert!(check(&reply(exchange, failure, Value::Null)).is_err());
         }
+        // Journal and Prepare exchanges never refuse an E1 and never carry a code.
+        let mut refused = reply(exchange, "refused", Value::Null);
+        change(&mut refused, "refusal_code", Value::from(9_u16));
+        assert!(check(&refused).is_err());
+        let mut coded = value.clone();
+        change(&mut coded, "refusal_code", Value::from(9_u16));
+        assert!(check(&coded).is_err());
         assert!(check(&reply(exchange, outcome, Value::from("Zg=="))).is_err());
     }
     assert_eq!(
@@ -186,14 +199,20 @@ fn inspect_preserves_exact_request_and_distinct_result_classes_after_expiry() {
             binary(text(&packet, "original_base64").unwrap(), MAX_REQUEST).unwrap(),
             request.original()
         );
-        for outcome in ["unavailable", "outcome_unknown", "rejected"] {
-            let response = framed(&reply(&inspect, outcome, Value::Null));
-            let observed = request.response(&inspect, &response).unwrap();
+        for outcome in ["unavailable", "outcome_unknown", "refused"] {
+            let mut answer = reply(&inspect, outcome, Value::Null);
+            if outcome == "refused" {
+                change(&mut answer, "refusal_code", Value::from(9_u16));
+            }
+            let observed = request.response(&inspect, &framed(&answer)).unwrap();
             assert!(matches!(
                 (outcome, observed),
                 ("unavailable", OutcomeV1::Unavailable)
                     | ("outcome_unknown", OutcomeV1::OutcomeUnknown)
-                    | ("rejected", OutcomeV1::Rejected)
+                    | (
+                        "refused",
+                        OutcomeV1::Refused(KagemushaWalletEnrollmentRefusalV1::EvidenceInvalid)
+                    )
             ));
         }
         let original = encode(&projection(&request), MAX_RESULT).unwrap();
@@ -408,7 +427,6 @@ for vector in json.load(sys.stdin):
         owner.policy = w.configured_policy(config['policy'], owner.platform)
         owner.recheck = counters.recheck
         owner.openssl = pathlib.Path('/unadmitted-DATA/openssl')
-        owner.google = None
         owner.current_time = None
         calls = []
         def unavailable(*args, **kwargs):

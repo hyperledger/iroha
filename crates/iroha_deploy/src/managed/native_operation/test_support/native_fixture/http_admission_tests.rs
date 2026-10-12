@@ -29,6 +29,7 @@ fn check_http_admission(native: &NativeFixture, authority: &ServiceAuthority) {
         clients.iter().map(|(_, client)| client.clone()).collect(),
         clients,
         Instant::now() + Duration::from_secs(60),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     )
     .unwrap();
 
@@ -37,7 +38,10 @@ fn check_http_admission(native: &NativeFixture, authority: &ServiceAuthority) {
     let warm = source.latest_attestations(&selected, &ORIGINAL_CHALLENGE);
     for (peer, result) in selected.iter().zip(warm) {
         let actual = result.unwrap();
-        actual.attestation().verify().unwrap();
+        actual
+            .attestation()
+            .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+            .unwrap();
         assert_eq!(&actual.attestation().body.node_id, peer);
         assert_eq!(actual.attestation().body.challenge, ORIGINAL_CHALLENGE);
         assert_eq!(
@@ -114,7 +118,10 @@ fn check_http_admission(native: &NativeFixture, authority: &ServiceAuthority) {
         .zip(source.latest_attestations(&selected, &RETRY_CHALLENGE))
     {
         let actual = result.unwrap();
-        actual.attestation().verify().unwrap();
+        actual
+            .attestation()
+            .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+            .unwrap();
         assert_eq!(&actual.attestation().body.node_id, peer);
         assert_eq!(actual.attestation().body.challenge, RETRY_CHALLENGE);
     }
@@ -165,8 +172,14 @@ impl AttestationHttp {
                 .latest_attestation(peer, &ORIGINAL_CHALLENGE)
                 .unwrap();
             let retry = native.latest_attestation(peer, &RETRY_CHALLENGE).unwrap();
-            original.attestation().verify().unwrap();
-            retry.attestation().verify().unwrap();
+            original
+                .attestation()
+                .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+                .unwrap();
+            retry
+                .attestation()
+                .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+                .unwrap();
             let bodies = [
                 norito::encode_canonical(original.attestation()).unwrap(),
                 norito::encode_canonical(retry.attestation()).unwrap(),

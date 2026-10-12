@@ -1660,6 +1660,20 @@ fn register_public_lane_validator(
         }
         false
     };
+    if replacing_exited {
+        let sccp_release = sccp_liability_release(
+            state_transaction,
+            state_transaction
+                .world
+                .public_lane_validators
+                .get(&validator_key)
+                .ok_or_else(|| {
+                    Error::InvariantViolation("replacing validator disappeared".into())
+                })?,
+            None,
+        );
+        retain_sccp_release_result(state_transaction, sccp_release)?;
+    }
     let existing = state_transaction
         .world
         .public_lane_validators
@@ -2453,6 +2467,12 @@ impl Execute for FinalizePublicLaneUnbond {
             .remove(&self.request_id)
             .ok_or_else(|| Error::InvariantViolation("unbond request not found".into()))?;
         ensure_canonical_pending_unbond(&self.request_id, &pending)?;
+        let sccp_release = sccp_liability_release(
+            state_transaction,
+            &validator_record,
+            Some(pending.slashable_through_height),
+        );
+        retain_sccp_release_result(state_transaction, sccp_release)?;
         let current_height = state_transaction.block_height();
         let current_policy_release_height =
             unbond_liability_release_height(state_transaction, pending.slashable_through_height)?;
@@ -2609,13 +2629,11 @@ fn prune_zero_custody_exited_validators(
     state_transaction: &mut StateTransaction<'_, '_>,
 ) -> Result<(), Error> {
     let retention_policy = read_staking_policy(state_transaction)?;
-    let removable =
-        state_transaction
-            .world
-            .public_lane_validators
-            .iter()
-            .filter(|(key, record)| {
-                public_lane_validator_record_matches_key(key, record)
+    let mut removable = Vec::new();
+    let inspected =
+        (|| {
+            for (key, record) in state_transaction.world.public_lane_validators.iter() {
+                if public_lane_validator_record_matches_key(key, record)
                     && matches!(record.status, PublicLaneValidatorStatus::Exited)
                     && ensure_validator_deactivation_reached(
                         record,
@@ -2634,13 +2652,72 @@ fn prune_zero_custody_exited_validators(
                     && !state_transaction.world.public_lane_stake_shares.iter().any(
                         |((lane_id, validator, _), _)| *lane_id == key.0 && validator == &key.1,
                     )
-            })
-            .map(|(key, _)| key.clone())
-            .collect::<Vec<_>>();
+                    && sccp_liability_release(state_transaction, record, None)?.is_none()
+                {
+                    removable.push(key.clone());
+                }
+            }
+            Ok::<(), crate::state::sccp_forgery_custody::ForgeryStorageError>(())
+        })();
+    // A protocol hold only retains the record, so Exit remains allowed. Original local
+    // query failure defers the whole transaction before any planned deletion publishes.
+    if let Err(error) = inspected {
+        state_transaction.arm_local_storage_refusal(error.into());
+        return Err(Error::InvariantViolation(
+            "SCCP liability query did not complete".into(),
+        ));
+    }
     for key in removable {
         state_transaction.world.public_lane_validators.remove(key);
     }
     Ok(())
+}
+
+/// Read immutable parent generations and this block's S0 clock. The pending record lookup
+/// uses current state so an earlier accepted evidence instruction cannot be missed.
+fn sccp_liability_release(
+    state_transaction: &StateTransaction<'_, '_>,
+    validator: &PublicLaneValidatorRecord,
+    slashable_through_height: Option<u64>,
+) -> Result<
+    Option<super::sccp::liability::ReleaseBlocker>,
+    crate::state::sccp_forgery_custody::ForgeryStorageError,
+> {
+    super::sccp::liability::release_blocker(
+        &state_transaction.sccp_parent_world_view(),
+        &*state_transaction.world,
+        validator,
+        slashable_through_height,
+        state_transaction
+            .world
+            .sccp_forgery_offences
+            .allocation_budget(),
+    )
+}
+
+fn retain_sccp_release_result(
+    state_transaction: &mut StateTransaction<'_, '_>,
+    result: Result<
+        Option<super::sccp::liability::ReleaseBlocker>,
+        crate::state::sccp_forgery_custody::ForgeryStorageError,
+    >,
+) -> Result<(), Error> {
+    use super::sccp::liability::ReleaseBlocker;
+    match result {
+        Ok(None) => Ok(()),
+        Ok(Some(ReleaseBlocker::LiabilityActive)) => Err(Error::InvariantViolation(
+            "SccpLiabilityActive: retained committee liability has not ended".into(),
+        )),
+        Ok(Some(ReleaseBlocker::PenaltyPending)) => Err(Error::InvariantViolation(
+            "SccpPenaltyPending: recorded forgery penalty has not applied".into(),
+        )),
+        Err(error) => {
+            state_transaction.arm_local_storage_refusal(error.into());
+            Err(Error::InvariantViolation(
+                "SCCP liability query did not complete".into(),
+            ))
+        }
+    }
 }
 #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))]
 pub(crate) fn promote_pending_validator(
@@ -2837,6 +2914,9 @@ impl ConsensusSlashLiability {
                 Some(Self::Root(attribution.height))
             }
             EvidenceScope::Root => None,
+            // TODO: SCCP generation admission supplies a distinct authenticated liability owner.
+            // It must never be converted to native root height or lane custody.
+            EvidenceScope::SccpGeneration { .. } => None,
             EvidenceScope::Lane(scope) => Some(Self::Lane {
                 scope,
                 instance: attribution.instance,
@@ -3950,6 +4030,7 @@ mod tests {
     }
     include!("staking_monetary_fixture_tests.rs");
     include!("staking_core_tests.rs");
+    include!("staking_sccp_liability_tests.rs");
     include!("staking_monetary_tests.rs");
     include!("staking_borrowed_exposure_tests.rs");
     include!("staking_admission_tests.rs");
@@ -9373,5 +9454,33 @@ mod tests {
             .expect("wide product is divided before the final domain check");
         assert!(capped < maximum);
         assert!(slash_within_limit(&capped, &maximum, 9_999).expect("capped amount is legal"));
+    }
+    #[test]
+    fn sccp_generation_scope_cannot_become_native_root_slash_liability() {
+        use iroha_data_model::block::consensus::{
+            EvidenceAttribution, EvidenceOffender, EvidenceScope,
+        };
+        let key =
+            iroha_crypto::KeyPair::from_seed(vec![0x51; 32], iroha_crypto::Algorithm::BlsNormal);
+        let mut claim = EvidenceAttribution {
+            scope: EvidenceScope::Root,
+            instance: [1; 32],
+            height: 5,
+            epoch: 0,
+            context_id: [2; 32],
+            authority_generation: [3; 32],
+            offenders: vec![EvidenceOffender {
+                signer: 0,
+                peer_id: iroha_model_base::peer::PeerId::new(key.public_key().clone()),
+                lane_stake: None,
+            }],
+            safety_violation: false,
+        };
+        assert!(matches!(
+            ConsensusSlashLiability::from_attribution(&claim, 8, 0),
+            Some(ConsensusSlashLiability::Root(5))
+        ));
+        claim.scope = EvidenceScope::SccpGeneration { generation: 5 };
+        assert!(ConsensusSlashLiability::from_attribution(&claim, 8, 0).is_none());
     }
 }

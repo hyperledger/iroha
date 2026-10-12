@@ -422,13 +422,8 @@ mod tests {
         let selection = queue
             .begin_pending_payload_selection(state, generation)
             .unwrap();
-        let selected = payload::select(
-            state,
-            queue,
-            (1 << 20) - PAYLOAD_OVERHEAD,
-            merges.transactions,
-        )
-        .unwrap();
+        let selected =
+            payload::select(&current_view, queue, (1 << 20) - PAYLOAD_OVERHEAD, &merges).unwrap();
         assert_eq!(selected.len(), 1);
         let hash = selected[0].hash_as_entrypoint();
         let lease = queue
@@ -1218,8 +1213,13 @@ mod tests {
             let selection = queue
                 .begin_pending_payload_selection(worker.state, generation)
                 .unwrap();
-            let selected =
-                payload::select(worker.state, &queue, (1 << 20) - PAYLOAD_OVERHEAD, 0).unwrap();
+            let selected = payload::select(
+                &worker.state.view(),
+                &queue,
+                (1 << 20) - PAYLOAD_OVERHEAD,
+                &payload::MergeProposal::default(),
+            )
+            .unwrap();
             assert_eq!(selected.len(), 1);
             let original = selected[0].clone();
             let hash = original.hash_as_entrypoint();
@@ -1365,8 +1365,13 @@ mod tests {
                 let selection = queue
                     .begin_pending_payload_selection(state, generation)
                     .unwrap();
-                let selected =
-                    payload::select(state, &queue, (1 << 20) - PAYLOAD_OVERHEAD, 0).unwrap();
+                let selected = payload::select(
+                    &state.view(),
+                    &queue,
+                    (1 << 20) - PAYLOAD_OVERHEAD,
+                    &payload::MergeProposal::default(),
+                )
+                .unwrap();
                 assert_eq!(selected.len(), 1);
                 let hash = selected[0].hash_as_entrypoint();
                 let lease = queue

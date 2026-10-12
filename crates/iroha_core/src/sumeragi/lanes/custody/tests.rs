@@ -328,7 +328,9 @@ fn pending_original_evidence_delays_reclamation_without_native_height_arithmetic
         key,
         crate::state::RetainedEvidenceRecord::from_fixture(
             EvidenceRecord {
-                evidence: Evidence { native: vec![] },
+                evidence: iroha_data_model::block::consensus::RecordedEvidenceV1::Native(
+                    Evidence { native: vec![] },
+                ),
                 attribution: EvidenceAttribution {
                     scope: iroha_data_model::block::consensus::EvidenceScope::Root,
                     instance: row.instance,

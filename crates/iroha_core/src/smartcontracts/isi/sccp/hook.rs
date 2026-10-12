@@ -1,104 +1,119 @@
-//! SCCP block hooks (`specs/sccp.md` §4.3.2, §4.5). Owner: ws30.
+//! SCCP post-execution commitments, native committee generations, anchors and finality X.
 //!
-//! * [`finalize_block`] runs in `ValidBlock::finalize_owned_execution_metadata` after every
-//!   transaction of block `h` and before the output seal, with the consensus inputs of `h`
-//!   ([`SccpHeightInputsV1`]): it commits the block's leaves, appends the history leaf, applies
-//!   bridge-key promotion and the roster rule at rotation heights, writes the attestation
-//!   subject and prunes.
-//! * [`heartbeat_start_work_pending`] tells `State::deterministic_start_work_pending` that the
-//!   candidate block must be produced even with an empty queue because its creation time
-//!   crosses the current generation's heartbeat.
-//! * [`apply_block_start`] runs at block start, next to the due Parliament certificates and
-//!   before the block's transactions, and writes the heartbeat marker.
-//!
-//! With SCCP absent every hook is a no-op.
+//! The liability clock advances before governance and transactions. The finalizer retains
+//! authenticated consensus inputs, appends only the parent's native anchor after execution,
+//! and returns the exact fixed-size header belonging to this execution owner.
 
-use super::{commitment, height::SccpHeightInputsV1, params, prune, roster, store, subjects};
+use super::{anchors, commitment, generation, height::SccpHeightInputsV1, params, prune, store};
 use crate::{
     block::BlockValidationError,
-    state::{StateBlock, StateReadOnly, StateStorageAdmissionError, WorldReadOnly},
+    state::{StateBlock, StateReadOnly, StateStorageAdmissionError},
 };
-use iroha_data_model::{block::BlockHeader, sccp::attestation::SccpAttestationSubjectV1};
+use iroha_data_model::{
+    block::{BlockHeader, consensus::SumeragiRootScope},
+    sumeragi_finality::certified_result::{
+        FLAG_ACTIVE, FLAG_ROTATION, SccpFinalityHeaderFieldsV1, SccpFinalityHeaderV1,
+    },
+};
 
-/// Run the SCCP post-execution step of block `header` (§4.5).
+/// Finalize this block's SCCP state and retain its exact X header (§4.5).
 ///
-/// `height_inputs` are the authenticated consensus inputs of the block's height: from the
-/// Sumeragi core's authenticated schedule on the production and signed-genesis paths. They
-/// are `None` only for component fixtures that execute without consensus and for a height
-/// whose inputs could not be derived; SCCP then commits leaves and history but derives no
-/// roster and writes no subject (fail closed).
-///
-/// The steps run in one transaction, in §4.5 order: (a) commit the block's leaves and append
-/// the history leaf; (b) at rotation heights apply key promotion and the roster rule; (c)
-/// write the subject when the block has messages, is a boundary, or created a generation;
-/// (d) record stalled handoffs; (e) prune within the per-block budget.
+/// `root_scope` must come from the same original signed genesis or authenticated native
+/// predecessor as the enclosing execution. A non-global root returns inactive X before any
+/// SCCP effect. Missing authenticated inputs or inconsistent SCCP bookkeeping produce inactive X.
+/// Commitment gaps remain execution invariant failures; local storage refusal is retryable.
 ///
 /// # Errors
 ///
-/// Fails the block on an execution invariant violation (for example non-dense leaf indices)
-/// or when local storage refuses the hook's transaction.
+/// Propagates commitment invariants and local storage/allocation failures.
 pub fn finalize_block(
     state_block: &mut StateBlock<'_>,
     header: &BlockHeader,
     height_inputs: Option<&SccpHeightInputsV1>,
-) -> Result<(), BlockValidationError> {
-    if !params::exists(&state_block.world) {
-        return Ok(());
+    root_scope: SumeragiRootScope,
+) -> Result<SccpFinalityHeaderV1, BlockValidationError> {
+    let network_id = *state_block.network_id().as_bytes();
+    let height = header.height().get();
+    let inactive = SccpFinalityHeaderV1::inactive(network_id, height, header.creation_time_ms)
+        .map_err(|_| {
+            BlockValidationError::ExecutionDeferred(
+                ivm::error::ExecutionDeferral::LocalInvariantViolation.into(),
+            )
+        })?;
+    // This scalar is supplied by the original signed-genesis or committed execution owner.
+    // Scope rejection precedes every SCCP write, including commitment and anchor updates.
+    if root_scope != SumeragiRootScope::Global || !params::exists(&state_block.world) {
+        return Ok(inactive);
     }
     #[cfg(test)]
     observed::record(header, height_inputs);
-    let Some(parameters) = store::parameters::get(&state_block.world).clone() else {
-        return Ok(());
-    };
-    let network_id = *state_block.network_id().as_bytes();
-    let height = header.height().get();
-    let now_ms = header.creation_time_ms;
+    let parent = state_block.native_execution_tip();
     let mut stx = state_block
         .try_transaction()
         .map_err(BlockValidationError::StateStorageAdmission)?;
-
+    let prior_degraded = *store::degraded_run::get(&*stx.world);
     let committed = commitment::commit_block(&mut stx, height)?;
-    let step = match height_inputs {
-        Some(inputs) => Some(roster::apply_roster_rule(
-            &mut stx,
-            &network_id,
-            &parameters,
+    let anchored = anchors::append_parent(&mut stx, height, parent)?;
+    let plan = if anchored {
+        height_inputs.map(|inputs| {
+            generation::plan_generation_step(
+                &stx,
+                header,
+                inputs,
+                parent.map(|tip| tip.creation_time_ms()),
+            )
+        })
+    } else {
+        None
+    }
+    .transpose()
+    .map_err(|e| BlockValidationError::StateStorageAdmission(e.into()))?
+    .flatten();
+    let result = plan.as_ref().and_then(|plan| {
+        let step = plan.step();
+        let (history_root, history_size) = commitment::history_root_and_size(&*stx.world);
+        SccpFinalityHeaderV1::from_fields(&SccpFinalityHeaderFieldsV1 {
+            network_id,
             height,
-            now_ms,
-            inputs,
-        )?),
-        None => None,
-    };
-
-    if let (Some(inputs), Some(step)) = (height_inputs, step) {
-        let required = committed.is_some() || step.boundary || step.created_digest.is_some();
-        let signer = roster::generation_for_height(&*stx.world, height).and_then(|generation| {
-            store::rosters::get(&*stx.world, &generation).map(|roster| (generation, roster.digest))
-        });
-        if let (true, Some((generation, roster_digest))) = (required, signer) {
-            let (history_root, history_size) = commitment::history_root_and_size(&*stx.world);
-            subjects::write_subject(
-                &mut stx,
-                SccpAttestationSubjectV1 {
-                    height,
-                    epoch: inputs.epoch,
-                    timestamp_ms: now_ms,
-                    sccp_root: committed.map_or([0; 32], |commitment| commitment.root),
-                    message_count: committed.map_or(0, |commitment| commitment.message_count),
-                    history_root,
-                    history_size,
-                    generation,
-                    roster_digest,
-                    next_roster_digest: step.created_digest.unwrap_or([0; 32]),
+            timestamp_ms: header.creation_time_ms,
+            flags: FLAG_ACTIVE
+                | if step.successor_validity_ms > 0 {
+                    FLAG_ROTATION
+                } else {
+                    0
                 },
-            )?;
+            message_count: committed.map_or(0, |record| record.message_count),
+            sccp_root: committed.map_or([0; 32], |record| record.root),
+            history_size,
+            history_root,
+            generation: step.generation,
+            committee_root: step.committee_root,
+            validity_ms: step.successor_validity_ms,
+            next_committee_root: step.next_committee_root,
+        })
+        .ok()
+    });
+    if result.is_some() {
+        if let Some(plan) = plan {
+            plan.publish(&mut stx)
+                .map_err(|e| BlockValidationError::StateStorageAdmission(e.into()))?;
         }
     }
-
-    subjects::record_stalled_handoffs(&mut stx, parameters.attestation_stall_ms, now_ms)?;
-    prune::prune(&mut stx, now_ms, prune::MAX_PRUNE_DELETIONS_PER_BLOCK);
+    store::degraded_run::set(
+        &mut stx,
+        if result.is_some() {
+            0
+        } else {
+            prior_degraded.saturating_add(1)
+        },
+    );
+    prune::prune(&mut stx, prune::MAX_PRUNE_DELETIONS_PER_BLOCK);
+    generation::clear_destination_progress(&mut stx)
+        .map_err(|e| BlockValidationError::StateStorageAdmission(e.into()))?;
+    // TODO: emit the shared-model SccpFinalityDegraded event once the coordinated model
+    // migration lands. Never emit a retired attestation event for this condition.
     stx.apply();
-    Ok(())
+    Ok(result.unwrap_or(inactive))
 }
 
 /// Test observation of the inputs [`finalize_block`] received on this thread or for one
@@ -171,42 +186,39 @@ pub(crate) mod observed {
     }
 }
 
-/// Return whether block start of `candidate_header` has SCCP work: its creation time reaches
-/// the heartbeat of the current generation and the heartbeat marker has not fired for it
-/// (§4.3.2). `world` is the committed parent state.
-#[must_use]
-pub fn heartbeat_start_work_pending(
-    world: &(impl WorldReadOnly + ?Sized),
-    candidate_header: &BlockHeader,
-) -> bool {
-    if !params::exists(world) {
-        return false;
-    }
-    roster::heartbeat_due(world, candidate_header.creation_time_ms)
-        .is_some_and(|generation| *store::heartbeat_marker::get(world) != Some(generation))
-}
-
-/// Apply SCCP block-start work of `header` (the heartbeat marker, §4.3.2).
-///
-/// The marker fires at most once per generation, which makes the heartbeat block
-/// deterministic start-of-block work even on an idle Taira.
+/// Advance the bounded liability clock before governance and this block's transactions.
 ///
 /// # Errors
 ///
-/// Propagates local storage admission failures of the block-start transaction.
+/// Local storage admission refusal leaves the original block retryable.
 pub fn apply_block_start(
     state_block: &mut StateBlock<'_>,
     header: &BlockHeader,
 ) -> Result<(), StateStorageAdmissionError> {
-    if !heartbeat_start_work_pending(&state_block.world, header) {
-        return Ok(());
-    }
-    let Some(generation) = roster::heartbeat_due(&state_block.world, header.creation_time_ms)
-    else {
+    let Some(parameters) = store::parameters::get(&state_block.world).as_ref() else {
         return Ok(());
     };
+    // SCCP is initialized only by a genesis instruction, after this start phase. G1 fixes
+    // its first clock in the authenticated finalizer; preexisting component state grants
+    // no genesis scope authority here.
+    if header.is_genesis() {
+        return Ok(());
+    }
+    let Some(parent) = state_block.native_execution_tip() else {
+        // Component state without an authenticated parent cannot advance monetary time.
+        return Ok(());
+    };
+    if parent.root_scope() != SumeragiRootScope::Global {
+        return Ok(());
+    }
+    let clock = generation::advance_liability_clock(
+        *store::liability_clock::get(&state_block.world),
+        parent.creation_time_ms(),
+        header.creation_time_ms,
+        parameters.committee_heartbeat_ms,
+    );
     let mut stx = state_block.try_transaction()?;
-    store::heartbeat_marker::set(&mut stx, Some(generation));
+    store::liability_clock::set(&mut stx, clock);
     stx.apply();
     Ok(())
 }
@@ -214,14 +226,186 @@ pub fn apply_block_start(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::smartcontracts::isi::sccp::{
-        store,
-        test_support::{blank_state, header},
-    };
-    use iroha_data_model::sccp::params::SccpParametersV1;
+    use crate::smartcontracts::isi::sccp::test_support::{blank_state, header, sample_generation};
+    use iroha_data_model::{parameter::system::ConsensusMode, sccp::params::SccpParametersV1};
 
     #[test]
-    fn proposal_observer_is_scoped_across_threads_and_releases_on_unwind() {
+    fn absent_sccp_produces_an_inactive_bound_header() {
+        let state = blank_state();
+        let header = header(2);
+        let mut block = state.block(header);
+        apply_block_start(&mut block, &header).unwrap();
+        let result = finalize_block(&mut block, &header, None, SumeragiRootScope::Global).unwrap();
+        assert!(!result.is_active());
+        assert_eq!(result.height(), 2);
+        assert_eq!(result.timestamp_ms(), header.creation_time_ms);
+        assert!(!generation::heartbeat_due(
+            &block.world,
+            header.creation_time_ms
+        ));
+    }
+
+    #[test]
+    fn genesis_uses_native_keys_and_records_the_original_generation() {
+        let state = blank_state();
+        let header = header(1);
+        let mut block = state.block(header);
+        let fixture = sample_generation(1, 1);
+        let mut stx = block.transaction();
+        store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
+        stx.apply();
+        let inputs = SccpHeightInputsV1 {
+            mode: ConsensusMode::Npos,
+            height: 1,
+            epoch: 0,
+            epoch_end_height: 100,
+            keys: super::super::height::SccpHeightKeysV1::try_from_slice(&fixture.keys.clone())
+                .unwrap(),
+            next_keys: None,
+        };
+        let result = finalize_block(
+            &mut block,
+            &header,
+            Some(&inputs),
+            SumeragiRootScope::Global,
+        )
+        .unwrap();
+        assert!(result.is_active());
+        assert!(!result.is_rotation());
+        assert_eq!(result.committee_root(), fixture.committee_root);
+        assert_eq!(result.generation(), 1);
+        assert_eq!(*store::committee_current::get(&block.world), 1);
+        assert_eq!(
+            *store::liability_clock::get(&block.world),
+            header.creation_time_ms
+        );
+        assert!(store::anchor_open::get(&block.world).is_empty());
+    }
+
+    #[test]
+    fn missing_inputs_are_inactive_and_bound_heartbeat_retries() {
+        let state = blank_state();
+        let header = header(2);
+        let mut block = state.block(header);
+        let mut stx = block.transaction();
+        store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
+        store::committee_generations::insert(&mut stx, 1, sample_generation(1, 1)).unwrap();
+        store::committee_current::set(&mut stx, 1);
+        stx.apply();
+        assert!(
+            !finalize_block(&mut block, &header, None, SumeragiRootScope::Global)
+                .unwrap()
+                .is_active()
+        );
+        assert_eq!(*store::degraded_run::get(&block.world), 1);
+        assert!(
+            !finalize_block(&mut block, &header, None, SumeragiRootScope::Global)
+                .unwrap()
+                .is_active()
+        );
+        assert_eq!(*store::degraded_run::get(&block.world), 2);
+        let mut due = header;
+        due.creation_time_ms = u64::MAX;
+        assert!(!generation::heartbeat_due(
+            &block.world,
+            due.creation_time_ms
+        ));
+        assert_eq!(*store::committee_current::get(&block.world), 1);
+    }
+
+    #[test]
+    fn missing_parent_anchor_cannot_publish_a_due_handoff() {
+        let state = blank_state();
+        let mut header = header(2);
+        let parameters = SccpParametersV1::taira_default();
+        let original = sample_generation(1, 1);
+        header.creation_time_ms = original.start_timestamp_ms + parameters.committee_heartbeat_ms;
+        let mut block = state.block(header);
+        let mut stx = block.transaction();
+        store::parameters::set(&mut stx, Some(parameters));
+        store::committee_generations::insert(&mut stx, 1, original.clone()).unwrap();
+        store::committee_current::set(&mut stx, 1);
+        store::liability_clock::set(&mut stx, original.start_lc);
+        store::degraded_run::set(&mut stx, 2);
+        stx.apply();
+        let inputs = SccpHeightInputsV1 {
+            mode: ConsensusMode::Npos,
+            height: 2,
+            epoch: 0,
+            epoch_end_height: 100,
+            keys: super::super::height::SccpHeightKeysV1::try_from_slice(&original.keys.clone())
+                .unwrap(),
+            next_keys: None,
+        };
+        let result = finalize_block(
+            &mut block,
+            &header,
+            Some(&inputs),
+            SumeragiRootScope::Global,
+        )
+        .unwrap();
+        assert!(!result.is_active());
+        assert_eq!(*store::committee_current::get(&block.world), 1);
+        assert_eq!(
+            store::committee_generations::get(&block.world, &1),
+            Some(&original)
+        );
+        assert!(store::committee_generations::get(&block.world, &2).is_none());
+        assert_eq!(*store::degraded_run::get(&block.world), 3);
+        assert!(!generation::heartbeat_due(
+            &block.world,
+            header.creation_time_ms
+        ));
+    }
+
+    #[test]
+    fn header_refusal_preserves_the_original_degraded_counter_and_generation() {
+        use iroha_data_model::sccp::commitment::SccpHistoryStateV1;
+        let state = blank_state();
+        let header = header(1);
+        let mut block = state.block(header);
+        let mut stx = block.transaction();
+        store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
+        store::degraded_run::set(&mut stx, 2);
+        // No leaves are committed, so the invalid historical summary reaches X validation.
+        store::history::set(
+            &mut stx,
+            SccpHistoryStateV1 {
+                size: 1,
+                peaks: vec![],
+            },
+        );
+        stx.apply();
+        let inputs = SccpHeightInputsV1 {
+            mode: ConsensusMode::Npos,
+            height: 1,
+            epoch: 0,
+            epoch_end_height: 100,
+            keys: super::super::height::SccpHeightKeysV1::try_from_slice(
+                &sample_generation(1, 1).keys,
+            )
+            .unwrap(),
+            next_keys: None,
+        };
+        let result = finalize_block(
+            &mut block,
+            &header,
+            Some(&inputs),
+            SumeragiRootScope::Global,
+        )
+        .unwrap();
+        assert!(!result.is_active());
+        assert_eq!(*store::degraded_run::get(&block.world), 3);
+        assert_eq!(*store::committee_current::get(&block.world), 0);
+        assert!(store::committee_generations::get(&block.world, &1).is_none());
+        assert!(!generation::heartbeat_due(
+            &block.world,
+            header.creation_time_ms
+        ));
+    }
+
+    #[test]
+    fn proposal_observer_remains_scoped_to_its_original_header() {
         let original = header(9_031);
         let foreign = header(9_032);
         let calls = observed::for_header(&original);
@@ -233,136 +417,149 @@ mod tests {
         });
         assert_eq!(calls.take(), vec![(9_031, None)]);
         assert!(calls.take().is_empty());
-        assert!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
-                let _calls = calls;
-                panic!("exercise scoped observer retirement");
-            }))
-            .is_err()
-        );
+        drop(calls);
         observed::record(&original, None);
+        assert!(observed::for_header(&original).take().is_empty());
+        let unwound = std::panic::catch_unwind(|| {
+            let original = header(9_031);
+            let _guard = observed::for_header(&original);
+            observed::record(&original, None);
+            panic!("observer cleanup on unwind");
+        });
+        assert!(unwound.is_err());
         assert!(observed::for_header(&original).take().is_empty());
         let _ = observed::take();
     }
 
     #[test]
-    fn hooks_are_no_ops_without_sccp() {
+    fn authenticated_dataspace_scope_returns_inactive_before_any_sccp_effect() {
+        use crate::sumeragi::lanes::routing::test_support::signed_genesis;
+        use iroha_data_model::sccp::commitment::SccpHistoryStateV1;
+        use iroha_model_base::topology::DataSpaceId;
         let state = blank_state();
-        let candidate = header(2);
-        assert!(!heartbeat_start_work_pending(
-            &state.world_view(),
-            &candidate
-        ));
-        let mut block = state.block(candidate);
-        apply_block_start(&mut block, &candidate).expect("no-op block start");
-        let _ = observed::take();
-        finalize_block(&mut block, &candidate, None).expect("no-op finalizer");
-        assert!(
-            observed::take().is_empty(),
-            "the finalizer returns before reading inputs without SCCP"
-        );
-        assert!(store::block_commitments::is_empty(&block.world));
-        assert_eq!(*store::heartbeat_marker::get(&block.world), None);
-    }
-
-    #[test]
-    fn keyless_or_empty_rosters_fail_closed_without_failing_the_block() {
-        let state = blank_state();
-        let candidate = header(2);
-        let mut block = state.block(candidate);
-        {
-            let mut stx = block.transaction();
-            store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
-            stx.apply();
-        }
-        assert!(!heartbeat_start_work_pending(&block.world, &candidate));
-        apply_block_start(&mut block, &candidate).expect("no-op block start");
-        let _ = observed::take();
-        let inputs = SccpHeightInputsV1 {
-            mode: iroha_data_model::parameter::system::ConsensusMode::Npos,
-            height: 2,
-            epoch: 0,
-            epoch_end_height: 2,
-            roster: Vec::new(),
-            next_roster: Some(Vec::new()),
+        let genesis = signed_genesis(SumeragiRootScope::Dataspace {
+            parent_network_id: state.network_id,
+            dataspace_id: DataSpaceId::new((1_u64 << 40) + 81),
+        });
+        let (_, scope) = iroha_data_model::sumeragi_finality::authenticated_genesis(&genesis)
+            .expect("original signature and committee")
+            .into_parts();
+        assert_ne!(scope, SumeragiRootScope::Global);
+        let h = header(1);
+        let mut block = state.block(h);
+        let original = sample_generation(1, 1);
+        let mut stx = block.transaction();
+        store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
+        store::committee_generations::insert(&mut stx, 1, original.clone()).unwrap();
+        store::committee_current::set(&mut stx, 1);
+        store::liability_clock::set(&mut stx, 3);
+        store::degraded_run::set(&mut stx, 7);
+        let history = SccpHistoryStateV1 {
+            size: 1,
+            peaks: vec![[9; 32]],
         };
-        finalize_block(&mut block, &candidate, Some(&inputs)).expect("empty roster fails closed");
-        finalize_block(&mut block, &candidate, None).expect("no inputs: no roster work");
-        assert!(store::rosters::is_empty(&block.world));
-        assert_eq!(observed::take(), vec![(2, Some(inputs)), (2, None)]);
-    }
-
-    #[test]
-    fn genesis_creates_generation_one_and_the_heartbeat_fires_once() {
-        use crate::smartcontracts::isi::sccp::test_support::peer;
-        use iroha_data_model::sccp::keys::{SccpBridgeKeyStateV1, SccpBridgeKeyV1};
-        use std::num::NonZeroU64;
-
-        let state = blank_state();
-        let genesis = header(1);
-        let mut block = state.block(genesis);
-        {
-            let mut stx = block.transaction();
-            store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
-            for seed in 1..=4_u8 {
-                let key = SccpBridgeKeyV1 {
-                    public_key: [2; 33],
-                    address: [seed * 16; 20],
-                    activation_epoch: 0,
-                    registered_at_height: 1,
-                    faulted: false,
-                };
-                store::bridge_keys::insert(
-                    &mut stx,
-                    peer(seed),
-                    SccpBridgeKeyStateV1 {
-                        active: Some(key),
-                        ..SccpBridgeKeyStateV1::default()
-                    },
-                )
-                .expect("key");
-            }
-            stx.apply();
-        }
+        store::history::set(&mut stx, history.clone());
+        let anchor = anchors::SccpAnchorV1 {
+            core_hash: [4; 32],
+            result: [5; 32],
+        };
+        store::anchor_open::set(&mut stx, vec![anchor]).unwrap();
+        store::anchor_chunks::insert(&mut stx, 99, [6; 32]).unwrap();
+        stx.apply();
         let inputs = SccpHeightInputsV1 {
-            mode: iroha_data_model::parameter::system::ConsensusMode::Npos,
+            mode: ConsensusMode::Npos,
             height: 1,
             epoch: 0,
-            epoch_end_height: 1_000_000,
-            roster: (1..=4).map(peer).collect(),
-            next_roster: None,
+            epoch_end_height: 100,
+            keys: super::super::height::SccpHeightKeysV1::try_from_slice(&original.keys.clone())
+                .unwrap(),
+            next_keys: None,
         };
-        finalize_block(&mut block, &genesis, Some(&inputs)).expect("genesis hook");
-        let (generation, first) = roster::current(&block.world).expect("generation 1");
-        assert_eq!(generation, 1);
-        assert!(!first.is_inert());
-        assert!(
-            !subjects::exists(&block.world, 1),
-            "no messages, no boundary"
+        apply_block_start(&mut block, &h).unwrap();
+        let result = finalize_block(&mut block, &h, Some(&inputs), scope).unwrap();
+        assert!(!result.is_active());
+        assert_eq!(result.height(), h.height().get());
+        assert_eq!(result.timestamp_ms(), h.creation_time_ms);
+        assert_eq!(result.network_id(), *block.network_id().as_bytes());
+        assert_eq!(*store::liability_clock::get(&block.world), 3);
+        assert_eq!(*store::degraded_run::get(&block.world), 7);
+        assert_eq!(*store::committee_current::get(&block.world), 1);
+        assert_eq!(store::committee_generations::len(&block.world), 1);
+        assert_eq!(
+            store::committee_generations::get(&block.world, &1),
+            Some(&original)
         );
+        assert_eq!(store::history::get(&block.world), &history);
+        assert!(store::block_commitments::is_empty(&block.world));
+        assert_eq!(store::anchor_open::get(&block.world), &vec![anchor]);
+        assert_eq!(store::anchor_chunks::len(&block.world), 1);
+        assert_eq!(store::anchor_chunks::get(&block.world, &99), Some(&[6; 32]));
+        // The test's block is intentionally a component state; scope itself comes from the
+        // original signed source. It does not claim that this block executed that source.
+    }
 
-        let max_age = SccpParametersV1::taira_default().roster_max_age_ms;
-        let early = BlockHeader::new(
-            NonZeroU64::new(2).expect("nonzero"),
-            None,
-            None,
-            first.valid_from_ms + max_age - 1,
-            0,
+    #[test]
+    fn block_start_uses_the_original_global_parent_clock() {
+        use crate::{
+            state::World,
+            sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
+        };
+        let chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000)).unwrap();
+        let state = chain.state();
+        let original = state
+            .view()
+            .native_execution_tip()
+            .expect("original executed genesis");
+        assert_eq!(original.root_scope(), SumeragiRootScope::Global);
+        let mut h = header(original.height() + 1);
+        h.creation_time_ms = original.creation_time_ms() + 80_000;
+        let mut block = state.block(h);
+        let parameters = SccpParametersV1::taira_default();
+        let expected = generation::advance_liability_clock(
+            73,
+            original.creation_time_ms(),
+            h.creation_time_ms,
+            parameters.committee_heartbeat_ms,
         );
-        assert!(!heartbeat_start_work_pending(&block.world, &early));
-        let due = BlockHeader::new(
-            NonZeroU64::new(2).expect("nonzero"),
-            None,
-            None,
-            first.valid_from_ms + max_age,
-            0,
-        );
-        assert!(heartbeat_start_work_pending(&block.world, &due));
-        apply_block_start(&mut block, &due).expect("marker");
-        assert_eq!(*store::heartbeat_marker::get(&block.world), Some(1));
-        assert!(
-            !heartbeat_start_work_pending(&block.world, &due),
-            "the marker fires once per generation"
+        assert!(expected > 73, "the positive control must advance");
+        let mut stx = block.transaction();
+        store::parameters::set(&mut stx, Some(parameters));
+        store::liability_clock::set(&mut stx, 73);
+        stx.apply();
+        apply_block_start(&mut block, &h).unwrap();
+        assert_eq!(*store::liability_clock::get(&block.world), expected);
+    }
+
+    #[test]
+    fn original_dataspace_parent_cannot_advance_the_liability_clock() {
+        // This existing fixture executes signed private genesis; the opaque tip is never
+        // fabricated from a caller-authored root scope or restored snapshot row.
+        crate::state::native_capture_fixture::with_native_capture_dataspace_source(
+            |_state, mut block, _guard, source, _hash| {
+                let original = block
+                    .native_execution_tip()
+                    .expect("original executed private genesis");
+                assert!(matches!(
+                    original.root_scope(),
+                    SumeragiRootScope::Dataspace { .. }
+                ));
+                let h = source.header();
+                assert_eq!(original.height() + 1, h.height().get());
+                let mut stx = block.transaction();
+                store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
+                store::liability_clock::set(&mut stx, 73);
+                store::degraded_run::set(&mut stx, 5);
+                stx.apply();
+                apply_block_start(&mut block, &h).unwrap();
+                let result = finalize_block(&mut block, &h, None, original.root_scope()).unwrap();
+                assert!(!result.is_active());
+                assert_eq!(*store::liability_clock::get(&block.world), 73);
+                assert_eq!(*store::degraded_run::get(&block.world), 5);
+                assert!(store::anchor_open::get(&block.world).is_empty());
+                assert!(store::anchor_chunks::is_empty(&block.world));
+                assert!(store::block_commitments::is_empty(&block.world));
+                assert_eq!(*store::committee_current::get(&block.world), 0);
+            },
         );
     }
 }

@@ -39,6 +39,7 @@ type CastingBinding =
 
 struct OriginalReceiptSource {
     finality: SumeragiFinalityProof,
+    scope: iroha_data_model::sumeragi_finality::CertifiedResultScope,
     witness: iroha_allocation::RetainedPayload<ExecWitness>,
     casting_bindings: ordinary_writes::CastingOwner,
 }
@@ -52,9 +53,13 @@ fn original_source(
     if height < 2 {
         return Err("historical receipt requires a certified non-genesis execution".into());
     }
+    let scope = view
+        .native_execution_tip()
+        .ok_or("historical receipt lacks its authenticated native root scope")?
+        .result_scope();
     let finality = build_proof(view, height).map_err(|error| error.to_string())?;
     let decoded = finality
-        .decode_checked()
+        .decode_checked(scope)
         .map_err(|error| error.to_string())?;
     let budget = view.prepared_contract_cache().execution_budget().clone();
     let archive = NativeContextArchive::open_existing(
@@ -94,6 +99,7 @@ fn original_source(
         .map_err(|error| error.to_string())?;
     Ok(OriginalReceiptSource {
         finality,
+        scope,
         witness,
         casting_bindings: projection.casting_bindings,
     })
@@ -157,7 +163,7 @@ pub fn private_dataspace_record_proof(
     }
     let decoded = source
         .finality
-        .decode_checked()
+        .decode_checked(source.scope)
         .map_err(|error| error.to_string())?;
     let block = norito::core::with_decode_limits_scope(
         norito::canonical_decode_limits(source.finality.block_wire.len()),
@@ -168,7 +174,8 @@ pub fn private_dataspace_record_proof(
         .commit_certificate()
         .ok_or("private-root record carrier lacks a native certificate")?;
     let result =
-        iroha_data_model::sumeragi_finality::result_of_preimage(certificate.result_preimage());
+        iroha_data_model::sumeragi_finality::result_of_preimage(certificate.result_preimage())
+            .ok_or("private-root carrier has malformed certified result preimage")?;
     let proof = PrivateDataspaceRecordProof::from_writes(
         *view.network_id(),
         height,
@@ -207,7 +214,7 @@ pub fn validation_fee_policy_witness(
         crate::receiver_snapshot::validation_fee_policy_witness_proof_v1(source.witness.get())?;
     let execution = source
         .finality
-        .decode_checked()
+        .decode_checked(source.scope)
         .map_err(|error| error.to_string())?;
     if root != execution.execution().ordinary_writes_root || !proof.verify(root) {
         return Err("fee policy opening differs from the certified ordinary-write root".into());
@@ -235,7 +242,7 @@ fn fee_evidence_from_source(
         crate::receiver_snapshot::fee_evidence_block_proof_v1(source.witness.get())?;
     let execution = source
         .finality
-        .decode_checked()
+        .decode_checked(source.scope)
         .map_err(|error| error.to_string())?;
     if root != execution.execution().ordinary_writes_root
         || !proof.verify(root)
@@ -322,7 +329,7 @@ pub fn parliament_casting_proof(
         )?;
     let decoded = source
         .finality
-        .decode_checked()
+        .decode_checked(source.scope)
         .map_err(|error| error.to_string())?;
     let expected = ParliamentTimedOvnCastingSnapshotCommitmentV1::from_ordered_bindings(
         height,

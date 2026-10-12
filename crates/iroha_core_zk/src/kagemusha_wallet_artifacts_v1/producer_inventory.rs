@@ -30,6 +30,7 @@ pub use compiler::{
 #[cfg(test)]
 pub(crate) use compiler::{
     open_pinned_engineering_finality_sources, open_pinned_engineering_wallet_sources,
+    reopen_pinned_engineering_wallet_sources,
 };
 
 #[path = "producer_inventory/finality.rs"]
@@ -64,6 +65,22 @@ pub use omega::{OmegaQualificationErrorV1, QualifiedOmegaProgramV1};
 #[path = "producer_inventory/wallet.rs"]
 mod wallet;
 pub use wallet::{QualifiedWalletSourcesV1, WalletSourcesErrorV1};
+
+/// Largest design §5.3 peak proving memory over the installed descriptors of `keys`.
+/// Metadata only: no proving key is read and no artifact field is added.
+fn peak_proving_memory<'a, C: PastaCurve + 'a>(
+    keys: impl IntoIterator<
+        Item = &'a iroha_kagemusha_proof::a_relation::native::artifact::KeyArtifact<C>,
+    >,
+) -> Result<u64, Error> {
+    keys.into_iter().try_fold(0_u64, |peak, key| {
+        crate::kagemusha_wallet_capacity_v1::kagemusha_wallet_relation_peak_memory_v1(
+            key.binding().descriptor(),
+        )
+        .map(|bytes| peak.max(bytes))
+        .ok_or(Error::Inventory)
+    })
+}
 
 /// Canonical inventory metadata cap; original proving tables are stored separately.
 pub const CATALOG_MAX_BYTES_V1: usize = 16 << 20;

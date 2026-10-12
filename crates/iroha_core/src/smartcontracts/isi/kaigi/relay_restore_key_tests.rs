@@ -100,6 +100,7 @@ fn restore_rejects_missing_or_key_mismatched_active_relay_descriptor_without_rew
         let authoritative_before =
             norito::json::to_json(&world.domains).expect("serialize authoritative domain layers");
         let error = rebuild_kaigi_account_dependencies(&mut world)
+            .map_err(crate::execution_attempt::expect_completed_rejection)
             .expect_err("active manifest must retain a matching registered descriptor");
         let expected = if missing {
             "has no registered descriptor"
@@ -256,6 +257,7 @@ fn restore_rejects_orphan_precreation_and_post_end_feedback_without_rewriting_me
         let authoritative_before =
             norito::json::to_json(&world.domains).expect("serialize authoritative domain layers");
         let error = rebuild_kaigi_account_dependencies_at(&mut world, Some(20))
+            .map_err(crate::execution_attempt::expect_completed_rejection)
             .expect_err("invalid feedback source must fail restore");
         let expected = match violation {
             "orphan" => "references missing call",
@@ -315,6 +317,7 @@ fn restore_rejects_orphan_feedback_in_undo_layer() {
     let authoritative_before =
         norito::json::to_json(&world.domains).expect("serialize authoritative domain layers");
     let error = rebuild_kaigi_account_dependencies_at(&mut world, Some(10))
+        .map_err(crate::execution_attempt::expect_completed_rejection)
         .expect_err("orphan feedback in the latest undo layer must fail restore");
     assert!(
         error.contains("references missing call"),

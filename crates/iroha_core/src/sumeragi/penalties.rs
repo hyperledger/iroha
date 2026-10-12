@@ -320,8 +320,12 @@ fn original_slashable_exposure<'a>(
         .map_err(|error| eyre!("invalid slashable stake exposure for {validator}: {error}"))
 }
 
+#[path = "penalties/sccp.rs"]
+mod sccp;
+
 struct ParentPenaltySnapshot {
     pending: ChargedBuffer<PendingPenaltyEvidence>,
+    sccp_pending: ChargedBuffer<sccp::Pending>,
     max_slash_bps: u16,
     validator_map: ValidatorMap,
     stake_index: PublicLaneStakeIndex,
@@ -415,10 +419,39 @@ impl<'a> PenaltyApplier<'a> {
         // Fund the exact original backing before constructing the stake index.
         let mut due_count = 0_usize;
         let mut peer_key_bytes = 0_usize;
-        for (_, record) in world.consensus_evidence().iter() {
+        let mut sccp_count = 0_usize;
+        let mut native_due = false;
+        for (key, record) in world.consensus_evidence().iter() {
+            if record.native_evidence().is_none() {
+                sccp::material(key, record)?;
+                if due(record) {
+                    sccp_count =
+                        sccp_count
+                            .checked_add(1)
+                            .ok_or(EvidencePreparationError::Admission(
+                                AllocationRefusal::DemandOverflow,
+                            ))?;
+                    due_count =
+                        due_count
+                            .checked_add(1)
+                            .ok_or(EvidencePreparationError::Admission(
+                                AllocationRefusal::DemandOverflow,
+                            ))?;
+                }
+                continue;
+            }
+            if matches!(
+                record.attribution.scope,
+                EvidenceScope::SccpGeneration { .. }
+            ) {
+                return Err(eyre!(
+                    "native material cannot supply SCCP penalty authority"
+                ));
+            }
             if !due(record) {
                 continue;
             }
+            native_due = true;
             due_count = due_count
                 .checked_add(record.attribution.offenders.len().max(1))
                 .ok_or(EvidencePreparationError::Admission(
@@ -435,6 +468,10 @@ impl<'a> PenaltyApplier<'a> {
         }
         let mut pending =
             ChargedBuffer::new(due_count, budget).map_err(EvidencePreparationError::from)?;
+        // Clone only the immutable original owner, after admitting the containing rows.
+        // No SCCP account/key/proof graph is reconstructed for this parent snapshot.
+        let mut sccp_pending =
+            ChargedBuffer::new(sccp_count, budget).map_err(EvidencePreparationError::from)?;
         // Prepay every nested compact key before stake-index construction or
         // any clone. Each split charge stays in the same pending entry as its
         // key and refunds only after that entry's PeerId has been dropped.
@@ -448,9 +485,33 @@ impl<'a> PenaltyApplier<'a> {
             stake_budget,
         )
         .wrap_err("failed to index slashable public-lane stake exposure")?;
-        let candidates_map = ValidatorMap::from_world(view, &exposure_index, budget)?;
+        let candidates_map = if sccp_count == 0 || native_due {
+            ValidatorMap::from_world(view, &exposure_index, budget)?
+        } else {
+            // SCCP-only derivation neither constructs nor consults a peer-key locator map.
+            ValidatorMap {
+                rows: ChargedBuffer::new(0, budget).map_err(EvidencePreparationError::from)?,
+                _account_charges: ChargedBuffer::new(0, budget)
+                    .map_err(EvidencePreparationError::from)?,
+            }
+        };
         for (key, record) in world.consensus_evidence().iter() {
             if !due(record) {
+                continue;
+            }
+            if record.native_evidence().is_none() {
+                sccp_pending.push_reserved(sccp::Pending {
+                    key: *key,
+                    record: record.clone(),
+                });
+                pending.push_reserved(PendingPenaltyEvidence((
+                    *key,
+                    record.attribution.scope,
+                    record.attribution.height,
+                    record.recorded_at_height,
+                    record.attribution.instance,
+                    None,
+                )));
                 continue;
             }
             if record.attribution.offenders.is_empty() {
@@ -518,6 +579,7 @@ impl<'a> PenaltyApplier<'a> {
         let stake_share_row_visits = exposure_index.row_visits();
         Ok(ParentPenaltySnapshot {
             pending,
+            sccp_pending,
             max_slash_bps: view.nexus.staking.max_slash_bps,
             validator_map: candidates_map,
             stake_index: exposure_index,
@@ -606,6 +668,33 @@ impl<'a> PenaltyApplier<'a> {
         let mut actions = Vec::new();
         for record in pending.as_slice() {
             let (key, scope, offence_height, recorded_at, instance, signer) = &record.0;
+            if matches!(scope, EvidenceScope::SccpGeneration { .. }) {
+                let original = snapshot
+                    .sccp_pending
+                    .as_slice()
+                    .iter()
+                    .find(|row| &row.key == key)
+                    .ok_or_else(|| eyre!("SCCP evidence cannot use native penalty metadata"))?;
+                if signer.is_some()
+                    || original.record.attribution.scope != *scope
+                    || original.record.attribution.height != *offence_height
+                    || original.record.recorded_at_height != *recorded_at
+                    || original.record.attribution.instance != *instance
+                {
+                    return Err(eyre!(
+                        "SCCP pending metadata differs from its retained original"
+                    ));
+                }
+                sccp::plan(
+                    original,
+                    &mut scratch,
+                    &snapshot.stake_index,
+                    snapshot.max_slash_bps,
+                    block_header,
+                    &mut actions,
+                )?;
+                continue;
+            }
             let key = *key;
             // Admission already validated and anchored this immutable context.
             // Re-reading mutable local Kura files here would make block
@@ -629,6 +718,9 @@ impl<'a> PenaltyApplier<'a> {
                         })
                     }
                     (EvidenceScope::Lane(_), None) => None,
+                    (EvidenceScope::SccpGeneration { .. }, _) => {
+                        return Err(eyre!("SCCP evidence cannot use native penalty metadata"));
+                    }
                 };
                 if let Some(liability) = liability
                     && let Some(locators) = snapshot.validator_map.get(peer_id.public_key())
@@ -873,6 +965,7 @@ fn apply_npos_consensus_effects_to_transaction_inner(
         .world
         .consensus_evidence
         .iter()
+        .filter(|(_, record)| record.native_evidence().is_some())
         .count()
         .saturating_add(effects.evidence_admissions.len())
         > super::evidence::MAX_COMMITTED_EVIDENCE_RECORDS
@@ -882,8 +975,20 @@ fn apply_npos_consensus_effects_to_transaction_inner(
         ));
     }
     let mut retained_evidence_bytes = 0_usize;
-    for (_, record) in tx.world.consensus_evidence.iter() {
-        let encoded_len = super::evidence::evidence_encoded_len(&record.evidence);
+    for (key, record) in tx.world.consensus_evidence.iter() {
+        let Some(proof) = record.native_evidence() else {
+            sccp::material(key, record)?;
+            continue;
+        };
+        if matches!(
+            record.attribution.scope,
+            EvidenceScope::SccpGeneration { .. }
+        ) {
+            return Err(eyre!(
+                "native material cannot supply SCCP penalty authority"
+            ));
+        }
+        let encoded_len = super::evidence::evidence_encoded_len(proof);
         if encoded_len > super::evidence::MAX_EVIDENCE_ADMISSION_BYTES {
             return Err(eyre!(
                 "committed native Sumeragi evidence contains an oversized individual proof"
@@ -946,12 +1051,16 @@ fn apply_npos_consensus_effects_to_transaction_inner(
                         "mandatory slash does not name an original proven signer"
                     ));
                 }
-                let liability = ConsensusSlashLiability::from_attribution(
-                    &record.attribution,
-                    record.recorded_at_height,
-                    action.signer,
-                )
-                .ok_or_else(|| eyre!("mandatory slash has no original monetary custody"))?;
+                let liability = if record.native_evidence().is_none() {
+                    sccp::action_liability(&tx.world, record, action)?
+                } else {
+                    ConsensusSlashLiability::from_attribution(
+                        &record.attribution,
+                        record.recorded_at_height,
+                        action.signer,
+                    )
+                    .ok_or_else(|| eyre!("mandatory slash has no original monetary custody"))?
+                };
                 if matches!(liability, ConsensusSlashLiability::Root(_))
                     && !tx.is_lane_active_for_authority(action.lane_id)
                 {
@@ -1002,6 +1111,12 @@ fn apply_npos_consensus_effects_to_transaction_inner(
                     .get(&action.evidence_key)
                     .cloned()
                     .expect("validated unresolved evidence exists");
+                if record.native_evidence().is_none() {
+                    let material = sccp::material(&action.evidence_key, &record)?;
+                    for offender in &material.offenders {
+                        sccp::registration(&tx.world, offender, material.start_height)?;
+                    }
+                }
                 record.penalty_status = EvidencePenaltyStatus::Applied {
                     height: action.height,
                 };
@@ -1228,6 +1343,7 @@ pub(crate) fn pending_payload_penalty_fixture(state: &State) -> (Hash, usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    include!("penalties/sccp_tests.rs");
     use crate::{
         kura::Kura,
         query::store::LiveQueryStore,
@@ -1235,7 +1351,7 @@ mod tests {
         state::{State, StateBlock, World},
         sumeragi::evidence::evidence_key,
     };
-    use iroha_crypto::{Algorithm, Hash, KeyPair, Signature};
+    use iroha_crypto::{Algorithm, Hash, KeyPair};
     use iroha_data_model::{
         NetworkId,
         asset::{AssetDefinitionId, AssetId},
@@ -1410,10 +1526,11 @@ mod tests {
                 sig: NativeSignature([0; iroha_sumeragi::types::SIGNATURE_LEN]),
             };
             vote.sig = NativeSignature(
-                Signature::new(keys[signer as usize].private_key(), &vote.preimage())
-                    .payload()
-                    .try_into()
-                    .unwrap(),
+                iroha_crypto::bls::consensus::sign_preimage(
+                    keys[signer as usize].private_key(),
+                    &vote.preimage(),
+                )
+                .unwrap(),
             );
             vote
         };
@@ -1452,7 +1569,7 @@ mod tests {
             safety_violation: false,
         };
         let record = EvidenceRecord {
-            evidence,
+            evidence: iroha_data_model::block::consensus::RecordedEvidenceV1::Native(evidence),
             attribution,
             recorded_at_height,
             recorded_at_view: 0,
@@ -3712,10 +3829,11 @@ mod tests {
         for vote in [&mut first, &mut second] {
             vote.height = 1_000;
             vote.sig = iroha_sumeragi::types::Signature(
-                Signature::new(roster_keys()[1].private_key(), &vote.preimage())
-                    .payload()
-                    .try_into()
-                    .unwrap(),
+                iroha_crypto::bls::consensus::sign_preimage(
+                    roster_keys()[1].private_key(),
+                    &vote.preimage(),
+                )
+                .unwrap(),
             );
         }
         let proof = Evidence::from_native(&iroha_sumeragi::message::Evidence::VoteEquivocation(
@@ -4048,5 +4166,49 @@ mod tests {
             outcome.applied, 1,
             "count terminalized records, not slash actions"
         );
+    }
+    #[test]
+    fn unsupported_sccp_scope_cannot_create_native_penalty_or_empty_offender_marker() {
+        let state = native_penalty_state();
+        install_one_block_delay_npos(&state);
+        let key = insert_evidence(&state, fixture_vote_evidence(1, 0), 1);
+        for retain_signer in [true, false] {
+            let view = state.view();
+            let mut snapshot = PenaltyApplier::parent_snapshot(
+                &view,
+                2,
+                state.evidence_preparation_budget(),
+                state.stake_index_budget(),
+            )
+            .unwrap();
+            assert_eq!(snapshot.pending.as_slice().len(), 1);
+            // Adversarial private-plan DATA, not an admitted SCCP record or proof.
+            snapshot.pending.as_mut_slice()[0].0.1 =
+                EvidenceScope::SccpGeneration { generation: 1 };
+            if !retain_signer {
+                drop(snapshot.pending.as_mut_slice()[0].0.5.take());
+            }
+            drop(view);
+            let error = PenaltyApplier::new(&state, None)
+                .derive_consensus_penalty_actions(&penalty_header(2), snapshot)
+                .err()
+                .expect("unsupported scope must not manufacture any penalty action");
+            assert!(
+                error
+                    .to_string()
+                    .contains("SCCP evidence cannot use native penalty metadata")
+            );
+            assert_eq!(state.evidence_preparation_budget().reserved_bytes(), 0);
+            assert_eq!(
+                state
+                    .view()
+                    .world()
+                    .consensus_evidence()
+                    .get(&key)
+                    .unwrap()
+                    .penalty_status,
+                EvidencePenaltyStatus::Pending
+            );
+        }
     }
 }

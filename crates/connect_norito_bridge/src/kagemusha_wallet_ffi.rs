@@ -87,10 +87,17 @@ pub const PROOF_REJECTED: i32 = -9;
 pub const CANCELLED: i32 = -10;
 /// An existing operation/credit identity has different inputs.
 pub const CONFLICT: i32 = -11;
-/// Insufficient durable storage.
-pub const NO_SPACE: i32 = -12;
+/// Design §5.3 `NotEnoughStorage`: free custody storage does not cover the operation (the
+/// runtime capacity check before proving or commit, or a full disk). Refused before commit:
+/// nothing was debited or credited and the receipt or Payment stays deliverable. Retry after
+/// freeing storage. Never a device verdict.
+pub const NOT_ENOUGH_STORAGE: i32 = -12;
 /// Custody is terminal or the payment key has been lost.
 pub const TERMINAL: i32 = -13;
+/// Design §5.3 `NotEnoughMemory`: memory available to the app does not cover the installed
+/// relations' peak proving memory. Refused before commit: nothing was debited or credited.
+/// Retry after freeing memory. Never a device verdict.
+pub const NOT_ENOUGH_MEMORY: i32 = -14;
 /// Internal panic or poisoned owner; no outcome should be inferred.
 pub const INTERNAL: i32 = -100;
 
@@ -139,7 +146,7 @@ impl From<advance::KagemushaWalletProviderErrorV1> for Failure {
         match value {
             E::Unavailable(reason) => Self::unavailable(UNAVAILABLE, reason),
             E::Uncertain(reason) => Self::unavailable(UNCERTAIN, reason),
-            E::NoSpace => Self::code(NO_SPACE),
+            E::NoSpace => Self::code(NOT_ENOUGH_STORAGE),
             E::NoReplaceUnsupported | E::Invalid { .. } => Self::code(INVALID),
             E::UnavailableCustodyData { .. } | E::LostCustody(_) | E::UnexpectedEntry { .. } => {
                 Self::code(CUSTODY_LOST)
@@ -167,6 +174,8 @@ impl From<state::Error> for Failure {
             E::Cancelled => Self::code(CANCELLED),
             E::ArtifactsUnavailable(_) => Self::code(ARTIFACTS_UNAVAILABLE),
             E::Proof(_) => Self::code(PROOF_REJECTED),
+            E::NotEnoughStorage => Self::code(NOT_ENOUGH_STORAGE),
+            E::NotEnoughMemory => Self::code(NOT_ENOUGH_MEMORY),
         }
     }
 }
@@ -183,10 +192,13 @@ pub(crate) struct Response {
     pub(crate) detail: u32,
     pub(crate) bytes: Vec<u8>,
 }
-fn completion(value: Option<state::Completion>) -> Response {
+/// Project one coordinator completion. Advance's commit-time storage shortfall is the typed
+/// `NOT_ENOUGH_STORAGE` failure (design §5.3), the same status as the check before proving;
+/// not-performed `detail` is 0 stale head or 2 invalid.
+fn completion(value: Option<state::Completion>) -> Result<Response> {
     use advance::KagemushaWalletNotPerformedV1 as N;
     use state::Completion as C;
-    match value {
+    Ok(match value {
         None => Response::default(),
         Some(C::Complete(bytes)) => Response {
             kind: 1,
@@ -206,7 +218,7 @@ fn completion(value: Option<state::Completion>) -> Response {
             kind: 3,
             detail: match reason {
                 N::StaleHead => 0,
-                N::CapacityWait => 1,
+                N::CapacityWait => return Err(Failure::code(NOT_ENOUGH_STORAGE)),
                 N::Invalid { .. } => 2,
             },
             ..Response::default()
@@ -219,7 +231,7 @@ fn completion(value: Option<state::Completion>) -> Response {
             kind: 5,
             ..Response::default()
         },
-    }
+    })
 }
 trait Wallet: Send {
     fn require_custody_operations(&self) -> Result<()> {
@@ -277,7 +289,7 @@ impl<P: advance::KagemushaWalletPlatformV1, S: OriginalSourceV1 + Send> Wallet
         Ok(self.wallet.snapshot()?)
     }
     fn execute(&mut self, request: state::OperationRequestV1) -> Result<Response> {
-        Ok(completion(Some(self.wallet.execute(request)?)))
+        completion(Some(self.wallet.execute(request)?))
     }
     fn request_status(&mut self, request: &[u8; 32]) -> Result<Response> {
         Ok(match self.wallet.retry_request(request)? {
@@ -286,14 +298,14 @@ impl<P: advance::KagemushaWalletPlatformV1, S: OriginalSourceV1 + Send> Wallet
                 kind: 11,
                 ..Response::default()
             },
-            state::RequestStatusV1::Outcome(value) => completion(Some(value)),
+            state::RequestStatusV1::Outcome(value) => completion(Some(value))?,
         })
     }
     fn retry(&mut self, operation: &[u8; 32]) -> Result<Response> {
-        Ok(completion(self.wallet.retry(operation)?))
+        completion(self.wallet.retry(operation)?)
     }
     fn resume(&mut self) -> Result<Response> {
-        Ok(completion(self.wallet.resume()?))
+        completion(self.wallet.resume()?)
     }
     fn fold(&mut self) -> Result<Response> {
         self.require_custody_operations()?;

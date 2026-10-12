@@ -32,9 +32,9 @@ class StoreTests(unittest.TestCase):
         path, fd = self.directory()
         owner = E1CounterStore.initialize(path, fd)
         with closing(owner._connect()) as connection:
-            connection.execute("INSERT INTO wallet_e1_attempts VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            connection.execute("INSERT INTO wallet_e1_attempts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                                (b"operation", b"preparation", b"configuration", b"r" * 32,
-                                b"b" * 32, b"original", b"s" * 64, b"result"))
+                                b"b" * 32, b"original", b"s" * 64, b"\1" * 8, "evidence", b"result", None))
         original = (path / "wallet-e1.generation").read_bytes()
         owner.close()
         owner.close()
@@ -54,21 +54,42 @@ class StoreTests(unittest.TestCase):
         owner = E1CounterStore.initialize(path, fd)
         self.addCleanup(owner.close)
         complete = [b"operation", b"preparation", b"configuration", b"r" * 32,
-                    b"b" * 32, b"original", b"s" * 64, None]
+                    b"b" * 32, b"original", b"s" * 64, b"\1" * 8, None, None, None]
+        insert = "INSERT INTO wallet_e1_attempts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         with closing(owner._connect()) as connection:
             # SQLite CHECK accepts NULL. Each mandatory claim field needs an explicit
             # non-NULL predicate so a partly written claim can never resemble preparation.
-            for index in (3, 4, 5, 6):
+            for index in (3, 4, 5, 6, 7):
                 with self.subTest(missing=index):
                     row = complete.copy()
                     row[index] = None
                     with self.assertRaises(sqlite3.IntegrityError):
-                        connection.execute("INSERT INTO wallet_e1_attempts VALUES (?, ?, ?, ?, ?, ?, ?, ?)", row)
+                        connection.execute(insert, row)
                     self.assertEqual(connection.execute("SELECT count(*) FROM wallet_e1_attempts").fetchone(), (0,))
-            connection.execute("INSERT INTO wallet_e1_attempts VALUES (?, ?, ?, ?, ?, ?, ?, ?)", complete)
-            connection.execute("INSERT INTO wallet_e1_attempts VALUES (?, ?, ?, NULL, NULL, NULL, NULL, NULL)",
+            # Exactly one outcome state: a result only with evidence, a code 1–10 only when refused.
+            for outcome, result, code in (("evidence", None, None), ("refused", None, None),
+                                          ("refused", None, 11), ("refused", None, 0),
+                                          ("refused", b"result", 5), ("unavailable", b"result", None),
+                                          ("unavailable", None, 5), ("issued", b"result", None),
+                                          (None, b"result", None), (None, None, 5),
+                                          ("refused", None, 5.5)):
+                with self.subTest(outcome=outcome, result=result, code=code):
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        connection.execute(insert, complete[:8] + [outcome, result, code])
+            for index, (outcome, result, code) in enumerate((("evidence", b"result", None),
+                                                              ("refused", None, 10),
+                                                              ("unavailable", None, None))):
+                connection.execute(insert, [b"claimed%d" % index, *complete[1:3],
+                                            bytes([index]) * 32, bytes([index + 8]) * 32,
+                                            *complete[5:8], outcome, result, code])
+            connection.execute(insert, complete)
+            # An unclaimed preparation carries no dispatch time or outcome.
+            with self.assertRaises(sqlite3.IntegrityError):
+                connection.execute(insert, [b"bad", b"prepared only", b"configuration", None, None,
+                                            None, None, b"\1" * 8, None, None, None])
+            connection.execute("INSERT INTO wallet_e1_attempts (operation_id, preparation, config_sha256) VALUES (?, ?, ?)",
                                (b"other", b"prepared only", b"configuration"))
-            self.assertEqual(connection.execute("SELECT count(*) FROM wallet_e1_attempts").fetchone(), (2,))
+            self.assertEqual(connection.execute("SELECT count(*) FROM wallet_e1_attempts").fetchone(), (5,))
 
     def test_lost_database_is_unavailable_and_generation_forbids_reinitialization(self):
         path, fd = self.directory()

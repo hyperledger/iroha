@@ -2993,104 +2993,6 @@
       ]
     },
     {
-      "id": "proof.config_sccp_max_secp256k1_recoveries_per_transaction",
-      "group": "work_budget",
-      "what": "Largest number of secp256k1 recoveries in one transaction.",
-      "unit": "count",
-      "value": 2048,
-      "source": "node_local",
-      "class": "consensus",
-      "owner": {
-        "path": "crates/iroha_config/src/parameters/defaults.rs",
-        "symbol": "MAX_SECP256K1_RECOVERIES_PER_TRANSACTION",
-        "kind": "const",
-        "anchor": [
-          "pub mod zk {",
-          "pub mod sccp {"
-        ],
-        "expr": "nonzero!(2_048_u32)"
-      },
-      "defect": {
-        "owner": "F.4",
-        "summary": "The value is read from node configuration ([zk] or [confidential]) and bound into State only through compute_zk_consensus_policy_hash; two nodes configured differently decide differently until F.4 moves its source into committed State."
-      },
-      "catalog": {
-        "id": "zk_consensus_policy_hash",
-        "field": "sccp.max_secp256k1_recoveries_per_transaction"
-      },
-      "enforcement": [
-        {
-          "stage": "follower",
-          "path": "crates/iroha_core/src/smartcontracts/isi/sccp/light_clients.rs",
-          "contains": "\"max_secp256k1_recoveries_per_transaction\","
-        },
-        {
-          "stage": "follower",
-          "path": "crates/iroha_core/src/smartcontracts/isi/sccp/light_clients.rs",
-          "contains": "if tx > tx_limit {"
-        }
-      ],
-      "tests": [
-        {
-          "path": "crates/iroha_core/src/smartcontracts/isi/sccp/light_clients.rs",
-          "name": "verifier_work_is_reserved_per_transaction_and_block"
-        },
-        {
-          "path": "crates/iroha_core/src/smartcontracts/isi/sccp/light_clients.rs",
-          "name": "verifier_limits_name_the_first_exceeded_category"
-        }
-      ]
-    },
-    {
-      "id": "proof.config_sccp_max_secp256k1_recoveries_per_block",
-      "group": "work_budget",
-      "what": "Largest number of secp256k1 recoveries committed in one block.",
-      "unit": "count",
-      "value": 8192,
-      "source": "node_local",
-      "class": "consensus",
-      "owner": {
-        "path": "crates/iroha_config/src/parameters/defaults.rs",
-        "symbol": "MAX_SECP256K1_RECOVERIES_PER_BLOCK",
-        "kind": "const",
-        "anchor": [
-          "pub mod zk {",
-          "pub mod sccp {"
-        ],
-        "expr": "nonzero!(8_192_u32)"
-      },
-      "defect": {
-        "owner": "F.4",
-        "summary": "The value is read from node configuration ([zk] or [confidential]) and bound into State only through compute_zk_consensus_policy_hash; two nodes configured differently decide differently until F.4 moves its source into committed State."
-      },
-      "catalog": {
-        "id": "zk_consensus_policy_hash",
-        "field": "sccp.max_secp256k1_recoveries_per_block"
-      },
-      "enforcement": [
-        {
-          "stage": "follower",
-          "path": "crates/iroha_core/src/smartcontracts/isi/sccp/light_clients.rs",
-          "contains": "\"max_secp256k1_recoveries_per_block\","
-        },
-        {
-          "stage": "follower",
-          "path": "crates/iroha_core/src/smartcontracts/isi/sccp/light_clients.rs",
-          "contains": "} else if block > block_limit {"
-        }
-      ],
-      "tests": [
-        {
-          "path": "crates/iroha_core/src/smartcontracts/isi/sccp/light_clients.rs",
-          "name": "verifier_work_is_reserved_per_transaction_and_block"
-        },
-        {
-          "path": "crates/iroha_core/src/smartcontracts/isi/sccp/light_clients.rs",
-          "name": "verifier_limits_name_the_first_exceeded_category"
-        }
-      ]
-    },
-    {
       "id": "proof.config_sccp_max_ed25519_signature_checks_per_transaction",
       "group": "work_budget",
       "what": "Largest number of Ed25519 signature checks in one transaction.",
@@ -11635,8 +11537,6 @@
         "sccp.max_ethereum_light_client_updates_per_block": "proof.config_sccp_max_ethereum_light_client_updates_per_block",
         "sccp.max_native_header_bytes_per_transaction": "proof.config_sccp_max_native_header_bytes_per_transaction",
         "sccp.max_native_header_bytes_per_block": "proof.config_sccp_max_native_header_bytes_per_block",
-        "sccp.max_secp256k1_recoveries_per_transaction": "proof.config_sccp_max_secp256k1_recoveries_per_transaction",
-        "sccp.max_secp256k1_recoveries_per_block": "proof.config_sccp_max_secp256k1_recoveries_per_block",
         "sccp.max_ed25519_signature_checks_per_transaction": "proof.config_sccp_max_ed25519_signature_checks_per_transaction",
         "sccp.max_ed25519_signature_checks_per_block": "proof.config_sccp_max_ed25519_signature_checks_per_block",
         "sccp.max_bls_vote_attestations_per_transaction": "proof.config_sccp_max_bls_vote_attestations_per_transaction",

@@ -88,9 +88,20 @@ fn executed_identity_excludes_original_complete_certificate_only() {
     let uncertified = certified.clone().with_commit_certificate(None);
     assert_eq!(assert_exact_identity(&uncertified), identity);
     assert!(certified.encode_wire().unwrap().len() > usize::try_from(identity.0).unwrap());
-    let commitment =
-        crate::sumeragi_finality::ExecutionResultCommitment::decode(certificate.result_preimage())
-            .unwrap();
+    let result = crate::sumeragi_finality::CertifiedResultV1::decode(
+        certificate.result_preimage(),
+        crate::sumeragi_finality::CertifiedResultScope::from_root_scope(
+            fixture.verifier().root_scope(),
+        ),
+    )
+    .unwrap();
+    result
+        .check_block(
+            certified.header().height().get(),
+            certified.header().creation_time_ms,
+        )
+        .unwrap();
+    let commitment = result.commitment();
     assert_eq!(commitment.execution.executed_block_wire_len, identity.0);
     assert_eq!(commitment.execution.executed_block_wire_hash, identity.1);
 }

@@ -96,6 +96,7 @@ fn native_read(statement: SumeragiFinalityAttestation) -> FinalityAttestation {
         vec![client.clone()],
         vec![(identity.clone(), client)],
         std::time::Instant::now() + Duration::from_secs(30),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     )
     .unwrap();
     let mut reads = source.latest_attestations(&[identity], &challenge);
@@ -123,7 +124,8 @@ fn authenticated_carrier_rechecks_the_observations_exact_bindings() {
             Ok(native_read(statement.clone())),
             &identity,
             &CHALLENGE,
-            network
+            network,
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
         ),
         Read::Claim(_)
     ));
@@ -133,6 +135,7 @@ fn authenticated_carrier_rechecks_the_observations_exact_bindings() {
             &identity,
             &challenge,
             network,
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
         ) else {
             panic!("an authenticated carrier cannot change its observation challenge")
         };
@@ -149,6 +152,7 @@ fn authenticated_carrier_rechecks_the_observations_exact_bindings() {
         &identity,
         &CHALLENGE,
         foreign,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     ) else {
         panic!("an authenticated carrier cannot change its observation network")
     };
@@ -156,9 +160,13 @@ fn authenticated_carrier_rechecks_the_observations_exact_bindings() {
         matches!(*error, FinalityError::WrongNetwork { expected, actual } if expected == foreign && actual == network)
     );
     let other = peer(&chain.epoch(1).keys[1]);
-    let Read::Substituted(actual) =
-        Read::new(Ok(native_read(statement)), &other, &CHALLENGE, network)
-    else {
+    let Read::Substituted(actual) = Read::new(
+        Ok(native_read(statement)),
+        &other,
+        &CHALLENGE,
+        network,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+    ) else {
         panic!("an authenticated carrier cannot substitute another selected peer")
     };
     assert_eq!(*actual, identity);
@@ -185,9 +193,13 @@ fn raw_conversion_and_default_batch_cannot_forge_sdk_provenance() {
         let mut reads = source.latest_attestations(std::slice::from_ref(&identity), &CHALLENGE);
         let raw = reads.pop().unwrap().unwrap();
         assert!(matches!(&raw, FinalityAttestation::Raw(_)));
-        let Read::Invalid(error) =
-            Read::new(Ok(raw), &identity, &CHALLENGE, chain.anchor.network_id)
-        else {
+        let Read::Invalid(error) = Read::new(
+            Ok(raw),
+            &identity,
+            &CHALLENGE,
+            chain.anchor.network_id,
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        ) else {
             panic!("default raw-source adapter must fully authenticate structure and signature")
         };
         assert!(matches!(*error, FinalityError::Native(_)));
@@ -210,7 +222,8 @@ fn consuming_sdk_provenance_cannot_authenticate_a_mutated_raw_statement() {
             Ok(raw.into()),
             &identity,
             &CHALLENGE,
-            chain.anchor.network_id
+            chain.anchor.network_id,
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
         ),
         Read::Invalid(_)
     ));
@@ -229,6 +242,7 @@ fn sdk_authenticated_conflicting_decision_still_fails_trusted_prefix_placement()
         &identity,
         &CHALLENGE,
         chain.anchor.network_id,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     ) else {
         panic!("original SDK-authenticated statement must be admitted")
     };
@@ -248,7 +262,7 @@ fn sdk_authenticated_conflicting_decision_still_fails_trusted_prefix_placement()
     let mut commitment = result(&proof);
     commitment.execution.parent_state_root = Hash::new(b"conflicting certified execution");
     let mut qc = commit_qc(&proof);
-    qc.result = commitment.result().unwrap();
+    qc.result = recertified_result(&proof, &commitment).result().unwrap();
     sign_qc(&mut qc, &chain.epoch(3).keys, &[0, 1, 2]);
     replace_certificate(&mut proof, &header, &qc, &commitment);
     let mut conflict = chain.attest(member, 3);
@@ -259,6 +273,7 @@ fn sdk_authenticated_conflicting_decision_still_fails_trusted_prefix_placement()
         &identity,
         &CHALLENGE,
         chain.anchor.network_id,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     ) else {
         panic!("SDK authentication intentionally does not select a trusted chain")
     };
@@ -302,4 +317,125 @@ fn sdk_authenticated_outsider_cannot_count_as_a_selected_committee_member() {
         AttestationOutcome::Rejected(FinalityError::UnexpectedPeer { .. })
     )));
     assert_eq!(verifier.checkpoint(), &before);
+}
+
+#[test]
+fn authenticated_carrier_cannot_reuse_a_different_result_scope() {
+    let chain = Chain::constant(4, 1);
+    let statement = chain.attest(&chain.epoch(1).keys[0], 1);
+    let identity = statement.body.node_id.clone();
+    // Inactive X is structurally valid in both roles; provenance still names one role.
+    statement.verify(CertifiedResultScope::NonGlobal).unwrap();
+    assert!(matches!(
+        Read::new(
+            Ok(FinalityAttestation::Raw(statement.clone())),
+            &identity,
+            &CHALLENGE,
+            chain.anchor.network_id,
+            CertifiedResultScope::NonGlobal
+        ),
+        Read::Claim(_)
+    ));
+    let carrier = native_read(statement.clone());
+    assert_eq!(
+        match &carrier {
+            FinalityAttestation::Authenticated(value) => value.result_scope(),
+            _ => panic!("SDK must retain authenticated provenance"),
+        },
+        CertifiedResultScope::TairaGlobal
+    );
+    assert!(matches!(
+        Read::new(
+            Ok(carrier),
+            &identity,
+            &CHALLENGE,
+            chain.anchor.network_id,
+            CertifiedResultScope::NonGlobal
+        ),
+        Read::Invalid(_)
+    ));
+    assert!(matches!(
+        Read::new(
+            Ok(native_read(statement)),
+            &identity,
+            &CHALLENGE,
+            chain.anchor.network_id,
+            CertifiedResultScope::TairaGlobal
+        ),
+        Read::Claim(_)
+    ));
+    assert_eq!(
+        chain.verifier().result_scope(),
+        CertifiedResultScope::TairaGlobal
+    );
+}
+
+#[test]
+fn real_qc_active_result_requires_selected_global_scope_and_bare_body_is_rejected() {
+    use iroha_data_model::sumeragi_finality::certified_result::FLAG_ACTIVE;
+    use iroha_data_model::sumeragi_finality::context_committee_root;
+    let chain = Chain::constant(4, 3);
+    let mut proof = chain.proof(2).clone();
+    let original = certified_result(&proof);
+    let mut fields = original.header().fields();
+    fields.flags = FLAG_ACTIVE;
+    fields.generation = 1;
+    fields.committee_root =
+        context_committee_root(&original.commitment().schedule.current).unwrap();
+    let active = CertifiedResultV1::new(
+        SccpFinalityHeaderV1::from_fields(&fields).unwrap(),
+        original.commitment().clone(),
+        CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
+    let mut qc = commit_qc(&proof);
+    qc.result = active.result().unwrap();
+    sign_qc(&mut qc, &chain.epoch(2).keys, &[0, 1, 2]);
+    let mut carrier = block(&proof);
+    let certificate = carrier.commit_certificate().unwrap();
+    let wrapped = CommitCertificate::from_untrusted_parts(
+        certificate.consensus_header().to_vec(),
+        norito::encode_canonical(&qc).unwrap(),
+        active.preimage().unwrap(),
+        certificate.availability().to_vec(),
+    );
+    carrier.set_commit_certificate(Some(wrapped));
+    proof.block_wire = carrier.encode_wire().unwrap();
+    assert!(
+        proof
+            .decode_checked(CertifiedResultScope::TairaGlobal)
+            .is_ok()
+    );
+    assert!(
+        proof
+            .decode_checked(CertifiedResultScope::NonGlobal)
+            .is_err()
+    );
+    let key = &chain.epoch(2).keys[0];
+    let mut statement = chain.attest(key, 2);
+    statement.body.finality_proof = proof.clone();
+    resign(&mut statement, key);
+    statement.verify(CertifiedResultScope::TairaGlobal).unwrap();
+    assert!(statement.verify(CertifiedResultScope::NonGlobal).is_err());
+    let actual = native_read(statement.clone());
+    assert_eq!(actual.attestation(), &statement);
+    let certificate = carrier.commit_certificate().unwrap();
+    let bare = CommitCertificate::from_untrusted_parts(
+        certificate.consensus_header().to_vec(),
+        certificate.commit_qc().to_vec(),
+        active.commitment().preimage().unwrap(),
+        certificate.availability().to_vec(),
+    );
+    carrier.set_commit_certificate(Some(bare));
+    proof.block_wire = carrier.encode_wire().unwrap();
+    for scope in [
+        CertifiedResultScope::TairaGlobal,
+        CertifiedResultScope::NonGlobal,
+    ] {
+        assert!(proof.decode_checked(scope).is_err());
+    }
+    assert_eq!(
+        chain.verifier_at(2).result_scope(),
+        CertifiedResultScope::TairaGlobal
+    );
 }

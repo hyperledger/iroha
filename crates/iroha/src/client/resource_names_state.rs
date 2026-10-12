@@ -18,10 +18,16 @@ impl Client {
     /// consumers must still authenticate four current independently selected native
     /// statements, the exact complete World cut and the independent release catalog.
     ///
+    /// `scope` comes from the independently selected chain root, not response contents.
+    ///
     /// # Errors
     /// Zero challenge, failed canonical signing/transport, denied read root, non-success,
     /// wrong media type, oversized/noncanonical wire, changed network or challenge.
-    pub fn get_native_resource_names_state_wire(&self, challenge: [u8; 32]) -> Result<Vec<u8>> {
+    pub fn get_native_resource_names_state_wire(
+        &self,
+        challenge: [u8; 32],
+        scope: iroha_data_model::sumeragi_finality::CertifiedResultScope,
+    ) -> Result<Vec<u8>> {
         if challenge == [0; 32] {
             return Err(eyre!("native resource names challenge must be nonzero"));
         }
@@ -108,7 +114,7 @@ impl Client {
             ));
         }
         // Structural/node signature checking grants no installed-node or finality authority.
-        original.attestation.verify().map_err(|_| {
+        original.attestation.verify(scope).map_err(|_| {
             eyre!("native resource names node statement has invalid structure/signature")
         })?;
         Ok(wire)
@@ -132,7 +138,10 @@ mod tests {
             client
                 .clone()
                 .with_test_http_transport(transport)
-                .get_native_resource_names_state_wire([0xab; 32])
+                .get_native_resource_names_state_wire(
+                    [0xab; 32],
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                )
         });
         assert!(!format!("{:#}", result.unwrap_err()).contains("private-sentinel-never-log"));
         assert_eq!(snapshots.len(), 1);
@@ -208,7 +217,10 @@ mod tests {
                 client
                     .clone()
                     .with_test_http_transport(transport)
-                    .get_native_resource_names_state_wire([0xab; 32])
+                    .get_native_resource_names_state_wire(
+                        [0xab; 32],
+                        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                    )
             });
             assert!(result.is_err());
             assert_eq!(snapshots.len(), 1);
@@ -264,7 +276,10 @@ mod tests {
             client
                 .clone()
                 .with_test_http_transport(transport)
-                .get_native_resource_names_state_wire([1; 32])
+                .get_native_resource_names_state_wire(
+                    [1; 32],
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                )
         });
         let error = format!("{:#}", result.unwrap_err());
         assert!(!error.contains("synthetic-fi-application-credential"));
@@ -274,7 +289,10 @@ mod tests {
             client
                 .clone()
                 .with_test_http_transport(transport)
-                .get_native_resource_names_state_wire([1; 32])
+                .get_native_resource_names_state_wire(
+                    [1; 32],
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                )
         });
         assert!(result.is_err());
         assert!(snapshots.is_empty());
@@ -290,7 +308,10 @@ mod tests {
             client
                 .clone()
                 .with_test_http_transport(transport)
-                .get_native_resource_names_state_wire([0; 32])
+                .get_native_resource_names_state_wire(
+                    [0; 32],
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                )
         });
         assert!(result.is_err());
         assert!(snapshots.is_empty());
@@ -308,7 +329,10 @@ mod tests {
                 client
                     .clone()
                     .with_test_http_transport(transport)
-                    .get_native_resource_names_state_wire([1; 32])
+                    .get_native_resource_names_state_wire(
+                        [1; 32],
+                        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                    )
             });
             assert!(result.is_err());
             assert_eq!(snapshots.len(), 1);
@@ -350,7 +374,10 @@ mod tests {
             client
                 .clone()
                 .with_test_http_transport(transport)
-                .get_native_resource_names_state_wire([2; 32])
+                .get_native_resource_names_state_wire(
+                    [2; 32],
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                )
         });
         assert!(result.is_err());
         assert_eq!(snapshots.len(), 1);
@@ -387,7 +414,10 @@ mod tests {
             let (result, snapshots) = capture_requests(response, |transport| {
                 let mut configured = client.clone().with_test_http_transport(transport);
                 configured.torii_url = target;
-                configured.get_native_resource_names_state_wire([3; 32])
+                configured.get_native_resource_names_state_wire(
+                    [3; 32],
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                )
             });
             assert!(result.is_err());
             assert!(snapshots.is_empty());
@@ -409,7 +439,10 @@ mod tests {
                 for (key, value) in additions {
                     configured.headers.insert(key.into(), value.into());
                 }
-                configured.get_native_resource_names_state_wire([3; 32])
+                configured.get_native_resource_names_state_wire(
+                    [3; 32],
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                )
             });
             assert!(result.is_err());
             assert!(snapshots.is_empty());
@@ -485,7 +518,9 @@ mod tests {
             signature: SignatureOf::try_from_hash(node.private_key(), body.signing_hash()).unwrap(),
             body,
         };
-        attestation.verify().unwrap();
+        attestation
+            .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+            .unwrap();
         let original = NativeResourceNamesStateV1 {
             attestation,
             world_snapshot: snapshot,
@@ -507,7 +542,10 @@ mod tests {
             client
                 .clone()
                 .with_test_http_transport(transport)
-                .get_native_resource_names_state_wire([0x58; 32])
+                .get_native_resource_names_state_wire(
+                    [0x58; 32],
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                )
         });
         let returned: Vec<u8> = result.unwrap();
         assert_eq!(returned, wire);
@@ -518,7 +556,10 @@ mod tests {
             client
                 .clone()
                 .with_test_http_transport(transport)
-                .get_native_resource_names_state_wire([0x59; 32])
+                .get_native_resource_names_state_wire(
+                    [0x59; 32],
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                )
         });
         assert!(result.is_err());
         assert_eq!(snapshots.len(), 1);
@@ -527,7 +568,10 @@ mod tests {
             client
                 .clone()
                 .with_test_http_transport(transport)
-                .get_native_resource_names_state_wire([0x58; 32])
+                .get_native_resource_names_state_wire(
+                    [0x58; 32],
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                )
         });
         assert!(result.is_err());
         assert_eq!(snapshots.len(), 1);

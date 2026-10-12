@@ -37561,13 +37561,14 @@ impl Torii {
             REGISTRY => public_get(sccp::handler_registry);
             MESSAGES_RECENT => public_get(sccp::handler_messages_recent);
             MESSAGE => public_get(sccp::handler_message);
-            MESSAGE_PROOF => public_get(sccp::handler_message_proof);
             OUTBOUND_BY_NONCE => public_get(sccp::handler_outbound);
             CONTROLS => public_get(sccp::handler_controls);
+            MESSAGE_PROOF => public_get(sccp::handler_message_proof);
             CONTROL_PROOF => public_get(sccp::handler_control_proof);
-            ROSTER_CURRENT => public_get(sccp::handler_roster_current);
-            ROSTER_ROTATIONS => public_get(sccp::handler_rotations);
-            ROSTER => public_get(sccp::handler_roster);
+            FINALITY => public_get(sccp::handler_finality);
+            COMMITTEE_ROTATIONS => public_get(sccp::handler_committee_rotations);
+            CURRENT_COMMITTEE => public_get(sccp::handler_current_committee);
+            COMMITTEE => public_get(sccp::handler_committee);
         );
     }
     /// Musubi Kotodama package-registry routes.
@@ -43674,8 +43675,10 @@ impl IntoResponse for Error {
                 let mut response = utils::respond_with_status_and_format(status, envelope, format);
                 let headers = response.headers_mut();
                 let (reject_code, _detail) = queue_rejection_metadata(source.as_ref());
-                if let Ok(header) = HeaderValue::from_str(reject_code) {
-                    headers.insert(HeaderName::from_static("x-iroha-reject-code"), header);
+                if queue_error_has_rejection_code(source.as_ref()) {
+                    if let Ok(header) = HeaderValue::from_str(reject_code) {
+                        headers.insert(HeaderName::from_static("x-iroha-reject-code"), header);
+                    }
                 }
                 if let Ok(depth) = HeaderValue::from_str(&backpressure.queued().to_string()) {
                     headers.insert("X-Iroha-Queue-Depth", depth);

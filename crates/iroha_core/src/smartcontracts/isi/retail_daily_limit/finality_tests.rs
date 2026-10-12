@@ -1041,7 +1041,9 @@ fn capture_merged_lane_finality_proof_fixture() {
         &signer,
     )
     .expect("challenge-bound durable-tip attestation");
-    attestation.verify().expect("the node's own signature");
+    attestation
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+        .expect("the node's own signature");
     assert_eq!(&attestation.body.finality_proof, proof);
     let attestation_json =
         compact(norito::json::to_value(&attestation).expect("attestation JSON value"));

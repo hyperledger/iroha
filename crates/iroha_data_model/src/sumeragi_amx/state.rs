@@ -15,7 +15,7 @@ use super::{
     AmxHandoffProofV1, AmxOutcomeV1, AmxRecordProofV1, AmxRecordV1, AmxTransactionV1, AmxVoteV1,
     MAX_AMX_DATASPACES, MAX_AMX_DEADLINE_WINDOW, MAX_AMX_PENDING,
 };
-use crate::{DeriveJsonDeserialize, DeriveJsonSerialize};
+use crate::{DeriveJsonDeserialize, DeriveJsonSerialize, sumeragi_finality::CertifiedResultScope};
 
 /// A participant dataspace registered with the global chain and its foreign-committee tracker.
 #[derive(
@@ -332,7 +332,7 @@ impl SumeragiAmxState {
         self.dataspace(prepared.participant)
             .ok_or_else(|| rejected("the voter is not registered"))?
             .tracker
-            .verify_record(proof)?;
+            .verify_record(proof, CertifiedResultScope::NonGlobal)?;
         let entry = &mut self.transactions[index];
         let outcome = match prepared.vote {
             AmxVoteV1::No => AmxOutcomeV1::Abort,
@@ -371,7 +371,9 @@ impl SumeragiAmxState {
             .dataspaces
             .binary_search_by_key(&dataspace, |entry| entry.dataspace)
             .map_err(|_| rejected("the dataspace is not registered"))?;
-        self.dataspaces[index].tracker.apply_handoff(proof)
+        self.dataspaces[index]
+            .tracker
+            .apply_handoff(proof, CertifiedResultScope::NonGlobal)
     }
 
     /// The deadline step of the block at `height`, after its transactions (§11.5): every known

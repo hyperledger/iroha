@@ -676,6 +676,11 @@ pub fn prepare(inputs: PrepareInputs) -> Result<Prepared, NodeError> {
         staging.clone(),
         state.ivm_execution_budget(),
         availability,
+        state
+            .view()
+            .native_execution_tip()
+            .ok_or_else(|| NodeError::Input("block store lacks authenticated root scope".into()))?
+            .result_scope(),
     ));
     let applied_watch = Arc::new(crate::sumeragi::lanes::global::AppliedWatch::new(
         GENESIS_HEIGHT,
@@ -2530,6 +2535,7 @@ mod tests {
             staging.clone(),
             state.ivm_execution_budget(),
             availability,
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
         );
         let mut executor = StateExecutor::spawn(ExecutorContext {
             state: Arc::clone(&state),

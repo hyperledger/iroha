@@ -9,8 +9,7 @@
 use iroha_config::parameters::actual::KagemushaEnrollmentProvider;
 use iroha_core::kagemusha_wallet_v1::enrollment_issuer::EnrollmentIssuerErrorV1 as Error;
 use iroha_core_zk::kagemusha_wallet_enrollment_v1::issuer_worker::{
-    GoogleDecoderOriginalV1, VerifierConfigurationV1, VerifierExchangeV1,
-    VerifierRuntimeSelectionV1,
+    VerifierConfigurationV1, VerifierExchangeV1, VerifierRuntimeSelectionV1,
 };
 use iroha_data_model::kagemusha::KagemushaWalletAssetScopeV1;
 use iroha_fs::{FileSnapshot, PrivateDirectory, RetainedFile};
@@ -22,7 +21,6 @@ type Result<T> = std::result::Result<T, Error>;
 const MAX_EXECUTABLE: usize = 256 * 1024 * 1024;
 const MAX_ARCHIVE: usize = 8 * 1024 * 1024;
 const MAX_ROOT: usize = 16 * 1024;
-const MAX_OAUTH: usize = 64 * 1024;
 const MAX_FRAME: usize = 768 * 1024;
 
 struct Original {
@@ -78,10 +76,8 @@ pub(super) struct PrivateVerifier {
     python: Original,
     archive: Original,
     openssl: Original,
-    root: Original,
-    root_bytes: Zeroizing<Vec<u8>>,
-    google: Option<(Original, Zeroizing<Vec<u8>>)>,
-    oauth: Option<Original>,
+    /// Apple App Attestation root original; Android chains carry their own root.
+    apple_root: Option<(Original, Zeroizing<Vec<u8>>)>,
     directory: PrivateDirectory,
     generation: Original,
     configuration: Option<(Original, [u8; 32])>,
@@ -114,28 +110,25 @@ impl PrivateVerifier {
             MAX_EXECUTABLE,
             Some(selected.openssl_sha256),
         )?;
-        let root_pin = match provider.enrollment.platform {
-            iroha_data_model::kagemusha::KagemushaWalletEnrollmentPlatformV1::Apple {
-                attestation_root_sha256,
-            }
-            | iroha_data_model::kagemusha::KagemushaWalletEnrollmentPlatformV1::Android {
-                attestation_root_sha256,
-                ..
-            } => attestation_root_sha256,
-        };
-        let (root, root_bytes) =
-            Original::open(&selected.attestation_root, false, MAX_ROOT, Some(root_pin))?;
-        let (google, oauth) = if let Some(google) = &selected.google {
-            let policy = Original::open(
-                &google.policy_original,
+        let apple_root = match (&provider.enrollment.platform, &selected.attestation_root) {
+            (
+                iroha_data_model::kagemusha::KagemushaWalletEnrollmentPlatformV1::Apple {
+                    attestation_root_sha256,
+                },
+                Some(path),
+            ) => Some(Original::open(
+                path,
                 false,
                 MAX_ROOT,
-                Some(google.policy_sha256),
-            )?;
-            let (oauth, _) = Original::open(&google.oauth_credential, true, MAX_OAUTH, None)?;
-            (Some(policy), Some(oauth))
-        } else {
-            (None, None)
+                Some(*attestation_root_sha256),
+            )?),
+            (
+                iroha_data_model::kagemusha::KagemushaWalletEnrollmentPlatformV1::Android {
+                    ..
+                },
+                None,
+            ) => None,
+            _ => return Err(Error::Selection),
         };
         let directory =
             PrivateDirectory::open(&selected.store_directory).map_err(|_| Error::Unavailable)?;
@@ -156,10 +149,7 @@ impl PrivateVerifier {
             python,
             archive,
             openssl,
-            root,
-            root_bytes,
-            google,
-            oauth,
+            apple_root,
             directory,
             generation,
             configuration: None,
@@ -176,22 +166,13 @@ impl PrivateVerifier {
         self.directory
             .revalidate()
             .map_err(|_| Error::Unavailable)?;
-        for original in [
-            &self.python,
-            &self.archive,
-            &self.openssl,
-            &self.root,
-            &self.generation,
-        ] {
+        for original in [&self.python, &self.archive, &self.openssl, &self.generation] {
+            original.revalidate()?;
+        }
+        if let Some((original, _)) = &self.apple_root {
             original.revalidate()?;
         }
         if let Some((original, _)) = &self.configuration {
-            original.revalidate()?;
-        }
-        if let Some((original, _)) = &self.google {
-            original.revalidate()?;
-        }
-        if let Some(original) = &self.oauth {
             original.revalidate()?;
         }
         Ok(())
@@ -205,8 +186,7 @@ impl PrivateVerifier {
         let config = derive_configuration(
             provider,
             asset,
-            &self.root_bytes,
-            self.google.as_ref().map(|(_, bytes)| bytes.as_slice()),
+            self.apple_root.as_ref().map(|(_, bytes)| bytes.as_slice()),
         )?;
         if self
             .configuration
@@ -299,8 +279,7 @@ impl Drop for PrivateVerifier {
 fn derive_configuration(
     provider: &KagemushaEnrollmentProvider,
     asset: &KagemushaWalletAssetScopeV1,
-    root: &[u8],
-    google: Option<&[u8]>,
+    apple_root: Option<&[u8]>,
 ) -> Result<VerifierConfigurationV1> {
     let worker = &provider.worker;
     VerifierConfigurationV1::from_selected(
@@ -309,13 +288,7 @@ fn derive_configuration(
             .enrollment
             .for_asset(asset)
             .map_err(|_| Error::Selection)?,
-        root,
-        google
-            .zip(worker.google.as_ref())
-            .map(|(original, selected)| GoogleDecoderOriginalV1 {
-                original,
-                sha256: selected.policy_sha256,
-            }),
+        apple_root,
         VerifierRuntimeSelectionV1 {
             openssl_path: worker.openssl_executable.to_str().ok_or(Error::Selection)?,
             openssl_sha256: worker.openssl_sha256,

@@ -10,21 +10,70 @@ processing. Outcomes use the §5.2.2 error names.
 `flavor = "evm"` follows the EVM inputs (`TairaCertificateV1` with the
 committee and `signerYs` in calldata, unlimited checkpoints). `flavor = "ton"`
 reads the keys from storage, keeps three checkpoint slots and needs
-`next_keys` for a key-changing rotation. TON's asynchronous bucket and wallet
-messages are not modelled: a TON finalize or void is shown with the outcome its
-minter-side checks give (`TODO:` model the bucket round trip of §5.3.4).
+`next_keys` for a key-changing rotation. The flavor is bound to the profile: an
+EVM destination is deployed on `ethereum-mainnet` or `bsc-mainnet` and a TON
+destination on `ton-mainnet` (`Destination` refuses any other pair), because a
+real contract computes its lane, payload domain and recipient codec from its
+own chain.
 
-Reference choices where the specification names no error (all pinned in
-`fixtures/sccp/committee_transitions_v1.json` under `error_choices`):
+TON's asynchronous bucket and wallet messages are not modelled: a TON finalize
+or void is shown with the outcome its minter-side checks give (`TODO:` the TON
+contract work package models the bucket round trip of §5.3.4). Two names are
+therefore model-only on TON and appear in no TON fixture row: `AlreadyConsumed`
+stands for the bucket's `sccp_already_consumed` or `sccp_range_rejected` reply
+(the minter throws nothing), and `TooManyCertificates` needs a batch that a TON
+harness never sends, since one `sccp_checkpoint` message carries one certificate.
+
+Check order of a TON finalize or void (§5.3.4): the minter checks the payload
+and its recipient before it obtains `X`, because the required value depends on
+the payload nonce; the block reference, the deadline and the leaf path follow
+`X`, `Live` and the pause as on EVM.
+
+Error names of §5.1.2, §5.1.3 and §5.1.8 that the model applies
+(`fixtures/sccp/committee_transitions_v1.json` repeats them, with the check
+order, under `error_choices`):
 
 * a call on a destination that is not `Live` answers `Equivocated` when latched
   and `CommitteeNotAccepted` when expired;
 * step 1 length failures answer `BadCertificate` (QC_FIXED, signature,
   `signerYs`), `BadHeader` (X) and `BadCommittee` (committee);
-* step 6 and step 10 key failures (flags, sign bit, `y ≥ p`, off-curve `y`,
-  `apk = O`) answer `BadCommittee`; signature encoding, subgroup and pairing
+* EVM step 6 and step 10 key failures (flags, sign bit, `y ≥ p`, `x ≥ p`, the
+  coordinates `(0, 0)`, off-curve `y`, `apk = O`) answer `BadCommittee`, and
+  `apk = O` is reported before `σ` is read as a point; the identity signature
+  (step 6, both flavours) and signature encoding, subgroup and pairing
   failures answer `BadSignature`;
+* an aggregate key outside the G1 subgroup answers `BadSignature` on EVM, as
+  `PAIRING_CHECK` refuses it. The EVM relation sees the aggregate only: signer
+  keys whose components outside G1 cancel are accepted when the pairing holds;
+* on TON every refusal of `BLS_FASTAGGREGATEVERIFY` answers `BadSignature`: a
+  stored signer key that is no canonical point, is the identity or lies outside
+  G1, an identity aggregate, a `σ` that is no point of G2, and a failed pairing
+  (§5.3.4 item 5; `TODO:` the Acton harness confirms the opcode's per-key
+  checks);
+* a stored checkpoint that is neither of the current generation nor the
+  handoff that installed it answers `CommitteeNotAccepted`;
 * `voidFrozen` range failures answer `BadAmount` (EVM) and `BadRange` (TON).
+
+Time. `now_ms` is the destination clock, `block.timestamp × 1000` (EVM) or
+`now() × 1000` (TON, §0): a real destination only ever sees whole seconds. The
+model is a function of any `now_ms`; the scenario recorder (`scenario.py`)
+enforces whole, non-decreasing seconds on every fixture step.
+
+Fixed-width arithmetic (§5.1.2). The contracts compute in `u64` (and `u128`
+amounts) while Python integers are unbounded. No call aborts for arithmetic:
+the two time sums saturate at `2^64 − 1` (`saturating_u64_sum`: a rotation's
+`untilMs = t_eff(X) + X.validity_ms` and the fast-pause bound
+`now_ms + MAX_FAST_PAUSE_MS`); a rotation's `X.height + 1` and
+`cur.generation + 1` always fit because X6 bounds both by `2^64 − 2` (§3.6);
+the `voidFrozen` range (`firstNonce + count ≤ 2^64`, §5.1.8) and the supply
+cap are compared without forming a value above the width, by subtraction.
+The two counters never wrap either: `opCount` saturates at `2^64 − 1`
+(`bumped_op_count`, §5.1.1), and a sender's source nonces are `0 ..= 2^64 − 2`,
+so a stored next nonce of `2^64 − 1` is exhausted (`next_source_nonce`, §5.1.7).
+
+`transferToTaira` (§5.1.7) is not modelled as an entry point: the model keeps no
+token balances of senders. Its one rule that involves a counter, the source
+nonce, is the pure function `next_source_nonce`.
 """
 
 from __future__ import annotations
@@ -38,6 +87,7 @@ from .bls12_381 import (
     PointEncodingError,
     g1_add,
     g1_decompress,
+    g1_in_subgroup,
     g1_is_on_curve,
     g1_neg,
     g2_decompress,
@@ -48,12 +98,17 @@ from .bls12_381 import (
 from .common import (
     MAX_CERTIFICATES_PER_CALL,
     MAX_FAST_PAUSE_MS,
+    MAX_INIT_SLACK_MS,
+    MAX_VALIDITY_MS,
     MAX_VOID_FROZEN_RANGE_EVM,
     MAX_VOID_FROZEN_RANGE_TON,
     TON_CHECKPOINT_SLOTS,
+    U64_MAX,
     SccpError,
+    saturating_u64_sum,
 )
 from .finality import (
+    FLAG_ROTATION,
     QC_FIXED_LEN,
     X_LEN,
     ZERO32,
@@ -71,7 +126,10 @@ from .finality import (
 )
 from .hash_to_curve import hash_to_g2
 from .merkle import check_block_ref, check_control_constraints, check_leaf, control_leaf, transfer_leaf
-from .payload import TAIRA, TON, Profile, decode_payload, message_id
+from .payload import BSC, ETHEREUM, TAIRA, TON, Profile, decode_payload, message_id
+
+# The compressed identity of G2 (TON and Taira wire form of `σ = O`); the EVM form is `0^192`.
+IDENTITY_SIGNATURE_COMPRESSED = bytes([0xC0]) + bytes(95)
 
 _VERIFY_CACHE: dict[tuple, bool] = {}
 
@@ -82,6 +140,69 @@ def cached_pairing_check(apk, message: bytes, sigma) -> bool:
     if key not in _VERIFY_CACHE:
         _VERIFY_CACHE[key] = pairing_product_is_one([(apk, hash_to_g2(message)), (g1_neg(G1_GENERATOR), sigma)])
     return _VERIFY_CACHE[key]
+
+
+def clamped_fast_pause(fast_pause_until_ms: int, now_ms: int) -> int:
+    """`min(leaf.fast_pause_until_ms, min(now_ms + MAX_FAST_PAUSE_MS, 2^64 − 1))` (§5.1.6 step 5).
+
+    The bound `now_ms + MAX_FAST_PAUSE_MS` saturates at `2^64 − 1`, so the clamp
+    never aborts and its result always fits `u64`.
+    """
+    return min(fast_pause_until_ms, saturating_u64_sum(now_ms, MAX_FAST_PAUSE_MS))
+
+
+def rotation_until_ms(timestamp_ms: int, validity_ms: int, now_ms: int) -> int:
+    """`min(t_eff(X) + X.validity_ms, 2^64 − 1)` with `t_eff(X) = min(X.timestamp_ms, now_ms)` (§5.1.2 update 3)."""
+    return saturating_u64_sum(min(timestamp_ms, now_ms), validity_ms)
+
+
+def init_until_ms_ok(now_ms: int, until_ms: int) -> bool:
+    """`now_ms < until_ms ≤ now_ms + MAX_VALIDITY_MS + MAX_INIT_SLACK_MS` (§5.2.1 constructor, §5.3.1 `sccp_init`).
+
+    The bound is compared as `until_ms − now_ms ≤ MAX_VALIDITY_MS + MAX_INIT_SLACK_MS`,
+    so no value above `u64` is formed. A deployment that fails it answers `BadConfig`.
+    """
+    return now_ms < until_ms and until_ms - now_ms <= MAX_VALIDITY_MS + MAX_INIT_SLACK_MS
+
+
+def void_frozen_range_ok(first_nonce: int, count: int, limit: int) -> bool:
+    """`1 ≤ count ≤ limit` and `firstNonce + count ≤ 2^64` (§5.1.8) without forming the sum.
+
+    The range is valid iff its last nonce `first_nonce + (count − 1)` is at most
+    `2^64 − 1`; `count = 0` is rejected before the subtraction.
+    """
+    if not 0 <= first_nonce <= U64_MAX:
+        return False
+    return 1 <= count <= limit and count - 1 <= U64_MAX - first_nonce
+
+
+def bumped_op_count(op_count: int) -> int:
+    """`opCount` after one more counted operation (§5.1.1): `min(opCount + 1, 2^64 − 1)`.
+
+    The counter saturates at the largest `u64`: it never wraps to 0 and the
+    operation that reaches the bound, like every one after it, still succeeds.
+    """
+    if not 0 <= op_count <= U64_MAX:
+        raise ValueError(f"opCount is a u64, got {op_count}")
+    return min(op_count + 1, U64_MAX)
+
+
+def next_source_nonce(stored: int, expected: int) -> int:
+    """The source-nonce rule of `transferToTaira` (§5.1.7): the next nonce the sender stores after the burn.
+
+    `stored` is the sender's stored next nonce (`transferNonces[sender]` on EVM)
+    and `expected` the `expectedNonce` of the call; the burn uses `stored`.
+    Source nonces are `0 ..= 2^64 − 2`. A call whose `expected` differs from
+    `stored` answers `BadNonce(stored)`. A stored next nonce of `2^64 − 1` is
+    exhausted: every call answers `BadNonce(2^64 − 1)`, whatever it expects,
+    before any state change, so that nonce is never used and the counter never
+    wraps.
+    """
+    if not (0 <= stored <= U64_MAX and 0 <= expected <= U64_MAX):
+        raise ValueError(f"source nonces are u64 values, got {stored} and {expected}")
+    if expected != stored or stored == U64_MAX:
+        raise SccpError("BadNonce", expected=stored)
+    return stored + 1
 
 
 @dataclass
@@ -166,7 +287,6 @@ class Deployment:
     pin_start_height: int
     pin_until_ms: int
     pin_keys: list[bytes] | None = None
-    cheap_path: bool = True
 
     def as_json(self) -> dict:
         return {
@@ -184,7 +304,6 @@ class Deployment:
                 "until_ms": self.pin_until_ms,
                 "keys": None if self.pin_keys is None else ["0x" + k.hex() for k in self.pin_keys],
             },
-            "cheap_path": self.cheap_path,
         }
 
 
@@ -250,6 +369,16 @@ class Destination:
     """One destination revision with its state and event log."""
 
     def __init__(self, deployment: Deployment):
+        if deployment.pin_start_height < 1:
+            # §5.2.1 and §5.3.1 deploy only `initialStartHeight ≥ 1`; `high = start − 1` has no `u64` value below it.
+            raise ValueError("pin.start_height must be at least 1")
+        # The flavor is bound to the profile (the model's `BadConfig`): the EVM constructor takes networkTag
+        # 0x41 or 0x42 only (§5.2.1), and a TON minter requires GLOBALID = −239 (§5.3.1).
+        allowed = {"evm": (ETHEREUM, BSC), "ton": (TON,)}.get(deployment.flavor)
+        if allowed is None:
+            raise ValueError(f"unknown destination flavor {deployment.flavor!r}")
+        if deployment.network not in allowed:
+            raise ValueError(f"a {deployment.flavor} destination is not deployed on {deployment.network.name}")
         self.d = deployment
         self.state = State(
             root=deployment.pin_root,
@@ -294,6 +423,11 @@ class Destination:
                 # Which check failed (not part of any fixture: outcomes are compared by name).
                 out["detail"] = err.detail
             return out
+        except BaseException:
+            # Not an outcome (a fault of the model or of its inputs): leave no partial effect behind.
+            self.state = saved_state
+            del self.events[saved_events:]
+            raise
         out = {"outcome": "ok", "events": self.events[saved_events:]}
         if stopped:
             out["stopped"] = stopped
@@ -349,7 +483,10 @@ class Destination:
         indices = [i for i in range(n) if signers >> i & 1]
         if len(indices) != quorum(n):
             raise SccpError("BadCertificate", "popcount")
-        # 6. EVM encodings, before any precompile
+        # 6. encodings, before the cheap path and (EVM) before any precompile: σ = O first, on both flavours
+        is_identity = not any(cert.signature_evm) if evm else cert.signature_ton == IDENTITY_SIGNATURE_COMPRESSED
+        if is_identity:
+            raise SccpError("BadSignature", "identity signature")
         if evm:
             ys = [int.from_bytes(cert.signer_ys[48 * j : 48 * j + 48], "big") for j in range(len(indices))]
             limbs = [int.from_bytes(cert.signature_evm[48 * j : 48 * j + 48], "big") for j in range(4)]
@@ -357,21 +494,27 @@ class Destination:
                 raise SccpError("BadCommittee", "signer y not reduced")
             if any(limb >= P for limb in limbs):
                 raise SccpError("BadSignature", "signature limb not reduced")
-            if not any(cert.signature_evm):
-                raise SccpError("BadSignature", "zero signature")
+            xs = []
             for i, y in zip(indices, ys):
                 key = keys[i]
                 if key[0] & 0xC0 != 0x80:
                     raise SccpError("BadCommittee", "key flags")
                 if not y_sign_flag_matches(key, y):
                     raise SccpError("BadCommittee", "key sign bit")
-        # 7. id and R
+                xcoord = int.from_bytes(bytes([key[0] & 0x1F]) + key[1:], "big")
+                if xcoord >= P:
+                    raise SccpError("BadCommittee", "signer x not reduced")
+                if xcoord == 0 and y == 0:
+                    # EIP-2537 reads 128 zero bytes as the point at infinity, which is no signer key.
+                    raise SccpError("BadCommittee", "signer coordinates (0, 0)")
+                xs.append(xcoord)
+        # 7. id
         cid = checkpoint_id(cert.header)
-        result = result_r(cert.header, qc[80:112])
-        # 8. cheap path
-        if self.d.cheap_path and st.checkpoints.get(x.height) == cid:
+        # 8. cheap path (mandatory)
+        if st.checkpoints.get(x.height) == cid:
             return x, cid
-        # 9. m
+        # 9. R and m: only the full path needs R
+        result = result_r(cert.header, qc[80:112])
         message = commit_message(
             commit_preimage(
                 self.d.consensus_instance,
@@ -383,29 +526,46 @@ class Destination:
                 result,
             )
         )
-        # 10. aggregate
-        apk = None
+        # 10–11. The aggregate key and the pairing check.
         if evm:
-            for i, y in zip(indices, ys):
-                xcoord = int.from_bytes(bytes([keys[i][0] & 0x1F]) + keys[i][1:], "big")
-                point = (xcoord, y)
-                if xcoord >= P or not g1_is_on_curve(point):
+            # 10. G1ADD over the signer points: a point off the curve, then `apk = O`, answer BadCommittee before
+            #     `σ` is read as a point.
+            apk = None
+            for point in zip(xs, ys):
+                if not g1_is_on_curve(point):
                     raise SccpError("BadCommittee", "signer key off curve")
                 apk = g1_add(apk, point)
+            if apk is None:
+                raise SccpError("BadCommittee", "aggregate key is the identity")
+            # 11. PAIRING_CHECK validates its inputs: `σ` and `apk` are points of their subgroups. It sees the
+            #     aggregate only, so signer keys whose components outside G1 cancel pass.
             try:
                 sigma = g2_from_evm192(cert.signature_evm)
             except PointEncodingError:
                 raise SccpError("BadSignature", "signature not on curve") from None
+            if not g1_in_subgroup(apk):
+                raise SccpError("BadSignature", "aggregate key not in G1")
         else:
+            # BLS_FASTAGGREGATEVERIFY is one verdict (§5.3.4 item 5): `false` throws BadSignature, whether a
+            # signer key is no canonical point, is the identity or lies outside G1, the aggregate is the
+            # identity, or `σ` is no point of G2.
+            apk = None
             for i in indices:
-                apk = g1_add(apk, g1_decompress(keys[i]))
+                try:
+                    point = g1_decompress(keys[i])
+                except PointEncodingError:
+                    raise SccpError("BadSignature", "signer key encoding") from None
+                if point is None:
+                    raise SccpError("BadSignature", "signer key is the identity")
+                if not g1_in_subgroup(point):
+                    raise SccpError("BadSignature", "signer key not in G1")
+                apk = g1_add(apk, point)
             try:
                 sigma = g2_decompress(cert.signature_ton)
             except PointEncodingError:
                 raise SccpError("BadSignature", "signature encoding") from None
-        if apk is None:
-            raise SccpError("BadCommittee", "aggregate key is the identity")
-        # 11. pairing (subgroup checks as EIP-2537 PAIRING_CHECK and TVM do)
+            if apk is None:
+                raise SccpError("BadSignature", "aggregate key is the identity")
         if sigma is None or not g2_in_subgroup(sigma):
             raise SccpError("BadSignature", "signature not in G2")
         if not cached_pairing_check(apk, message, sigma):
@@ -455,8 +615,26 @@ class Destination:
         self.state.high = max(self.state.high, x.height)
         return x
 
+    def checkpoint_eligible(self, x: FinalityHeader) -> bool:
+        """Whether a stored header may still be used (§5.1.3 "Using a checkpoint").
+
+        U1: `X` is of the current generation (CUR). U2: `X` is the handoff that
+        installed `cur`: a rotation of the previous generation at `cur.start − 1`
+        whose successor root is `cur.root`. X6 bounds a rotation's generation and
+        height by `2^64 − 2`, so both sums of U2 fit `u64`.
+        """
+        st = self.state
+        if x.generation == st.generation and x.committee_root == st.root:
+            return True
+        return (
+            bool(x.flags & FLAG_ROTATION)
+            and x.generation + 1 == st.generation
+            and x.height + 1 == st.start
+            and x.next_committee_root == st.root
+        )
+
     def _checkpoint_x(self, header: bytes, now_ms: int) -> FinalityHeader:
-        """Checkpoint use (§5.1.3): stored id, X1–X7 with `ACTIVE`, `Live`."""
+        """Checkpoint use (§5.1.3): stored id, X1–X7 with `ACTIVE`, `Live`, then U1 or U2."""
         if len(header) != X_LEN:
             raise SccpError("BadHeader", "X length")
         height = int.from_bytes(header[48:56], "big")
@@ -470,6 +648,8 @@ class Destination:
         if not x.active:
             raise SccpError("BadHeader", "inactive X")
         self._require_live(now_ms)
+        if not self.checkpoint_eligible(x):
+            raise SccpError("CommitteeNotAccepted", "checkpoint of a retired generation")
         return x
 
     def _obtain_x(self, source: tuple, now_ms: int) -> FinalityHeader:
@@ -532,10 +712,11 @@ class Destination:
                     raise SccpError("BadCommittee", "next_keys")
                 st.keys = list(next_keys)
             st.root = x.next_committee_root
-            st.generation += 1
+            # X6 bounds a rotation's generation and height by 2^64 − 2, so both successor values fit u64.
+            st.generation = st.generation + 1
             st.start = x.height + 1
             st.high = x.height
-            st.until_ms = min(x.timestamp_ms, now_ms) + x.validity_ms
+            st.until_ms = rotation_until_ms(x.timestamp_ms, x.validity_ms, now_ms)
             self._emit(
                 "SccpCommitteeRotated",
                 generation=st.generation,
@@ -554,10 +735,9 @@ class Destination:
         """`finalizeFromTaira(cert, proof)` with `("inline", cert)`, or `finalizeFromCheckpoint` with `("checkpoint", X)`."""
         return self._run(self._finalize, source, proof, now_ms)
 
-    def _check_message(self, x: FinalityHeader, proof: MessageProof, now_ms: int, *, void: bool):
-        b = proof.block
-        check_block_ref(b.height, b.sccp_root, b.message_count, b.history_index, b.history_path, x)
-        payload = decode_payload(proof.payload, check_recipient=False)
+    def _addressed_payload(self, data: bytes):
+        """A transfer payload addressed to this revision and to a recipient it can mint to (§5.1.5 step 4)."""
+        payload = decode_payload(data, check_recipient=False)
         if (
             payload.source_domain != 0
             or payload.dest_domain != self.d.network.domain
@@ -571,6 +751,19 @@ class Destination:
                 raise SccpError("BadRecipient")
         elif not any(recipient) or recipient == self.d.destination_word[12:]:
             raise SccpError("BadRecipient")
+        return payload
+
+    def _payload_before_x(self, proof: MessageProof):
+        """TON: the minter checks the payload and its recipient before it obtains `X` (§5.3.4 finalize step 1)."""
+        return self._addressed_payload(proof.payload) if self.d.flavor == "ton" else None
+
+    def _check_message(self, x: FinalityHeader, proof: MessageProof, now_ms: int, *, void: bool, payload=None):
+        """§5.1.5 steps 4–5: the block reference, the payload (unless TON checked it before `X`), the deadline
+        and the leaf path."""
+        b = proof.block
+        check_block_ref(b.height, b.sccp_root, b.message_count, b.history_index, b.history_path, x)
+        if payload is None:
+            payload = self._addressed_payload(proof.payload)
         if void:
             if now_ms <= payload.deadline_ms:
                 raise SccpError("DeadlineNotReached")
@@ -581,21 +774,24 @@ class Destination:
         return payload, mid
 
     def _finalize(self, source, proof, now_ms):
+        early = self._payload_before_x(proof)
         x = self._obtain_x(source, now_ms)
         self._require_live(now_ms)
         if self.effective_pause(now_ms):
             raise SccpError("MintingIsPaused")
-        payload, mid = self._check_message(x, proof, now_ms, void=False)
+        payload, mid = self._check_message(x, proof, now_ms, void=False, payload=early)
         st = self.state
         if payload.nonce in st.consumed:
             raise SccpError("AlreadyConsumed", nonce=payload.nonce)
         st.consumed.add(payload.nonce)
-        if st.total_supply + payload.amount > self.d.max_wrapped_supply:
+        # `totalSupply + amount ≤ maxWrappedSupply` as a subtraction: the sum of two u128 values can exceed u128,
+        # and `totalSupply ≤ maxWrappedSupply` always holds.
+        if payload.amount > self.d.max_wrapped_supply - st.total_supply:
             raise SccpError("SupplyCapExceeded")
         st.total_supply += payload.amount
         recipient = "0x" + payload.recipient.hex()
         st.minted[recipient] = st.minted.get(recipient, 0) + payload.amount
-        st.op_count += 1
+        st.op_count = bumped_op_count(st.op_count)
         self._emit(
             "SccpFinalized", messageId="0x" + mid.hex(), nonce=payload.nonce, recipient=recipient, tokenAmount=str(payload.amount)
         )
@@ -633,9 +829,9 @@ class Destination:
         if proof.control_nonce <= st.control_nonce:
             raise SccpError("StaleControl")
         st.parliament_paused = bool(proof.parliament_paused)
-        st.fast_pause_until_ms = min(proof.fast_pause_until_ms, now_ms + MAX_FAST_PAUSE_MS)
+        st.fast_pause_until_ms = clamped_fast_pause(proof.fast_pause_until_ms, now_ms)
         st.control_nonce = proof.control_nonce
-        st.op_count += 1
+        st.op_count = bumped_op_count(st.op_count)
         self._emit(
             "SccpControlApplied",
             controlNonce=proof.control_nonce,
@@ -653,16 +849,17 @@ class Destination:
         return self._run(self._void_expired, nonce, source, proof, now_ms)
 
     def _void_expired(self, nonce, source, proof, now_ms):
+        early = self._payload_before_x(proof)
         x = self._obtain_x(source, now_ms)
         self._require_live(now_ms)
-        payload, mid = self._check_message(x, proof, now_ms, void=True)
+        payload, mid = self._check_message(x, proof, now_ms, void=True, payload=early)
         if nonce != payload.nonce:
             raise SccpError("BadNonce", expected=payload.nonce)
         st = self.state
         if payload.nonce in st.consumed:
             raise SccpError("AlreadyConsumed", nonce=payload.nonce)
         st.consumed.add(payload.nonce)
-        st.op_count += 1
+        st.op_count = bumped_op_count(st.op_count)
         self._emit("SccpVoided", messageId="0x" + mid.hex(), nonce=payload.nonce)
         return None, None
 
@@ -673,21 +870,23 @@ class Destination:
     def _void_frozen(self, first, count, now_ms):
         evm = self.d.flavor == "evm"
         limit = MAX_VOID_FROZEN_RANGE_EVM if evm else MAX_VOID_FROZEN_RANGE_TON
-        bad_range = count == 0 or count > limit or first + count > 1 << 64
+        bad_range = not void_frozen_range_ok(first, count, limit)
         if not evm and not bad_range:
-            bad_range = first >> 9 != (first + count - 1) >> 9
+            bad_range = first >> 9 != (first + (count - 1)) >> 9
         if bad_range:
             raise SccpError("BadAmount" if evm else "BadRange")
         if self.live(now_ms):
             raise SccpError("NotFrozen")
         st = self.state
-        for nonce in range(first, first + count):
+        # The last nonce `first + count − 1` fits u64; the exclusive end `first + count` may be 2^64, so it is never formed.
+        nonces = [first + offset for offset in range(count)]
+        for nonce in nonces:
             if nonce in st.consumed:
                 raise SccpError("AlreadyConsumed", nonce=nonce)
-        st.consumed.update(range(first, first + count))
-        st.op_count += 1
+        st.consumed.update(nonces)
+        st.op_count = bumped_op_count(st.op_count)
         if evm:
-            for nonce in range(first, first + count):
+            for nonce in nonces:
                 self._emit("SccpVoided", messageId="0x" + ZERO32.hex(), nonce=nonce)
         else:
             self._emit("SccpVoided", messageId="0x" + ZERO32.hex(), firstNonce=first, count=count)

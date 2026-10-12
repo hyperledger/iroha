@@ -235,11 +235,11 @@ get fun `test burn notifications from a non-wallet are rejected`() {
             .address, exitCode: SccpErrors.NotValidWallet as int });
 }
 
-get fun `test burns work after the roster expired`() {
+get fun `test burns work after the committee expired`() {
     val env = setupEnv();
     val alice = testing.treasury("alice").address;
     finalizeOk(env, 0, 100, alice);
-    testing.setNow(env.roster.validUntilMs / 1000 + 10 * 86400);
+    testing.setNow(defaultPin(env.committee).untilMs / 1000 + 10 * 86400);
     val res = sendBurn(env, alice, 100, snakeOfLength(8), burnValue(env, alice));
     expect(res).toHaveSuccessfulTx<BurnNotificationForMinter>({ to: env.minter.address });
     expect(env.minter.getSccpState().totalSupply).toEqual(0);

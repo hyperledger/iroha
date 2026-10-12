@@ -311,7 +311,14 @@ impl NativeFinalityCursorV1 {
                 .verify_retained_decision(checkpoint.tip())
                 .map_err(ProofError::from)?;
             check(deadline)?;
-            let receipt = read_frame(durable, target).map_err(ProofError::from)?;
+            let receipt = read_frame(
+                durable,
+                target,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::from_root_scope(
+                    verifier.root_scope(),
+                ),
+            )
+            .map_err(ProofError::from)?;
             if coherent_height(view)? != current
                 || verified.height() != target
                 || verified.block().hash() != original.native_hash

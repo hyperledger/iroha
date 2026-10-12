@@ -153,7 +153,7 @@ impl Process {
             .write(true)
             .open("/dev/null")
             .map_err(|_| Error::Unavailable)?;
-        let mut descriptors = vec![
+        let descriptors = vec![
             (duplicate(&child_input)?, 0),
             (duplicate(&child_output)?, 1),
             (duplicate(&null)?, 2),
@@ -175,9 +175,6 @@ impl Process {
             ),
             (duplicate(owner.openssl.file.file())?, 21),
         ];
-        if let Some(oauth) = &owner.oauth {
-            descriptors.push((duplicate(oauth.file.file())?, 13));
-        }
         let mut actions = SpawnActions::new()?;
         for (source, target) in &descriptors {
             actions.duplicate(source, *target)?;

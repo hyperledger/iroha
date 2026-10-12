@@ -73,6 +73,7 @@ fn constructor_binds_network_and_distinct_bls_peers_without_dispatch() {
         vec![proof.clone()],
         peers.clone(),
         deadline,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     )
     .unwrap();
     assert_eq!(
@@ -136,7 +137,8 @@ fn constructor_binds_network_and_distinct_bls_peers_without_dispatch() {
                 NonZeroU64::new(2).unwrap(),
                 proofs,
                 peers,
-                deadline
+                deadline,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
             )
             .is_err()
         );
@@ -147,7 +149,8 @@ fn constructor_binds_network_and_distinct_bls_peers_without_dispatch() {
             NonZeroU64::new(2).unwrap(),
             vec![proof],
             peers,
-            Instant::now()
+            Instant::now(),
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
         )
         .is_err()
     );

@@ -114,11 +114,11 @@ fn proof_codec_error(error: &norito::Error, part: &str, outer_scope: bool) -> Am
     AmxError::Proof(format!("{part}: {error}"))
 }
 
-fn commitment_error(error: &crate::sumeragi_finality::CommitmentError) -> AmxError {
+fn commitment_error(error: &crate::sumeragi_finality::CertifiedResultError) -> AmxError {
     match error {
-        crate::sumeragi_finality::CommitmentError::Resource(resource) => {
-            AmxError::Resource(*resource)
-        }
+        crate::sumeragi_finality::CertifiedResultError::Body(
+            crate::sumeragi_finality::CommitmentError::Resource(resource),
+        ) => AmxError::Resource(*resource),
         other => AmxError::Proof(format!("result preimage: {other}")),
     }
 }

@@ -112,7 +112,9 @@ fn account_fixture() -> &'static (
             signature: SignatureOf::try_from_hash(node.private_key(), body.signing_hash()).unwrap(),
             body,
         };
-        attestation.verify().unwrap();
+        attestation
+            .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+            .unwrap();
         let response = NativeAuthorityOriginalsV1 {
             request_sha256,
             selector: request.selector.clone(),
@@ -162,7 +164,11 @@ fn native_authority_provider_preserves_exact_peer_prefix_in_signed_post() {
             client
                 .clone()
                 .with_test_http_transport(transport)
-                .read_native_authority_originals_wire(request.selector.clone(), request.challenge)
+                .read_native_authority_originals_wire(
+                    request.selector.clone(),
+                    request.challenge,
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                )
         });
         let result = result.unwrap();
         assert_eq!(snapshots.len(), 1);
@@ -214,7 +220,11 @@ fn native_authority_provider_dispatches_signed_post_and_retains_exact_request_pr
         client
             .clone()
             .with_test_http_transport(transport)
-            .read_native_authority_originals_wire(request.selector.clone(), request.challenge)
+            .read_native_authority_originals_wire(
+                request.selector.clone(),
+                request.challenge,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            )
     });
     let result = result.unwrap();
     assert_eq!(snapshots.len(), 1);
@@ -338,7 +348,11 @@ fn native_authority_provider_rejects_uncorrelated_digest_selector_and_unsigned_s
             client
                 .clone()
                 .with_test_http_transport(transport)
-                .read_native_authority_originals_wire(request.selector.clone(), request.challenge)
+                .read_native_authority_originals_wire(
+                    request.selector.clone(),
+                    request.challenge,
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                )
         });
         assert!(result.is_err());
         assert_eq!(snapshots.len(), 1);
@@ -362,8 +376,11 @@ fn native_authority_provider_refuses_zero_entropy_cleartext_prefix_and_foreign_c
             for (k, v) in additions {
                 current.headers.insert(k.into(), v.into());
             }
-            current
-                .read_native_authority_originals_wire(request.selector.clone(), request.challenge)
+            current.read_native_authority_originals_wire(
+                request.selector.clone(),
+                request.challenge,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            )
         });
         assert!(result.is_err());
         assert!(snapshots.is_empty());
@@ -379,8 +396,11 @@ fn native_authority_provider_refuses_zero_entropy_cleartext_prefix_and_foreign_c
         let (result, snapshots) = capture_requests(successful(value), |transport| {
             let mut current = client.clone().with_test_http_transport(transport);
             current.torii_url = Url::parse(root).unwrap();
-            current
-                .read_native_authority_originals_wire(request.selector.clone(), request.challenge)
+            current.read_native_authority_originals_wire(
+                request.selector.clone(),
+                request.challenge,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            )
         });
         assert!(result.is_err());
         assert!(snapshots.is_empty());
@@ -389,7 +409,11 @@ fn native_authority_provider_refuses_zero_entropy_cleartext_prefix_and_foreign_c
         client
             .clone()
             .with_test_http_transport(transport)
-            .read_native_authority_originals_wire(request.selector.clone(), [0; 32])
+            .read_native_authority_originals_wire(
+                request.selector.clone(),
+                [0; 32],
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            )
     });
     assert!(result.is_err());
     assert!(snapshots.is_empty());
@@ -412,7 +436,11 @@ fn native_authority_provider_refuses_redirect_noncanonical_and_private_http_erro
             client
                 .clone()
                 .with_test_http_transport(transport)
-                .read_native_authority_originals_wire(request.selector.clone(), request.challenge)
+                .read_native_authority_originals_wire(
+                    request.selector.clone(),
+                    request.challenge,
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                )
         });
         assert!(result.is_err());
         assert_eq!(snapshots.len(), 1);
@@ -436,7 +464,11 @@ fn native_authority_provider_normalizes_media_and_keeps_only_listener_token_cont
         client
             .clone()
             .with_test_http_transport(transport)
-            .read_native_authority_originals_wire(request.selector.clone(), request.challenge)
+            .read_native_authority_originals_wire(
+                request.selector.clone(),
+                request.challenge,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            )
     });
     result.unwrap();
     let headers = &snapshots[0].headers;
@@ -479,7 +511,11 @@ fn native_authority_provider_refuses_duplicate_or_seed_response_header() {
             client
                 .clone()
                 .with_test_http_transport(transport)
-                .read_native_authority_originals_wire(request.selector.clone(), request.challenge)
+                .read_native_authority_originals_wire(
+                    request.selector.clone(),
+                    request.challenge,
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                )
         });
         assert!(result.is_err());
         assert_eq!(snapshots.len(), 1);
@@ -548,7 +584,11 @@ fn native_authority_provider_carries_identifier_originals_and_refuses_cross_prog
         client
             .clone()
             .with_test_http_transport(transport)
-            .read_native_authority_originals_wire(request.selector.clone(), request.challenge)
+            .read_native_authority_originals_wire(
+                request.selector.clone(),
+                request.challenge,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            )
     });
     let result = result.unwrap();
     assert_eq!(snapshots.len(), 1);
@@ -566,7 +606,11 @@ fn native_authority_provider_carries_identifier_originals_and_refuses_cross_prog
         client
             .clone()
             .with_test_http_transport(transport)
-            .read_native_authority_originals_wire(request.selector.clone(), request.challenge)
+            .read_native_authority_originals_wire(
+                request.selector.clone(),
+                request.challenge,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            )
     });
     assert!(result.is_err());
     assert_eq!(snapshots.len(), 1);

@@ -211,7 +211,12 @@ fn export(network: &Network, root: &Path) -> Result<()> {
             SumeragiFinalityVerifier::new(genesis.block(), &chain, roster.clone())?;
         let mut prefix = Vec::new();
         for height in 1..=2 {
-            let proof = native.get_sumeragi_finality_proof(NonZeroU64::new(height).unwrap())?;
+            let proof = native.get_sumeragi_finality_proof(
+                NonZeroU64::new(height).unwrap(),
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::from_root_scope(
+                    peer_verifier.root_scope(),
+                ),
+            )?;
             let decision = peer_verifier.verify(&proof)?;
             ensure!(
                 proof.committee.len() == 4

@@ -31,11 +31,10 @@
 //! [`crate::BlsNormalAggregateScratch`]), and its verification allocates nothing.
 //!
 //! `TODO:` unify every other BLS signature on RFC 9380 suites in a later release.
-//! `TODO(WP-C1):` route the production Sumeragi `Signer`/`Crypto` implementations
-//! (`KeyPairSigner`, `BlsCrypto`, `ProofCrypto`, and the signers delegating to them) through
-//! this module; until then they still sign and verify consensus messages with the w3f
-//! transcript (`specs/sumeragi.md` §1 item 6, planned case SC4). `BlsCrypto`'s request-funded
-//! `BlsNormalAggregateScratch` becomes a [`ConsensusAggregateScratch`] admitted the same way.
+//! Production Sumeragi `KeyPairSigner`, `BlsCrypto`, `ProofCrypto`, and their delegates
+//! use this allowlist. Individual verification validates one key without granting committee
+//! authority; aggregate verification still requires PoP admission or an authenticated root.
+//! Request-funded `BlsCrypto` retains the original [`ConsensusAggregateScratch`] allowance.
 
 use core::borrow::Borrow;
 
@@ -202,6 +201,19 @@ pub fn key_validate(public_key: &[u8; 48]) -> bool {
     parse_public_key(public_key).is_some()
 }
 
+/// Verify one consensus signature under a canonical, non-identity G1 key.
+///
+/// A single-key relation needs no proof of possession. This validates only the
+/// signature; the caller authenticates the claimed signer and its authority.
+#[must_use]
+pub fn verify_single(
+    public_key: &[u8; 48],
+    digest: &ConsensusDigest,
+    signature: &[u8; 96],
+) -> bool {
+    unfunded_scratch().verify_single(public_key, digest, signature)
+}
+
 /// Verify one consensus signature by a PoP-admitted key.
 #[must_use]
 pub fn verify(
@@ -300,6 +312,23 @@ impl<O> ConsensusAggregateScratch<O> {
             pairing: Pairing::new(true, DST_SIG),
             _owner: owner,
         })
+    }
+
+    /// [`verify_single`] on this originally admitted context, without allocation.
+    #[must_use]
+    pub fn verify_single(
+        &mut self,
+        public_key: &[u8; 48],
+        digest: &ConsensusDigest,
+        signature: &[u8; 96],
+    ) -> bool {
+        let Some(key) = parse_public_key(public_key) else {
+            return false;
+        };
+        self.relation(
+            core::iter::once((G1Projective::from(key), *digest)),
+            signature,
+        )
     }
 
     /// [`verify_fast_aggregate`] on this context. `keys` must replay the same keys in the

@@ -10,6 +10,42 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
+// The ordinary indirect caller owns only a synchronous decoder attempt. These
+// existing parity/cumulative-work tests exercise that same one-shot lifecycle;
+// the actual retained Pending owner is tested separately below and in Worker.
+struct OneShotLegDecode<'source> {
+    source: &'source [u8],
+    budget: &'source AllocationBudget,
+}
+impl<'source> OneShotLegDecode<'source> {
+    fn new(source: &'source [u8], budget: &'source AllocationBudget) -> Self {
+        Self { source, budget }
+    }
+    fn original_source(&self) -> &'source [u8] {
+        self.source
+    }
+    fn try_decode(&self) -> Result<AllocatedAmxTransferLegV1, Error> {
+        PendingAmxTransferLegDecodeV1::new(self.source, self.budget).try_decode(self.source)
+    }
+    fn try_decode_retained(&self) -> Result<CompletedAmxTransferLegDecodeV1, Error> {
+        PendingAmxTransferLegDecodeV1::new(self.source, self.budget)
+            .try_decode_retained(self.source)
+    }
+}
+fn original_span_bytes(leg: &AmxTransferLegV1) -> usize {
+    [leg.source.account(), &leg.destination]
+        .iter()
+        .map(|account| match account.controller() {
+            AccountController::Single(_) => 0,
+            AccountController::Multisig(policy) => {
+                Layout::array::<SequenceSpan>(policy.members().len())
+                    .unwrap()
+                    .size()
+            }
+        })
+        .sum()
+}
+
 fn key(seed: u8) -> PublicKey {
     KeyPair::from_seed(vec![seed; 32], Algorithm::Ed25519)
         .public_key()
@@ -96,10 +132,10 @@ fn funded_native_leg_matches_ordinary_canonical_single_multisig_uuid_scope_and_d
             let expected = exact_retained(&ordinary);
             // Span scratch is real transient storage and must coexist with the
             // partially built controller. It is absent from the final graph.
-            let spans = Layout::array::<SequenceSpan>(2).unwrap().size();
+            let spans = original_span_bytes(&original);
             let pool = AllocationBudget::new(expected + spans + controls());
             let foreign = AllocationBudget::new(expected + spans + controls());
-            let pending = PendingAmxTransferLegDecodeV1::new(&bytes, &pool);
+            let pending = OneShotLegDecode::new(&bytes, &pool);
             assert!(core::ptr::eq(
                 pending.original_source().as_ptr(),
                 bytes.as_ptr()
@@ -151,7 +187,7 @@ fn funded_native_leg_preserves_exact_original_capacity_release_generation_and_fi
     let foreign_blocker = ChargedBuffer::<u8>::new(control_bytes, &foreign).unwrap();
     let expected = pool.try_reserve_layouts(first).unwrap_err();
     let unrelated = foreign.try_reserve_layouts(first).unwrap_err();
-    let pending = PendingAmxTransferLegDecodeV1::new(&bytes, &pool);
+    let pending = OneShotLegDecode::new(&bytes, &pool);
     let source = (
         pending.original_source().as_ptr(),
         pending.original_source().len(),
@@ -224,9 +260,19 @@ fn funded_multisig_members_keep_actual_vector_capacity_key_ledger_and_existing_r
     let _threshold = ncore::framed_field::<u16>(&body, &mut offset).unwrap();
     let field = ncore::framed_field::<Vec<MultisigMember>>(&body, &mut offset).unwrap();
     let pool = AllocationBudget::new(4096);
-    let parts = field
-        .with_payload(|bytes| members(bytes, &pool).map_err(destination))
+    let mut destination = MembersDestination::new(&pool);
+    field
+        .with_payload(|bytes| {
+            destination
+                .decode(bytes, &pool, None)
+                .map_err(super::destination)
+        })
         .unwrap();
+    let parts = MemberParts::new(
+        destination.members.take().unwrap(),
+        destination.keys.take().unwrap(),
+    );
+    drop(destination);
     let count = policy.members().len();
     let values = parts.members.as_ref().unwrap();
     assert_eq!(values.capacity(), count);
@@ -322,7 +368,7 @@ fn funded_native_leg_cumulative_prefix_refusal_precedes_late_invalid_quantity_wi
     let actual = DecodeBudgetContext::new(limits);
     let shared = actual.clone();
     let pool = AllocationBudget::new(4096);
-    let pending = PendingAmxTransferLegDecodeV1::new(&late, &pool);
+    let pending = OneShotLegDecode::new(&late, &pool);
     let mut first_prefix = 0;
     for (attempt, context) in [&actual, &shared].into_iter().enumerate() {
         let (expected, original_usage) = ncore::with_decode_limits_measured(observation, || {
@@ -409,16 +455,12 @@ fn funded_native_leg_rejects_original_malformed_frames_flags_and_payload_bound()
     let frame = norito::encode_canonical(&original).unwrap();
     let pool = AllocationBudget::new(4096);
     for bytes in [&frame[..frame.len() - 1], &[]] {
-        assert!(
-            PendingAmxTransferLegDecodeV1::new(bytes, &pool)
-                .try_decode()
-                .is_err()
-        );
+        assert!(OneShotLegDecode::new(bytes, &pool).try_decode().is_err());
         assert_eq!(pool.reserved_bytes(), 0);
     }
     let mut corrupted = frame.clone();
     *corrupted.last_mut().unwrap() ^= 1;
-    let failure = PendingAmxTransferLegDecodeV1::new(&corrupted, &pool)
+    let failure = OneShotLegDecode::new(&corrupted, &pool)
         .try_decode()
         .unwrap_err();
     let Error::Decode(error) = failure else {
@@ -430,21 +472,17 @@ fn funded_native_leg_rejects_original_malformed_frames_flags_and_payload_bound()
     ));
     let mut flags = frame.clone();
     flags[ncore::Header::SIZE - 1] = 0x80;
-    assert!(
-        PendingAmxTransferLegDecodeV1::new(&flags, &pool)
-            .try_decode()
-            .is_err()
-    );
+    assert!(OneShotLegDecode::new(&flags, &pool).try_decode().is_err());
     let mut trailing = frame.clone();
     trailing.push(0);
     assert!(
-        PendingAmxTransferLegDecodeV1::new(&trailing, &pool)
+        OneShotLegDecode::new(&trailing, &pool)
             .try_decode()
             .is_err()
     );
     let oversized = vec![0; MAX_RESULT_PREIMAGE_BYTES + 1];
     assert!(matches!(
-        PendingAmxTransferLegDecodeV1::new(&oversized, &pool).try_decode(),
+        OneShotLegDecode::new(&oversized, &pool).try_decode(),
         Err(Error::Record(_))
     ));
     assert_eq!(pool.reserved_bytes(), 0);
@@ -464,7 +502,7 @@ fn funded_native_leg_preserves_canonical_header_error_order_without_crc_preview(
     flags_schema_and_crc[ncore::Header::SIZE - 1] = 0x80;
     for bytes in [&schema_and_crc, &flags_schema_and_crc] {
         let ordinary = norito::decode_canonical::<AmxTransferLegV1>(bytes).unwrap_err();
-        let failure = PendingAmxTransferLegDecodeV1::new(bytes, &pool)
+        let failure = OneShotLegDecode::new(bytes, &pool)
             .try_decode()
             .unwrap_err();
         let Error::Decode(captured) = failure else {
@@ -486,7 +524,7 @@ fn funded_native_leg_preserves_original_root_depth_field_and_source_context() {
     let original = leg(single(1), single(3), Quantity::from(17_u32));
     let frame = norito::encode_canonical(&original).unwrap();
     let pool = AllocationBudget::new(4096);
-    let pending = PendingAmxTransferLegDecodeV1::new(&frame, &pool);
+    let pending = OneShotLegDecode::new(&frame, &pool);
     let sentinel = [9_u8, 7, 5];
     let _source = ncore::PayloadCtxGuard::enter(&sentinel);
     let _flags = ncore::DecodeFlagsGuard::enter(ncore::default_encode_flags());
@@ -537,7 +575,7 @@ fn funded_native_leg_preserves_original_root_depth_field_and_source_context() {
 }
 
 #[test]
-fn funded_native_leg_destination_reset_retains_backing_and_refuses_replacement() {
+fn funded_native_leg_destination_reset_retains_backing_and_rechecks_original_frame() {
     let original = leg(single(1), single(3), Quantity::from(17_u32));
     let frame = norito::encode_canonical(&original).unwrap();
     let retained = exact_retained(&original);
@@ -569,23 +607,22 @@ fn funded_native_leg_destination_reset_retains_backing_and_refuses_replacement()
         expected,
         "reset does not retire or replace backing"
     );
-    let failure = workspace
+    workspace
         .decode_canonical_into::<AmxTransferLegV1, _>(
             &frame,
             norito::canonical_decode_limits(frame.len()),
             &mut destination,
         )
-        .unwrap_err();
-    assert!(matches!(
-        failure,
-        PreparedDecodeError::Destination(Error::Invariant("populated native AMX leg destination"))
-    ));
+        .unwrap();
     assert_eq!(
         core::ptr::from_ref(destination.complete.as_ref().unwrap().canonical()),
         backing
     );
     assert_eq!(pool.reserved_bytes(), expected);
-    assert!(!destination.valid);
+    assert!(
+        destination.valid,
+        "same original complete graph still passes full canonical comparison"
+    );
     pool.set_limit_bytes(0);
     drop(destination);
     assert_eq!(
@@ -602,11 +639,9 @@ fn completed_native_leg_retains_original_graph_counter_controls_and_last_owner_r
     let original = leg(multisig(1), multisig(5), Quantity::from(u128::MAX));
     let frame = norito::encode_canonical(&original).unwrap();
     let graph = exact_retained(&original);
-    let pool = AllocationBudget::new(
-        graph + controls() + Layout::array::<SequenceSpan>(2).unwrap().size(),
-    );
+    let pool = AllocationBudget::new(graph + controls() + original_span_bytes(&original));
     let foreign = AllocationBudget::new(pool.limit_bytes());
-    let pending = PendingAmxTransferLegDecodeV1::new(&frame, &pool);
+    let pending = OneShotLegDecode::new(&frame, &pool);
     let owner = pending.try_decode_retained().unwrap();
     assert_eq!(owner.canonical(), &original);
     assert!(owner.belongs_to(&pool));
@@ -633,4 +668,576 @@ fn completed_native_leg_retains_original_graph_counter_controls_and_last_owner_r
     assert_eq!(pending.original_source().as_ptr(), frame.as_ptr());
     drop(owner);
     assert_eq!(pool.reserved_bytes(), 0);
+}
+
+#[test]
+fn partial_native_multisig_retains_original_member_ledger_spans_and_key_pointer_through_retry() {
+    let original = leg(multisig(1), single(5), Quantity::from(17_u32));
+    let frame = norito::encode_canonical(&original).unwrap();
+    let graph = exact_retained(&original);
+    let span_bytes = original_span_bytes(&original);
+    let pool = AllocationBudget::new(graph + controls() + span_bytes);
+    let AccountController::Multisig(policy) = original.source.account().controller() else {
+        panic!("original multisig");
+    };
+    let prefix = controls()
+        + span_bytes
+        + Layout::array::<MultisigMember>(2).unwrap().size()
+        + Layout::array::<AllocationCharge>(2).unwrap().size()
+        + policy.members()[0]
+            .public_key()
+            .retained_allocation_layout()
+            .size();
+    let blocker = pool.try_reserve_bytes(pool.limit_bytes() - prefix).unwrap();
+    let mut pending = PendingAmxTransferLegDecodeV1::new(&frame, &pool);
+    let failure = pending.decode(&frame).unwrap_err();
+    let Error::Allocation(ChargedBufferError::Admission(refusal)) = failure else {
+        panic!("original second member key refusal");
+    };
+    let AllocationRefusal::Capacity { release, .. } = &refusal else {
+        panic!("actual occupancy");
+    };
+    let members = &pending.destination.source.account.policy.members;
+    let original_members = members.members.as_ref().unwrap().as_slice().as_ptr();
+    let original_ledger = members.keys.as_ref().unwrap().as_slice().as_ptr();
+    assert_eq!(members.members.as_ref().unwrap().as_slice().len(), 1);
+    let original_key = members.members.as_ref().unwrap().as_slice()[0]
+        .public_key()
+        .to_bytes()
+        .1
+        .as_ptr();
+    assert_eq!(members.spans.allocation_bytes(), Some(span_bytes));
+    assert_eq!(pool.reserved_bytes(), pool.limit_bytes());
+    let mut waiter = registration();
+    let mut context = Context::from_waker(Waker::noop());
+    assert_eq!(waiter.poll_wait(release, &mut context), Poll::Pending);
+    let repeated = pending.decode(&frame).unwrap_err();
+    let Error::Allocation(ChargedBufferError::Admission(repeated)) = repeated else {
+        panic!("same second member key refusal");
+    };
+    assert_eq!(repeated, refusal);
+    let members = &pending.destination.source.account.policy.members;
+    assert_eq!(
+        members.members.as_ref().unwrap().as_slice().as_ptr(),
+        original_members
+    );
+    assert_eq!(
+        members.keys.as_ref().unwrap().as_slice().as_ptr(),
+        original_ledger
+    );
+    assert_eq!(
+        members.members.as_ref().unwrap().as_slice()[0]
+            .public_key()
+            .to_bytes()
+            .1
+            .as_ptr(),
+        original_key
+    );
+    assert_eq!(waiter.poll_wait(release, &mut context), Poll::Pending);
+    drop(blocker);
+    assert_eq!(waiter.poll_wait(release, &mut context), Poll::Ready(()));
+    waiter.cancel();
+    let complete = pending.try_decode_retained(&frame).unwrap();
+    assert_eq!(complete.canonical(), &original);
+    let AccountController::Multisig(policy) = complete.canonical().source.account().controller()
+    else {
+        panic!("same original controller");
+    };
+    assert_eq!(policy.members().as_ptr(), original_members);
+    assert_eq!(
+        policy.members()[0].public_key().to_bytes().1.as_ptr(),
+        original_key
+    );
+    assert_eq!(
+        pool.reserved_bytes(),
+        graph + controls(),
+        "transient spans retire only after complete canonical success"
+    );
+    assert_eq!(
+        pending.original_source_identity(),
+        (frame.as_ptr() as usize, frame.len())
+    );
+    drop(complete);
+    drop(pending);
+    assert_eq!(pool.reserved_bytes(), 0);
+}
+
+#[test]
+fn partial_native_member_values_survive_original_ledger_refusal_without_prefix_refund() {
+    let original = leg(multisig(1), single(5), Quantity::from(17_u32));
+    let frame = norito::encode_canonical(&original).unwrap();
+    let span_bytes = original_span_bytes(&original);
+    let pool = AllocationBudget::new(exact_retained(&original) + controls() + span_bytes);
+    let prefix = controls() + span_bytes + Layout::array::<MultisigMember>(2).unwrap().size();
+    let blocker = pool.try_reserve_bytes(pool.limit_bytes() - prefix).unwrap();
+    let mut pending = PendingAmxTransferLegDecodeV1::new(&frame, &pool);
+    let failure = pending.decode(&frame).unwrap_err();
+    let Error::Allocation(ChargedBufferError::Admission(refusal)) = failure else {
+        panic!("original key-ledger refusal");
+    };
+    let members = &pending.destination.source.account.policy.members;
+    assert_eq!(members.members.as_ref().unwrap().capacity(), 2);
+    assert!(members.members.as_ref().unwrap().as_slice().is_empty());
+    assert!(members.keys.is_none());
+    assert_eq!(pool.reserved_bytes(), pool.limit_bytes());
+    let mut waiter = registration();
+    let mut context = Context::from_waker(Waker::noop());
+    let AllocationRefusal::Capacity {
+        release,
+        requested_bytes,
+        ..
+    } = &refusal
+    else {
+        panic!("original occupied pool");
+    };
+    assert_eq!(
+        *requested_bytes,
+        Layout::array::<AllocationCharge>(2).unwrap().size()
+    );
+    assert_eq!(waiter.poll_wait(release, &mut context), Poll::Pending);
+    drop(blocker);
+    assert_eq!(waiter.poll_wait(release, &mut context), Poll::Ready(()));
+    waiter.cancel();
+    let owner = pending.try_decode_retained(&frame).unwrap();
+    assert_eq!(owner.canonical(), &original);
+    drop(owner);
+    drop(pending);
+    assert_eq!(pool.reserved_bytes(), 0);
+}
+
+#[test]
+fn partial_native_leg_rejects_substituted_frame_and_retains_original_graph_through_retry() {
+    let original = leg(single(1), single(3), Quantity::from(17_u32));
+    let frame = norito::encode_canonical(&original).unwrap();
+    let pool = AllocationBudget::new(exact_retained(&original) + controls());
+    let source_bytes = actual_controller_layouts(original.source.account());
+    let blocker = pool
+        .try_reserve_bytes(pool.limit_bytes() - controls() - source_bytes)
+        .unwrap();
+    let mut pending = PendingAmxTransferLegDecodeV1::new(&frame, &pool);
+    assert!(pending.decode(&frame).is_err());
+    let source_key = pending
+        .destination
+        .source
+        .complete
+        .as_ref()
+        .unwrap()
+        .value
+        .account()
+        .try_signatory()
+        .unwrap()
+        .to_bytes()
+        .1
+        .as_ptr();
+    let replacement = frame.clone();
+    assert!(matches!(
+        pending.decode(&replacement),
+        Err(Error::Invariant("original native AMX leg source changed"))
+    ));
+    assert_eq!(pool.reserved_bytes(), pool.limit_bytes());
+    assert!(pending.belongs_to(&pool));
+    let foreign = AllocationBudget::new(pool.limit_bytes());
+    assert!(!pending.belongs_to(&foreign));
+    drop(blocker);
+    let complete = pending.try_decode_retained(&frame).unwrap();
+    assert_eq!(
+        complete
+            .canonical()
+            .source
+            .account()
+            .try_signatory()
+            .unwrap()
+            .to_bytes()
+            .1
+            .as_ptr(),
+        source_key
+    );
+    assert_eq!(complete.canonical(), &original);
+    drop(complete);
+    drop(pending);
+    assert_eq!(pool.reserved_bytes(), 0);
+}
+
+#[test]
+fn partial_native_retry_rechecks_cached_field_and_depth_limits_without_retiring_original_backing() {
+    let original = leg(multisig(1), single(5), Quantity::from(17_u32));
+    let frame = norito::encode_canonical(&original).unwrap();
+    let graph = exact_retained(&original);
+    let spans = original_span_bytes(&original);
+    let context_bytes = DecodeBudgetContext::allocation_layout().size();
+    let pool = AllocationBudget::new(graph + controls() + spans + context_bytes);
+    let limits = norito::canonical_decode_limits(frame.len());
+    let outer = DecodeBudgetContext::try_new_owned(
+        DecodeLimits::new(
+            limits.max_sequence_elements(),
+            limits.max_field_bytes(),
+            limits.max_total_elements().checked_mul(8).unwrap(),
+            limits.max_total_allocated_bytes().checked_mul(8).unwrap(),
+            limits.max_nesting_depth(),
+        ),
+        &pool,
+    )
+    .unwrap();
+    let source_bytes = actual_controller_layouts(original.source.account());
+    let prefix = context_bytes + controls() + spans + source_bytes;
+    let blocker = pool.try_reserve_bytes(pool.limit_bytes() - prefix).unwrap();
+    let mut pending = PendingAmxTransferLegDecodeV1::new(&frame, &pool);
+    let refusal = outer.with(|| pending.decode(&frame)).unwrap_err();
+    let Error::Allocation(ChargedBufferError::Admission(refusal)) = refusal else {
+        panic!("receiver key refuses after completed original multisig source");
+    };
+    let AllocationRefusal::Capacity { release, .. } = &refusal else {
+        panic!("actual original occupancy");
+    };
+    let AccountController::Multisig(source) = pending
+        .destination
+        .source
+        .complete
+        .as_ref()
+        .unwrap()
+        .value
+        .account()
+        .controller()
+    else {
+        panic!("retained complete original source");
+    };
+    let members = source.members().as_ptr();
+    let key = source.members()[0].public_key().to_bytes().1.as_ptr();
+    let mut waiter = registration();
+    let mut context = Context::from_waker(Waker::noop());
+    assert_eq!(waiter.poll_wait(release, &mut context), Poll::Pending);
+    // Source Asset -> Account -> Policy -> member Vec crosses depth four.
+    // The unprepared receiver has only Account -> key at this point. Borrowing
+    // the completed source must still enter its own original nested boundary.
+    for ceiling in [
+        DecodeLimits::new(
+            usize::MAX,
+            0,
+            usize::MAX,
+            usize::MAX,
+            limits.max_nesting_depth(),
+        ),
+        DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 4),
+    ] {
+        let expected = outer
+            .with(|| {
+                ncore::with_decode_limits_scope(ceiling, || {
+                    norito::decode_canonical_for_admission::<AmxTransferLegV1>(&frame, limits)
+                })
+            })
+            .unwrap_err();
+        let actual = outer
+            .with(|| ncore::with_decode_limits_scope(ceiling, || pending.decode(&frame)))
+            .unwrap_err();
+        let Error::Decode(actual) = actual else {
+            panic!("cached canonical field/depth boundary must refuse before receiver allocation");
+        };
+        assert_eq!(actual.kind(), ncore::DecodeAttemptErrorKind::EnclosingLimit);
+        assert_eq!(actual.kind(), expected.kind());
+        assert_eq!(
+            actual.into_error().decode_resource_error(),
+            expected.into_error().decode_resource_error()
+        );
+        assert_eq!(pool.reserved_bytes(), pool.limit_bytes());
+        let AccountController::Multisig(source) = pending
+            .destination
+            .source
+            .complete
+            .as_ref()
+            .unwrap()
+            .value
+            .account()
+            .controller()
+        else {
+            panic!("same retained original controller");
+        };
+        assert_eq!(source.members().as_ptr(), members);
+        assert_eq!(source.members()[0].public_key().to_bytes().1.as_ptr(), key);
+        assert_eq!(waiter.poll_wait(release, &mut context), Poll::Pending);
+    }
+    drop(blocker);
+    assert_eq!(waiter.poll_wait(release, &mut context), Poll::Ready(()));
+    waiter.cancel();
+    let complete = outer.with(|| pending.try_decode_retained(&frame)).unwrap();
+    assert_eq!(complete.canonical(), &original);
+    let AccountController::Multisig(source) = complete.canonical().source.account().controller()
+    else {
+        panic!("same completed original source");
+    };
+    assert_eq!(source.members().as_ptr(), members);
+    assert_eq!(source.members()[0].public_key().to_bytes().1.as_ptr(), key);
+    assert_eq!(pool.reserved_bytes(), context_bytes + graph + controls());
+    drop(complete);
+    drop(pending);
+    assert_eq!(pool.reserved_bytes(), context_bytes);
+    drop(outer);
+    assert_eq!(pool.reserved_bytes(), 0);
+}
+
+// Locate the actual scalar through the canonical field/element owners. The
+// fixture changes no header, length, key encoding or other policy component.
+fn invalid_multisig_scalar_frame(frame: &[u8], member_weight: bool, value: u16) -> Vec<u8> {
+    let view = ncore::from_bytes_view(frame).unwrap();
+    let _flags = ncore::DecodeFlagsGuard::enter(view.flags());
+    let _context = ncore::PayloadCtxGuard::enter(view.as_bytes());
+    let mut offset = 0;
+    let start = view.as_bytes().as_ptr() as usize;
+    let position = ncore::framed_field::<AssetId>(view.as_bytes(), &mut offset).unwrap()
+        .with_payload(|asset| {
+            let mut offset = 0;
+            let position = ncore::framed_field::<AccountId>(asset, &mut offset).unwrap()
+                .with_payload(|account| {
+                    assert_eq!(tag(account).unwrap(), 1);
+                    let mut offset = 4;
+                    let position = ncore::framed_field::<MultisigPolicy>(account, &mut offset).unwrap()
+                        .with_payload(|policy| {
+                            let mut offset = 0;
+                            let _version = ncore::framed_field::<u8>(policy, &mut offset).unwrap();
+                            let threshold = ncore::framed_field::<u16>(policy, &mut offset).unwrap();
+                            let position = if member_weight {
+                                ncore::framed_field::<Vec<MultisigMember>>(policy, &mut offset).unwrap()
+                                    .with_payload(|members| {
+                                        let mut spans = [SequenceSpan { start: 0, end: 0 }; 2];
+                                        let prepared = ncore::prepare_element_sequence(members, &mut spans).unwrap();
+                                        let mut position = None;
+                                        prepared.decode_elements::<MultisigMember, std::convert::Infallible>(|index, field| {
+                                            field.with_payload(|member| {
+                                                let mut offset = 0;
+                                                let _key = ncore::framed_field::<PublicKey>(member, &mut offset).unwrap();
+                                                let weight = ncore::framed_field::<u16>(member, &mut offset).unwrap();
+                                                if index == 0 { position = Some(weight.bytes().as_ptr() as usize - start); }
+                                                Ok(())
+                                            })
+                                        }).unwrap();
+                                        Ok::<_, DecodeIntoError<std::convert::Infallible>>(position.unwrap())
+                                    }).unwrap()
+                            } else {
+                                threshold.bytes().as_ptr() as usize - start
+                            };
+                            Ok::<_, DecodeIntoError<std::convert::Infallible>>(position)
+                        }).unwrap();
+                    Ok::<_, DecodeIntoError<std::convert::Infallible>>(position)
+                }).unwrap();
+            Ok::<_, DecodeIntoError<std::convert::Infallible>>(position)
+        }).unwrap();
+    let mut body = view.as_bytes().to_vec();
+    body[position..position + 2].copy_from_slice(&value.to_le_bytes());
+    ncore::frame_bare_with_header_flags::<AmxTransferLegV1>(&body, view.flags()).unwrap()
+}
+
+#[test]
+fn invalid_native_multisig_retains_original_policy_and_member_prefix_on_replay() {
+    let original = leg(multisig(1), single(5), Quantity::from(17_u32));
+    let valid = norito::encode_canonical(&original).unwrap();
+    for member_weight in [false, true] {
+        let frame = invalid_multisig_scalar_frame(&valid, member_weight, 0);
+        let ordinary = norito::decode_canonical::<AmxTransferLegV1>(&frame).unwrap_err();
+        let expected = if member_weight {
+            crate::account::MultisigPolicyError::MemberWeightZero
+        } else {
+            crate::account::MultisigPolicyError::ZeroThreshold
+        };
+        let norito::Error::Message(ordinary_message) = &ordinary else {
+            panic!("canonical intrinsic multisig diagnostic");
+        };
+        assert_eq!(ordinary_message, &expected.to_string());
+        let pool = AllocationBudget::new(
+            exact_retained(&original) + controls() + original_span_bytes(&original),
+        );
+        let mut pending = PendingAmxTransferLegDecodeV1::new(&frame, &pool);
+        let assert_cause = |error: Error| {
+            let Error::Multisig(error) = error else {
+                panic!("original typed canonical policy/member rejection");
+            };
+            assert_eq!(error, expected);
+            assert_eq!(error.to_string(), ordinary.to_string());
+        };
+        assert_cause(pending.decode(&frame).unwrap_err());
+        let members = &pending.destination.source.account.policy.members;
+        let values = members.members.as_ref().unwrap();
+        let ledger = members.keys.as_ref().unwrap();
+        let original_values = values.as_slice().as_ptr();
+        let original_ledger = ledger.as_slice().as_ptr();
+        assert_eq!(values.capacity(), 2);
+        assert_eq!(ledger.capacity(), 2);
+        let original_key = if member_weight {
+            assert!(values.as_slice().is_empty());
+            assert!(ledger.as_slice().is_empty());
+            members.key.as_ref().unwrap().get().to_bytes().1.as_ptr()
+        } else {
+            assert_eq!(values.as_slice().len(), 2);
+            assert_eq!(ledger.as_slice().len(), 2);
+            assert!(members.key.is_none());
+            values.as_slice()[0].public_key().to_bytes().1.as_ptr()
+        };
+        assert_eq!(
+            members.spans.allocation_bytes(),
+            Some(original_span_bytes(&original))
+        );
+        let admitted = pool.reserved_bytes();
+        assert!(admitted > controls() + original_span_bytes(&original));
+        assert_cause(pending.decode(&frame).unwrap_err());
+        let members = &pending.destination.source.account.policy.members;
+        assert_eq!(
+            members.members.as_ref().unwrap().as_slice().as_ptr(),
+            original_values
+        );
+        assert_eq!(
+            members.keys.as_ref().unwrap().as_slice().as_ptr(),
+            original_ledger
+        );
+        let key = if member_weight {
+            members.key.as_ref().unwrap().get().to_bytes().1.as_ptr()
+        } else {
+            members.members.as_ref().unwrap().as_slice()[0]
+                .public_key()
+                .to_bytes()
+                .1
+                .as_ptr()
+        };
+        assert_eq!(key, original_key);
+        assert_eq!(
+            pool.reserved_bytes(),
+            admitted,
+            "terminal validators must not consume/refund original prefix backing"
+        );
+        assert!(pending.belongs_to(&pool));
+        drop(pending);
+        assert_eq!(pool.reserved_bytes(), 0);
+    }
+}
+
+// Each measured replay begins only after the actual original partial graph and
+// both canonical controls exist. Independent ordinary diagnostics precede the
+// observation; the current source and every retained pointer remain unchanged.
+fn assert_multisig_semantic_replay_has_no_diagnostic_allocation(member_weight: bool) {
+    use crate::amx_prepare_streaming_allocations::measured;
+
+    let original = leg(multisig(1), single(5), Quantity::from(17_u32));
+    let valid = norito::encode_canonical(&original).unwrap();
+    let original_policy = original.source.account().multisig_policy().unwrap();
+    let total_weight: u32 = original_policy
+        .members()
+        .iter()
+        .map(|member| u32::from(member.weight()))
+        .sum();
+    let threshold = u16::try_from(total_weight.checked_add(1).unwrap()).unwrap();
+    let expected = if member_weight {
+        crate::account::MultisigPolicyError::MemberWeightZero
+    } else {
+        crate::account::MultisigPolicyError::ThresholdExceedsTotal {
+            threshold,
+            total_weight,
+        }
+    };
+    let frame = invalid_multisig_scalar_frame(
+        &valid,
+        member_weight,
+        if member_weight { 0 } else { threshold },
+    );
+    let ordinary = norito::decode_canonical::<AmxTransferLegV1>(&frame).unwrap_err();
+    let norito::Error::Message(message) = &ordinary else {
+        panic!("canonical intrinsic multisig diagnostic");
+    };
+    assert_eq!(message, &expected.to_string());
+    let ordinary_message = ordinary.to_string();
+    let original_source = (frame.as_ptr() as usize, frame.len());
+    let pool = AllocationBudget::new(
+        exact_retained(&original) + controls() + original_span_bytes(&original),
+    );
+    let mut pending = PendingAmxTransferLegDecodeV1::new(&frame, &pool);
+    let failure = pending.decode(&frame).unwrap_err();
+    assert_eq!(failure.to_string(), ordinary_message);
+    let workspace = std::ptr::from_ref(pending.workspace.as_ref().unwrap());
+    assert!(pending.workspace.as_ref().unwrap().belongs_to(&pool));
+    let members = &pending.destination.source.account.policy.members;
+    let values = members.members.as_ref().unwrap();
+    let ledger = members.keys.as_ref().unwrap();
+    let values_pointer = values.as_slice().as_ptr();
+    let ledger_pointer = ledger.as_slice().as_ptr();
+    assert_eq!(values.capacity(), original_policy.members().len());
+    assert_eq!(ledger.capacity(), original_policy.members().len());
+    let key_pointer = if member_weight {
+        assert!(values.as_slice().is_empty());
+        assert!(ledger.as_slice().is_empty());
+        members.key.as_ref().unwrap().get().to_bytes().1.as_ptr()
+    } else {
+        assert_eq!(values.as_slice().len(), original_policy.members().len());
+        assert_eq!(ledger.as_slice().len(), original_policy.members().len());
+        assert!(members.key.is_none());
+        values.as_slice()[0].public_key().to_bytes().1.as_ptr()
+    };
+    assert_eq!(
+        members.spans.allocation_bytes(),
+        Some(original_span_bytes(&original))
+    );
+    let admitted = pool.reserved_bytes();
+    assert!(admitted > controls() + original_span_bytes(&original));
+    let occupied_bytes = pool.limit_bytes().checked_sub(admitted).unwrap();
+    let occupied = pool.try_reserve_bytes(occupied_bytes).unwrap();
+    assert_eq!(pool.reserved_bytes(), pool.limit_bytes());
+    for _ in 0..3 {
+        let (result, allocations) = measured(|| pending.decode(&frame));
+        let failure = result.unwrap_err();
+        assert_eq!(failure.to_string(), ordinary_message);
+        // This same regression body is valid before and after the typed cause
+        // repair. The earlier codec carrier must still classify as intrinsic.
+        if let Error::Decode(cause) = &failure {
+            assert_eq!(cause.kind(), ncore::DecodeAttemptErrorKind::Invalid);
+        }
+        assert!(!matches!(
+            failure,
+            Error::Allocation(_) | Error::Scope(_) | Error::Invariant(_)
+        ));
+        assert_eq!(pending.original_source_identity(), original_source);
+        assert_eq!(
+            std::ptr::from_ref(pending.workspace.as_ref().unwrap()),
+            workspace
+        );
+        let members = &pending.destination.source.account.policy.members;
+        assert_eq!(
+            members.members.as_ref().unwrap().as_slice().as_ptr(),
+            values_pointer
+        );
+        assert_eq!(
+            members.keys.as_ref().unwrap().as_slice().as_ptr(),
+            ledger_pointer
+        );
+        let key = if member_weight {
+            members.key.as_ref().unwrap().get().to_bytes().1.as_ptr()
+        } else {
+            members.members.as_ref().unwrap().as_slice()[0]
+                .public_key()
+                .to_bytes()
+                .1
+                .as_ptr()
+        };
+        assert_eq!(key, key_pointer);
+        assert_eq!(
+            members.spans.allocation_bytes(),
+            Some(original_span_bytes(&original))
+        );
+        assert!(pending.belongs_to(&pool));
+        assert_eq!(pool.reserved_bytes(), pool.limit_bytes());
+        assert_eq!(
+            allocations,
+            [0, 0, 0],
+            "retained multisig semantic replay must not allocate a diagnostic or replacement backing"
+        );
+    }
+    drop(pending);
+    assert_eq!(pool.reserved_bytes(), occupied_bytes);
+    drop(occupied);
+    assert_eq!(pool.reserved_bytes(), 0);
+}
+
+#[test]
+fn invalid_native_multisig_threshold_replay_preserves_original_cause_without_diagnostic_allocations()
+ {
+    assert_multisig_semantic_replay_has_no_diagnostic_allocation(false);
+}
+
+#[test]
+fn invalid_native_multisig_member_replay_preserves_original_cause_without_diagnostic_allocations() {
+    assert_multisig_semantic_replay_has_no_diagnostic_allocation(true);
 }

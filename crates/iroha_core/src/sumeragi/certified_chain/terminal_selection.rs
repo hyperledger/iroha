@@ -70,6 +70,9 @@ impl<'kura> OriginalReceipt<'kura> {
                     .expect("original acquired carrier")
                     .clone(),
                 height,
+                // The retained prefix carries the original signed root's role;
+                // an offered X header cannot choose the decoder's scope.
+                prefix.tip.result_scope(),
                 &mut prefix.validation,
                 budget,
             )?;

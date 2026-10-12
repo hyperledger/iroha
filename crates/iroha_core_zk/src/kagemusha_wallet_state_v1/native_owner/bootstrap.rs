@@ -117,6 +117,8 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             proof(expected.require_matches(&frozen))?;
             frozen
         } else {
+            // Design §5.3: check this phone before proving; commit checks it again.
+            self.require_runtime_capacity()?;
             let sigma = {
                 let mut originals =
                     self.proofs.originals.lock().map_err(|_| {

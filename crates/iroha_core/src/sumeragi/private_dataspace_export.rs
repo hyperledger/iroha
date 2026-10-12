@@ -35,7 +35,21 @@ pub enum ExportError {
     Scope(String),
     /// The bounded public private-root profile is invalid.
     #[error(transparent)]
-    Profile(#[from] PrivateDataspaceAnchorError),
+    Profile(PrivateDataspaceAnchorError),
+}
+
+impl From<PrivateDataspaceAnchorError> for ExportError {
+    fn from(error: PrivateDataspaceAnchorError) -> Self {
+        match error {
+            PrivateDataspaceAnchorError::Resource(resource) => Self::Deferred(match resource {
+                norito::core::DecodeResourceError::AllocationFailed { .. } => {
+                    ivm::error::ExecutionDeferral::AllocationUnavailable.into()
+                }
+                _ => ivm::error::ExecutionDeferral::ActiveMemoryCapacity.into(),
+            }),
+            invalid => Self::Profile(invalid),
+        }
+    }
 }
 
 impl From<ExecutionAttemptError<ChainReadError>> for ExportError {

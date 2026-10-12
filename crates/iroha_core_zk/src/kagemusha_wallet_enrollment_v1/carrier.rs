@@ -8,17 +8,37 @@ pub const REQUEST_MAX_BYTES: usize =
     crate::kagemusha_wallet_advance_v1::KAGEMUSHA_WALLET_ENROLLMENT_REQUEST_MAX_BYTES_V1;
 /// Bounded exact platform evidence; the issuer must authenticate every contained original.
 pub const EVIDENCE_MAX_BYTES: usize = 118_784;
+/// Android `KeyMint` chain shape (enrollment policy, Android admission step 1): 2–8 DER
+/// certificates, leaf first, each 1–16,384 bytes and at most 65,536 bytes in total.
+pub const ANDROID_CHAIN_MIN: usize = 2;
+/// Most certificates in one Android chain.
+pub const ANDROID_CHAIN_MAX: usize = 8;
+/// Largest single Android chain certificate.
+pub const ANDROID_CERTIFICATE_MAX_BYTES: usize = 16_384;
+/// Largest Android chain in total.
+pub const ANDROID_CHAIN_MAX_BYTES: usize = 65_536;
+
+/// Whether `certificates` has the exact Android admission step 1 shape.
+pub(crate) fn android_chain_shape<T: AsRef<[u8]>>(certificates: &[T]) -> bool {
+    (ANDROID_CHAIN_MIN..=ANDROID_CHAIN_MAX).contains(&certificates.len())
+        && certificates.iter().all(|der| {
+            !der.as_ref().is_empty() && der.as_ref().len() <= ANDROID_CERTIFICATE_MAX_BYTES
+        })
+        && certificates
+            .iter()
+            .try_fold(0_usize, |total, der| total.checked_add(der.as_ref().len()))
+            .is_some_and(|total| total <= ANDROID_CHAIN_MAX_BYTES)
+}
 
 /// Exact originals sent to the configured issuer, with no attestation verdict fields.
 #[derive(Debug, Clone, PartialEq, Eq, norito::Encode, norito::Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_core_zk::kagemusha_wallet_enrollment_v1::PlatformEvidenceV1")]
 pub enum PlatformEvidenceV1 {
-    /// Leaf-first KeyMint DER chain and unmodified Play Integrity token.
+    /// Leaf-first `KeyMint` DER chain, including its root. It is the whole Android evidence:
+    /// no vendor online verdict, token or second attested key accompanies it.
     Android {
         /// Original certificate bytes; no decoded extension substitutes.
         certificates: Vec<Vec<u8>>,
-        /// Original opaque token for authenticated server-side Google decode.
-        play_integrity_token: Vec<u8>,
     },
     /// Original App Attest enrollment and fresh first key-binding assertion.
     Apple {
@@ -32,22 +52,11 @@ pub enum PlatformEvidenceV1 {
 }
 impl PlatformEvidenceV1 {
     fn require(&self, policy: &KagemushaWalletEnrollmentPolicyV1) -> Result<(), &'static str> {
-        match (self, policy.platform) {
+        match (self, &policy.platform) {
             (
-                Self::Android {
-                    certificates,
-                    play_integrity_token,
-                },
+                Self::Android { certificates },
                 KagemushaWalletEnrollmentPlatformV1::Android { .. },
-            ) if (2..=8).contains(&certificates.len())
-                && certificates
-                    .iter()
-                    .all(|der| !der.is_empty() && der.len() <= 16_384)
-                && !play_integrity_token.is_empty()
-                && play_integrity_token.len() <= 65_536 =>
-            {
-                Ok(())
-            }
+            ) if android_chain_shape(certificates) => Ok(()),
             (
                 Self::Apple {
                     key_id,
@@ -200,16 +209,13 @@ impl RequestV1 {
 pub const RESULT_MAX_BYTES: usize = 262_144;
 
 /// Exact originals retained by the issuer before it signs the initial credential.
-/// The issuer obtains the Android response through its authenticated Google client.
 #[derive(Debug, Clone, PartialEq, Eq, norito::Encode, norito::Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_core_zk::kagemusha_wallet_enrollment_v1::IssuerEvidenceV1")]
 pub enum IssuerEvidenceV1 {
-    /// Original KeyMint chain followed by the original enrollment-time Google HTTPS response.
+    /// The exact E5 `KeyMint` chain, leaf first; nothing else is Android evidence.
     Android {
         /// Exact E5 chain, leaf first.
         certificates: Vec<Vec<u8>>,
-        /// Original response bytes acquired by the issuer, never a mobile decoded verdict.
-        google_response: Vec<u8>,
     },
     /// Original Apple attestation and fresh first key-binding assertion.
     Apple {
@@ -221,7 +227,7 @@ pub enum IssuerEvidenceV1 {
 }
 impl IssuerEvidenceV1 {
     /// Reconstruct the signed credential digest while requiring unchanged mobile originals.
-    /// This checks bytes, not Google transport provenance or platform attestation validity.
+    /// The Android digest items are the chain only. This checks bytes, not attestation validity.
     pub fn digest(
         &self,
         request: &RequestBodyV1,
@@ -230,23 +236,14 @@ impl IssuerEvidenceV1 {
         let mobile = PlatformEvidenceV1::decode(&request.evidence, &request.policy)?;
         let items = match (self, &mobile, kind) {
             (
-                Self::Android {
-                    certificates,
-                    google_response,
-                },
+                Self::Android { certificates },
                 PlatformEvidenceV1::Android {
                     certificates: requested,
-                    ..
                 },
                 KagemushaWalletEvidenceKindV1::AndroidKeyMintTee
                 | KagemushaWalletEvidenceKindV1::AndroidKeyMintStrongBox,
-            ) if certificates == requested
-                && !google_response.is_empty()
-                && google_response.len() <= 131_072 =>
-            {
-                let mut items: Vec<_> = certificates.iter().map(Vec::as_slice).collect();
-                items.push(google_response.as_slice());
-                items
+            ) if certificates == requested && android_chain_shape(certificates) => {
+                certificates.iter().map(Vec::as_slice).collect::<Vec<_>>()
             }
             (
                 Self::Apple {
@@ -326,28 +323,14 @@ impl ResultV1 {
             )
             .map_err(|_| "issuer enrollment credential")?;
         let c = &credential_value.body;
+        // The attested security level, never a policy selector, chooses the Android kind.
         let kind_matches = matches!(
-            (request.body.policy.platform, c.evidence_kind),
+            (&request.body.policy.platform, c.evidence_kind),
             (
                 KagemushaWalletEnrollmentPlatformV1::Apple { .. },
                 KagemushaWalletEvidenceKindV1::AppleAppAttest
             ) | (
-                KagemushaWalletEnrollmentPlatformV1::Android {
-                    hardware: KagemushaWalletAndroidHardwareV1::Tee,
-                    ..
-                },
-                KagemushaWalletEvidenceKindV1::AndroidKeyMintTee
-            ) | (
-                KagemushaWalletEnrollmentPlatformV1::Android {
-                    hardware: KagemushaWalletAndroidHardwareV1::StrongBox,
-                    ..
-                },
-                KagemushaWalletEvidenceKindV1::AndroidKeyMintStrongBox
-            ) | (
-                KagemushaWalletEnrollmentPlatformV1::Android {
-                    hardware: KagemushaWalletAndroidHardwareV1::TeeOrStrongBox,
-                    ..
-                },
+                KagemushaWalletEnrollmentPlatformV1::Android { .. },
                 KagemushaWalletEvidenceKindV1::AndroidKeyMintTee
                     | KagemushaWalletEvidenceKindV1::AndroidKeyMintStrongBox
             )

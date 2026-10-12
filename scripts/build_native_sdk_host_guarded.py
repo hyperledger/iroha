@@ -263,11 +263,11 @@ def _host_build_locked(root: Path, output: Path, target: Path, jobs: int | None,
     native.validate_privacy_c_exports(exports, require_exact=True)
     unit.require(set(policy["required"]) <= set(exports), "current required native exports are missing")
     abi = native.probe_c_abi(snapshot, policy["required"], forbidden_symbols=policy["forbidden"])
-    unit.require(abi == 28, "actual native library is not ABI28")
+    unit.require(abi == 29, "actual native library is not ABI29")
     inventory = output / "exports.json"
     unit.save(inventory, sorted(set(exports)))
     component = {"emitter_path": str(emitter), "emitter_sha256": emitter_sha, "qualified": True,
-                 "scope": "host-ABI28-and-symbols-only", "observed_abi_version": abi,
+                 "scope": "host-ABI29-and-symbols-only", "observed_abi_version": abi,
                  "artifact_path": str(snapshot), "artifact_sha256": unit.digest(snapshot),
                  "source_before": before, "source_after": custody.capture(metadata, root, unit.digest),
                  "toolchain_before": tools_before, "toolchain_after": collect_tools(root)[2],

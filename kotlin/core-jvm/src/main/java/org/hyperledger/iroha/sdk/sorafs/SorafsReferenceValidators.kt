@@ -114,7 +114,7 @@ enum class SorafsOrderbookCancelReason(@JvmField val bridgeCode: Int) {
 class SorafsReferenceValidators private constructor() {
     companion object {
         private const val LIBRARY_NAME = "connect_norito_bridge"
-        const val REQUIRED_BRIDGE_ABI_VERSION: Int = 28
+        const val REQUIRED_BRIDGE_ABI_VERSION: Int = 29
         /** Canonical maximum byte length for a V1 orderbook owner account. */
         const val ORDERBOOK_OWNER_ACCOUNT_MAX_BYTES_V1: Int = 256
         /** Maximum complete-root or checkpoint-tail window accepted by one head validation. */

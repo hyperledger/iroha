@@ -30,7 +30,9 @@ fn execute(epoch: &str) -> (IVM, crate::PreparedContract, Result<(), VMError>) {
             ),
         )
         .with_public_inputs(BTreeMap::from([(
-            "trigger_event_json".parse().unwrap(),
+            ivm_abi::arguments::ENTRYPOINT_ARGUMENT_RECORD_PUBLIC_INPUT_KEY
+                .parse()
+                .unwrap(),
             input,
         )])),
     );

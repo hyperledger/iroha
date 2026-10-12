@@ -5,14 +5,43 @@ recorded step carries the call, its inputs, `now_ms`, the expected outcome
 (`ok` or the §5.2.2 error name), the emitted events and the state afterwards,
 which is the `(state, input, now) → (state', outcome, event)` row shape of
 `specs/sccp.md` §11.1. Certificates live in a shared pool and are referenced by
-id; a `SccpCertificate` event names the pooled certificate it publishes.
+id; a `SccpCertificate` event names the pooled certificate it publishes: the
+one among the certificates of its own step with the `QC_FIXED`, the header and
+the signature the event carries.
+
+A step names its call as the flavor does (`CALL_NAMES`): the EVM entry point,
+or the TON message of §5.3.2 (`sccp_checkpoint`, `sccp_finalize_checkpoint`, …).
+
+`now_ms` of a step is the destination clock, `block.timestamp × 1000` (EVM) or
+`now() × 1000` (TON, §0). The recorder therefore refuses a step whose `now_ms`
+is not a multiple of 1000 or is earlier than the previous step's, so that an
+EDR or Acton harness can replay every scenario with real block times.
 """
 
 from __future__ import annotations
 
+from .common import check_destination_clock
 from .destination import ControlProof, Deployment, Destination, MessageProof
 from .finality import Certificate, parse_header
 from .taira import Committee
+
+
+# The call of a step, per flavor: the EVM entry point of §5.2.2 and the TON message of §5.3.2.
+CALL_NAMES = {
+    "submitCheckpoints": "sccp_checkpoint",
+    "finalizeFromTaira": "sccp_finalize",
+    "finalizeFromCheckpoint": "sccp_finalize_checkpoint",
+    "applyControl": "sccp_apply_control",
+    "applyControlFromCheckpoint": "sccp_apply_control_checkpoint",
+    "voidExpired": "sccp_void_expired",
+    "voidExpiredFromCheckpoint": "sccp_void_expired_checkpoint",
+    "voidFrozen": "sccp_void_frozen",
+}
+
+
+def call_name(flavor: str, evm_name: str) -> str:
+    """The name a step of `flavor` records for the entry point `evm_name`."""
+    return evm_name if flavor == "evm" else CALL_NAMES[evm_name]
 
 
 class CertificatePool:
@@ -54,9 +83,20 @@ class CertificatePool:
         self.entries[cid] = entry
         return cid
 
-    def id_of(self, qc: str, header: str) -> str | None:
-        for cid, entry in self.entries.items():
-            if entry["evm"]["qc"] == qc and entry["evm"]["header"] == header:
+    def id_of(self, qc: str, header: str, signature: str, among: list[str]) -> str | None:
+        """The first certificate of `among` (the ids a step submitted) with this `QC_FIXED`, header and signature
+        (in its EVM or its TON form).
+
+        A destination publishes only a certificate of the call. Certificates of one `X` under different
+        signatures are different entries, so the signature decides which of them it published.
+        """
+        for cid in among:
+            entry = self.entries[cid]
+            if (
+                entry["evm"]["qc"] == qc
+                and entry["evm"]["header"] == header
+                and signature in (entry["evm"]["signature"], entry["ton"]["signature"])
+            ):
                 return cid
         return None
 
@@ -75,19 +115,27 @@ class Scenario:
         self.steps: list[dict] = []
         self._cert_ids: dict[int, str] = {}
 
+    def _tick(self, call: str, now_ms: int) -> None:
+        """Require a whole-second `now_ms` that does not precede the last recorded step."""
+        previous = self.steps[-1]["now_ms"] if self.steps else None
+        check_destination_clock(now_ms, previous, f"{self.name} step {len(self.steps)} ({call})")
+
     def _cert_ref(self, cert: Certificate, label: str, signed_by: str, next_committee=None) -> str:
         return self.pool.add(cert, label, signed_by, next_committee=next_committee)
 
-    def _events(self, events: list[dict]) -> list[dict]:
+    def _events(self, events: list[dict], submitted: list[str]) -> list[dict]:
         out = []
         for ev in events:
             if ev["event"] == "SccpCertificate":
-                ref = self.pool.id_of(ev["qc"], ev["header"])
+                ref = self.pool.id_of(ev["qc"], ev["header"], ev["signature"], submitted)
+                if ref is None:
+                    raise AssertionError(f"{self.name}: a published certificate is none the step submitted")
                 ev = {"event": "SccpCertificate", "height": ev["height"], "generation": ev["generation"], "certificate": ref}
             out.append(ev)
         return out
 
     def _record(self, call: str, inputs: dict, now_ms: int, result: dict, expect: str | None) -> dict:
+        self._tick(call, now_ms)
         expected = {"outcome": result["outcome"]}
         if "error_args" in result:
             expected["error_args"] = result["error_args"]
@@ -95,12 +143,16 @@ class Scenario:
             expected["stopped"] = result["stopped"]
         if "return" in result:
             expected["return"] = result["return"]
-        expected["events"] = self._events(result.get("events", []))
+        submitted = list(inputs.get("certificates", [])) + ([inputs["certificate"]] if "certificate" in inputs else [])
+        expected["events"] = self._events(result.get("events", []), submitted)
         step = {"call": call, "now_ms": now_ms, **inputs, "expected": expected, "state_after": self.dest.state.as_json(now_ms)}
         if self.strict and expect is not None and result["outcome"] != expect:
             raise AssertionError(f"{self.name}/{call}: expected {expect}, model gave {result}")
         self.steps.append(step)
         return result
+
+    def _call(self, evm_name: str) -> str:
+        return call_name(self.deployment.flavor, evm_name)
 
     @staticmethod
     def _source_json(kind: str, ref) -> dict:
@@ -116,15 +168,14 @@ class Scenario:
         inputs = {"certificates": ids}
         if self.deployment.flavor == "ton":
             inputs["next_keys"] = [None if nxt is None else nxt.name for *_, nxt in certs]
-        call = "submitCheckpoints" if self.deployment.flavor == "evm" else "sccp_checkpoint"
-        return self._record(call, inputs, now_ms, result, expect)
+        return self._record(self._call("submitCheckpoints"), inputs, now_ms, result, expect)
 
     def finalize(self, source: tuple, proof: MessageProof, now_ms: int, expect: str | None = None) -> dict:
         kind, value = source
         ref = self._cert_ref(*value) if kind == "inline" else value
         model_source = (kind, value[0] if kind == "inline" else value)
         result = self.dest.finalize(model_source, proof, now_ms)
-        call = "finalizeFromTaira" if kind == "inline" else "finalizeFromCheckpoint"
+        call = self._call("finalizeFromTaira" if kind == "inline" else "finalizeFromCheckpoint")
         return self._record(call, {**self._source_json(kind, ref), "proof": proof.as_json()}, now_ms, result, expect)
 
     def apply_control(self, source: tuple, proof: ControlProof, now_ms: int, expect: str | None = None) -> dict:
@@ -132,7 +183,7 @@ class Scenario:
         ref = self._cert_ref(*value) if kind == "inline" else value
         model_source = (kind, value[0] if kind == "inline" else value)
         result = self.dest.apply_control(model_source, proof, now_ms)
-        call = "applyControl" if kind == "inline" else "applyControlFromCheckpoint"
+        call = self._call("applyControl" if kind == "inline" else "applyControlFromCheckpoint")
         return self._record(call, {**self._source_json(kind, ref), "proof": proof.as_json()}, now_ms, result, expect)
 
     def void_expired(
@@ -142,15 +193,16 @@ class Scenario:
         ref = self._cert_ref(*value) if kind == "inline" else value
         model_source = (kind, value[0] if kind == "inline" else value)
         result = self.dest.void_expired(nonce, model_source, proof, now_ms)
-        call = "voidExpired" if kind == "inline" else "voidExpiredFromCheckpoint"
+        call = self._call("voidExpired" if kind == "inline" else "voidExpiredFromCheckpoint")
         inputs = {"nonce": nonce, **self._source_json(kind, ref), "proof": proof.as_json()}
         return self._record(call, inputs, now_ms, result, expect)
 
     def void_frozen(self, first: int, count: int, now_ms: int, expect: str | None = None) -> dict:
         result = self.dest.void_frozen(first, count, now_ms)
-        return self._record("voidFrozen", {"firstNonce": str(first), "count": count}, now_ms, result, expect)
+        return self._record(self._call("voidFrozen"), {"firstNonce": str(first), "count": count}, now_ms, result, expect)
 
     def views(self, now_ms: int) -> None:
+        self._tick("views", now_ms)
         st = self.dest.state
         d = self.deployment
         self.steps.append(

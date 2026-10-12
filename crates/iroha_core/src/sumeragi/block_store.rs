@@ -119,7 +119,7 @@ pub(crate) fn decode_certificate(
     ))
 }
 
-/// Kura and the independent authority and allocation owners for one global instance.
+/// Kura and the independent authority and allocation owners for one native root instance.
 pub struct KuraBlockStore {
     kura: Arc<Kura>,
     hasher: SharedCrypto,
@@ -127,11 +127,14 @@ pub struct KuraBlockStore {
     staging: Staging,
     execution_budget: AllocationBudget,
     schedule: Arc<dyn AvailabilitySchedule>,
+    result_scope: iroha_data_model::sumeragi_finality::CertifiedResultScope,
 
     read: Mutex<Option<CommittedRead>>,
 }
 impl KuraBlockStore {
     /// Bind Kura to the original State pool and its independently authenticated schedule.
+    /// `result_scope` must come from that same root's opaque execution tip or original signed
+    /// genesis authority; result bytes never select their own scope.
     #[must_use]
     pub fn new(
         kura: Arc<Kura>,
@@ -140,6 +143,7 @@ impl KuraBlockStore {
         staging: Staging,
         execution_budget: AllocationBudget,
         schedule: Arc<dyn AvailabilitySchedule>,
+        result_scope: iroha_data_model::sumeragi_finality::CertifiedResultScope,
     ) -> Self {
         Self {
             kura,
@@ -148,6 +152,7 @@ impl KuraBlockStore {
             staging,
             execution_budget,
             schedule,
+            result_scope,
             read: Mutex::new(None),
         }
     }
@@ -210,6 +215,7 @@ impl KuraBlockStore {
                 self.execution_budget.clone(),
                 self.hasher.clone(),
                 self.schedule.clone(),
+                self.result_scope,
             ));
         }
         match slot
@@ -324,6 +330,7 @@ impl BodyReader for KuraBlockStore {
             self.execution_budget.clone(),
             self.hasher.clone(),
             self.schedule.clone(),
+            self.result_scope,
         )))
     }
 }

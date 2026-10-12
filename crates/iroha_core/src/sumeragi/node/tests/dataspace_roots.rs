@@ -617,9 +617,14 @@ fn preaccepted_foreign_input_reaches_private_executor_but_cannot_publish_or_spen
         iroha_data_model::transaction::TransactionDomain::Network(*state.network_id_ref())
     );
     assert!(
-        payload::select(&state, &queue, 1024 * 1024, 0)
-            .expect("completed routing read")
-            .is_empty()
+        payload::select(
+            &state.view(),
+            &queue,
+            1024 * 1024,
+            &crate::sumeragi::payload::MergeProposal::default()
+        )
+        .expect("completed routing read")
+        .is_empty()
     );
     assert_eq!(queue.queued_len(), 0);
     // Exercise the independent hostile-proposer boundary even though the queue

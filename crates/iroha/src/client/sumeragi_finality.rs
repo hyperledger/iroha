@@ -21,9 +21,16 @@ const SUMERAGI_FINALITY_RESPONSE_MAX_BYTES: usize =
 #[derive(Debug)]
 pub struct AuthenticatedFinalityAttestation {
     attestation: iroha_data_model::sumeragi_finality::SumeragiFinalityAttestation,
+    scope: iroha_data_model::sumeragi_finality::CertifiedResultScope,
 }
 
 impl AuthenticatedFinalityAttestation {
+    /// Independently selected result scope used by the exact authenticated SDK read.
+    #[must_use]
+    pub const fn result_scope(&self) -> iroha_data_model::sumeragi_finality::CertifiedResultScope {
+        self.scope
+    }
+
     /// Borrow the unchanged authenticated statement, without granting chain or committee trust.
     #[must_use]
     pub fn attestation(&self) -> &iroha_data_model::sumeragi_finality::SumeragiFinalityAttestation {
@@ -299,7 +306,11 @@ impl Client {
                 SUMERAGI_FINALITY_RESPONSE_MAX_BYTES,
                 "sumeragi.genesis_readiness.read",
             )?;
-        attestation.verify()?;
+        attestation.verify(
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::from_root_scope(
+                trusted.root_scope(),
+            ),
+        )?;
         let body = &attestation.body;
         if body.challenge != challenge
             || body.node_id != *expected_node
@@ -319,6 +330,7 @@ impl Client {
     }
     /// Read and authenticate the selected node's fresh current-consensus tip statement.
     /// The caller's independently anchored verifier must authenticate the embedded chain.
+    /// `scope` must be selected from that verifier, never from the returned header.
     ///
     /// # Errors
     /// Bounded transport/codec failure, malformed proof, invalid node signature or wrong request binding.
@@ -327,6 +339,7 @@ impl Client {
         height: NonZeroU64,
         challenge: [u8; 32],
         expected_node: &iroha_model_base::peer::PeerId,
+        scope: iroha_data_model::sumeragi_finality::CertifiedResultScope,
     ) -> Result<AuthenticatedFinalityAttestation> {
         if challenge == [0; 32] {
             return Err(eyre!("finality challenge must be nonzero"));
@@ -370,7 +383,7 @@ impl Client {
                 SUMERAGI_FINALITY_RESPONSE_MAX_BYTES,
                 "sumeragi.finality_attestation.read",
             )?;
-        attestation.verify()?;
+        attestation.verify(scope)?;
         if attestation.body.challenge != challenge
             || attestation.body.node_id != *expected_node
             || attestation.body.network_id != self.network_id
@@ -381,17 +394,19 @@ impl Client {
             ));
         }
         self.ensure_activation_evidence_deadline()?;
-        Ok(AuthenticatedFinalityAttestation { attestation })
+        Ok(AuthenticatedFinalityAttestation { attestation, scope })
     }
 
     /// Fetch one canonical current proof without choosing a trust root from the response.
     /// A structural certificate check does not authenticate its candidate committee.
+    /// Select `scope` independently from the signed genesis or authenticated root owner.
     ///
     /// # Errors
     /// Bounded transport/codec error, wrong height or malformed current certificate.
     pub fn get_sumeragi_finality_proof(
         &self,
         height: NonZeroU64,
+        scope: iroha_data_model::sumeragi_finality::CertifiedResultScope,
     ) -> Result<iroha_data_model::sumeragi_finality::SumeragiFinalityProof> {
         self.ensure_data_model_compatibility()?;
         let path = iroha_torii_shared::route_catalog::sumeragi::BRIDGE_FINALITY
@@ -414,7 +429,7 @@ impl Client {
                 "current finality proof differs from requested height"
             ));
         }
-        proof.decode_checked()?;
+        proof.decode_checked(scope)?;
         self.ensure_activation_evidence_deadline()?;
         Ok(proof)
     }
@@ -422,6 +437,7 @@ impl Client {
     /// Fetch 1 to 64 consecutive canonical full proofs under this client's original deadline.
     ///
     /// This returns structural evidence, not an authenticated committee or trust root.
+    /// The caller selects `scope` from its independent signed genesis or authenticated root.
     /// Consumers must authenticate the complete history from their independent signed
     /// genesis. One interval uses the existing response/codec ceiling; it cannot multiply
     /// that ceiling by its row count or fall back to per-height requests.
@@ -433,6 +449,7 @@ impl Client {
         &self,
         from: NonZeroU64,
         to: NonZeroU64,
+        scope: iroha_data_model::sumeragi_finality::CertifiedResultScope,
     ) -> Result<Vec<iroha_data_model::sumeragi_finality::SumeragiFinalityProof>> {
         let count = to
             .get()
@@ -468,7 +485,7 @@ impl Client {
                     "finality interval differs from requested consecutive heights"
                 ));
             }
-            proof.decode_checked()?;
+            proof.decode_checked(scope)?;
         }
         self.ensure_activation_evidence_deadline()?;
         Ok(proofs)
@@ -649,7 +666,12 @@ impl Client {
         height: NonZeroU64,
         verifier: &mut iroha_data_model::sumeragi_finality::SumeragiFinalityVerifier,
     ) -> Result<iroha_data_model::sumeragi_finality::SumeragiFinalityProof> {
-        let proof = self.get_sumeragi_finality_proof(height)?;
+        let proof = self.get_sumeragi_finality_proof(
+            height,
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::from_root_scope(
+                verifier.root_scope(),
+            ),
+        )?;
         let mut candidate = verifier.clone();
         candidate.verify(&proof)?;
         self.ensure_activation_evidence_deadline()?;

@@ -4074,7 +4074,13 @@ async fn ledger_state_endpoints_return_exact_native_finality_in_json_and_norito(
     let (app, _) = native_ledger_state_app(iroha_core::sumeragi::test_chain::Signers::Quorum);
     let expected_proof = iroha_core::sumeragi::finality::build_proof(&app.state.view(), 2).unwrap();
     let expected_root = expected_proof
-        .decode_checked()
+        .decode_checked(
+            app.state
+                .view()
+                .native_execution_tip()
+                .unwrap()
+                .result_scope(),
+        )
         .unwrap()
         .execution()
         .post_state_root;
@@ -4202,7 +4208,13 @@ async fn state_proof_http_roundtrip_supports_json_and_norito() {
     let (app, _) = native_ledger_state_app(iroha_core::sumeragi::test_chain::Signers::Quorum);
     let expected_proof = iroha_core::sumeragi::finality::build_proof(&app.state.view(), 2).unwrap();
     let expected_root = expected_proof
-        .decode_checked()
+        .decode_checked(
+            app.state
+                .view()
+                .native_execution_tip()
+                .unwrap()
+                .result_scope(),
+        )
         .unwrap()
         .execution()
         .post_state_root;

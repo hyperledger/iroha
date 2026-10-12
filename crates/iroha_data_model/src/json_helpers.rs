@@ -8,7 +8,7 @@ use crate::soranet::privacy_metrics::SoranetPrivacyModeV1;
 use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
 
 use norito::json::{
-    self, BoundedJsonError, JsonDeserialize, JsonSerialize, JsonWriteSink, Parser, Value,
+    self, BoundedJsonError, JsonDeserialize, JsonSerialize, JsonWriteSink, Parser,
     write_base64_json_to,
 };
 
@@ -544,24 +544,18 @@ pub mod account_metadata_map {
     pub fn deserialize(
         parser: &mut Parser<'_>,
     ) -> Result<BTreeMap<AccountId, Metadata>, norito::json::Error> {
-        let value = Value::json_deserialize(parser)?;
-        let object = match value {
-            Value::Object(map) => map,
-            other => {
-                return Err(norito::json::Error::Message(format!(
-                    "expected object for account metadata map, got {other:?}"
-                )));
+        BTreeMap::<AccountId, Metadata>::json_deserialize(parser).map_err(|error| {
+            if cfg!(all(test, sumeragi_model_mutation = "DM27"))
+                && matches!(
+                    error,
+                    norito::json::Error::ScopedDecodeResource(_)
+                        | norito::json::Error::DecodeResource(_)
+                )
+            {
+                return norito::json::Error::Message(error.to_string());
             }
-        };
-        object
-            .into_iter()
-            .map(|(key, value)| {
-                let account = AccountId::parse_encoded(&key)
-                    .map_err(|err| norito::json::Error::Message(err.to_string()))?;
-                let metadata: Metadata = json::from_value(value)?;
-                Ok((account, metadata))
-            })
-            .collect()
+            error
+        })
     }
 }
 #[cfg(test)]

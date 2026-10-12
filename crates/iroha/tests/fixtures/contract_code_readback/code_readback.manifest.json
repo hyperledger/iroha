@@ -1,0 +1,107 @@
+{
+  "seiyaku_name": "CodeReadbackFixture",
+  "code_hash": "hash:E10DC7A3662D6FE522D472A504D4FFCF6BD880A64E9E94B3A4FD75B1FB29D4B1#6D04",
+  "abi_hash": "hash:D87449F2EC45628B835C736C9915EAA85BFCB87E544DA269FDB7C4889D3DB82F#F1D1",
+  "compiler_fingerprint": "kotodama_lang/2.0.0-rc.2.0",
+  "features_bitmap": 0,
+  "access_set_hints": null,
+  "permissions": [],
+  "events": [],
+  "entrypoints": [
+    {
+      "name": "inspect",
+      "kind": {
+        "kind": "View",
+        "value": null
+      },
+      "params": [],
+      "argument_schema": null,
+      "return_type": "int",
+      "return_schema": {
+        "nodes": [
+          {
+            "kind": "Leaf",
+            "value": {
+              "kind": "Int",
+              "value": null
+            }
+          }
+        ]
+      },
+      "authorization": {
+        "kind": "Anyone",
+        "value": null
+      },
+      "read_keys": [],
+      "write_keys": [],
+      "access_hints_complete": null,
+      "access_hints_skipped": [],
+      "triggers": []
+    }
+  ],
+  "states": [],
+  "error_types": [
+    {
+      "identity": "kotodama::ListError",
+      "variants": [
+        {
+          "name": "IndexOutOfBounds",
+          "code": 1
+        },
+        {
+          "name": "CapacityExceeded",
+          "code": 2
+        }
+      ]
+    },
+    {
+      "identity": "kotodama::NumericError",
+      "variants": [
+        {
+          "name": "MantissaOverflow",
+          "code": 1
+        },
+        {
+          "name": "ScaleOverflow",
+          "code": 2
+        },
+        {
+          "name": "DivisionByZero",
+          "code": 3
+        },
+        {
+          "name": "RepeatingDecimal",
+          "code": 4
+        },
+        {
+          "name": "ExactDivisionScaleOverflow",
+          "code": 5
+        },
+        {
+          "name": "InvalidScale",
+          "code": 6
+        },
+        {
+          "name": "InexactConversion",
+          "code": 7
+        },
+        {
+          "name": "NegativeQuantity",
+          "code": 8
+        },
+        {
+          "name": "QuantityUnderflow",
+          "code": 9
+        },
+        {
+          "name": "NegativeSquareRoot",
+          "code": 13
+        }
+      ]
+    }
+  ],
+  "enum_types": [],
+  "error_messages": null,
+  "kotoba": null,
+  "provenance": null
+}

@@ -71,7 +71,10 @@ impl<S: FinalitySource> FinalitySource for CountedSource<'_, S> {
         self.attesters.borrow_mut().push(peer.clone());
         let actual = self.source.latest_attestation(peer, challenge)?;
         assert_eq!(&actual.attestation().body.challenge, challenge);
-        actual.attestation().verify().unwrap();
+        actual
+            .attestation()
+            .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+            .unwrap();
         Ok(actual)
     }
 }
@@ -135,7 +138,11 @@ fn check_original_observation(native: &NativeFixture, authority: &ServiceAuthori
                     .finality_proof(NonZeroU64::new(height).unwrap())
                     .unwrap()
             );
-            proof.decode_checked().unwrap();
+            proof
+                .decode_checked(
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                )
+                .unwrap();
         }
     });
     assert_eq!(budget.reserved_bytes(), reserved);

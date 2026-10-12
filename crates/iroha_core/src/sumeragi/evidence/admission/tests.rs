@@ -372,7 +372,190 @@ fn late_record_shell_refusal_retains_original_verified_graph_and_frame_for_retry
     let record = owner.record(&proof, 3, 0, 3000).unwrap();
     assert!(record.proof_belongs_to(state.evidence_preparation_budget()));
     assert!(record.body_belongs_to(&execution));
-    assert_eq!(record.evidence.native_frame().as_ptr(), frame_pointer);
+    assert_eq!(
+        record.native_evidence().unwrap().native_frame().as_ptr(),
+        frame_pointer
+    );
     drop(admitted);
     assert_eq!(record.attribution.offenders.as_ptr(), graph_pointer);
+}
+
+#[test]
+fn pending_sccp_material_never_enters_native_replay_fences() {
+    use crate::sumeragi::evidence::record::{parse_record, sccp_storage_claim_for_testing};
+    let pool = iroha_allocation::AllocationBudget::new(1 << 20);
+    let mut data = sccp_storage_claim_for_testing();
+    let text = norito::json::to_json(&data).unwrap();
+    let sccp = parse_record(&mut norito::json::Parser::new(&text), &pool).unwrap();
+    assert!(
+        matches!(require_native_replay_record(&sccp),Err(EvidenceAdmissionError::Invalid(reason)) if reason.contains("SCCP"))
+    );
+    // Explicitly synthetic Native fixture tests only the closed dispatch boundary.
+    data.evidence = iroha_data_model::block::consensus::RecordedEvidenceV1::Native(Evidence {
+        native: Vec::new(),
+    });
+    data.attribution.scope = iroha_data_model::block::consensus::EvidenceScope::Root;
+    let native = RetainedEvidenceRecord::from_fixture(data, &pool).unwrap();
+    assert!(require_native_replay_record(&native).is_ok());
+    let key = Hash::prehashed(sccp.sccp_evidence_id().unwrap());
+    assert!(native_replay_record(&key, &sccp).unwrap().is_none());
+    assert!(native_replay_record(&Hash::new(b"wrong SCCP table key"), &sccp).is_err());
+    for record in [&native, &sccp] {
+        assert_eq!(
+            require_native_replay_record(record).is_ok(),
+            record.native_evidence().is_some()
+        );
+    }
+    drop(native);
+    drop(sccp);
+    assert_eq!(pool.reserved_bytes(), 0);
+}
+
+#[test]
+fn lifecycle_dispatch_skips_only_closed_matching_sccp_material() {
+    use crate::sumeragi::evidence::record::sccp_storage_claim_for_testing;
+    use iroha_data_model::block::consensus::{EvidenceScope, RecordedEvidenceV1};
+    let original = sccp_storage_claim_for_testing();
+    assert!(native_lifecycle_evidence(&original).unwrap().is_none());
+    for mutation in 0..6 {
+        let mut claim = original.clone();
+        match mutation {
+            0 => claim.attribution.scope = EvidenceScope::Root,
+            1 => claim.attribution.scope = EvidenceScope::SccpGeneration { generation: 8 },
+            2 => claim.attribution.height += 1,
+            3 => claim.attribution.safety_violation = false,
+            4 => claim.attribution.offenders.clear(),
+            5 => claim.evidence = RecordedEvidenceV1::Native(Evidence { native: Vec::new() }),
+            _ => unreachable!(),
+        }
+        assert!(
+            native_lifecycle_evidence(&claim).is_err(),
+            "mutation {mutation}"
+        );
+    }
+    let mut native = original;
+    native.evidence = RecordedEvidenceV1::Native(Evidence { native: Vec::new() });
+    native.attribution.scope = EvidenceScope::Root;
+    assert!(native_lifecycle_evidence(&native).unwrap().is_some());
+}
+
+#[test]
+fn genuine_closed_sccp_record_coexists_with_native_batch_and_original_replay_fences() {
+    use crate::smartcontracts::isi::sccp::forgery;
+    use iroha_data_model::block::BlockHeader;
+    use std::num::NonZeroU64;
+    let (chain, keys) = forgery::tests::active_member_chain();
+    let evidence = forgery::tests::future(&chain, &keys);
+    let proof = Evidence::from_native(&super::super::tests::conflict(&chain, 2)).unwrap();
+    let state = chain.state();
+    let parent = state.view().native_execution_tip().unwrap();
+    let header = BlockHeader::new(
+        NonZeroU64::new(parent.height() + 1).unwrap(),
+        Some(parent.iroha_hash()),
+        None,
+        parent.creation_time_ms() + 1_000,
+        0,
+    );
+    let (key, original) = {
+        let mut block = state.block(header);
+        let mut stx = block.transaction_for_callback_testing();
+        forgery::execute_forgery(&evidence, &mut stx).unwrap();
+        let (key, record) = stx.world.consensus_evidence.iter().next().unwrap();
+        (*key, record.clone())
+    };
+    assert!(original.native_evidence().is_none());
+    assert_eq!(original.recorded_at_height, header.height().get());
+    assert_eq!(original.sccp_evidence_id().map(Hash::prehashed), Some(key));
+    // Install the genuinely verified retained owner as component prestate. This is
+    // not a fabricated SignedBlock/output seal or a signed-entrypoint qualification.
+    for status in [
+        EvidencePenaltyStatus::Pending,
+        EvidencePenaltyStatus::Applied { height: 4 },
+    ] {
+        let mut record = original.clone();
+        record.penalty_status = status;
+        let mut rows = state.world.consensus_evidence.block();
+        rows.insert(key, record);
+        rows.commit();
+        let before = state.evidence_preparation_budget().reserved_bytes();
+        let generation = state.state_view_generation();
+        let mut read = AdmissionRead::capture(
+            state,
+            &state.view(),
+            generation,
+            3,
+            std::slice::from_ref(&proof),
+        )
+        .unwrap();
+        assert!(read.fences.as_slice().is_empty());
+        assert!(read.signers.as_slice().is_empty());
+        read.complete().unwrap();
+        let admitted = read.finish().unwrap();
+        assert_eq!(admitted.as_slice().len(), 1);
+        assert_eq!(admitted.as_slice()[0].key(), evidence_key(&proof));
+        assert_eq!(admitted.as_slice()[0].attribution().offenders.len(), 2);
+        drop(admitted);
+        assert_eq!(state.evidence_preparation_budget().reserved_bytes(), before);
+        let view = state.view();
+        let retained = view.world().consensus_evidence().get(&key).unwrap();
+        assert!(retained.shares_body(&original));
+        assert!(!committed_evidence_record_is_prunable(view.world(), retained, u64::MAX).unwrap());
+        assert!(
+            committed_evidence_prune_keys_from_state(state, u64::MAX)
+                .unwrap()
+                .as_slice()
+                .is_empty()
+        );
+    }
+    let mut read = AdmissionRead::capture(
+        state,
+        &state.view(),
+        state.state_view_generation(),
+        3,
+        std::slice::from_ref(&proof),
+    )
+    .unwrap();
+    read.complete().unwrap();
+    let admitted = read.finish().unwrap();
+    let native = admitted.as_slice()[0].record(&proof, 3, 0, 3_000).unwrap();
+    let mut rows = state.world.consensus_evidence.block();
+    rows.insert(evidence_key(&proof), native);
+    rows.commit();
+    drop(admitted);
+    assert!(
+        matches!(AdmissionRead::capture(state, &state.view(), state.state_view_generation(), 3,
+        &[proof]), Err(EvidenceAdmissionError::Invalid(reason)) if reason == "evidence is already committed")
+    );
+    let other = Evidence::from_native(&NativeEvidence::ConflictingCertificates(
+        chain.commit_qc(
+            2,
+            iroha_sumeragi::types::Hash32([0x41; 32]),
+            iroha_sumeragi::types::Hash32([0x42; 32]),
+            crate::sumeragi::test_chain::Signers::Quorum,
+        ),
+        chain.commit_qc(
+            2,
+            iroha_sumeragi::types::Hash32([0x43; 32]),
+            iroha_sumeragi::types::Hash32([0x44; 32]),
+            crate::sumeragi::test_chain::Signers::LastThree,
+        ),
+    ))
+    .unwrap();
+    let mut read = AdmissionRead::capture(
+        state,
+        &state.view(),
+        state.state_view_generation(),
+        3,
+        &[other],
+    )
+    .unwrap();
+    assert_eq!(
+        read.fences.as_slice().len(),
+        1,
+        "only Native supplies a signer fence"
+    );
+    assert_eq!(read.signers.as_slice().len(), 2);
+    assert!(
+        matches!(read.complete(), Err(EvidenceAdmissionError::Invalid(reason)) if reason.contains("original signer"))
+    );
 }

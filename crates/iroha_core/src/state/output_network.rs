@@ -398,6 +398,14 @@ fn execute_network_attempt_with_amx<'attempt>(
     {
         return Err("Network attempt differs from its exact authenticated projection".into());
     }
+    // R-EX is a property of the original signed source and original parent state.
+    // Admission is only a precheck; an eligible forgery cannot become an ordinary
+    // rejected output (and a free failed transaction) inside a valid block.
+    let requires_forgery_success =
+        crate::smartcontracts::isi::sccp::admission::exempt_class_of_entrypoint(
+            &state.sccp_parent_world_view(),
+            input,
+        ) == Some(crate::smartcontracts::isi::sccp::admission::SccpExemptClassV1::ForgeryEvidence);
     state.retain_fastpq_source_invocation(Hash::from(input.execution_call_hash()))?;
     let gas_before = state.gas_used_in_block;
     let gas_limit = state.gas_limit_per_block;
@@ -461,6 +469,18 @@ fn execute_network_attempt_with_amx<'attempt>(
                 "block gas limit exceeded: {attempted} > {gas_limit}"
             )),
         ));
+    }
+    if requires_forgery_success && let Err(reason) = &result {
+        // Every local refusal above has already returned Deferred, and storage admission
+        // has been checked. This is a completed deterministic failure: drop the original
+        // transaction overlay without recording a rejection fee, output or partial evidence.
+        // The outer rejection's Display omits its nested instruction reason. Keep
+        // the terminal cause so a duplicate cannot masquerade as another R-EX.
+        let mut cause: &dyn std::error::Error = reason;
+        while let Some(source) = cause.source() {
+            cause = source;
+        }
+        return Err(format!("SCCP forgery evidence failed at execution (R-EX): {cause}").into());
     }
     if let Err(reason) = result {
         transaction
@@ -549,6 +569,12 @@ fn execute_network_attempt_with_amx<'attempt>(
         ReservedExecutionOutput::Accepted(row) => (row, !journal_overflow),
         ReservedExecutionOutput::OutputLimit(row) => (row, false),
     };
+    if requires_forgery_success && !apply {
+        // A completed callback/event/output limit can reject an otherwise successful
+        // handler. It is also R-EX: never publish a failed carrier without its evidence.
+        // Original local reservation and journal refusals returned above remain local.
+        return Err("SCCP forgery output failed at execution (R-EX)".into());
+    }
     if apply {
         let transaction = attempt
             .transaction
@@ -755,6 +781,7 @@ fn bind_source(
     index: u64,
     route: RoutingDecision,
 ) -> Result<(), String> {
+    transaction.bind_sccp_forgery_source(input, index);
     transaction.current_entrypoint_index = Some(index);
     transaction.current_network_entrypoint_hash = Some(input.hash());
     transaction.tx_call_hash = Some(Hash::from(input.execution_call_hash()));

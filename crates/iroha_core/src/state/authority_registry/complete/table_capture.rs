@@ -27,6 +27,8 @@ use super::{
 use crate::state::deserialize::musubi_source_work::{
     self, SourceValidationError, SourceWorkLimits, observation::MusubiSemanticTable,
 };
+#[cfg(test)]
+use crate::state::sccp_generation_custody::GenerationFixtureStorage as _;
 use crate::state::{State, StateBlock, is_stable_state_view_generation};
 use mv::storage::StorageReadOnly;
 
@@ -628,19 +630,19 @@ capture_world_table_once!(
 );
 
 capture_world_table_once!(
-    capture_sccp_bridge_keys_once,
-    sccp_bridge_keys,
-    "world.sccp_bridge_keys"
+    capture_sccp_committee_generations_once,
+    sccp_committee_generations,
+    "world.sccp_committee_generations"
 );
 capture_world_table_once!(
-    capture_sccp_bridge_key_owners_once,
-    sccp_bridge_key_owners,
-    "world.sccp_bridge_key_owners"
+    capture_sccp_forgery_offences_once,
+    sccp_forgery_offences,
+    "world.sccp_forgery_offences"
 );
 capture_world_table_once!(
-    capture_sccp_rosters_once,
-    sccp_rosters,
-    "world.sccp_rosters"
+    capture_sccp_anchor_chunks_once,
+    sccp_anchor_chunks,
+    "world.sccp_anchor_chunks"
 );
 capture_world_table_once!(
     capture_sccp_block_leaves_once,
@@ -656,36 +658,6 @@ capture_world_table_once!(
     capture_sccp_history_leaves_once,
     sccp_history_leaves,
     "world.sccp_history_leaves"
-);
-capture_world_table_once!(
-    capture_sccp_attestation_subjects_once,
-    sccp_attestation_subjects,
-    "world.sccp_attestation_subjects"
-);
-capture_world_table_once!(
-    capture_sccp_attestation_status_once,
-    sccp_attestation_status,
-    "world.sccp_attestation_status"
-);
-capture_world_table_once!(
-    capture_sccp_attestation_signatures_once,
-    sccp_attestation_signatures,
-    "world.sccp_attestation_signatures"
-);
-capture_world_table_once!(
-    capture_sccp_attestation_faults_once,
-    sccp_attestation_faults,
-    "world.sccp_attestation_faults"
-);
-capture_world_table_once!(
-    capture_sccp_member_last_signed_once,
-    sccp_member_last_signed,
-    "world.sccp_member_last_signed"
-);
-capture_world_table_once!(
-    capture_sccp_handoff_stalled_once,
-    sccp_handoff_stalled,
-    "world.sccp_handoff_stalled"
 );
 capture_world_table_once!(
     capture_sccp_outbound_messages_once,
@@ -990,18 +962,12 @@ const TABLE_MATERIALIZERS: &[TableMaterializer] = &[
     native_world::capture_global_beacon_active_session_once::MATERIALIZER,
     native_world::capture_global_beacon_latest_pulse_once::MATERIALIZER,
     native_world::capture_global_beacon_pulses_once::MATERIALIZER,
-    capture_sccp_bridge_keys_once::MATERIALIZER,
-    capture_sccp_bridge_key_owners_once::MATERIALIZER,
-    capture_sccp_rosters_once::MATERIALIZER,
+    capture_sccp_committee_generations_once::MATERIALIZER,
+    capture_sccp_forgery_offences_once::MATERIALIZER,
+    capture_sccp_anchor_chunks_once::MATERIALIZER,
     capture_sccp_block_leaves_once::MATERIALIZER,
     capture_sccp_block_commitments_once::MATERIALIZER,
     capture_sccp_history_leaves_once::MATERIALIZER,
-    capture_sccp_attestation_subjects_once::MATERIALIZER,
-    capture_sccp_attestation_status_once::MATERIALIZER,
-    capture_sccp_attestation_signatures_once::MATERIALIZER,
-    capture_sccp_attestation_faults_once::MATERIALIZER,
-    capture_sccp_member_last_signed_once::MATERIALIZER,
-    capture_sccp_handoff_stalled_once::MATERIALIZER,
     capture_sccp_outbound_messages_once::MATERIALIZER,
     capture_sccp_outbound_by_nonce_once::MATERIALIZER,
     capture_sccp_control_messages_once::MATERIALIZER,
@@ -1390,18 +1356,12 @@ mod tests {
             "world.global_beacon_active_session",
             "world.global_beacon_latest_pulse",
             "world.global_beacon_pulses",
-            "world.sccp_bridge_keys",
-            "world.sccp_bridge_key_owners",
-            "world.sccp_rosters",
+            "world.sccp_committee_generations",
+            "world.sccp_forgery_offences",
+            "world.sccp_anchor_chunks",
             "world.sccp_block_leaves",
             "world.sccp_block_commitments",
             "world.sccp_history_leaves",
-            "world.sccp_attestation_subjects",
-            "world.sccp_attestation_status",
-            "world.sccp_attestation_signatures",
-            "world.sccp_attestation_faults",
-            "world.sccp_member_last_signed",
-            "world.sccp_handoff_stalled",
             "world.sccp_outbound_messages",
             "world.sccp_outbound_by_nonce",
             "world.sccp_control_messages",
@@ -1515,6 +1475,67 @@ mod tests {
             );
         }
         drop(guard);
+    }
+
+    #[test]
+    fn sccp_generation_and_anchor_readers_bind_actual_values() {
+        use crate::smartcontracts::isi::sccp::{
+            generation::SccpGenerationCauseV1, test_support::sample_generation,
+        };
+        let mut state = state();
+        let mut generation = sample_generation(1, 5);
+        state
+            .world
+            .sccp_committee_generations
+            .insert(1, generation.clone());
+        let before_generation = capture_sccp_committee_generations_once(&state, limits())
+            .expect("bounded committee table")
+            .expect("stable generation");
+        assert_eq!(before_generation.row_count(), 1);
+        generation.cause = SccpGenerationCauseV1::Heartbeat;
+        assert!(generation.is_well_formed());
+        state.world.sccp_committee_generations.insert(1, generation);
+        let after_generation = capture_sccp_committee_generations_once(&state, limits())
+            .expect("bounded changed committee table")
+            .expect("stable generation");
+        assert_ne!(before_generation.root(), after_generation.root());
+        state.world.sccp_anchor_chunks.insert(0, [0; 32]);
+        let before_anchor = capture_sccp_anchor_chunks_once(&state, limits())
+            .expect("bounded anchor table")
+            .expect("stable generation");
+        assert_eq!(before_anchor.row_count(), 1, "zero is present, not absence");
+        state.world.sccp_anchor_chunks.insert(0, [1; 32]);
+        let after_anchor = capture_sccp_anchor_chunks_once(&state, limits())
+            .expect("bounded changed anchor table")
+            .expect("stable generation");
+        assert_ne!(before_anchor.root(), after_anchor.root());
+        for (id, key, before, after) in [
+            (
+                "world.sccp_committee_generations",
+                1_u64,
+                before_generation,
+                after_generation,
+            ),
+            (
+                "world.sccp_anchor_chunks",
+                0_u64,
+                before_anchor,
+                after_anchor,
+            ),
+        ] {
+            let proof = after.prove_lookup(id, &key).expect("changed value proof");
+            assert!(matches!(
+                CanonicalTableLeafSet::verify_paired_lookup(
+                    id,
+                    limits(),
+                    &before.root(),
+                    &after.ordered_root(),
+                    &key,
+                    &proof,
+                ),
+                Err(LeafError::RootMismatch)
+            ));
+        }
     }
 
     #[test]

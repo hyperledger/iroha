@@ -439,16 +439,20 @@ pub(crate) fn fee_evidence_block_proof_v1(
     ),
     String,
 > {
-    fee_evidence_block_proof_attempt_v1(witness).map_err(|error| error.to_string())
+    fee_evidence_block_proof_attempt_v1(witness)
+        .map(|(proof, root, _)| (proof, root))
+        .map_err(|error| error.to_string())
 }
 
-/// Build the original fee corpus while preserving local canonical decode refusals.
+/// Build and fully verify the original fee corpus while preserving local
+/// canonical decode refusals; return its authenticated evaluated height as well.
 pub(crate) fn fee_evidence_block_proof_attempt_v1(
     witness: &ExecWitness,
 ) -> Result<
     (
         iroha_data_model::fee_evidence::FeeEvidenceBlockProofV1,
         Hash,
+        u64,
     ),
     crate::execution_attempt::ExecutionAttemptError<String>,
 > {
@@ -500,9 +504,10 @@ pub(crate) fn fee_evidence_block_proof_attempt_v1(
         },
         records,
     };
-    if !proof.verify(root) {
-        return Err("native fee corpus differs from the authenticated root/count".into());
-    }
+    let snapshot = proof
+        .verify_checked(root)
+        .map_err(|error| norito_decode_attempt_error(error, |error| error.to_string()))?
+        .ok_or_else(|| "native fee corpus differs from the authenticated root/count".to_owned())?;
     if norito::to_bytes(&proof)
         .map_err(|error| norito_decode_attempt_error(error, |error| error.to_string()))?
         .len()
@@ -510,7 +515,7 @@ pub(crate) fn fee_evidence_block_proof_attempt_v1(
     {
         return Err("native fee corpus exceeds the bounded durable byte budget".into());
     }
-    Ok((proof, root))
+    Ok((proof, root, snapshot.evaluated_height))
 }
 
 /// Build a fixed-depth ordinary-write proof for an already selected exact key/value.
@@ -923,6 +928,63 @@ mod native_fee_evidence_tests {
         wrong_key.writes[1].key[1] ^= 1;
         assert!(fee_evidence_block_proof_v1(&wrong_key).is_err());
     }
+    #[test]
+    fn native_fee_snapshot_decode_refusal_retries_original_authenticated_bytes() {
+        use crate::execution_attempt::{ExecutionAttemptError, norito_decode_attempt_error};
+        use iroha_data_model::{
+            execution_witness::FEE_EVIDENCE_WITNESS_KEY_V1, fee_evidence::FeeEvidenceSnapshotV1,
+        };
+
+        // An empty corpus reaches snapshot decoding without a preceding record
+        // decode. The former boolean verifier turned this refusal into rejection.
+        let snapshot = FeeEvidenceSnapshotV1::from_records(19, &[]).unwrap();
+        let witness = ExecWitness {
+            writes: vec![ExecKv {
+                key: FEE_EVIDENCE_WITNESS_KEY_V1.to_vec(),
+                value: norito::to_bytes(&snapshot).unwrap(),
+            }],
+            ..ExecWitness::default()
+        };
+        let original = witness.clone();
+        let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, usize::MAX);
+        norito::with_decode_limits_scope(limits, || {
+            let original_error =
+                norito::decode_canonical::<FeeEvidenceSnapshotV1>(&witness.writes[0].value)
+                    .unwrap_err();
+            let expected = norito_decode_attempt_error(original_error, |error| error.to_string());
+            assert!(matches!(&expected, ExecutionAttemptError::Deferred(reason)
+                if reason.reason() == ivm::error::ExecutionDeferral::ActiveMemoryCapacity));
+            assert_eq!(fee_evidence_block_proof_attempt_v1(&witness), Err(expected));
+        });
+        assert_eq!(witness, original);
+        let (proof, root, height) = fee_evidence_block_proof_attempt_v1(&witness).unwrap();
+        assert_eq!(height, 19);
+        assert_eq!(proof.verify_checked(root).unwrap(), Some(snapshot));
+        assert!(proof.verify(root));
+        assert_eq!(
+            proof.verify_checked(Hash::new(b"wrong-root")).unwrap(),
+            None
+        );
+        let mut wrong_path = proof.clone();
+        wrong_path.snapshot_witness.siblings[0] = Hash::new(b"wrong-sibling");
+        assert_eq!(wrong_path.verify_checked(root).unwrap(), None);
+
+        let mut malformed = witness.clone();
+        malformed.writes[0].value = b"malformed snapshot".to_vec();
+        assert!(matches!(
+            fee_evidence_block_proof_attempt_v1(&malformed),
+            Err(ExecutionAttemptError::Rejected(_))
+        ));
+        let mut incoherent = witness;
+        let mut invalid = snapshot;
+        invalid.evaluated_height = 0;
+        incoherent.writes[0].value = norito::to_bytes(&invalid).unwrap();
+        assert!(matches!(
+            fee_evidence_block_proof_attempt_v1(&incoherent),
+            Err(ExecutionAttemptError::Rejected(_))
+        ));
+    }
+
     #[test]
     fn native_fee_empty_block_still_requires_an_authenticated_zero_count() {
         let snapshot = FeeEvidenceSnapshotV1::from_records(19, &[]).unwrap();

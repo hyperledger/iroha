@@ -17,6 +17,7 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import org.hyperledger.iroha.sdk.offline.KagemushaWalletEnrollmentRefusalV1
 import org.hyperledger.iroha.sdk.testing.JvmApiInventory
 
 class KagemushaWalletAndroidPlatformV1Test {
@@ -74,7 +75,8 @@ class KagemushaWalletAndroidPlatformV1Test {
         )
         assertEquals(0, keyStore.getKeyCalls)
         assertTrue(keyStore.generated.isEmpty())
-        assertFailsWith<IllegalArgumentException> { platform.keyGenerateFreshFromNative(slot, challenge, 0) }
+        // Only the Android profile tag (2) is accepted; the retired tags 1 and 3 fail closed.
+        for (tag in listOf(0, 1, 3)) assertFailsWith<IllegalArgumentException> { platform.keyGenerateFreshFromNative(slot, challenge, tag) }
     }
 
     @Test fun `readback recovery preserves storage refusal and does not grant generation`() {
@@ -144,15 +146,16 @@ class KagemushaWalletAndroidPlatformV1Test {
         assertEquals(File(target.canonicalPath, "kagemusha-wallet-v1").path, root.path)
     }
 
-    @Test fun `the handle exposes only creation and original certificate export to app code`() {
+    @Test fun `the handle exposes only creation and checked E5 evidence export to app code`() {
         val type = JvmApiInventory.read(KagemushaWalletAndroidPlatformV1::class.java)
         val declaredPublic = type.methods.filter { it.isPublic && !it.isSynthetic && it.name != "<init>" }
-        assertEquals(setOf("create", "enrollmentCertificates"), declaredPublic.map { it.name }.toSet())
+        assertEquals(setOf("create", "enrollmentEvidence"), declaredPublic.map { it.name }.toSet())
         val create = declaredPublic.single { it.name == "create" }
         assertEquals("(Landroid/content/Context;)L$JVM_OWNER/KagemushaWalletAndroidPlatformV1;", create.descriptor)
         assertTrue(create.isStatic)
-        val export = declaredPublic.single { it.name == "enrollmentCertificates" }
-        assertEquals("(L$JVM_OWNER/KagemushaWalletEnrollmentTargetV1;)Ljava/util/List;", export.descriptor)
+        val export = declaredPublic.single { it.name == "enrollmentEvidence" }
+        assertEquals("(L$JVM_OWNER/KagemushaWalletEnrollmentTargetV1;Lorg/hyperledger/iroha/sdk/crypto/keystore/attestation/AndroidAttestationE1PolicyV1;)" +
+            "L$JVM_OWNER/KagemushaWalletAndroidEnrollmentEvidenceV1;", export.descriptor)
         assertEquals(false, export.isStatic)
         for ((name, signature) in UPCALLS) {
             val method = type.methods.single { it.name == name }
@@ -164,34 +167,77 @@ class KagemushaWalletAndroidPlatformV1Test {
         }.map { it.name }.toSet())
     }
 
-    @Test fun `enrollment exports only the selected key originals and preserves unavailable`() {
+    @Test fun `enrollment evidence exports only the selected key originals and preserves unavailable`() {
         val environment = TestEnvironmentV1(directory)
         val keyStore = TestKeyStoreV1()
         val slot = ByteArray(32) { 7 }
         val entry = keyStore.seed(kagemushaWalletAndroidAliasV1(slot))
         val target = KagemushaWalletEnrollmentTargetV1(slot + testSec1V1(entry.pair.public) + ByteArray(64) { 9 })
         val platform = KagemushaWalletAndroidPlatformV1.create(environment, keyStore)
+        val policy = keyStore.policy()
         val expected = requireNotNull(entry.chain).map { it.encoded.toList() }
-        val originals = platform.enrollmentCertificates(target)
-        assertEquals(expected, originals.map { it.toList() })
-        originals.first().fill(0)
-        assertEquals(expected, platform.enrollmentCertificates(target).map { it.toList() })
+        val eligible = assertIs<KagemushaWalletAndroidEnrollmentEvidenceV1.Eligible>(platform.enrollmentEvidence(target, policy))
+        assertEquals(expected, eligible.certificatesDer().map { it.toList() })
+        assertEquals(false, eligible.strongBox)
+        eligible.certificatesDer().first().fill(0)
+        assertEquals(expected, eligible.certificatesDer().map { it.toList() })
 
         val changed = KagemushaWalletEnrollmentTargetV1(slot + testSec1V1(TestAttestationV1.p256().public) + ByteArray(64) { 9 })
-        assertEquals(-7, assertFailsWith<KagemushaWalletExceptionV1> { platform.enrollmentCertificates(changed) }.status)
+        assertEquals(-7, assertFailsWith<KagemushaWalletExceptionV1> { platform.enrollmentEvidence(changed, policy) }.status)
         keyStore.getKeyFailure = java.security.ProviderException("unavailable")
-        assertEquals(-5, assertFailsWith<KagemushaWalletExceptionV1> { platform.enrollmentCertificates(target) }.status)
+        assertEquals(-5, assertFailsWith<KagemushaWalletExceptionV1> { platform.enrollmentEvidence(target, policy) }.status)
         keyStore.getKeyFailure = null
         environment.unlocked = false
-        val locked = assertFailsWith<KagemushaWalletExceptionV1> { platform.enrollmentCertificates(target) }
+        val locked = assertFailsWith<KagemushaWalletExceptionV1> { platform.enrollmentEvidence(target, policy) }
         assertEquals(-5, locked.status)
         assertEquals(KagemushaWalletAndroidUnavailableV1.BEFORE_FIRST_UNLOCK.kind.tag, locked.reason)
         environment.unlocked = true
         keyStore.entries.clear()
-        assertEquals(-13, assertFailsWith<KagemushaWalletExceptionV1> { platform.enrollmentCertificates(target) }.status)
+        assertEquals(-13, assertFailsWith<KagemushaWalletExceptionV1> { platform.enrollmentEvidence(target, policy) }.status)
         assertEquals(0, keyStore.signCalls)
         assertEquals(0, keyStore.deleteCalls)
         assertTrue(keyStore.generated.isEmpty())
+    }
+
+    @Test fun `the adapter's own pre-E5 check returns a typed Ineligible reason right after generation`() {
+        val environment = TestEnvironmentV1(directory).apply { apiLevel = 26 }
+        val keyStore = TestKeyStoreV1().apply { apiLevel = 26 }
+        val platform = KagemushaWalletAndroidPlatformV1.create(environment, keyStore)
+        val adapter = KagemushaWalletAndroidPlatformAdapterV1(environment, keyStore)
+        fun evidenceAfterGeneration(slot: ByteArray, edit: (TestKeyDescriptionV1) -> TestKeyDescriptionV1,
+            policy: org.hyperledger.iroha.sdk.crypto.keystore.attestation.AndroidAttestationE1PolicyV1 = keyStore.policy()): KagemushaWalletAndroidEnrollmentEvidenceV1 {
+            keyStore.descriptionEdit = edit
+            val challenge = ByteArray(32) { 9 }
+            val generated = assertIs<KagemushaWalletAndroidKeyGenerationV1.Generated>(adapter.keyGenerateFreshFromNative(slot, challenge, 2))
+            return platform.enrollmentEvidence(KagemushaWalletEnrollmentTargetV1(slot + generated.publicKeySec1() + challenge + ByteArray(32) { 9 }), policy)
+        }
+        val km2 = evidenceAfterGeneration(ByteArray(32) { 1 }, { it.copy(attestationVersion = 1, keymasterVersion = 2) })
+        val refusal = assertIs<KagemushaWalletAndroidEnrollmentEvidenceV1.Ineligible>(km2).refusal
+        assertEquals(KagemushaWalletEnrollmentRefusalV1.ATTESTATION_WITHOUT_APP_IDENTITY, refusal)
+        assertEquals(2, refusal.code)
+        assertEquals(KagemushaWalletEnrollmentRefusalV1.HolderClass.PHONE, refusal.holderClass)
+        val cases = listOf(
+            { d: TestKeyDescriptionV1 -> d.copy(hardware = d.hardware + (704 to TestAppV1.rootOfTrust(locked = false))) } to
+                KagemushaWalletEnrollmentRefusalV1.BOOTLOADER_UNLOCKED,
+            { d: TestKeyDescriptionV1 -> d.copy(hardware = d.hardware + (704 to TestAppV1.rootOfTrust(state = 2))) } to
+                KagemushaWalletEnrollmentRefusalV1.BOOT_NOT_VERIFIED,
+            { d: TestKeyDescriptionV1 -> d.copy(software = emptyMap()) } to KagemushaWalletEnrollmentRefusalV1.ATTESTATION_WITHOUT_APP_IDENTITY,
+            { d: TestKeyDescriptionV1 -> d.copy(software = mapOf(709 to TestAppV1.applicationId(signers = listOf(ByteArray(32) { 0x55 })))) } to
+                KagemushaWalletEnrollmentRefusalV1.APP_IDENTITY_MISMATCH,
+        )
+        for ((index, case) in cases.withIndex()) {
+            val result = evidenceAfterGeneration(ByteArray(32) { (index + 2).toByte() }, case.first)
+            assertEquals(case.second, assertIs<KagemushaWalletAndroidEnrollmentEvidenceV1.Ineligible>(result).refusal)
+        }
+        assertEquals(KagemushaWalletEnrollmentRefusalV1.APP_VERSION_BELOW_MINIMUM, assertIs<KagemushaWalletAndroidEnrollmentEvidenceV1.Ineligible>(
+            evidenceAfterGeneration(ByteArray(32) { 20 }, { it }, keyStore.policy(minimumVersion = 10))).refusal)
+        // A chain to a root outside the policy's pinned set is refused at the root.
+        val foreign = TestKeyStoreV1().apply { apiLevel = 26 }.policy()
+        assertEquals(KagemushaWalletEnrollmentRefusalV1.UNTRUSTED_ATTESTATION_ROOT, assertIs<KagemushaWalletAndroidEnrollmentEvidenceV1.Ineligible>(
+            evidenceAfterGeneration(ByteArray(32) { 21 }, { it }, foreign)).refusal)
+        assertIs<KagemushaWalletAndroidEnrollmentEvidenceV1.Eligible>(evidenceAfterGeneration(ByteArray(32) { 22 }, { it }))
+        assertEquals(0, keyStore.signCalls)
+        assertEquals(0, keyStore.deleteCalls)
     }
 
     @Test fun `the consumer rules keep every upcall the bridge binds`() {
@@ -215,7 +261,7 @@ class KagemushaWalletAndroidPlatformV1Test {
         val slot = ByteArray(32) { (it + 1).toByte() }
         assertSame(KagemushaWalletAndroidKeyProbeV1.Absent, platform.keyProbe(slot))
         val generated = assertIs<KagemushaWalletAndroidKeyGenerationV1.Generated>(
-            platform.keyGenerate(slot, ByteArray(32) { 3 }, KagemushaWalletAndroidKeyProfileV1.SECURE_ELEMENT.tag),
+            platform.keyGenerate(slot, ByteArray(32) { 3 }, KAGEMUSHA_WALLET_ANDROID_KEY_PROFILE_TAG_V1),
         )
         assertEquals(kagemushaWalletAndroidAliasV1(slot), keyStore.generated.single().alias)
         assertEquals(
@@ -231,7 +277,7 @@ class KagemushaWalletAndroidPlatformV1Test {
         assertIs<KagemushaWalletAndroidCustodyRootV1.Present>(platform.custodyRoot())
         assertSame(KagemushaWalletAndroidRemoveV1.Removed, platform.keyDelete(slot))
         assertSame(KagemushaWalletAndroidKeyProbeV1.Absent, platform.keyProbe(slot))
-        assertFailsWith<IllegalArgumentException> { platform.keyGenerate(ByteArray(32) { 9 }, ByteArray(32) { 3 }, 0) }
+        for (tag in listOf(0, 1, 3)) assertFailsWith<IllegalArgumentException> { platform.keyGenerate(ByteArray(32) { 9 }, ByteArray(32) { 3 }, tag) }
         assertEquals(1, keyStore.generated.size)
     }
 

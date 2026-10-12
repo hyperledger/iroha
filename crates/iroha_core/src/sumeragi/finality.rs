@@ -263,7 +263,7 @@ fn proof_from_certified(
     };
     // The native reader verifies exact BLS quorums and source-bound execution before serving.
     // Portable checks additionally enforce the independent client framing contract.
-    proof.decode_checked()?;
+    proof.decode_checked(certified.result_scope())?;
     Ok(proof)
 }
 
@@ -592,13 +592,16 @@ fn finish_attestation(
         status,
         finality_proof: proofs.tip,
     };
-    body.validate_consistency().map_err(Error::InvalidBody)?;
+    body.validate_consistency(chain.result_scope())
+        .map_err(Error::InvalidBody)?;
     let signature = SignatureOf::try_from_hash(signer.private_key(), body.signing_hash())
         .map_err(|error| Error::Signing(error.to_string()))?;
     let attestation = SumeragiFinalityAttestation { body, signature };
     if norito::core::decode_limits_active() {
         // An enclosing owner retains the original second body decode and its charges/refusals.
-        attestation.verify().map_err(Error::InvalidBody)?;
+        attestation
+            .verify(chain.result_scope())
+            .map_err(Error::InvalidBody)?;
     } else {
         // This exact immutable body already passed complete consistency checks above. Its
         // move into the statement changes no proof or binding; verify the fresh signature
@@ -697,7 +700,13 @@ mod tests {
         let original = original.expect("the exact signed original prefix authenticates once");
         assert_eq!(once.frames, expected_frames);
         assert_eq!(once.qcs, expected_qcs);
-        assert!(original.decode_checked().is_ok());
+        assert!(
+            original
+                .decode_checked(
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
+                )
+                .is_ok()
+        );
 
         let (produced, served) = relation_counts::measure(|| build_proof(&view, height));
         let produced = produced.expect("ordinary current-source proof producer");
@@ -706,7 +715,13 @@ mod tests {
             "same header, canonical signed bytes and exact epoch PoPs"
         );
         assert_eq!(produced.height(), height);
-        assert!(produced.decode_checked().is_ok());
+        assert!(
+            produced
+                .decode_checked(
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
+                )
+                .is_ok()
+        );
         assert_eq!(
             served.frames, once.frames,
             "portable producer must use the same already authenticated source instead of reading its committee again"
@@ -761,7 +776,13 @@ mod tests {
         let proof = build_proof(&chain.state().view(), 2).unwrap();
         assert_eq!(proof.height(), 2);
         assert_eq!(proof.committee.len(), 4);
-        assert!(proof.decode_checked().is_ok());
+        assert!(
+            proof
+                .decode_checked(
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
+                )
+                .is_ok()
+        );
         assert!(build_proof(&chain.state().view(), 1).is_ok());
         assert!(build_proof(&chain.state().view(), 0).is_err());
         assert!(build_proof(&chain.state().view(), 3).is_err());
@@ -925,7 +946,13 @@ mod tests {
         chain.commit(Vec::new());
         let proof = build_proof(&chain.state().view(), 10).unwrap();
         assert_eq!(proof.height(), 10);
-        assert!(proof.decode_checked().is_ok());
+        assert!(
+            proof
+                .decode_checked(
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
+                )
+                .is_ok()
+        );
     }
 
     #[test]
@@ -985,11 +1012,15 @@ mod tests {
             original.body.observed_at_unix_ms,
             original.body.finality_proof.block_header.creation_time_ms
         );
-        original.verify().unwrap();
+        original
+            .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+            .unwrap();
         let mut changed = original;
         changed.body.observed_at_unix_ms += 1;
         assert!(
-            changed.verify().is_err(),
+            changed
+                .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+                .is_err(),
             "the exact current reading belongs to the node's signature"
         );
     }

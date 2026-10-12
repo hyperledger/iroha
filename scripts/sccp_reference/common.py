@@ -17,6 +17,30 @@ MAX_BLOCK_PATH = 9
 MAX_HISTORY_PATH = 32
 MAX_HISTORY_SIZE = 1 << 32
 SCCP_ANCHOR_CHUNK = 4096
+U64_MAX = (1 << 64) - 1
+
+# §0: on destinations `now_ms` is `block.timestamp × 1000` (EVM) or `now() × 1000` (TON), so the
+# destination clock moves in whole seconds while Taira-side times keep millisecond precision.
+DESTINATION_CLOCK_STEP_MS = 1_000
+
+# Fixture metadata shared by `finality_v1.json`, `committee_transitions_v1.json` and
+# `control_v1.json`, which the Rust reference regenerates byte for byte (ASCII only).
+REFERENCE_GENERATORS = (
+    "two generators write this file byte for byte: the independent Python reference "
+    "(python3 scripts/sccp_reference/generate.py --write, Python 3.10+) and the Rust reference "
+    "(cargo test -p iroha_sccp --test v1_reference_finality --test v1_reference_transitions "
+    "--test v1_reference_control -- --ignored regenerate)"
+)
+DESTINATION_CLOCK_CONVENTION = (
+    "`now_ms` is the destination clock: block.timestamp (EVM) or now() (TON) in whole seconds, times 1000, so every "
+    "`now_ms` is a multiple of 1000"
+)
+SCENARIO_CLOCK_CONVENTION = (
+    "within a scenario `now_ms` never decreases from one step to the next (equal values are calls in the same block "
+    "or second). Taira-side times (`X.timestamp_ms`, `untilMs`, payload deadlines, fast-pause expiries) are "
+    "milliseconds and may be sub-second, so a time boundary is probed with the nearest whole-second clock values on "
+    "both sides"
+)
 
 
 def be(value: int, width: int) -> bytes:
@@ -37,6 +61,30 @@ def be64(value: int) -> bytes:
 def word(value: int) -> bytes:
     """The 32-byte ABI word of an unsigned integer (§0)."""
     return be(value, 32)
+
+
+def saturating_u64_sum(a: int, b: int) -> int:
+    """`min(a + b, 2^64 − 1)` of two `u64` values.
+
+    No destination call aborts for arithmetic (§5.1.2): the two time sums of the
+    contracts, a rotation's `t_eff(X) + X.validity_ms` and the fast-pause bound
+    `now_ms + MAX_FAST_PAUSE_MS`, saturate at the largest `u64`.
+    """
+    if not (0 <= a <= U64_MAX and 0 <= b <= U64_MAX):
+        raise ValueError(f"saturating_u64_sum takes u64 operands, got {a} and {b}")
+    return min(a + b, U64_MAX)
+
+
+def check_destination_clock(now_ms: int, previous_ms: int | None = None, where: str = "step") -> None:
+    """Fail unless `now_ms` is a destination clock value that may follow `previous_ms`.
+
+    A destination reads whole seconds (`now_ms = block.timestamp × 1000`, §0) and
+    its clock never runs backwards; consecutive calls may share one value.
+    """
+    if now_ms < 0 or now_ms % DESTINATION_CLOCK_STEP_MS:
+        raise AssertionError(f"{where}: now_ms {now_ms} is not a whole-second destination clock value")
+    if previous_ms is not None and now_ms < previous_ms:
+        raise AssertionError(f"{where}: now_ms {now_ms} is earlier than the previous step's {previous_ms}")
 
 
 def sha256(*parts: bytes) -> bytes:

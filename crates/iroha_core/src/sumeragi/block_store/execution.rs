@@ -2,11 +2,16 @@
 use crate::execution_attempt::ExecutionAttemptError as Attempt;
 use iroha_data_model::{
     block::SignedBlock,
-    sumeragi_finality::{CommitmentError, ExecutionResultCommitment},
+    sumeragi_finality::{
+        CertifiedResultError, CertifiedResultScope, CertifiedResultV1, CommitmentError,
+    },
 };
 use std::io;
 
-pub(super) fn validate(block: &SignedBlock) -> Result<(), Attempt<io::Error>> {
+pub(super) fn validate(
+    block: &SignedBlock,
+    scope: CertifiedResultScope,
+) -> Result<(), Attempt<io::Error>> {
     let invalid = |message: &'static str| io::Error::new(io::ErrorKind::InvalidData, message);
     let certificate = block
         .commit_certificate()
@@ -22,9 +27,9 @@ pub(super) fn validate(block: &SignedBlock) -> Result<(), Attempt<io::Error>> {
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     // The owning decoder enforces the finite result-preimage ceiling and input-derived
     // cumulative decode budgets. No schedule decoded here selects availability authority.
-    let result =
-        ExecutionResultCommitment::decode(certificate.result_preimage()).map_err(|error| {
-            if let CommitmentError::Resource(resource) = error {
+    let certified =
+        CertifiedResultV1::decode(certificate.result_preimage(), scope).map_err(|error| {
+            if let CertifiedResultError::Body(CommitmentError::Resource(resource)) = error {
                 if !cfg!(all(test, sumeragi_core_mutation = "HC20")) {
                     #[cfg(all(test, sumeragi_core_mutation = "HC24"))]
                     return io::Error::new(
@@ -33,15 +38,12 @@ pub(super) fn validate(block: &SignedBlock) -> Result<(), Attempt<io::Error>> {
                     )
                     .into();
                     #[cfg(not(all(test, sumeragi_core_mutation = "HC24")))]
-                    return crate::execution_attempt::norito_decode_attempt_error(
-                        resource.into(),
-                        |_| {
-                            io::Error::new(
-                                io::ErrorKind::InvalidData,
-                                CommitmentError::Resource(resource),
-                            )
-                        },
-                    );
+                    return Attempt::Deferred(match resource {
+                        norito::core::DecodeResourceError::AllocationFailed { .. } => {
+                            ivm::error::ExecutionDeferral::AllocationUnavailable.into()
+                        }
+                        _ => ivm::error::ExecutionDeferral::ActiveMemoryCapacity.into(),
+                    });
                 }
                 return io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -51,6 +53,13 @@ pub(super) fn validate(block: &SignedBlock) -> Result<(), Attempt<io::Error>> {
             }
             io::Error::new(io::ErrorKind::InvalidData, error).into()
         })?;
+    certified
+        .check_block(
+            block.header().height().get(),
+            block.header().creation_time_ms,
+        )
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    let result = certified.commitment();
     let (len, hash) = block
         .executed_block_wire_identity()
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;

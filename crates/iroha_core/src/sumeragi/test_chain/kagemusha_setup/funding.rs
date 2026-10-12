@@ -258,7 +258,7 @@ fn block_capture(block: &VerifiedSumeragiBlock) -> norito::json::Value {
         .collect();
     norito::json!({
         "height": (block.height()),
-        "result_preimage_hex": (hex::encode(block.commitment().preimage().unwrap())),
+        "result_preimage_hex": (hex::encode(block.block().commit_certificate().unwrap().result_preimage())),
         "result_hash_hex": (hex::encode(block.result().0)),
         "commit_vote_preimage_hex": (hex::encode(qc.preimage())),
         "qc_bitmap_hex": (hex::encode(qc.signers.as_bytes())),
@@ -359,7 +359,7 @@ fn capture(setup: &ExecutedKagemushaSetup, input: &Inputs, output: &Path) {
     object.insert(
         "load".into(),
         norito::json!({
-            "result_preimage_hex": (hex::encode(at.block().commitment().preimage().unwrap())),
+            "result_preimage_hex": (hex::encode(at.block().block().commit_certificate().unwrap().result_preimage())),
             "receipt_frame_hex": (hex::encode(&receipt_frame)),
             "receipt_transcript_hex": (hex::encode(receipt.transcript().unwrap())),
             "receipt_digest_hex": (hex::encode(receipt.receipt_digest().unwrap())),

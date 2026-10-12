@@ -278,7 +278,15 @@ async fn finalized_state_observation(
     let root: Hash = norito::json::from_value(value["witnessed_post_state_root"].clone())?;
     let header: BlockHeader = norito::json::from_value(value["block_header"].clone())?;
     let proof: SumeragiFinalityProof = norito::json::from_value(value["finality_proof"].clone())?;
-    let decoded = proof.decode_checked()?;
+    let decoded = proof.decode_checked(
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::from_root_scope(
+            iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(
+                &network.genesis().0,
+            )?
+            .sumeragi_context
+            .root_scope,
+        ),
+    )?;
     ensure!(
         reported_height == height
             && header.height().get() == height

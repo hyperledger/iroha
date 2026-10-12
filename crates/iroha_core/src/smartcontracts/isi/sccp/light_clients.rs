@@ -82,7 +82,7 @@ pub(crate) fn exceeded_verifier_limit(
     if work.proof_bytes > limits.max_proof_bytes_per_proof.get() {
         return Some("max_proof_bytes_per_proof");
     }
-    let categories: [(u64, u64, u64, u64, &'static str, &'static str); 8] = [
+    let categories: [(u64, u64, u64, u64, &'static str, &'static str); 7] = [
         (
             in_tx.proofs.into(),
             in_block.proofs.into(),
@@ -139,14 +139,6 @@ pub(crate) fn exceeded_verifier_limit(
             limits.max_bls_vote_attestations_per_block.get().into(),
             "max_bls_vote_attestations_per_transaction",
             "max_bls_vote_attestations_per_block",
-        ),
-        (
-            in_tx.secp256k1_recoveries.into(),
-            in_block.secp256k1_recoveries.into(),
-            limits.max_secp256k1_recoveries_per_transaction.get().into(),
-            limits.max_secp256k1_recoveries_per_block.get().into(),
-            "max_secp256k1_recoveries_per_transaction",
-            "max_secp256k1_recoveries_per_block",
         ),
         (
             in_tx.ed25519_signature_checks.into(),
@@ -781,46 +773,21 @@ pub fn verify_source_proof(
     Ok(verified)
 }
 
-/// Return whether `authority` is the account of an active or pending, unfaulted bridge key
-/// in `world`.
-fn is_live_bridge_key_account(
-    world: &(impl WorldReadOnly + ?Sized),
-    authority: &AccountId,
-) -> bool {
-    super::bridge_keys::bridge_key_address_of(authority).is_some_and(|address| {
-        store::bridge_key_owners::get(world, &address)
-            .and_then(|peer| store::bridge_keys::get(world, peer))
-            .is_some_and(|state| {
-                state
-                    .active
-                    .iter()
-                    .chain(state.pending.iter())
-                    .any(|key| key.address == address && !key.faulted)
-            })
-    })
-}
-
-/// Return whether `instruction` from `authority` is an eligible keeper advance against the
-/// committed parent World `world` (§4.13.4, §4.19): the authority is the account of an active
-/// or pending, unfaulted bridge key, and the advance frame decodes for `instruction.network`
-/// and is not a `Backfill`. Every other advance pays the ordinary fee.
+/// Return whether `instruction` is an eligible keeper advance (§4.13.4, §4.19): the advance
+/// frame decodes for `instruction.network` and is not a `Backfill`. A `Backfill` and an
+/// undecodable frame pay the ordinary fee.
 ///
-/// The authority is checked first, so the frame is decoded only for bridge-key accounts.
-/// Whether the advance verifies and moves the head is admission pre-verification
-/// ([`preverify_keeper_advance`]), not eligibility.
+/// The rule is the same for every authority, registered or not, so it reads neither the
+/// authority nor state: [`super::fees::exempt_class`] adds only that SCCP exists, and
+/// [`super::admission::allows_unregistered_authority`] admits an absent authority for exactly
+/// the advances this function accepts. Whether the advance verifies and moves the head is
+/// admission pre-verification ([`preverify_keeper_advance`]), not eligibility.
 #[must_use]
-pub fn keeper_advance_eligible(
-    world: &(impl WorldReadOnly + ?Sized),
-    authority: &AccountId,
-    instruction: &AdvanceSccpLightClientV1,
-) -> bool {
-    is_live_bridge_key_account(world, authority)
-        && lc::proof::SccpLcAdvanceV1::from_frame(instruction.advance.as_bytes()).is_ok_and(
-            |advance| {
-                advance.network() == instruction.network
-                    && !matches!(advance, lc::proof::SccpLcAdvanceV1::Backfill { .. })
-            },
-        )
+pub fn keeper_advance_eligible(instruction: &AdvanceSccpLightClientV1) -> bool {
+    lc::proof::SccpLcAdvanceV1::from_frame(instruction.advance.as_bytes()).is_ok_and(|advance| {
+        advance.network() == instruction.network
+            && !matches!(advance, lc::proof::SccpLcAdvanceV1::Backfill { .. })
+    })
 }
 
 /// Pre-verify an eligible keeper advance ([`keeper_advance_eligible`]) and return its
@@ -864,10 +831,15 @@ pub fn preverify_keeper_advance(
             "the advance does not move the head",
         ));
     }
-    Ok(
-        SccpAdmissionKeysV1::new(super::admission::SccpExemptClassV1::KeeperAdvance { network })
-            .with_exclusive(&(authority.clone(), network)),
-    )
+    Ok(keeper_advance_keys(authority, network))
+}
+
+/// Return the admission keys of an exempt keeper advance of `network` from `authority`: at
+/// most one is pending per authority and network, whether or not the authority is registered
+/// (§4.13.4, §4.19).
+fn keeper_advance_keys(authority: &AccountId, network: SccpNetworkV1) -> SccpAdmissionKeysV1 {
+    SccpAdmissionKeysV1::new(super::admission::SccpExemptClassV1::KeeperAdvance { network })
+        .with_exclusive(&(authority.clone(), network))
 }
 
 /// Prune expired light-client sets and checkpoints, deleting at most `budget` records, and
@@ -980,54 +952,80 @@ mod tests {
     }
 
     #[test]
-    fn keeper_advances_are_eligible_from_live_bridge_keys_only() {
-        use crate::smartcontracts::isi::sccp::{bridge_keys, test_support::peer};
-        use iroha_sccp::v1::key_file::SccpBridgeKeyFileV1;
-        let state = blank_state();
-        let mut block = state.block(header(2));
-        let mut stx = block.transaction();
-        let key = SccpBridgeKeyFileV1::new([9; 32], 0).expect("key");
-        let public_key = key.public_key().expect("public key");
-        let address = key.address().expect("address");
-        let keeper = bridge_keys::account_of(&public_key).expect("account");
+    fn keeper_advances_are_eligible_by_their_frame_alone() {
         let advance = advance_frame(false);
         assert!(
-            !keeper_advance_eligible(&*stx.world, &keeper, &advance),
-            "not a registered bridge key"
+            keeper_advance_eligible(&advance),
+            "a decodable advance of its network needs no registered key"
         );
-        store::bridge_key_owners::insert(&mut stx, address, peer(1)).expect("owner");
-        let mut binding =
-            crate::smartcontracts::isi::sccp::test_support::sample_bridge_key_state(1);
-        let active = binding.active.as_mut().expect("active key");
-        active.public_key = public_key;
-        active.address = address;
-        store::bridge_keys::insert(&mut stx, peer(1), binding.clone()).expect("binding");
-        assert!(keeper_advance_eligible(&*stx.world, &keeper, &advance));
         assert!(
-            !keeper_advance_eligible(&*stx.world, &keeper, &advance_frame(true)),
+            !keeper_advance_eligible(&advance_frame(true)),
             "a Backfill pays the ordinary fee"
         );
         assert!(
-            !keeper_advance_eligible(&*stx.world, &keeper, &SampleInstructions::advance()),
+            !keeper_advance_eligible(&SampleInstructions::advance()),
             "an undecodable frame pays the ordinary fee"
         );
-        let mut other_network = advance.clone();
+        let mut other_network = advance;
         other_network.network = SccpNetworkV1::BscMainnet;
-        assert!(!keeper_advance_eligible(
-            &*stx.world,
-            &keeper,
-            &other_network
-        ));
         assert!(
-            !keeper_advance_eligible(&*stx.world, &authority(1), &advance),
-            "an ordinary account pays the ordinary fee"
+            !keeper_advance_eligible(&other_network),
+            "a frame of another network pays the ordinary fee"
         );
-        binding.active.as_mut().expect("active key").faulted = true;
-        store::bridge_keys::insert(&mut stx, peer(1), binding).expect("binding");
-        assert!(
-            !keeper_advance_eligible(&*stx.world, &keeper, &advance),
-            "a faulted key pays the ordinary fee"
+    }
+
+    #[test]
+    fn eligible_keeper_advances_are_preverified_whatever_their_authority() {
+        // An unregistered authority's eligible advance is pre-verified like a registered one's:
+        // a stale guard, and an advance that proves nothing, are rejected at admission.
+        let state = blank_state();
+        let mut block = state.block(header(2));
+        let mut stx = block.transaction();
+        let network = SccpNetworkV1::EthereumMainnet;
+        store::light_clients::insert(&mut stx, network, installed(100)).expect("lc");
+        let advance = advance_frame(false);
+        assert!(keeper_advance_eligible(&advance));
+        for unregistered in [authority(7), authority(8)] {
+            let mut stale = advance.clone();
+            stale.expected_state_hash = Some([0xee; 32]);
+            let reject = preverify_keeper_advance(&*stx.world, 0, 3, &stale, &unregistered)
+                .expect_err("stale guard");
+            assert!(reject.reason.contains("stale"), "{reject}");
+            preverify_keeper_advance(&*stx.world, 0, 3, &advance, &unregistered)
+                .expect_err("an advance that proves nothing is rejected at admission");
+        }
+    }
+
+    #[test]
+    fn one_exempt_advance_is_pending_per_authority_and_network() {
+        use crate::smartcontracts::isi::sccp::admission::{
+            SccpExemptClassV1, SccpPendingClaimErrorV1, SccpPendingIndexV1,
+        };
+        use iroha_crypto::{Hash, HashOf};
+        let entry = |seed: u8| HashOf::from_untyped_unchecked(Hash::prehashed([seed; 32]));
+        let (eth, bsc) = (SccpNetworkV1::EthereumMainnet, SccpNetworkV1::BscMainnet);
+        let keys = keeper_advance_keys(&authority(1), eth);
+        assert_eq!(
+            keys.class,
+            SccpExemptClassV1::KeeperAdvance { network: eth }
         );
+        assert!(keys.content.is_empty());
+        let mut index = SccpPendingIndexV1::default();
+        index.claim(entry(1), keys).expect("first advance");
+        assert_eq!(
+            index.claim(entry(2), keeper_advance_keys(&authority(1), eth)),
+            Err(SccpPendingClaimErrorV1::ExclusiveHeld { holder: entry(1) })
+        );
+        index
+            .claim(entry(3), keeper_advance_keys(&authority(2), eth))
+            .expect("another authority");
+        index
+            .claim(entry(4), keeper_advance_keys(&authority(1), bsc))
+            .expect("another network");
+        index.release(&entry(1));
+        index
+            .claim(entry(2), keeper_advance_keys(&authority(1), eth))
+            .expect("the limit is free once the pending advance leaves the queue");
     }
 
     #[test]
@@ -1035,42 +1033,43 @@ mod tests {
         use lc::SccpVerifierWorkV1 as Work;
         let state = blank_state();
         let mut block = state.block(header(2));
-        // A full TRON advance: 16 segments of 128 signed headers.
-        let full_advance = Work {
+        // The BSC vote attestations one transaction may carry: four full 16-step advances.
+        let full_transaction = Work {
             proof_bytes: 1_000,
             native_headers: 2_048,
-            secp256k1_recoveries: 2_048,
+            bls_vote_attestations: 64,
             ..Work::default()
         };
-        let one_recovery = Work {
-            secp256k1_recoveries: 1,
+        let one_attestation = Work {
+            bls_vote_attestations: 1,
             ..Work::default()
         };
         {
             let mut stx = block.transaction();
-            stx.reserve_sccp_verifier_work(&full_advance)
-                .expect("a full advance fits one transaction");
+            stx.reserve_sccp_verifier_work(&full_transaction)
+                .expect("the per-transaction limit fits one transaction");
             assert_eq!(
-                stx.reserve_sccp_verifier_work(&one_recovery),
-                Err("max_secp256k1_recoveries_per_transaction")
+                stx.reserve_sccp_verifier_work(&one_attestation),
+                Err("max_bls_vote_attestations_per_transaction")
             );
             stx.apply();
         }
         {
             // A dropped transaction releases its reservation.
             let mut stx = block.transaction();
-            stx.reserve_sccp_verifier_work(&full_advance).expect("fits");
+            stx.reserve_sccp_verifier_work(&full_transaction)
+                .expect("fits");
         }
         for _ in 0..3 {
             let mut stx = block.transaction();
-            stx.reserve_sccp_verifier_work(&full_advance)
-                .expect("four full advances fit one block");
+            stx.reserve_sccp_verifier_work(&full_transaction)
+                .expect("four full transactions fit one block");
             stx.apply();
         }
         let mut stx = block.transaction();
         assert_eq!(
-            stx.reserve_sccp_verifier_work(&one_recovery),
-            Err("max_secp256k1_recoveries_per_block")
+            stx.reserve_sccp_verifier_work(&one_attestation),
+            Err("max_bls_vote_attestations_per_block")
         );
         let oversized = Work {
             proof_bytes: stx.zk.sccp.max_proof_bytes_per_proof.get() + 1,
@@ -1230,7 +1229,7 @@ mod tests {
 
     use iroha_sccp::light_client::profile::{
         BSC_MAINNET_VERSIONS, ETHEREUM_MAINNET, ETHEREUM_MAINNET_SUPPORTED_UNTIL_EPOCH,
-        EthereumChainProfileV1, GENESIS_PROFILES, TON_MAINNET_VERSIONS, TRON_MAINNET_VERSIONS,
+        EthereumChainProfileV1, GENESIS_PROFILES, TON_MAINNET_VERSIONS,
     };
 
     /// Ethereum versions of a later release: version 1 plus versions 2 and 3, each extending
@@ -1246,7 +1245,6 @@ mod tests {
         SccpLcProfileCatalogV1 {
             ethereum: &LATER_ETHEREUM[..count],
             bsc: BSC_MAINNET_VERSIONS,
-            tron: TRON_MAINNET_VERSIONS,
             ton: TON_MAINNET_VERSIONS,
         }
     }

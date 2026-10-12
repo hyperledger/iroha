@@ -12,7 +12,7 @@ use ff::PrimeField;
 use iroha_kagemusha_proof::{
     a_relation::{
         native::{archive, bootstrap, consuming, load, receive, refresh, send},
-        schedule::compiled::OperationRoute,
+        schedule::compiled::{OperationRoute, compiled_routes},
     },
     omega::native as omega,
 };
@@ -152,6 +152,33 @@ impl NativeFoldWorkerV1 {
             read,
             budget,
         })
+    }
+
+    /// Design §5.3: the largest custody bytes one step's fold adds until a durable Ω covers it,
+    /// over every compiled route: each checkpoint payload with its archive metadata, then the
+    /// Ω fold record. Derived from the installed layouts only.
+    pub(crate) fn fold_witness_bytes(&self) -> Result<u64, Error> {
+        let metadata = u64::try_from(super::archive::METADATA_BOUND)
+            .map_err(|_| Error::Proof("checkpoint bound"))?;
+        let record =
+            u64::try_from(iroha_data_model::kagemusha::KAGEMUSHA_WALLET_FOLD_RECORD_MAX_BYTES_V1)
+                .map_err(|_| Error::Proof("checkpoint bound"))?;
+        let mut largest = 0_u64;
+        for route in compiled_routes() {
+            let total = self
+                .route_schedule(route)?
+                .iter()
+                .try_fold(0_u64, |sum, layout| {
+                    sum.checked_add(u64::from(layout.payload_bytes))?
+                        .checked_add(metadata)
+                })
+                .ok_or(Error::Proof("checkpoint bound"))?;
+            largest = largest.max(total);
+        }
+        largest
+            .checked_add(record)
+            .and_then(|bytes| bytes.checked_add(metadata))
+            .ok_or(Error::Proof("checkpoint bound"))
     }
 
     /// Exact ordered Q and A/W layouts, ending before the sole final Omega task.

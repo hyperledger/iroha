@@ -36,13 +36,13 @@ pub struct SccpProvenVoidV1 {
     pub first_nonce: u64,
     /// Number of consecutive voided nonces.
     pub count: u64,
-    /// The voided message id (`voidExpired` on ETH, BSC and TON), or zero.
+    /// The voided message id (`voidExpired`), or zero (`voidFrozen`).
     pub message_id_or_zero: [u8; 32],
 }
 
 /// Check the nonce range of a proven void against `network`'s destination bounds: a
 /// `voidExpired` names exactly one nonce, and a `voidFrozen` range is `1..=` the destination's
-/// bound (256 on ETH, BSC and TRON, one 512-nonce bucket on TON).
+/// bound (256 on ETH and BSC, one 512-nonce bucket on TON).
 ///
 /// # Errors
 ///
@@ -275,7 +275,6 @@ mod tests {
         for network in [
             SccpNetworkV1::EthereumMainnet,
             SccpNetworkV1::BscMainnet,
-            SccpNetworkV1::TronMainnet,
             SccpNetworkV1::TonMainnet,
         ] {
             check_void_range(network, &void(expired, 1)).expect("one expired nonce");
@@ -284,11 +283,7 @@ mod tests {
             check_void_range(network, &void(frozen, 1)).expect("one frozen nonce");
             check_void_range(network, &void(frozen, 256)).expect("the EVM bound");
         }
-        for network in [
-            SccpNetworkV1::EthereumMainnet,
-            SccpNetworkV1::BscMainnet,
-            SccpNetworkV1::TronMainnet,
-        ] {
+        for network in [SccpNetworkV1::EthereumMainnet, SccpNetworkV1::BscMainnet] {
             check_void_range(network, &void(frozen, 257)).expect_err("past the EVM bound");
         }
         check_void_range(SccpNetworkV1::TonMainnet, &void(frozen, 512)).expect("one TON bucket");

@@ -1455,8 +1455,6 @@ Root {
             max_ethereum_light_client_updates_per_block: 512,
             max_native_header_bytes_per_transaction: 8388608,
             max_native_header_bytes_per_block: 33554432,
-            max_secp256k1_recoveries_per_transaction: 2048,
-            max_secp256k1_recoveries_per_block: 8192,
             max_ed25519_signature_checks_per_transaction: 65536,
             max_ed25519_signature_checks_per_block: 262144,
             max_bls_vote_attestations_per_transaction: 64,
@@ -1949,19 +1947,17 @@ Root {
         },
     },
     sccp: SccpNode {
-        attestor: SccpAttestor {
+        keeper: SccpKeeper {
             enabled: true,
             key_dir: WithOrigin {
-                value: "./storage/sccp/bridge-keys",
+                value: "./storage/sccp/keeper-key",
                 origin: Custom {
-                    message: "derived from kura.store_dir because sccp.attestor.key_dir was empty",
+                    message: "derived from kura.store_dir because sccp.keeper.key_dir was empty",
                 },
             },
-            auto_register: true,
-            max_entries_per_transaction: 64,
-            resubmit_after_blocks: 3,
-            max_clock_drift: 3600s,
-            shutdown_grace: 30s,
+            keepalive: true,
+            keepalive_stagger: 15s,
+            watch: true,
         },
         light_client_keeper: SccpLightClientKeeper {
             enabled: true,
@@ -1983,10 +1979,6 @@ Root {
                 bsc: [
                     "https://bsc-dataseed.bnbchain.org/",
                     "https://bsc-rpc.publicnode.com/",
-                ],
-                tron: [
-                    "https://api.trongrid.io/",
-                    "https://tron-rpc.publicnode.com/",
                 ],
                 ton_liteservers: [
                     "5.9.10.47:19949:n4VDnSCUuSpjnCyUk9e3QOOd6o0ItSWYbTnW3Wnn8wk=",

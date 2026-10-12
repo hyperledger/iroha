@@ -231,9 +231,7 @@ impl<P: advance::KagemushaWalletPlatformV1, S: OriginalSourceV1 + Send> NativeWa
     ) -> Result<Response> {
         // Consume even on an invalid identity, failed source recheck or failed execution.
         let reviewed = self.reviews.take(token)?;
-        Ok(completion(Some(
-            self.wallet.execute_reviewed(reviewed, request)?,
-        )))
+        completion(Some(self.wallet.execute_reviewed(reviewed, request)?))
     }
 }
 pub(crate) fn review(id: u64, input: Input) -> Result<Response> {

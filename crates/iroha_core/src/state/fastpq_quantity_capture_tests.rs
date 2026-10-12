@@ -1141,9 +1141,16 @@ fn genuine_signed_quantity_effect_capture_bytes() -> Vec<u8> {
     block.reserve_ordinary_execution_outputs(&source).unwrap();
     block.execute_ordinary_output_plan(&source, None).unwrap();
     block
-        .seal_execution_outputs(&mut source, |state, _, routes| {
+        .seal_execution_outputs(&mut source, |state, original, routes| {
             assert_eq!(routes.len(), 1);
             Ok::<_, String>(crate::state::output_capacity::ExecutionOutputSealMetadata {
+                sccp_finality_header:
+                    iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+                        state.network_id().as_bytes().to_owned(),
+                        original.header().height().get(),
+                        original.header().creation_time_ms,
+                    )
+                    .unwrap(),
                 committed_fragment_count: u64::try_from(state.committed_fragment_count()).unwrap(),
             })
         })
@@ -2409,9 +2416,16 @@ fn with_sealed_quantity_source_census(
     assert!(rows[1].result().is_ok());
     assert!(rows[2].result().is_err());
     block
-        .seal_execution_outputs(&mut source, |state, _, routes| {
+        .seal_execution_outputs(&mut source, |state, original, routes| {
             assert_eq!(routes.len(), 3);
             Ok::<_, String>(crate::state::output_capacity::ExecutionOutputSealMetadata {
+                sccp_finality_header:
+                    iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+                        state.network_id().as_bytes().to_owned(),
+                        original.header().height().get(),
+                        original.header().creation_time_ms,
+                    )
+                    .unwrap(),
                 committed_fragment_count: u64::try_from(state.committed_fragment_count()).unwrap(),
             })
         })
@@ -2838,9 +2852,16 @@ fn signed_account_removal_captures_original_supply_first_burn_and_exact_source_c
         assert_eq!(pool.reserved_bytes(), baseline);
         assert_exact_applied_measurement(&block.fastpq_quantity_candidate);
         block
-            .seal_execution_outputs(&mut source, |state, _, routes| {
+            .seal_execution_outputs(&mut source, |state, original, routes| {
                 assert_eq!(routes.len(), 1);
                 Ok::<_, String>(crate::state::output_capacity::ExecutionOutputSealMetadata {
+                    sccp_finality_header:
+                        iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+                            state.network_id().as_bytes().to_owned(),
+                            original.header().height().get(),
+                            original.header().creation_time_ms,
+                        )
+                        .unwrap(),
                     committed_fragment_count: u64::try_from(state.committed_fragment_count())
                         .unwrap(),
                 })
@@ -3234,9 +3255,16 @@ fn signed_definition_and_domain_retirement_capture_exact_original_enumeration_an
         }
         assert_exact_applied_measurement(&block.fastpq_quantity_candidate);
         block
-            .seal_execution_outputs(&mut source, |state, _, routes| {
+            .seal_execution_outputs(&mut source, |state, original, routes| {
                 assert_eq!(routes.len(), 1);
                 Ok::<_, String>(crate::state::output_capacity::ExecutionOutputSealMetadata {
+                    sccp_finality_header:
+                        iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+                            state.network_id().as_bytes().to_owned(),
+                            original.header().height().get(),
+                            original.header().creation_time_ms,
+                        )
+                        .unwrap(),
                     committed_fragment_count: u64::try_from(state.committed_fragment_count())
                         .unwrap(),
                 })
@@ -4857,9 +4885,16 @@ fn mandatory_source_bytes_ignore_optional_archive_loss_and_refusal() {
                 .poison(QuantityCaptureIssue::Capacity);
         }
         block
-            .seal_execution_outputs(&mut source, |state, _, routes| {
+            .seal_execution_outputs(&mut source, |state, original, routes| {
                 assert_eq!(routes.len(), 1);
                 Ok::<_, String>(crate::state::output_capacity::ExecutionOutputSealMetadata {
+                    sccp_finality_header:
+                        iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+                            state.network_id().as_bytes().to_owned(),
+                            original.header().height().get(),
+                            original.header().creation_time_ms,
+                        )
+                        .unwrap(),
                     committed_fragment_count: u64::try_from(state.committed_fragment_count())
                         .unwrap(),
                 })
@@ -4923,9 +4958,16 @@ fn mandatory_source_finalizer_memory_refusal_is_original_local_deferred_without_
         .try_reserve_bytes(pool.limit_bytes() - pool.reserved_bytes())
         .unwrap();
     let error = block
-        .seal_execution_outputs(&mut source, |state, _, routes| {
+        .seal_execution_outputs(&mut source, |state, original, routes| {
             assert_eq!(routes.len(), 1);
             Ok::<_, String>(crate::state::output_capacity::ExecutionOutputSealMetadata {
+                sccp_finality_header:
+                    iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+                        state.network_id().as_bytes().to_owned(),
+                        original.header().height().get(),
+                        original.header().creation_time_ms,
+                    )
+                    .unwrap(),
                 committed_fragment_count: u64::try_from(state.committed_fragment_count()).unwrap(),
             })
         })
@@ -5020,7 +5062,7 @@ fn mandatory_source_marks_only_actual_untyped_quantity_mutation_as_unsupported()
         .get(&call)
         .unwrap();
     block
-        .seal_execution_outputs(&mut source, |state, _, _| {
+        .seal_execution_outputs(&mut source, |state, original, _| {
             let mut transaction = state.transaction();
             transaction
                 .world
@@ -5028,6 +5070,13 @@ fn mandatory_source_marks_only_actual_untyped_quantity_mutation_as_unsupported()
                 .unwrap();
             transaction.apply();
             Ok::<_, String>(crate::state::output_capacity::ExecutionOutputSealMetadata {
+                sccp_finality_header:
+                    iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+                        state.network_id().as_bytes().to_owned(),
+                        original.header().height().get(),
+                        original.header().creation_time_ms,
+                    )
+                    .unwrap(),
                 committed_fragment_count: u64::try_from(state.committed_fragment_count()).unwrap(),
             })
         })

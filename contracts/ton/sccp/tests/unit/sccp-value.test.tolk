@@ -29,7 +29,7 @@ const DAY_S = 86400
 /// A minter deployed with 0.2 TON whose first finalize (nonce 0, 1000 to
 /// `alice`) paid the floor deficit: it then holds exactly MINTER_FLOOR.
 fun envAtFloor(alice: address): Env {
-    val env = setupEnvFunded(4, 0, TEST_MAX_SUPPLY, grams("0.2"));
+    val env = setupEnvFunded(4, TEST_MAX_SUPPLY, grams("0.2"));
     expect(testing.getAccountBalance(env.minter.address) < sccpMinterFloor()).toBeTrue();
     val d = deliverDefault(env, 0, 1000, alice);
     expect(sendFinalize(env, env.deployer, d, finalizeValue(env, 0))).toHaveAllSuccessfulTxs();
@@ -37,34 +37,35 @@ fun envAtFloor(alice: address): Env {
     return env;
 }
 
-/// Statement and signatures of a control signed by `roster`.
+/// Native certificate and full-state control proof with explicit entry value.
 fun sendControlWith(env: Env, c: ControlDelivery, value: coins): SendResultList {
-    return env
-        .minter
-        .sendSccpApplyControl(
-            env.deployer,
-            5,
-            env.deployer,
-            c.statement.attestation(),
-            c.signatures,
-            c.proof,
-            { value, bounce: true },
-        );
+    return sendApplyControlCells(
+        env,
+        env.deployer,
+        c.cert,
+        null,
+        c.proof,
+        value,
+    );
 }
 
-fun sendRotateWith(env: Env, next: TestRoster, height: int, value: coins): SendResultList {
-    val statement = rotationStatement(env, env.roster, next, height);
-    return env
-        .minter
-        .sendSccpRotate(
-            env.deployer,
-            4,
-            env.deployer,
-            statement.attestation(),
-            signByThreshold(env.roster, statement.digest(env.networkId)),
-            next.spec(),
-            { value, bounce: true },
-        );
+fun sendRotateWith(env: Env, next: TestCommittee, height: int, value: coins): SendResultList {
+    val x = rotationX(
+        env.networkId,
+        env.generation,
+        env.committee.root(),
+        height,
+        testing.getNow() * 1000,
+        next.root(),
+        TEST_VALIDITY_MS,
+    );
+    return sendCheckpoint(
+        env,
+        env.deployer,
+        certifyFor(env, env.committee, x),
+        next.keysCell(),
+        value,
+    );
 }
 
 get fun `test exact quotes taken before time advances still pass at the floor`() {
@@ -74,7 +75,8 @@ get fun `test exact quotes taken before time advances still pass at the floor`()
     // finalize: quote now, send five days later
     val d1 = deliver(
         env,
-        env.roster,
+        env.committee,
+        env.generation,
         1,
         10,
         alice,
@@ -95,16 +97,18 @@ get fun `test exact quotes taken before time advances still pass at the floor`()
     expect(env.minter.getSccpState().controlNonce).toEqual(1);
 
     // rotate
-    val next = nextRoster(env.roster, 4, 4, (T0 + 6 * DAY_S) * 1000);
-    val q3 = env.minter.rotateRequiredValue();
+    val next = testCommittee(4, 4);
+    val q3 = env.minter.checkpointRequiredValue();
     testing.setNow(T0 + 7 * DAY_S);
-    expect(sendRotateWith(env, next, 300, q3)).toHaveAllSuccessfulTxs();
+    expect(sendRotateWith(env, next, 1104, q3)).toHaveAllSuccessfulTxs();
     expect(env.minter.getSccpState().generation).toEqual(8);
     val env8: Env = {
         minter: env.minter,
         deployer: env.deployer,
         networkId: env.networkId,
-        roster: next,
+        instance: env.instance,
+        generation: env.generation + 1,
+        committee: next,
     };
 
     // deploy buckets
@@ -117,10 +121,12 @@ get fun `test exact quotes taken before time advances still pass at the floor`()
     ).toHaveAllSuccessfulTxs();
     expect(env.minter.getSccpState().deployedBuckets).toEqual(3);
 
-    // void an expired message, signed by the new roster
-    val expired = deliver(
+    // void an expired message, signed by the new committee
+    val expired = deliverAt(
         env8,
         next,
+        env8.generation,
+        1105,
         2,
         5,
         alice,
@@ -133,10 +139,10 @@ get fun `test exact quotes taken before time advances still pass at the floor`()
     expect(sendVoidExpired(env8, env.deployer, 2, expired, q5)).toHaveAllSuccessfulTxs();
     expect(isConsumedAt(env, 2)).toBeTrue();
 
-    // void frozen once both rosters expired
-    testing.setNow(next.validUntilMs / 1000 + 1);
+    // void frozen once the current committee expired
+    testing.setNow(env.minter.getSccpState().untilMs / 1000 + 1);
     val q6 = env.minter.voidFrozenRequiredValue(512);
-    testing.setNow(next.validUntilMs / 1000 + 4 * DAY_S);
+    testing.setNow(env.minter.getSccpState().untilMs / 1000 + 4 * DAY_S);
     expect(
         env
             .minter
@@ -153,7 +159,7 @@ get fun `test exact quotes taken before time advances still pass at the floor`()
 
     // a month later a burn completes; the burner's value adds nothing to the
     // minter (the range reply above left its value in the minter)
-    testing.setNow(next.validUntilMs / 1000 + 34 * DAY_S);
+    testing.setNow(env.minter.getSccpState().untilMs / 1000 + 34 * DAY_S);
     val before = testing.getAccountBalance(env.minter.address);
     val burn = sendBurn(env, alice, 10, snakeOfLength(8), burnValue(env, alice));
     expect(burn).toHaveAllSuccessfulTxs();
@@ -169,8 +175,8 @@ get fun `test the quote is the entry minimum plus the storage grace`() {
     // the stored balance is still exactly the floor: no deficit
     val quote = env.minter.applyControlRequiredValue();
     expect(quote).toEqual(sccpApplyControlRequiredValue() + sccpMinterStorageGrace());
-    expect(env.minter.rotateRequiredValue()).toEqual(
-        sccpRotateRequiredValue() + sccpMinterStorageGrace(),
+    expect(env.minter.checkpointRequiredValue()).toEqual(
+        sccpCheckpointRequiredValue() + sccpMinterStorageGrace(),
     );
     expect(env.minter.retryRequiredValue()).toEqual(
         sccpRetryRequiredValue() + sccpMinterStorageGrace(),
@@ -183,13 +189,13 @@ get fun `test the quote is the entry minimum plus the storage grace`() {
         exitCode: SccpErrors.NotEnoughValue as int,
     });
     expect(poor).toHaveTx({ to: env.deployer, bounced: true });
-    expect(env.minter.getSccpState().mintingPaused).toBeFalse();
+    expect(env.minter.getSccpState().parliamentPaused).toBeFalse();
     // the failed call collected three days of storage, which the grace of the
     // earlier quote covers; the floor is topped up again from the grace
     expect(testing.getAccountBalance(env.minter.address) < sccpMinterFloor()).toBeTrue();
     val ok = sendControlWith(env, c, quote);
     expect(ok).toHaveAllSuccessfulTxs();
-    expect(env.minter.getSccpState().mintingPaused).toBeTrue();
+    expect(env.minter.getSccpState().parliamentPaused).toBeTrue();
     expect(testing.getAccountBalance(env.minter.address)).toEqual(sccpMinterFloor());
 
     // a quote goes stale only when another transaction collects more storage
@@ -224,7 +230,7 @@ get fun `test the quote is the entry minimum plus the storage grace`() {
 }
 
 get fun `test an underfunded call fails before any signature is verified`() {
-    val env = setupEnvWith(31, 0, TEST_MAX_SUPPLY);
+    val env = setupEnvWith(31, TEST_MAX_SUPPLY);
     val alice = testing.treasury("alice").address;
     val d = deliverDefault(env, 0, 10, alice);
     val poor = sendFinalize(env, env.deployer, d, sccpFinalizeRequiredValue(1) - 1);
@@ -234,7 +240,7 @@ get fun `test an underfunded call fails before any signature is verified`() {
     });
     val cheap = poor.getUsedGas<SccpFinalize>({ to: env.minter.address });
     println("gas of an underfunded n=31 finalize: {}", cheap);
-    // 21 signature checks alone cost more than 60k gas
+    // The native aggregate opcode alone costs 58000 + 3000*q gas
     expect(cheap < 30000).toBeTrue();
     val c = deliverControl(env, 1, true);
     val control = sendControlWith(env, c, sccpApplyControlRequiredValue() - 1);
@@ -243,13 +249,13 @@ get fun `test an underfunded call fails before any signature is verified`() {
         exitCode: SccpErrors.NotEnoughValue as int,
     });
     expect(control.getUsedGas<SccpApplyControl>({ to: env.minter.address }) < 30000).toBeTrue();
-    val next = nextRoster(env.roster, 4, 4, T0 * 1000);
-    val rotate = sendRotateWith(env, next, 300, sccpRotateRequiredValue() - 1);
-    expect(rotate).toHaveFailedTx<SccpRotate>({
+    val next = testCommittee(4, 4);
+    val rotate = sendRotateWith(env, next, 1104, sccpCheckpointRequiredValue() - 1);
+    expect(rotate).toHaveFailedTx<SccpCheckpoint>({
         to: env.minter.address,
         exitCode: SccpErrors.NotEnoughValue as int,
     });
-    expect(rotate.getUsedGas<SccpRotate>({ to: env.minter.address }) < 30000).toBeTrue();
+    expect(rotate.getUsedGas<SccpCheckpoint>({ to: env.minter.address }) < 30000).toBeTrue();
 }
 
 get fun `test burns below the floor complete without paying toward it`() {
@@ -315,7 +321,7 @@ get fun `test a burn whose event cannot be sent bounces and restores the wallet`
 
 get fun `test apply control on an under-floor minter needs its quote`() {
     // a fresh deployment below the floor: a Parliament pause before any finalize
-    val env = setupEnvFunded(4, 0, TEST_MAX_SUPPLY, grams("0.2"));
+    val env = setupEnvFunded(4, TEST_MAX_SUPPLY, grams("0.2"));
     val balance = testing.getAccountBalance(env.minter.address);
     val quote = env.minter.applyControlRequiredValue();
     expect(quote).toEqual(
@@ -329,10 +335,10 @@ get fun `test apply control on an under-floor minter needs its quote`() {
         exitCode: SccpErrors.NotEnoughValue as int,
     });
     expect(poor).toHaveBouncedTx({ to: env.deployer });
-    expect(env.minter.getSccpState().mintingPaused).toBeFalse();
+    expect(env.minter.getSccpState().parliamentPaused).toBeFalse();
     val ok = sendControlWith(env, c, quote);
     expect(ok).toHaveAllSuccessfulTxs();
     expect(ok).toEmitExternalMessage<SccpControlAppliedEvent>();
-    expect(env.minter.getSccpState().mintingPaused).toBeTrue();
+    expect(env.minter.getSccpState().parliamentPaused).toBeTrue();
     expect(testing.getAccountBalance(env.minter.address)).toEqual(sccpMinterFloor());
 }

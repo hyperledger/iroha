@@ -64,6 +64,7 @@ fn committed_read_returns_original_qc_backing_after_projection_refusal_and_retry
 
     let original_header = decoded.header.clone();
     let mut read = CommittedRead {
+        result_scope: iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
         height: 10,
         budget: budget.clone(),
         crypto,
@@ -162,8 +163,13 @@ fn body_only_read_discards_invalid_qc_before_untrusted_restoration() {
         certified_source(&schedule, &*crypto, 10, &decoded.header, &decoded.commit_qc,).is_err(),
         "the changed signature cannot authenticate a native committed body"
     );
-    let mut read =
-        body_read::StoredBodyRead::from_decoded(source.clone(), decoded, budget.clone(), crypto);
+    let mut read = body_read::StoredBodyRead::from_decoded(
+        source.clone(),
+        decoded,
+        budget.clone(),
+        crypto,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+    );
     let retained = budget.reserved_bytes();
     budget.set_limit_bytes(retained);
     assert!(matches!(
@@ -245,6 +251,7 @@ fn committed_result_decode_refusal_keeps_original_read_slot_and_retries() {
     let signature = decoded.commit_qc.agg_sig;
 
     let read = CommittedRead {
+        result_scope: iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
         height: 10,
         budget: budget.clone(),
         crypto: crypto.clone(),
@@ -254,6 +261,7 @@ fn committed_result_decode_refusal_keeps_original_read_slot_and_retries() {
             decoded,
             budget.clone(),
             crypto.clone(),
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
         )),
     };
     let store = KuraBlockStore::new(
@@ -263,6 +271,7 @@ fn committed_result_decode_refusal_keeps_original_read_slot_and_retries() {
         Staging::new(),
         budget.clone(),
         schedule,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     );
     *store.read.lock() = Some(read);
     let retained = budget.reserved_bytes();
@@ -348,6 +357,7 @@ fn committed_certificate_allocator_refusal_retains_original_slot_and_retries() {
             instance: fixture.verifier().instance(),
             config: scheduled.height_config().unwrap(),
         }),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     );
     let owners = read.retained_certificate_owners_for_test().unwrap();
     let (result, refused) =

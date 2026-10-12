@@ -14,6 +14,21 @@ fn chain() -> CertifiedTestChain {
     chain.commit_at(3_000, Vec::new());
     chain
 }
+
+#[test]
+fn terminal_result_scope_comes_from_the_signed_root() {
+    let chain = chain();
+    let view = chain.state().view();
+    let context = decoder(&view.execution_budget());
+    let mut reader = context.with(|| CertifiedChain::new(&view)).unwrap();
+    let terminal = context.with(|| reader.certified_terminal_amx(3)).unwrap();
+    assert_eq!(
+        terminal.committed().result_scope(),
+        CertifiedResultScope::TairaGlobal
+    );
+    assert_eq!(terminal.committed().result(), chain.committed(3).result());
+}
+
 fn decoder(budget: &AllocationBudget) -> norito::core::DecodeBudgetContext {
     norito::core::DecodeBudgetContext::try_new_owned(
         norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 128),
@@ -243,19 +258,27 @@ fn terminal_schedule_failure_after_valid_qc_cannot_deliver_original_target() {
     pending.gap = None;
     // Adversarial private-path corruption after frame validation leaves the genuine header/R
     // and QC untouched, so only the required later schedule advancement can reject this graph.
-    let original_height = pending.target.borrowed().commitment.schedule.height;
-    pending.target.committed.as_mut().unwrap().as_mut_slice()[0]
-        .commitment
-        .schedule
-        .height += 1;
+    let original_height = pending.target.borrowed().commitment().schedule.height;
+    {
+        let retained = &mut pending.target.committed.as_mut().unwrap().as_mut_slice()[0].commitment;
+        let (header, mut body) = retained.clone().into_parts();
+        body.schedule.height += 1;
+        *retained = iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
+            header, body,
+        );
+    }
     drop(cursor);
     let (refused, counts) =
         relation_counts::measure(|| context.with(|| reader.certified_terminal_amx(3)));
     let pending = reader.terminal.as_mut().unwrap();
-    pending.target.committed.as_mut().unwrap().as_mut_slice()[0]
-        .commitment
-        .schedule
-        .height = original_height;
+    {
+        let retained = &mut pending.target.committed.as_mut().unwrap().as_mut_slice()[0].commitment;
+        let (header, mut body) = retained.clone().into_parts();
+        body.schedule.height = original_height;
+        *retained = iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
+            header, body,
+        );
+    }
     assert!(matches!(
         refused,
         Err(ExecutionAttemptError::Rejected(ChainReadError::Committee {

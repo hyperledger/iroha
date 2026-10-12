@@ -16,7 +16,7 @@ use iroha_data_model::{
         InstructionBox,
         consensus_keys::{ApplyThresholdKeyLifecycleCertificateV1, ThresholdKeyLifecycleActionV1},
     },
-    sumeragi_finality::ExecutionResultCommitment,
+    sumeragi_finality::{CertifiedResultScope, CertifiedResultV1},
     transaction::{Executable, ExecutableBatchItem, signed::TransactionEntrypoint},
 };
 use norito::json::{self, Value};
@@ -332,8 +332,25 @@ fn project_native_pulse(block: &SignedBlock, projection: &mut Projection) -> Res
         projection.gap("native_result_preimage_unavailable");
         return Ok(());
     };
-    let commitment = ExecutionResultCommitment::decode(certificate.result_preimage())
-        .map_err(|error| eyre!("invalid canonical native result preimage: {error}"))?;
+    // This command projects Global beacon candidates. The selected role is a structural
+    // interpretation only; no claim in this unauthenticated store selects finality authority.
+    let certified = CertifiedResultV1::decode(
+        certificate.result_preimage(),
+        CertifiedResultScope::TairaGlobal,
+    )
+    .map_err(|error| eyre!("invalid canonical native result preimage: {error}"))?;
+    certified
+        .check_block(
+            block.header().height().get(),
+            block
+                .header()
+                .creation_time()
+                .as_millis()
+                .try_into()
+                .map_err(|_| eyre!("block timestamp overflows"))?,
+        )
+        .map_err(|error| eyre!("native result header differs from stored block: {error}"))?;
+    let commitment = certified.commitment();
     let (wire_len, wire_hash) = block.executed_block_wire_identity()?;
     if commitment.height != block.header().height().get()
         || commitment.execution.executed_block_wire_len != wire_len

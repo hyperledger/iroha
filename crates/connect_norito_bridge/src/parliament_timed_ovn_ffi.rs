@@ -1214,10 +1214,12 @@ mod tests {
         let evaluated_block_hash = hex::encode(tip.block_header.hash().as_ref());
         assert!(
             witness.verify(
-                tip.decode_checked()
-                    .unwrap()
-                    .execution()
-                    .ordinary_writes_root
+                tip.decode_checked(
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
+                )
+                .unwrap()
+                .execution()
+                .ordinary_writes_root
             )
         );
         let response = ParliamentTimedOvnCastingProofResponseV1 {

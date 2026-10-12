@@ -74,19 +74,15 @@ fn sccp_exempt_cap_counts_eligible_entry_points_of_the_block() {
         .with_instructions([instruction])
         .sign(key_pair.private_key())
     };
-    // Fault evidence is eligible whenever SCCP exists.
-    let fault = |height| {
-        let mut submit = SampleInstructions::fault();
-        submit.statement.height = height;
-        signed(submit.into())
-    };
+    // Decodable keeper advances are eligible while SCCP exists. They are not verified by
+    // the count predicate; the two networks have distinct per-network exemption slots.
+    let keeper = |network| signed(SampleInstructions::keeper_advance(network).into());
     let block = SignedBlock::genesis(
         vec![
-            fault(9),
-            fault(10),
-            // An attestation shape from an ordinary account is not eligible: it pays the
-            // ordinary fee and is not counted.
-            signed(SampleInstructions::attestations().into()),
+            keeper(iroha_data_model::bridge::SccpNetworkV1::EthereumMainnet),
+            keeper(iroha_data_model::bridge::SccpNetworkV1::BscMainnet),
+            // A malformed advance is ineligible and pays the ordinary fee.
+            signed(SampleInstructions::advance().into()),
             crate::smartcontracts::isi::sccp::test_support::sample_signed_transaction(),
         ],
         key_pair.private_key(),
@@ -125,11 +121,20 @@ fn sccp_hook_receives_scheduled_height_inputs_on_the_sumeragi_core_path() {
         let mut block = world.block();
         *block.sccp_parameters.get_mut() =
             Some(iroha_data_model::sccp::params::SccpParametersV1::taira_default());
+        block.parameters.get_mut().sumeragi.epoch_length_blocks = NonZeroU64::new(3_600).unwrap();
+        block.parameters.get_mut().sumeragi.block_cadence_ms = NonZeroU64::new(1_000).unwrap();
         block.commit();
     }
     let _ = observed::take();
-    let prepared = CertifiedTestChain::prepare(TestChainConfig::new(world, 10_000))
-        .expect("the original signed genesis is prepared");
+    let mut config = TestChainConfig::new(world, 10_000);
+    config.genesis_block_cadence_ms = NonZeroU64::new(1_000).unwrap();
+    config.genesis_parameters.push(Parameter::Sumeragi(
+        iroha_data_model::parameter::system::SumeragiParameter::EpochLengthBlocks(
+            NonZeroU64::new(3_600).unwrap(),
+        ),
+    ));
+    let prepared =
+        CertifiedTestChain::prepare(config).expect("the original signed genesis is prepared");
     let preparation_inputs = observed::take();
     assert!(
         !preparation_inputs.is_empty(),
@@ -143,28 +148,50 @@ fn sccp_hook_receives_scheduled_height_inputs_on_the_sumeragi_core_path() {
         let scheduled = schedule.ready(height).expect("a scheduled height");
         let epoch = scheduled.epoch.authorization.epoch;
         let epoch_end_height = scheduled.epoch.authorization.last_height;
-        let next_roster = (height == epoch_end_height).then(|| {
-            schedule
-                .ready(height + 1)
-                .expect("the next scheduled height")
-                .epoch
-                .committee
-                .iter()
-                .map(|member| member.validator.clone())
-                .collect()
-        });
+        let next_keys = (height == epoch_end_height)
+            .then(|| {
+                schedule
+                    .ready(height + 1)
+                    .expect("the next scheduled height")
+                    .epoch
+                    .committee
+                    .iter()
+                    .map(|member| {
+                        <[u8; 48]>::try_from(
+                            crate::sumeragi::schedule::consensus_key(&member.validator)
+                                .unwrap()
+                                .as_bytes(),
+                        )
+                        .unwrap()
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .map(|keys| {
+                crate::smartcontracts::isi::sccp::height::SccpHeightKeysV1::try_from_slice(&keys)
+                    .unwrap()
+            });
         SccpHeightInputsV1 {
             mode: ConsensusMode::Permissioned,
             height,
             epoch,
             epoch_end_height,
-            roster: scheduled
-                .epoch
-                .committee
-                .iter()
-                .map(|member| member.validator.clone())
-                .collect(),
-            next_roster,
+            keys: crate::smartcontracts::isi::sccp::height::SccpHeightKeysV1::try_from_slice(
+                &scheduled
+                    .epoch
+                    .committee
+                    .iter()
+                    .map(|member| {
+                        <[u8; 48]>::try_from(
+                            crate::sumeragi::schedule::consensus_key(&member.validator)
+                                .unwrap()
+                                .as_bytes(),
+                        )
+                        .unwrap()
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap(),
+            next_keys,
         }
     };
     let genesis_inputs = expected(GENESIS_HEIGHT);
@@ -182,9 +209,16 @@ fn sccp_hook_receives_scheduled_height_inputs_on_the_sumeragi_core_path() {
     let validators = chain
         .validators()
         .iter()
-        .map(|(peer, _)| peer.clone())
+        .map(|(peer, _)| {
+            <[u8; 48]>::try_from(
+                crate::sumeragi::schedule::consensus_key(peer)
+                    .unwrap()
+                    .as_bytes(),
+            )
+            .unwrap()
+        })
         .collect::<Vec<_>>();
-    assert_eq!(genesis_inputs.roster, validators);
+    assert_eq!(genesis_inputs.keys.as_ref(), validators.as_slice());
     // Block 2 executes exactly as `StateExecutor::run_execution` does.
     let view = state.view();
     let parent = view
@@ -198,6 +232,10 @@ fn sccp_hook_receives_scheduled_height_inputs_on_the_sumeragi_core_path() {
         .cloned()
         .expect("the schedule covers the next height");
     drop(view);
+    let original_tip = state
+        .view()
+        .native_execution_tip()
+        .expect("authenticated genesis tip");
     let cadence = Duration::from_millis(scheduled.params.block_time_ms);
     let block_time = parent.header().creation_time() + cadence;
     let transaction = chain.sign(
@@ -217,10 +255,19 @@ fn sccp_hook_receives_scheduled_height_inputs_on_the_sumeragi_core_path() {
         vec![(GENESIS_HEIGHT + 1, Some(expected_next))],
         "a Sumeragi-core block never reaches the hook without height inputs"
     );
+    let view = chain.state().view();
+    assert_eq!(
+        crate::smartcontracts::isi::sccp::store::anchor_open::get(view.world()).as_slice(),
+        &[crate::smartcontracts::isi::sccp::anchors::SccpAnchorV1 {
+            core_hash: original_tip.core_hash().0,
+            result: original_tip.result().0,
+        }],
+        "A1 retains the exact original native parent, not the Iroha header hash",
+    );
 }
 
 #[test]
-fn sccp_unauthed_genesis_writes_never_supply_roster_authority() {
+fn sccp_unauthed_genesis_writes_never_supply_committee_authority() {
     use crate::smartcontracts::isi::sccp::height::SccpHeightSourceV1;
     let (_key, genesis) = sccp_call_site_genesis();
     let state = crate::smartcontracts::isi::sccp::test_support::blank_state();

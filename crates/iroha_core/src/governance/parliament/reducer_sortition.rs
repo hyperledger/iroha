@@ -48,23 +48,19 @@ impl ParliamentAttemptStateV1 {
             if !has_predecessors && registrations.iter().any(|entry| entry.sequence != 0) {
                 return Err(ParliamentReducerErrorV1::RetrySequenceMismatch);
             }
+            // Before any pulse is consumed no election can have failed (an election
+            // leaves its pulse wait only by consuming the pulse of its exact slot), so
+            // the only retryable predecessor is a hidden-capacity failure of the
+            // complete initial generation. A pending election is never superseded.
             if has_predecessors
                 && initial_bodies.iter().any(|body| {
-                    let election_is_no_roster = self
-                        .active_elections
-                        .get(body)
-                        .and_then(|id| self.elections.get(id))
-                        .is_some_and(|election| {
-                            election.attempt.status == BodyElectionAttemptStatusV1::NoRoster
-                        });
-                    let capacity_is_no_roster = self
+                    !self
                         .active_sortition_capacity_failures
                         .get(body)
                         .and_then(|id| self.sortition_capacity_failures.get(id))
                         .is_some_and(|failure| {
                             failure.status == BodyElectionAttemptStatusV1::NoRoster
-                        });
-                    !election_is_no_roster && !capacity_is_no_roster
+                        })
                 })
             {
                 return Err(ParliamentReducerErrorV1::InvalidLifecycleTransition(
@@ -131,7 +127,9 @@ impl ParliamentAttemptStateV1 {
     /// every body whose active generation ended `NoRoster`, with its candidate snapshot.
     ///
     /// Every field is fixed by committed state: each failed body's next sequence, the shared
-    /// pulse slot `request_height + sortition_pulse_delay_blocks` on `beacon_session_id`,
+    /// pulse slot [`Self::next_sortition_generation_pulse_height_v1`] derives on
+    /// `beacon_session_id` (the first consensus-native pulse height at or after
+    /// `request_height` plus the frozen delay and above every earlier generation slot),
     /// the configured body size, and the canonical snapshot of `eligible_candidates` (less
     /// the sealed Policy Jury for a Confirmation Jury retry). Returns `None` when no body
     /// awaits a retry or the generation cannot be expressed. Admission still decides whether
@@ -162,7 +160,8 @@ impl ParliamentAttemptStateV1 {
         } else {
             eligible_candidates
         };
-        let pulse_height = request_height.checked_add(self.sortition_pulse_delay_blocks)?;
+        let pulse_height =
+            self.next_sortition_generation_pulse_height_v1(request_height, beacon_session_id)?;
         let candidate_count = u32::try_from(candidate_snapshot.len()).ok()?;
         let registrations = failed
             .into_iter()
@@ -200,8 +199,10 @@ impl ParliamentAttemptStateV1 {
     /// Atomically register one canonical future-pulse request batch.
     ///
     /// The first batch must contain every initially required body exactly once,
-    /// in body order, and freezes one shared candidate snapshot. An objectively
-    /// missing first pulse retries that complete initial generation atomically.
+    /// in body order, and freezes one shared candidate snapshot. Before any pulse
+    /// is consumed, only a hidden-capacity failure of that complete initial
+    /// generation is retried, atomically; a generation awaiting its pulse is never
+    /// retried, redrawn or superseded.
     /// After any pulse is consumed, a no-roster retry contains exactly every body
     /// whose active generation ended `NoRoster`, and a dynamically required
     /// Confirmation Jury uses a one-request batch; either may freeze a fresh
@@ -346,13 +347,11 @@ impl ParliamentAttemptStateV1 {
         {
             return Err(ParliamentReducerErrorV1::InvalidAssignmentPlan);
         }
-        if request_intent
-            .request_height
-            .checked_add(self.sortition_pulse_delay_blocks)
-            != Some(request_intent.pulse_height)
-        {
-            return Err(ParliamentReducerErrorV1::InvalidSortitionPulseSchedule);
-        }
+        self.ensure_sortition_generation_pulse_height_v1(
+            request_intent.request_height,
+            request_intent.pulse_height,
+            request_intent.beacon_session_id,
+        )?;
         let last_consumed = self
             .used_pulse_slots
             .keys()
@@ -608,13 +607,11 @@ impl ParliamentAttemptStateV1 {
         request
             .validate(last_consumed)
             .map_err(|_| ParliamentReducerErrorV1::ImmutableBindingMismatch)?;
-        if request
-            .request_height
-            .checked_add(self.sortition_pulse_delay_blocks)
-            != Some(request.pulse_height)
-        {
-            return Err(ParliamentReducerErrorV1::InvalidSortitionPulseSchedule);
-        }
+        self.ensure_sortition_generation_pulse_height_v1(
+            request.request_height,
+            request.pulse_height,
+            request.beacon_session_id,
+        )?;
         if request.body == ParliamentBody::ConfirmationJury {
             let policy_result_height = self
                 .body_bindings
@@ -1113,17 +1110,23 @@ impl ParliamentAttemptStateV1 {
         Ok(())
     }
 
-    /// Mark an election unable to obtain its pulse or form a viable roster.
+    /// Mark an election whose invitation window closed without a viable roster.
+    ///
+    /// Only an election in invitation acceptance can fail here, and only for an
+    /// objective roster fact: no accepted member, or a hidden-ballot roster below
+    /// the anonymity floor. An election awaiting its pulse is never failed,
+    /// retried or redrawn: it leaves `AwaitingPulse` only through
+    /// [`Self::consume_sortition_pulse_batch`] with the pulse of exactly its
+    /// frozen slot, and otherwise waits indefinitely.
     ///
     /// # Errors
-    /// Returns an error for a wrong attempt, unknown election, or replay from a
-    /// state other than an objectively expired pulse wait or invitation
-    /// acceptance.
+    /// Returns an error for a wrong attempt, unknown election, any state other
+    /// than invitation acceptance (including a pulse wait at any height), an
+    /// open invitation window, or a roster that can still be sealed.
     pub fn fail_body_election_no_roster(
         &mut self,
         governance_attempt_id: GovernanceAttemptId,
         election_attempt_id: BodyElectionAttemptId,
-        pulse_available: bool,
         current_height: u64,
     ) -> Result<(), ParliamentReducerErrorV1> {
         self.ensure_active(governance_attempt_id)?;
@@ -1133,31 +1136,6 @@ impl ParliamentAttemptStateV1 {
             ParliamentReducerErrorV1::UnknownEntity(ParliamentReducerEntityV1::BodyElection),
         )?;
         let requirement = self.ensure_draw_eligible_body(election.attempt.request.body)?;
-        if election.attempt.status == BodyElectionAttemptStatusV1::AwaitingPulse {
-            if current_height <= election.attempt.request.pulse_height {
-                return Err(ParliamentReducerErrorV1::SortitionPulseStillPending);
-            }
-            if pulse_available {
-                return Err(ParliamentReducerErrorV1::SortitionPulseAvailable);
-            }
-            let request = election.attempt.request;
-            let mut retry_budget_exhausted = false;
-            for pending in self.elections.values_mut().filter(|pending| {
-                pending.attempt.status == BodyElectionAttemptStatusV1::AwaitingPulse
-                    && pending.attempt.request.beacon_session_id == request.beacon_session_id
-                    && pending.attempt.request.pulse_height == request.pulse_height
-            }) {
-                retry_budget_exhausted |=
-                    pending.attempt.sequence == MAX_PARLIAMENT_SORTITION_RETRIES_V1;
-                pending.attempt.status = BodyElectionAttemptStatusV1::NoRoster;
-                pending.failure_kind = Some(ParliamentElectionFailureKindV1::PulseUnavailable);
-                pending.failure_height = Some(current_height);
-            }
-            if retry_budget_exhausted || proposal_redraw_budget_exhausted {
-                self.attempt.status = GovernanceAttemptStatusV1::Rejected;
-            }
-            return Ok(());
-        }
         if election.attempt.status != BodyElectionAttemptStatusV1::AcceptingInvitations {
             return Err(ParliamentReducerErrorV1::InvalidLifecycleTransition(
                 ParliamentReducerEntityV1::BodyElection,

@@ -248,6 +248,10 @@ fn native_capture_for(
     let native_finality_frame = native_finality.to_canonical_bytes().unwrap();
     let event_commitment = decision.execution().event_commitment.unwrap();
     let certificate = decision.block().commit_certificate().unwrap();
+    assert_eq!(
+        crate::sumeragi_finality::result_of_preimage(certificate.result_preimage()),
+        Some(decision.result())
+    );
     let core_header: iroha_sumeragi::message::BlockHeader =
         norito::decode_canonical(certificate.consensus_header()).unwrap();
     let qc: iroha_sumeragi::message::Qc =
@@ -291,11 +295,11 @@ fn native_capture_for(
         "event_box_hash_preimage_hex": (hex::encode(&hash_preimage)),
         "event_box_hash_hex": (HashOf::new(&boxed).to_string()),
         "event_codec_identity_hex": (hex::encode(norito::schema::identity::frame_hash::<KagemushaLoadCommittedV1>())),
-        "result_preimage_hex": (hex::encode(decision.commitment().preimage().unwrap())),
+        "result_preimage_hex": (hex::encode(certificate.result_preimage())),
         "result_hash_hex": (hex::encode(decision.result().0)),
         "result_height": (decision.height()),
-        "result_alignment": (core::mem::align_of::<ExecutionResultCommitment>()),
-        "result_codec_identity_hex": (hex::encode(norito::schema::identity::frame_hash::<ExecutionResultCommitment>())),
+        "result_body_alignment": (core::mem::align_of::<ExecutionResultCommitment>()),
+        "result_body_codec_identity_hex": (hex::encode(norito::schema::identity::frame_hash::<ExecutionResultCommitment>())),
         "execution_commitment_frame_hex": (hex::encode(norito::encode_canonical(decision.execution()).unwrap())),
         "execution_commitment_alignment": (core::mem::align_of::<ExecutionCommitment>()),
         "event_commitment_root_hex": (hex::encode(event_commitment.root().as_ref())),
@@ -410,10 +414,14 @@ fn npos_schedule_capture() -> norito::json::Value {
                 .map(|proof| {
                     let decision = verifier.verify_retained_decision(proof).unwrap();
                     let certificate = decision.block().commit_certificate().unwrap();
+                    assert_eq!(
+                        crate::sumeragi_finality::result_of_preimage(certificate.result_preimage()),
+                        Some(decision.result())
+                    );
                     norito::json!({
                         "height": (decision.height()),
                         "proof_frame_hex": (hex::encode(norito::encode_canonical(proof).unwrap())),
-                        "result_preimage_hex": (hex::encode(decision.commitment().preimage().unwrap())),
+                        "result_preimage_hex": (hex::encode(certificate.result_preimage())),
                         "result_hash_hex": (hex::encode(decision.result().0)),
                         "block_hash_hex": (hex::encode(decision.block().hash().as_ref())),
                         "consensus_block_hash_hex": (hex::encode(decision.core_hash().0)),

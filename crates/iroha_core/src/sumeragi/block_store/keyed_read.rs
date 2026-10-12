@@ -20,6 +20,7 @@ pub(super) struct KeyedRead {
     budget: AllocationBudget,
     crypto: SharedCrypto,
     schedule: Arc<dyn AvailabilitySchedule>,
+    result_scope: iroha_data_model::sumeragi_finality::CertifiedResultScope,
 
     phase: Phase,
 }
@@ -32,6 +33,7 @@ impl KeyedRead {
         budget: AllocationBudget,
         crypto: SharedCrypto,
         schedule: Arc<dyn AvailabilitySchedule>,
+        result_scope: iroha_data_model::sumeragi_finality::CertifiedResultScope,
     ) -> Self {
         let phase = block.map_or(Phase::Absent, |block| {
             Phase::Certificate(CertificateRead::new(block, budget.clone()))
@@ -41,6 +43,7 @@ impl KeyedRead {
             budget,
             crypto,
             schedule,
+            result_scope,
             phase,
         }
     }
@@ -108,6 +111,7 @@ impl BodyReadJob for KeyedRead {
                         decoded,
                         budget.clone(),
                         self.crypto.clone(),
+                        self.result_scope,
                     ));
                 }
                 Phase::Projecting(mut job) => match job.poll(budget) {

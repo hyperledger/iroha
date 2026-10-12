@@ -11,6 +11,12 @@ contract-visible SCCP vector. This command builds
 
 asserting every worked value the specification pins while it builds them.
 
+The first three files are also written, byte for byte, by the Rust reference
+(`cargo test -p iroha_sccp --test v1_reference_finality --test
+v1_reference_transitions --test v1_reference_control -- --ignored regenerate`),
+so a changed or added row needs both generators. `bls_consensus_v1.json` has
+this generator only; `iroha_crypto` reproduces it row by row.
+
 Prerequisites: Python 3.10+ and nothing else (the BLS12-381 and Keccak code is
 self-contained). The Ethereum cross-check reads the captured responses in
 `fixtures/sccp/rpc/eth/`.

@@ -2,6 +2,9 @@
 
 use super::*;
 use crate::state::scalar_cell_custody::ScalarCellFixtureBlock;
+use crate::state::sccp_generation_custody::{
+    GenerationFixtureBlock as _, GenerationFixtureCommit as _,
+};
 use crate::sumeragi::amx::NativeAmxCellFixtureBlock as _;
 use crate::{
     smartcontracts::isi::triggers::specialized::{SpecializedAction, SpecializedTrigger},
@@ -28,6 +31,33 @@ use std::{
 
 // Publish an untouched replacement through each field's ordinary writer.
 macro_rules! commit_untouched_fixture_field {
+    ($world:ident, sccp_forgery_offences) => {
+        $world
+            .sccp_forgery_offences
+            .try_with_admitted_block(|_| Ok::<_, std::convert::Infallible>(()))
+            .expect("original offence fixture publication")
+    };
+    ($world:ident, sccp_forgery_max_generation) => {{
+        use crate::state::world_acquisition::{
+            OriginalControlSource as _, WorldFieldAcquisition as _,
+        };
+        let cell = &$world.sccp_forgery_max_generation;
+        let budget = $world.sccp_forgery_offences.allocation_budget();
+        let layouts = cell
+            .generation_layouts()
+            .into_iter()
+            .chain([cell.successor_layout()])
+            .flatten();
+        let mut reservation = budget
+            .try_reserve_layouts(layouts)
+            .expect("original max cell fixture layouts");
+        let mut slot = cell
+            .original_acquisition(budget, &mut reservation)
+            .expect("original max cell fixture admission");
+        slot.try_initialize(mv::BlockMode::Ordinary)
+            .expect("original max cell fixture writer");
+        slot.into_block().commit();
+    }};
     ($world:ident, $field:ident) => {
         $world.$field.block().commit()
     };

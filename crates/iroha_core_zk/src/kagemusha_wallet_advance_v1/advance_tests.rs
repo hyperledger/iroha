@@ -1288,28 +1288,37 @@ fn wallet_advance_v1_completion_join_is_required_after_staging_and_before_existi
     let mut provider = device.open();
     let head = current(&mut provider, &slot);
     let request = advance_request(&head, &bootstrap_capsule(&f));
-    assert!(
-        provider
-            .advance(&slot, &RejectCompletionOwner(false), &request)
-            .is_err()
+    // Selection already committed the operation. A completion refusal keeps it
+    // pending with its exact reason; it must never report rejection or release.
+    assert_eq!(
+        provider.advance(&slot, &RejectCompletionOwner(false), &request),
+        Ok(KagemushaWalletAdvanceOutcomeV1::Pending {
+            operation_id: request.operation_id,
+        })
     );
+    let refusal = KagemushaWalletProviderErrorV1::Invalid {
+        field: "completion.join.probe",
+    };
+    assert_eq!(provider.pending_reason(&slot), Some(refusal));
     let signed = device.platform.with(|state| state.sign_calls);
     assert_eq!(signed, 1);
+    drop(provider);
     let mut reopened = device.open();
     assert!(matches!(
         reopened.status(&slot),
         Ok(KagemushaWalletSlotStatusV1::Pending(_))
     ));
-    assert!(
-        reopened
-            .reconcile(&slot, &RejectCompletionOwner(false))
-            .is_err()
-    );
+    assert!(matches!(
+        reopened.reconcile(&slot, &RejectCompletionOwner(false)),
+        Ok(KagemushaWalletSlotStatusV1::Pending(_))
+    ));
+    assert_eq!(reopened.pending_reason(&slot), Some(refusal));
     assert_eq!(
         device.platform.with(|state| state.sign_calls),
         signed,
         "existing completion refusal never signs again"
     );
+    drop(reopened);
     let mut recovered = device.open();
     assert!(matches!(
         recovered.reconcile(&slot, &TestOwnerV1),
@@ -1345,5 +1354,49 @@ fn wallet_advance_v1_retained_retry_requires_completion_join_with_released_or_pe
                 .is_err()
         );
         assert_eq!(device.platform.with(|state| state.sign_calls), signed);
+    }
+}
+
+#[test]
+fn post_bootstrap_marker_loss_never_resurrects_generation_zero() {
+    for policy in [ANDROID, KagemushaWalletAnchorPolicyV1::Keychain] {
+        let (device, _f, slot, _bootstrap) = bootstrapped_device(policy, 0x77);
+        let markers = kagemusha_wallet_markers_dir_v1(&slot);
+        let slot_dir =
+            crate::kagemusha_wallet_advance_v1::layout::kagemusha_wallet_slot_dir_v1(&slot);
+        assert!(!device.fs.visible_names(&markers).is_empty());
+        for name in device.fs.visible_names(&markers) {
+            device.fs.unlink(&markers, &name).unwrap();
+        }
+        for _ in 0..2 {
+            let mut provider = device.open();
+            for _ in 0..2 {
+                let status = provider.status(&slot);
+                assert!(
+                    matches!(
+                        status,
+                        Err(KagemushaWalletProviderErrorV1::LostCustody(_)
+                            | KagemushaWalletProviderErrorV1::UnavailableCustodyData { .. })
+                    ),
+                    "{status:?}"
+                );
+            }
+            assert!(
+                device.fs.visible_names(&markers).is_empty(),
+                "no generation-zero marker is ever republished"
+            );
+            assert!(
+                !device
+                    .fs
+                    .visible_names(&slot_dir)
+                    .contains(&"abandoned.norito".to_owned())
+            );
+            drop(provider);
+            device.fs.restart();
+        }
+        device.platform.with(|state| {
+            assert_eq!(state.generate_calls, 1);
+            assert_eq!(state.delete_calls, 0);
+        });
     }
 }

@@ -21,25 +21,51 @@ impl ValidBlock {
         )?;
         // Monetary fees have already executed as signed scoped asset effects.
         // Native output metadata has no synthetic conversion or relay receipt owner.
-        // SCCP commitments, history, rosters, subjects and pruning are World writes of this
+        // SCCP commitments, history, generations, anchors and pruning are World writes of this
         // block after all of its transactions (`specs/sccp.md` §4.5), with the authenticated
         // consensus inputs of its height.
+        let root_scope = if block.header().is_genesis() {
+            iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(block)
+                .map_err(|error| {
+                    match crate::execution_attempt::genesis_read_attempt_error(error, |error| {
+                        Self::execution_context_error(error.to_string())
+                    }) {
+                        crate::execution_attempt::ExecutionAttemptError::Rejected(error) => error,
+                        crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
+                            BlockValidationError::ExecutionDeferred(reason)
+                        }
+                    }
+                })?
+                .sumeragi_context
+                .root_scope
+        } else {
+            state
+                .native_execution_tip()
+                .ok_or_else(|| {
+                    Self::execution_context_error(
+                        "SCCP finalization lacks its authenticated parent root scope",
+                    )
+                })?
+                .root_scope()
+        };
         let sccp_inputs = Self::sccp_height_inputs(block, state, sccp_height);
-        crate::smartcontracts::isi::sccp::hook::finalize_block(
+        let sccp_finality_header = crate::smartcontracts::isi::sccp::hook::finalize_block(
             state,
             &block.header(),
             sccp_inputs.as_ref(),
+            root_scope,
         )?;
         let committed_fragment_count =
             Self::validated_committed_fragment_count(state, advertised_fragments)?;
         Ok(crate::state::ExecutionOutputSealMetadata {
+            sccp_finality_header,
             committed_fragment_count,
         })
     }
 
     /// Derive the consensus inputs of the height `state` executes for the SCCP post-execution
     /// hook (`specs/sccp.md` §4.3.2), or `None` when SCCP does not exist or the inputs cannot
-    /// be derived (SCCP roster derivation then fails closed; block execution is unaffected).
+    /// be derived (SCCP generation derivation then fails closed; block execution is unaffected).
     ///
     /// Read the authenticated native schedule after the output-seal finalizer advanced it.
     /// Unauthenticated component executions never infer committee authority from their writes.
@@ -65,7 +91,7 @@ impl ValidBlock {
             .map_err(|error| {
                 iroha_logger::warn!(
                     %error,
-                    "SCCP: the scheduled height inputs are unavailable; roster derivation fails closed"
+                    "SCCP: the scheduled height inputs are unavailable; generation derivation fails closed"
                 );
             })
             .ok(),

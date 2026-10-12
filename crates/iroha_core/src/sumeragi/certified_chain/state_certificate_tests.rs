@@ -119,14 +119,25 @@ fn ascending_native_continuation_refuses_same_proposal_changed_result_before_fir
     let (chain, _) = chain();
     let original = frame(&chain, 4);
     let changed = with_parts(&original, |_, qc, preimage| {
-        let mut result = ExecutionResultCommitment::decode(preimage).unwrap();
+        let (result_header, mut result) =
+            iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+                preimage,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            )
+            .unwrap()
+            .into_parts();
         result.execution.world_state_root =
             Hash::new(b"different quorum-certified execution result");
-        *preimage = result.preimage().unwrap();
+        *preimage = iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
+            result_header,
+            result.clone(),
+        )
+        .preimage()
+        .unwrap();
         *qc = chain.commit_qc(
             4,
             qc.block_hash,
-            result_of_preimage(preimage),
+            result_of_preimage(preimage).unwrap(),
             Signers::Quorum,
         );
     });
@@ -134,7 +145,15 @@ fn ascending_native_continuation_refuses_same_proposal_changed_result_before_fir
     let view = chain.state().view();
     let reader = CertifiedChain::new(&view).unwrap();
     let candidate = reader
-        .verify_executed_successor(&chain.committed(3), read_frame(changed.clone(), 4).unwrap())
+        .verify_executed_successor(
+            &chain.committed(3),
+            read_frame(
+                changed.clone(),
+                4,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            )
+            .unwrap(),
+        )
         .expect("genuine quorum over the same proposal and a different result");
     assert_eq!(candidate.block_hash(), chain.committed(4).block_hash());
     assert_ne!(candidate.result(), chain.committed(4).result());
@@ -374,7 +393,15 @@ fn state_certificate_checks_quorum_and_signed_availability_after_execution_authe
     let original = frame(&chain, 4);
     let parent = chain.committed(3);
     reader
-        .verify_executed_successor(&parent, read_frame(original.clone(), 4).unwrap())
+        .verify_executed_successor(
+            &parent,
+            read_frame(
+                original.clone(),
+                4,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            )
+            .unwrap(),
+        )
         .unwrap();
     let (_, qc) = decode_certificate(original.commit_certificate().unwrap()).unwrap();
     for signers in [Signers::BelowQuorum, Signers::All] {
@@ -383,14 +410,30 @@ fn state_certificate_checks_quorum_and_signed_availability_after_execution_authe
         });
         assert!(
             reader
-                .verify_executed_successor(&parent, read_frame(changed, 4).unwrap())
+                .verify_executed_successor(
+                    &parent,
+                    read_frame(
+                        changed,
+                        4,
+                        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
+                    )
+                    .unwrap()
+                )
                 .is_err()
         );
     }
     let forged = with_parts(&original, |_, qc, _| qc.agg_sig.0[5] ^= 1);
     assert!(
         reader
-            .verify_executed_successor(&parent, read_frame(forged, 4).unwrap())
+            .verify_executed_successor(
+                &parent,
+                read_frame(
+                    forged,
+                    4,
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
+                )
+                .unwrap()
+            )
             .is_err()
     );
     let certificate = original.commit_certificate().unwrap();
@@ -416,10 +459,14 @@ fn state_certificate_checks_quorum_and_signed_availability_after_execution_authe
             )),
         );
         assert!(
-            read_frame(changed, 4)
-                .map_err(VerificationReadError::from)
-                .and_then(|current| reader.verify_executed_successor(&parent, current))
-                .is_err()
+            read_frame(
+                changed,
+                4,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
+            )
+            .map_err(VerificationReadError::from)
+            .and_then(|current| reader.verify_executed_successor(&parent, current))
+            .is_err()
         );
     }
 }
@@ -452,7 +499,7 @@ fn state_certificate_verifies_actual_native_npos_boundary() {
             *qc = chain.commit_qc(10, qc.block_hash, qc.result, signers);
         });
         assert!(matches!(
-            reader.verify_executed_successor(&parent, read_frame(changed, 10).unwrap()),
+            reader.verify_executed_successor(&parent, read_frame(changed, 10, iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal).unwrap()),
             Err(VerificationReadError::Source(ChainReadError::Certificate {
                 height: 10,
                 error,
@@ -461,7 +508,15 @@ fn state_certificate_verifies_actual_native_npos_boundary() {
     }
     let forged = with_parts(&original, |_, qc, _| qc.agg_sig.0[8] ^= 1);
     assert!(matches!(
-        reader.verify_executed_successor(&parent, read_frame(forged, 10).unwrap()),
+        reader.verify_executed_successor(
+            &parent,
+            read_frame(
+                forged,
+                10,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
+            )
+            .unwrap()
+        ),
         Err(VerificationReadError::Source(ChainReadError::Certificate {
             height: 10,
             error: CertError::BadSignature,
@@ -740,9 +795,14 @@ fn state_certificate_signed_availability_scratch_uses_original_query_allowance()
 
     let (chain, _) = chain();
     let source = frame(&chain, 3);
-    let current = read_frame(Clone::clone(&source), 3).unwrap();
+    let current = read_frame(
+        Clone::clone(&source),
+        3,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
     let parent = chain.committed(2);
-    let schedule::ScheduledSlot::Ready(scheduled) = &parent.commitment.schedule.next else {
+    let schedule::ScheduledSlot::Ready(scheduled) = &parent.commitment().schedule.next else {
         panic!("original executed parent authorizes height 3");
     };
     let mut validation = EpochValidationScope::new();
@@ -818,7 +878,7 @@ fn state_certificate_native_qc_decode_refusal_is_capacity_and_retries_original_s
     let reader = CertifiedChain::new(&view).unwrap();
     let current = chain.committed(3);
     let parent = chain.committed(2);
-    let schedule::ScheduledSlot::Ready(scheduled) = &parent.commitment.schedule.next else {
+    let schedule::ScheduledSlot::Ready(scheduled) = &parent.commitment().schedule.next else {
         panic!("original parent authorizes the source");
     };
     let mut validation = EpochValidationScope::new();
@@ -862,7 +922,7 @@ fn state_certificate_pairing_constructor_refusal_preserves_original_source_for_r
     let reader = CertifiedChain::new(&view).unwrap();
     let parent = chain.committed(2);
     let current = chain.committed(3);
-    let backing = iroha_crypto::BlsNormalAggregateScratch::<()>::backing_bytes();
+    let backing = iroha_crypto::bls::consensus::ConsensusAggregateScratch::<()>::backing_bytes();
     let check = |limit| {
         norito::core::with_decode_limits_measured(
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, limit, 128),
@@ -971,7 +1031,12 @@ fn parent_service_common_proposal_is_independent_of_local_certificate_subset() {
         .verify_parent_service_at(
             &proposal,
             &predecessor,
-            read_frame(source, 5).unwrap(),
+            &read_frame(
+                source,
+                5,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            )
+            .unwrap(),
             offered,
         )
         .unwrap()
@@ -980,7 +1045,12 @@ fn parent_service_common_proposal_is_independent_of_local_certificate_subset() {
         .verify_parent_service_at(
             &proposal,
             &predecessor,
-            read_frame(other_source, 5).unwrap(),
+            &read_frame(
+                other_source,
+                5,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            )
+            .unwrap(),
             offered,
         )
         .unwrap()
@@ -1088,11 +1158,11 @@ fn parent_service_original_decode_refusal_retries_same_proposal_without_invalidi
     let predecessor = chain.committed(4);
     let refused = norito::core::with_decode_limits_scope(
         norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 128),
-        || reader.verify_parent_service_at(&proposal, &predecessor, current.clone(), offered),
+        || reader.verify_parent_service_at(&proposal, &predecessor, &current, offered),
     );
     assert!(matches!(refused, Err(ParentServiceError::Deferred(_))));
     let retry = reader
-        .verify_parent_service_at(&proposal, &predecessor, current, offered)
+        .verify_parent_service_at(&proposal, &predecessor, &current, offered)
         .unwrap()
         .unwrap();
     retry.require_proposal(&proposal).unwrap();
@@ -1362,4 +1432,49 @@ fn state_certificate_consuming_completion_waits_for_original_walk_and_refunds_re
             assert_eq!(observed.qcs, [5, 2]);
         }
     }
+}
+
+#[test]
+fn admitted_receipt_malformed_frame_preserves_rejection_and_refunds_original_slots() {
+    let (chain, _) = chain();
+    let original = frame(&chain, 5);
+    let malformed = with_parts(&original, |header, _, _| header.height = 6);
+    let budget = chain.state().ivm_execution_budget();
+    let baseline = budget.reserved_bytes();
+    let expected = read_frame(
+        malformed.clone(),
+        5,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap_err();
+    let actual = AdmittedCommittedBlock::read(
+        malformed,
+        5,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        &mut EpochValidationScope::new(),
+        &budget,
+    )
+    .err()
+    .expect("the same canonical malformed frame must remain rejected");
+    match (expected, actual) {
+        (ExecutionAttemptError::Rejected(expected), ExecutionAttemptError::Rejected(actual)) => {
+            assert_eq!(actual, expected);
+        }
+        errors => panic!("malformed frames must not become local refusals: {errors:?}"),
+    }
+    assert_eq!(budget.reserved_bytes(), baseline);
+    let receipt = AdmittedCommittedBlock::read(
+        original.clone(),
+        5,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        &mut EpochValidationScope::new(),
+        &budget,
+    )
+    .expect("the original valid frame remains usable after malformed rejection");
+    assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
+        receipt.block(),
+        &original
+    ));
+    drop(receipt);
+    assert_eq!(budget.reserved_bytes(), baseline);
 }

@@ -64,7 +64,10 @@ fn original_proof_destination_charges_each_actual_compact_key_before_clone_and_r
         retained.proof.block_wire,
         certified.block().encode_wire().unwrap()
     );
-    retained.proof.decode_checked().unwrap();
+    retained
+        .proof
+        .decode_checked(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+        .unwrap();
     drop(retained);
     assert_eq!(pool.reserved_bytes(), 0);
 

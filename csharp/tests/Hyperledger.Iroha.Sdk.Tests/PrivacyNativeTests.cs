@@ -223,7 +223,7 @@ public sealed class PrivacyNativeTests
     {
         Assert.True(
             PrivacyNative.IsAvailable(),
-            "ABI-28 connect_norito_bridge with compiled-profile catalog symbols is required.");
+            "ABI-29 connect_norito_bridge with compiled-profile catalog symbols is required.");
 
         var catalog = PrivacyNative.CompiledProfileCatalogV1();
         var canonical = catalog.NoritoBytes;
@@ -283,7 +283,7 @@ public sealed class PrivacyNativeTests
     {
         Assert.True(
             PrivacyNative.IsAvailable(),
-            "ABI-28 connect_norito_bridge with exact-12 fixture symbols is required.");
+            "ABI-29 connect_norito_bridge with exact-12 fixture symbols is required.");
 
         var bundle = PrivacyNative.Exact12FixtureBundleV1();
         var canonical = bundle.NoritoBytes;

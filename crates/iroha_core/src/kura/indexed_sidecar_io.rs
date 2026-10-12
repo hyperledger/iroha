@@ -4144,30 +4144,6 @@ impl Kura {
         )
     }
     #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
-    fn read_indexed_sidecar_from_open_files<T, F>(
-        height: u64,
-        data: &mut std::fs::File,
-        index: &mut std::fs::File,
-        data_path: &Path,
-        index_path: &Path,
-        decoder: F,
-        kind: &str,
-    ) -> Option<T>
-    where
-        F: Fn(&[u8]) -> Result<T, norito::Error>,
-    {
-        Self::read_indexed_sidecar_from_open_files_with_limit(
-            height,
-            data,
-            index,
-            data_path,
-            index_path,
-            decoder,
-            kind,
-            STRICT_INIT_MAX_BLOCK_BYTES,
-        )
-    }
-    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     fn read_indexed_sidecar_from_open_files_with_limit<T, F>(
         height: u64,
         data: &mut std::fs::File,

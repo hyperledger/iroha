@@ -100,7 +100,7 @@ impl PreKeyDispatchV1 {
                 .try_signatory()
                 .is_none_or(|key| key.algorithm() != Algorithm::Ed25519)
             || !matches!(
-                (self.platform, self.policy.platform),
+                (self.platform, &self.policy.platform),
                 (
                     KagemushaEnrollmentPermitPlatformV1::Android,
                     KagemushaWalletEnrollmentPlatformV1::Android { .. }
@@ -148,7 +148,7 @@ impl PreKeyDispatchV1 {
             ],
             scheme: self.scheme,
             app: self.app.clone(),
-            policy: self.policy,
+            policy: self.policy.clone(),
             enrollment_certificate: self.enrollment_certificate,
             account: self.account.clone(),
             asset: self.asset.clone(),
@@ -246,6 +246,7 @@ impl PreKeyDispatchV1 {
 /// Live verified permission consumed by one provider generation operation. Not serializable.
 pub(crate) struct GenerationAuthorizationV1 {
     root: [u8; 32],
+    request_id: [u8; 32],
     challenge: KagemushaWalletEnrollmentChallengeV1,
     profile: crate::kagemusha_wallet_advance_v1::KagemushaWalletKeyProfileV1,
     slot: crate::kagemusha_wallet_advance_v1::KagemushaWalletSlotIdV1,
@@ -261,6 +262,10 @@ impl GenerationAuthorizationV1 {
         &self,
     ) -> crate::kagemusha_wallet_advance_v1::KagemushaWalletEnrollmentDatesV1 {
         self.dates
+    }
+    /// Pre-key request whose durable enrollment phase this generation advances.
+    pub(crate) fn request_id(&self) -> [u8; 32] {
+        self.request_id
     }
     pub(crate) fn selection(
         &self,
@@ -279,8 +284,10 @@ impl GenerationAuthorizationV1 {
             self.fresh,
         )
     }
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
         root: [u8; 32],
+        request_id: [u8; 32],
         permit: &KagemushaEnrollmentPermitV1,
         profile: crate::kagemusha_wallet_advance_v1::KagemushaWalletKeyProfileV1,
         slot: crate::kagemusha_wallet_advance_v1::KagemushaWalletSlotIdV1,
@@ -291,6 +298,7 @@ impl GenerationAuthorizationV1 {
     ) -> Self {
         Self {
             root,
+            request_id,
             challenge: permit.body.challenge,
             profile,
             slot,

@@ -1,7 +1,7 @@
 //! SCCP v1 TON cells (spec §5.3.1, §5.3.2).
 //!
 //! A minimal ordinary-cell builder with TON representation hashes and depths, the standard
-//! `SnakeBytes` format, the chunked `MemberChunk` and `HashChunk` lists, the canonical initial
+//! `SnakeBytes` format, the chunked `KeyChunk` and `HashChunk` lists, the canonical initial
 //! data of the SCCP Jetton master (minter) and the workchain-0 `StateInit` addresses of the
 //! minter, its wallets and its consumption buckets.
 //!
@@ -25,8 +25,8 @@ use iroha_data_model::sccp::deployment::SccpTonCodeRefV1;
 use sha2::{Digest as _, Sha256};
 
 use super::{
-    constants::{TON_HASH_CHUNK_HASHES, TON_MEMBER_CHUNK_ADDRESSES, TON_SNAKE_CHUNK_BYTES},
-    roster::RosterV1,
+    committee::{CommitteeStateV1, successor_keys_match},
+    constants::{TON_HASH_CHUNK_HASHES, TON_KEY_CHUNK_KEYS, TON_SNAKE_CHUNK_BYTES},
 };
 
 /// Maximum data bits of one cell.
@@ -55,8 +55,10 @@ unit_error! {
         SnakeTooLong => "snake content exceeds the length bound",
         /// A child cell is known only by its hash and depth.
         OpaqueChild => "cell child is known only by hash and depth",
-        /// The roster fields violate §3.7.
-        BadRoster => "minter roster violates the roster rules",
+        /// The supplied compressed keys do not match the native pin and committee rules.
+        BadCommittee => "minter keys violate the pinned native committee rules",
+        /// The immutable deployment identity, revision, cap or initial pin is invalid.
+        BadConfig => "minter immutable configuration or pin is invalid",
     }
 }
 
@@ -521,15 +523,15 @@ fn chunk_list<T>(
     Ok(next.expect("non-empty input has a chunk"))
 }
 
-/// `MemberChunk`: maximal 6-address chunks of `uint160` members with a `Maybe ^MemberChunk`
-/// continuation.
+/// `KeyChunk`: maximal two-key chunks of compressed G1 keys with a Maybe continuation.
+/// This encoding helper checks neither the committee root nor curve validity; the minter
+/// constructor binds the complete canonical committee to its independently supplied pin.
 ///
 /// # Errors
-///
-/// Returns [`TonCellError::Empty`] for no members.
-pub fn member_chunks(members: &[[u8; 20]]) -> Result<Cell, TonCellError> {
-    chunk_list(members, TON_MEMBER_CHUNK_ADDRESSES, |builder, member| {
-        builder.store_bytes(member).map(|_| ())
+/// Returns [`TonCellError::Empty`] for an empty list.
+pub fn key_chunks(keys: &[[u8; 48]]) -> Result<Cell, TonCellError> {
+    chunk_list(keys, TON_KEY_CHUNK_KEYS, |builder, key| {
+        builder.store_bytes(key).map(|_| ())
     })
 }
 
@@ -558,42 +560,52 @@ pub fn hash_chunks(hashes: &[[u8; 32]]) -> Result<Option<Cell>, TonCellError> {
 pub struct TonMinterInitV1 {
     /// Live Taira `NetworkId` bytes.
     pub taira_network_id: [u8; 32],
+    /// Pinned native Sumeragi consensus instance `I`.
+    pub consensus_instance: [u8; 32],
     /// Route revision.
     pub route_revision: u32,
     /// Supply cap in token units (`Coins`, below `2^120`).
     pub max_supply: u128,
-    /// The pinned Taira roster generation.
-    pub roster: RosterV1,
+    /// Pinned Taira committee generation.
+    pub pin_generation: u64,
+    /// Independently supplied root of the initial committee.
+    pub pin_root: [u8; 32],
+    /// First height of the pinned generation.
+    pub pin_start_height: u64,
+    /// Trust deadline of the initial pin; runtime initialization checks the time bound.
+    pub pin_until_ms: u64,
+    /// Compressed BLS keys in the pinned generation's canonical order.
+    pub pin_keys: Vec<[u8; 48]>,
     /// Jetton wallet code.
     pub wallet_code: SccpTonCodeRefV1,
     /// Consumption bucket code.
     pub bucket_code: SccpTonCodeRefV1,
 }
 
-/// The three cells under the minter data root, exposed for golden comparisons.
+/// Initial minter cells exposed for exact cross-language layout comparisons.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TonMinterDataV1 {
-    /// `minter_data` root cell.
+    /// `minter_data` root.
     pub root: Cell,
-    /// `minter_config` cell.
+    /// Immutable `minter_config`.
     pub config: Cell,
-    /// `roster_state` cell.
-    pub roster: Cell,
-    /// First `MemberChunk` cell.
-    pub members: Cell,
-    /// The pinned roster digest.
-    pub roster_digest: [u8; 32],
+    /// Immutable generation/root/start/deadline pin.
+    pub initial_pin: Cell,
+    /// Current `committee_state`, initially equal to the pin with `high = start - 1`.
+    pub committee: Cell,
+    /// First `KeyChunk`.
+    pub keys: Cell,
+    /// Empty native checkpoint slots.
+    pub checkpoints: Cell,
 }
 
-/// Build the canonical initial minter data (§5.3.1): uninitialized, zero counters and supply,
-/// not paused, no deployed buckets, no previous roster, no recorded retries; the config holds
-/// the network id,
-/// revision, cap, pinned generation and digest and both code references; the roster holds the
-/// digest, generation, validity window, `n`, `t` and the members in maximal 6-address chunks.
+/// Build the canonical initial native minter data (§5.3.1): uninitialized and unlatched,
+/// clear counters, supply and both pause tracks, no checkpoints and no retries. The
+/// immutable config binds the network, native consensus instance, revision, cap and pin.
+/// The runtime `sccp_init` operation additionally checks the pin deadline at execution time.
 ///
 /// # Errors
-///
-/// Returns [`TonCellError::BadRoster`] or [`TonCellError::CoinsTooLarge`].
+/// Refuses invalid immutable configuration, pin, committee ordering/root or `Coins` width.
 pub fn minter_initial_data(init: &TonMinterInitV1) -> Result<TonMinterDataV1, TonCellError> {
     minter_initial_data_with_code(init, init.wallet_code.into(), init.bucket_code.into())
 }
@@ -626,55 +638,75 @@ fn minter_initial_data_with_code(
     wallet_code: CellRef,
     bucket_code: CellRef,
 ) -> Result<TonMinterDataV1, TonCellError> {
-    let roster_digest = init
-        .roster
-        .digest(&init.taira_network_id)
-        .map_err(|_| TonCellError::BadRoster)?;
-    let n = u8::try_from(init.roster.n()).map_err(|_| TonCellError::BadRoster)?;
-    let t = u8::try_from(init.roster.threshold()).map_err(|_| TonCellError::BadRoster)?;
-
+    if init.taira_network_id == [0; 32]
+        || init.consensus_instance == [0; 32]
+        || init.route_revision == 0
+        || init.max_supply == 0
+    {
+        return Err(TonCellError::BadConfig);
+    }
+    let state = CommitteeStateV1::from_pin(
+        init.pin_generation,
+        init.pin_root,
+        init.pin_start_height,
+        init.pin_until_ms,
+    )
+    .ok_or(TonCellError::BadConfig)?;
+    if !successor_keys_match(&init.pin_keys, &init.pin_root) {
+        return Err(TonCellError::BadCommittee);
+    }
+    let n = u8::try_from(init.pin_keys.len()).map_err(|_| TonCellError::BadCommittee)?;
+    let mut initial = CellBuilder::new();
+    initial
+        .store_uint(u128::from(state.generation), 64)?
+        .store_bytes(&state.root)?
+        .store_uint(u128::from(state.start), 64)?
+        .store_uint(u128::from(state.until_ms), 64)?;
+    let initial_pin = initial.build();
     let mut config = CellBuilder::new();
     config
         .store_bytes(&init.taira_network_id)?
+        .store_bytes(&init.consensus_instance)?
         .store_uint(u128::from(init.route_revision), 32)?
         .store_coins(init.max_supply)?
-        .store_uint(u128::from(init.roster.generation), 64)?
-        .store_bytes(&roster_digest)?
+        .store_ref(initial_pin.clone())?
         .store_ref(wallet_code)?
         .store_ref(bucket_code)?;
     let config = config.build();
-
-    let members = member_chunks(&init.roster.members)?;
-    let mut roster = CellBuilder::new();
-    roster
-        .store_bytes(&roster_digest)?
-        .store_uint(u128::from(init.roster.generation), 64)?
-        .store_uint(u128::from(init.roster.valid_from_ms), 64)?
-        .store_uint(u128::from(init.roster.valid_until_ms), 64)?
+    let keys = key_chunks(&init.pin_keys)?;
+    let mut committee = CellBuilder::new();
+    committee
+        .store_bytes(&state.root)?
+        .store_uint(u128::from(state.until_ms), 64)?
+        .store_uint(u128::from(state.start), 64)?
+        .store_uint(u128::from(state.high), 64)?
+        .store_uint(u128::from(state.generation), 64)?
         .store_uint(u128::from(n), 8)?
-        .store_uint(u128::from(t), 8)?
-        .store_ref(members.clone())?;
-    let roster = roster.build();
-
+        .store_ref(keys.clone())?;
+    let committee = committee.build();
+    let checkpoints = CellBuilder::new().store_uint(0, 2)?.build();
     let mut root = CellBuilder::new();
     root.store_bit(false)? // initialized
+        .store_bit(false)? // equivocated
         .store_coins(0)? // total_supply
         .store_coins(0)? // pending_supply
         .store_uint(0, 64)? // outbound_nonce
         .store_uint(0, 64)? // op_count
         .store_uint(0, 64)? // control_nonce
-        .store_bit(false)? // minting_paused
+        .store_bit(false)? // parliament_paused
+        .store_uint(0, 64)? // fast_pause_until_ms
         .store_uint(0, 64)? // deployed_buckets
         .store_ref(config.clone())?
-        .store_ref(roster.clone())?
-        .store_maybe_ref(None::<Cell>)? // prev_roster
+        .store_ref(committee.clone())?
+        .store_ref(checkpoints.clone())?
         .store_bit(false)?; // retries: empty HashmapE 64
     Ok(TonMinterDataV1 {
         root: root.build(),
         config,
-        roster,
-        members,
-        roster_digest,
+        initial_pin,
+        committee,
+        keys,
+        checkpoints,
     })
 }
 
@@ -801,8 +833,9 @@ mod tests {
         crate::v1::hashes::to_hex(bytes)
     }
 
-    fn from_hex(text: &str) -> [u8; 32] {
-        let mut out = [0_u8; 32];
+    fn from_hex<const N: usize>(text: &str) -> [u8; N] {
+        assert_eq!(text.len(), N * 2);
+        let mut out = [0_u8; N];
         for (index, slot) in out.iter_mut().enumerate() {
             *slot = u8::from_str_radix(&text[2 * index..2 * index + 2], 16).unwrap();
         }
@@ -960,91 +993,105 @@ mod tests {
 
     #[test]
     fn chunk_lists() {
-        let members: Vec<[u8; 20]> = (1..=13).map(|byte| [byte; 20]).collect();
-        let head = member_chunks(&members).unwrap();
-        assert_eq!(head.bit_len(), 6 * 160 + 1);
-        assert_eq!(head.depth(), 2);
-        let last = head.refs()[0].cell().unwrap().refs()[0].cell().unwrap();
-        assert_eq!(last.bit_len(), 160 + 1);
+        let keys: Vec<[u8; 48]> = (1..=13).map(|byte| [byte; 48]).collect();
+        let head = key_chunks(&keys).unwrap();
+        assert_eq!(head.bit_len(), 2 * 384 + 1);
+        assert_eq!(head.depth(), 6);
+        let mut last = &head;
+        for _ in 0..6 {
+            last = last.refs()[0].cell().unwrap();
+        }
+        assert_eq!(last.bit_len(), 384 + 1);
         assert!(last.refs().is_empty());
-        assert_eq!(member_chunks(&[]).unwrap_err(), TonCellError::Empty);
+        assert_eq!(key_chunks(&[]).unwrap_err(), TonCellError::Empty);
         assert_eq!(hash_chunks(&[]).unwrap(), None);
         let path = hash_chunks(&[[1; 32]; 4]).unwrap().unwrap();
         assert_eq!(path.bit_len(), 3 * 256 + 1);
         assert_eq!(path.refs()[0].cell().unwrap().bit_len(), 256 + 1);
     }
 
+    fn fixture() -> norito::json::Value {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/sccp/ton_stateinit_v1.json");
+        norito::json::from_str(&std::fs::read_to_string(path).expect("fixture"))
+            .expect("fixture parses")
+    }
+
+    fn fixture_init(
+        fixture: &norito::json::Value,
+        vector: &norito::json::Value,
+    ) -> TonMinterInitV1 {
+        let pin = &vector["pin"];
+        TonMinterInitV1 {
+            taira_network_id: from_hex(&fixture_text(vector, "taira_network_id")),
+            consensus_instance: from_hex(&fixture_text(vector, "consensus_instance")),
+            route_revision: u32::try_from(fixture_u64(vector, "route_revision")).unwrap(),
+            max_supply: fixture_text(vector, "max_supply").parse().unwrap(),
+            pin_generation: fixture_u64(pin, "generation"),
+            pin_root: from_hex(&fixture_text(pin, "committee_root")),
+            pin_start_height: fixture_u64(pin, "start_height"),
+            pin_until_ms: fixture_u64(pin, "until_ms"),
+            pin_keys: vector["keys"]
+                .as_array()
+                .expect("keys")
+                .iter()
+                .map(|key| from_hex(key.as_str().expect("key")))
+                .collect(),
+            wallet_code: fixture_code(fixture, "wallet"),
+            bucket_code: fixture_code(fixture, "bucket"),
+        }
+    }
+
     fn fixture_n4() -> (TonMinterInitV1, SccpTonCodeRefV1) {
-        let init = TonMinterInitV1 {
-            taira_network_id: [0x11; 32],
-            route_revision: 1,
-            max_supply: 1_000_000_000_000_000_000,
-            roster: RosterV1 {
-                generation: 7,
-                valid_from_ms: 1_800_000_000_000,
-                valid_until_ms: 1_801_209_600_000,
-                members: (1..=4).map(|byte| [byte; 20]).collect(),
-            },
-            wallet_code: SccpTonCodeRefV1 {
-                hash: from_hex("ee3cf858ffdc0e230e9b97914a75c0d7d4ecd317881ecec0873d2abd875aaa90"),
-                depth: 4,
-            },
-            bucket_code: SccpTonCodeRefV1 {
-                hash: from_hex("636f93d7b6d9fbf1c4756453654eea4d8fa9a474b461e642d501299737cd0450"),
-                depth: 6,
-            },
-        };
-        let minter_code = SccpTonCodeRefV1 {
-            hash: from_hex("4557a9b6df6a72104fcb8ef3337106f4d6a43ba7f0a825990641552e0d6554e4"),
-            depth: 15,
-        };
-        (init, minter_code)
+        let fixture = fixture();
+        (
+            fixture_init(&fixture, &fixture["vectors"][0]),
+            fixture_code(&fixture, "minter"),
+        )
     }
 
     #[test]
     fn minter_data_and_addresses_match_the_contract_fixture() {
-        // fixtures/sccp/ton_stateinit_v1.json, label "n4" (emitted by the Tolk contracts).
+        // Native revision-5 n4 fixture, independently produced in Tolk and Python.
         let (init, minter_code) = fixture_n4();
         let data = minter_initial_data(&init).unwrap();
-        assert_eq!(data.config.bit_len(), 676);
+        assert_eq!(data.config.bit_len(), 612);
         assert_eq!(
             hex(data.config.hash()),
-            "97abb649f4e1e5e72c64a5fd6d5d300cb4278e149c761aa0bad02515ae45882c"
+            "a3bbe910cede556bd2c0783a822c9d9fde8eabdda057ba3591242ec3338396eb"
         );
         assert_eq!(data.config.depth(), 7);
-        assert_eq!(data.members.bit_len(), 641);
+        assert_eq!(data.initial_pin.bit_len(), 448);
+        assert_eq!(data.keys.bit_len(), 769);
+        assert_eq!(data.committee.bit_len(), 520);
         assert_eq!(
-            hex(data.members.hash()),
-            "efdb0f63b51fe0addd82eb234ccb1c4fda247dd2bbe0f845258aa353a56d2a28"
+            hex(data.committee.hash()),
+            "61338e32994d954e7790be38a15882760d18c9a035b9b017bec3b5bcdee5c0f5"
         );
-        assert_eq!(data.roster.bit_len(), 464);
-        assert_eq!(
-            hex(data.roster.hash()),
-            "f0e8dc1f221010d8407e023420ce004d6259cc632652f397993a418e83b05ab1"
-        );
-        // 267 bits of counters and flags, the `prev_roster` Maybe bit and the empty `retries`
-        assert_eq!(data.root.bit_len(), 268);
+        assert_eq!(data.checkpoints.bit_len(), 2);
+        // Two flags, zero Coins, four 64-bit counters, Parliament pause, fast expiry and map bit.
+        assert_eq!(data.root.bit_len(), 332);
         assert_eq!(data.root.depth(), 8);
         assert_eq!(
             hex(data.root.hash()),
-            "6a26fb09952d20b8623ffc1625be3a0de55f575bbfb3e0068a7dbdf75820389d"
+            "62d17653ef54bbce2796272d3e084f8658537efb484f33629fb729516ab43c59"
         );
         let minter = minter_account_id(&init, minter_code).unwrap();
         assert_eq!(
             hex(&minter),
-            "2df158214cff298e678f9b15f50dd20aa4f30bbed5e570cfdf0524c6209a10a7"
+            "8c7ea5ac8d1aa09ce8194e79736b32aca537b5295753271ff54b412e215018ad"
         );
         assert_eq!(
             hex(&bucket_account_id(&minter, 0, init.bucket_code).unwrap()),
-            "99be6871b79cb5cd7fdde27c8b11bc6b4314a179f5db7146894259b751a0da7a"
+            "8b7a9f9f4aedec09d49e5ca9c1074e556cd57fdfbea0068fe3f94002dc530ee1"
         );
         assert_eq!(
             hex(&bucket_account_id(&minter, 1, init.bucket_code).unwrap()),
-            "921d14d62f1496963af0a3c3e5a7ca9344b5342badaad02d5dc877db7d1dbb32"
+            "c43f742f8a1e78456617e553b842223379f7434738cd9aa80e9dd0dbdc804a68"
         );
         assert_eq!(
             hex(&wallet_account_id(0, &[0xab; 32], &minter, init.wallet_code).unwrap()),
-            "a961afd4c4a4491cbcf46cbd80976bb4b62dd4e103c156f0cd0cdc01dc0c9aae"
+            "45be9d9f94939182a88879aae518af2d0b8b6d49e736dae22f92b28181f93d63"
         );
     }
 
@@ -1075,49 +1122,16 @@ mod tests {
     fn every_stateinit_fixture_vector_reproduces_from_code_references() {
         // Taira's `RegisterRoute` recomputes the minter address from these inputs alone; the
         // fixture is emitted by the Tolk contracts and recomputed in Python.
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../fixtures/sccp/ton_stateinit_v1.json");
-        let text = std::fs::read_to_string(path).expect("fixture");
-        let fixture: norito::json::Value = norito::json::from_str(&text).expect("fixture parses");
+        let fixture = fixture();
         let minter_code = fixture_code(&fixture, "minter");
         let wallet_code = fixture_code(&fixture, "wallet");
         let bucket_code = fixture_code(&fixture, "bucket");
         let vectors = fixture["vectors"].as_array().expect("vectors");
         assert_eq!(vectors.len(), 2);
         for vector in vectors {
-            let members: Vec<[u8; 20]> = vector["members"]
-                .as_array()
-                .expect("members")
-                .iter()
-                .map(|member| {
-                    let mut out = [0_u8; 20];
-                    let text = member.as_str().expect("member");
-                    for (index, slot) in out.iter_mut().enumerate() {
-                        *slot = u8::from_str_radix(&text[2 * index..2 * index + 2], 16).unwrap();
-                    }
-                    out
-                })
-                .collect();
-            let init = TonMinterInitV1 {
-                taira_network_id: from_hex(&fixture_text(vector, "taira_network_id")),
-                route_revision: u32::try_from(fixture_u64(vector, "route_revision")).unwrap(),
-                max_supply: fixture_text(vector, "max_supply").parse().unwrap(),
-                roster: RosterV1 {
-                    generation: fixture_u64(vector, "generation"),
-                    valid_from_ms: fixture_u64(vector, "valid_from_ms"),
-                    valid_until_ms: fixture_u64(vector, "valid_until_ms"),
-                    members,
-                },
-                wallet_code,
-                bucket_code,
-            };
+            let init = fixture_init(&fixture, vector);
             let label = fixture_text(vector, "label");
             let data = minter_initial_data(&init).unwrap();
-            assert_eq!(
-                hex(&data.roster_digest),
-                fixture_text(vector, "roster_digest"),
-                "{label}"
-            );
             let initial = &vector["initial_data"];
             assert_eq!(
                 hex(data.root.hash()),
@@ -1134,6 +1148,58 @@ mod tests {
                 fixture_u64(&initial["root"], "bit_len"),
                 "{label}"
             );
+            for (cell, name) in [
+                (&data.root, "root"),
+                (&data.config, "config"),
+                (&data.initial_pin, "initial_pin"),
+                (&data.committee, "committee"),
+                (&data.checkpoints, "checkpoints"),
+            ] {
+                assert_eq!(
+                    hex(cell.hash()),
+                    fixture_text(&initial[name], "hash"),
+                    "{label} {name}"
+                );
+                assert_eq!(
+                    hex(cell.data()),
+                    fixture_text(&initial[name], "data"),
+                    "{label} {name}"
+                );
+                assert_eq!(
+                    u64::from(cell.depth()),
+                    fixture_u64(&initial[name], "depth"),
+                    "{label} {name}"
+                );
+                assert_eq!(
+                    cell.bit_len() as u64,
+                    fixture_u64(&initial[name], "bit_len"),
+                    "{label} {name}"
+                );
+                assert_eq!(
+                    cell.refs().len(),
+                    initial[name]["refs"].as_array().unwrap().len(),
+                    "{label} {name}"
+                );
+            }
+            let key_cells = initial["keys"].as_array().unwrap();
+            let mut key_cell = &data.keys;
+            for (index, expected) in key_cells.iter().enumerate() {
+                assert_eq!(
+                    hex(key_cell.hash()),
+                    fixture_text(expected, "hash"),
+                    "{label} key {index}"
+                );
+                assert_eq!(
+                    key_cell.bit_len() as u64,
+                    fixture_u64(expected, "bit_len"),
+                    "{label} key {index}"
+                );
+                if index + 1 < key_cells.len() {
+                    key_cell = key_cell.refs()[0].cell().unwrap();
+                } else {
+                    assert!(key_cell.refs().is_empty());
+                }
+            }
             let minter = minter_account_id(&init, minter_code).unwrap();
             assert_eq!(
                 hex(&minter),
@@ -1207,10 +1273,10 @@ mod tests {
     #[test]
     fn minter_data_rejects_bad_inputs() {
         let (mut init, _) = fixture_n4();
-        init.roster.members.swap(0, 1);
+        init.pin_keys.swap(0, 1);
         assert_eq!(
             minter_initial_data(&init).unwrap_err(),
-            TonCellError::BadRoster
+            TonCellError::BadCommittee
         );
         let (mut init, _) = fixture_n4();
         init.max_supply = COINS_BOUND;
@@ -1218,6 +1284,51 @@ mod tests {
             minter_initial_data(&init).unwrap_err(),
             TonCellError::CoinsTooLarge
         );
+    }
+
+    #[test]
+    fn native_minter_rejects_bad_pins_and_binds_instance_and_every_pin_field() {
+        let (original, code) = fixture_n4();
+        let bad: [fn(&mut TonMinterInitV1); 6] = [
+            |x| x.taira_network_id = [0; 32],
+            |x| x.consensus_instance = [0; 32],
+            |x| x.route_revision = 0,
+            |x| x.max_supply = 0,
+            |x| x.pin_generation = 0,
+            |x| x.pin_start_height = 0,
+        ];
+        for mutate in bad {
+            let mut candidate = original.clone();
+            mutate(&mut candidate);
+            assert_eq!(
+                minter_initial_data(&candidate),
+                Err(TonCellError::BadConfig)
+            );
+        }
+        let mut candidate = original.clone();
+        candidate.pin_root[0] ^= 1;
+        assert_eq!(
+            minter_initial_data(&candidate),
+            Err(TonCellError::BadCommittee)
+        );
+        let mut candidate = original.clone();
+        candidate.pin_keys.pop();
+        assert_eq!(
+            minter_initial_data(&candidate),
+            Err(TonCellError::BadCommittee)
+        );
+        let changed: [fn(&mut TonMinterInitV1); 4] = [
+            |x| x.consensus_instance[0] ^= 1,
+            |x| x.pin_generation += 1,
+            |x| x.pin_start_height += 1,
+            |x| x.pin_until_ms += 1,
+        ];
+        let address = minter_account_id(&original, code).unwrap();
+        for mutate in changed {
+            let mut candidate = original.clone();
+            mutate(&mut candidate);
+            assert_ne!(minter_account_id(&candidate, code).unwrap(), address);
+        }
     }
 
     #[test]

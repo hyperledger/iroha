@@ -1,6 +1,6 @@
 // Value, fees and storage rent (§5.3.5): the size constants cover the
 // compiled contracts, maximal states and messages; every per-step gas limit
-// covers the measured worst case (n = 31, t = 21, maximal paths and payloads);
+// covers the measured worst case (n = 31, q = 21, maximal paths and payloads);
 // the floors hold after each flow. Measured values are printed for §5.4.
 
 import "@acton/build"
@@ -15,6 +15,7 @@ import "@contracts/sccp-cells"
 import "@contracts/sccp-constants"
 import "@contracts/sccp-errors"
 import "@contracts/sccp-fees"
+import "@contracts/sccp-finality"
 import "@contracts/sccp-messages"
 import "@contracts/sccp-storage"
 import "@contracts/sccp-verify"
@@ -94,34 +95,32 @@ get fun `test state size constants cover the compiled contracts`() {
         SCCP_WALLET_STATE_INIT_BITS,
     );
 
-    // maximal minter: n = 31 current and previous rosters, maximal counters
-    val roster = makeRoster(
-        7,
-        31,
-        0,
-        0,
-        T0 * 1000,
-        T0 * 1000 + DAY_MS,
+    // Native maximal committee, all checkpoint slots, counters and four retry entries.
+    val committee = testCommittee(31, 0);
+    var storage = canonicalStorage(
+        VEC_NETWORK_ID,
+        VEC_CONSENSUS_INSTANCE,
+        TEST_REVISION,
+        SCCP_TON_AMOUNT_LIMIT,
+        defaultPin(committee),
+        committee.keys,
     );
-    var storage = canonicalStorage(VEC_NETWORK_ID, TEST_REVISION, SCCP_TON_AMOUNT_LIMIT, roster);
-    val state = storage.roster.load();
-    val prev: PrevRoster = {
-        digest: state.digest,
-        validUntilMs: state.validUntilMs,
-        n: 31,
-        t: 21,
-        members: makeRoster(
-            8,
-            31,
-            0,
-            0,
-            1,
-            2,
-        ).membersCell(),
-    };
-    storage.prevRoster = prev.toCell();
     storage.totalSupply = SCCP_TON_AMOUNT_LIMIT;
     storage.pendingSupply = SCCP_TON_AMOUNT_LIMIT;
+    storage.outboundNonce = SCCP_MAX_U64;
+    storage.opCount = SCCP_MAX_U64;
+    storage.controlNonce = SCCP_MAX_U64;
+    storage.fastPauseUntilMs = SCCP_MAX_U64;
+    storage.deployedBuckets = SCCP_MAX_U64;
+    var cps = Checkpoints.load(storage.checkpoints);
+    expect(cps.insert(1000, MAX_U256)).toBeTrue();
+    expect(cps.insert(1001, MAX_U256 - 1)).toBeTrue();
+    expect(cps.insert(1002, MAX_U256 - 2)).toBeTrue();
+    storage.checkpoints = cps.toCell();
+    storage.retries.set(0, SCCP_RETRY_UNCONSUME);
+    storage.retries.set(512, SCCP_RETRY_ACTIVATE);
+    storage.retries.set(SCCP_MAX_U64 - 1, SCCP_RETRY_UNCONSUME);
+    storage.retries.set(SCCP_MAX_U64, SCCP_RETRY_UNCONSUME);
     val (mc, mb) = treeSize(build("SccpTairaXorMinter"));
     val (mdc, mdb) = treeSize(storage.toCell());
     expectCovered(
@@ -258,17 +257,54 @@ get fun `test message size constants cover the largest messages`() {
     expectCovered("sccp_voided", vc, vb, SCCP_MSG_EXT_EVENT_CELLS, SCCP_MSG_EXT_EVENT_BITS);
     val rotated = createExternalLogMessage({
         dest: createAddressNone(),
-        body: SccpRosterRotatedEvent {
+        body: SccpCommitteeRotatedEvent {
             generation: (1 << 64) - 1,
-            digest: MAX_U256,
-            validUntilMs: (1 << 64) - 1,
+            root: MAX_U256,
+            untilMs: (1 << 64) - 1,
+            start: (1 << 64) - 1,
         },
     });
     val (rrc, rrb) = treeSize(rotated.messageCell);
     expectCovered(
-        "sccp_roster_rotated",
+        "sccp_committee_rotated",
         rrc,
         rrb,
+        SCCP_MSG_EXT_EVENT_CELLS,
+        SCCP_MSG_EXT_EVENT_BITS,
+    );
+    val committee = testCommittee(31, 0);
+    val x = emptyX(VEC_NETWORK_ID, TEST_GENERATION, committee.root(), TEST_START_HEIGHT);
+    val certificate = createExternalLogMessage({
+        dest: createAddressNone(),
+        body: SccpCertificateEvent {
+            height: x.height,
+            generation: x.generation,
+            cert: certify(committee, x) as Cell<TairaCert>,
+        },
+    });
+    val (certCells, certBits) = treeSize(certificate.messageCell);
+    expectCovered(
+        "sccp_certificate",
+        certCells,
+        certBits,
+        SCCP_MSG_EXT_CERTIFICATE_CELLS,
+        SCCP_MSG_EXT_CERTIFICATE_BITS,
+    );
+    val controlEvent = createExternalLogMessage({
+        dest: createAddressNone(),
+        body: SccpControlAppliedEvent {
+            controlNonce: SCCP_MAX_U64,
+            track: SCCP_TRACK_FAST_PAUSE,
+            parliamentPaused: true,
+            fastPauseUntilMs: SCCP_MAX_U64,
+            certificateId: MAX_U256,
+        },
+    });
+    val (controlCells, controlBits) = treeSize(controlEvent.messageCell);
+    expectCovered(
+        "sccp_control_applied",
+        controlCells,
+        controlBits,
         SCCP_MSG_EXT_EVENT_CELLS,
         SCCP_MSG_EXT_EVENT_BITS,
     );
@@ -342,13 +378,8 @@ fun expectGas(label: string, used: int, limit: int) {
 }
 
 /// A worst-case historical delivery: block of 512 leaves (path 9), history of
-/// 2^32 blocks (path 32), 1024-byte sender, n = 31 / t = 21 signatures.
-fun worstCaseHistorical(env: Env, nonce: int, deadlineMs: int, recipient: address): (
-    TestStatement,
-    cell,
-    HistoryProof,
-    MessageProof,
-) {
+/// 2^32 blocks (path 32), 1024-byte sender, n = 31 / q = 21 aggregate signers.
+fun worstCaseHistorical(env: Env, nonce: int, deadlineMs: int, recipient: address): Delivery {
     val payload = inboundPayloadWithSender(
         nonce,
         TEST_REVISION,
@@ -372,49 +403,34 @@ fun worstCaseHistorical(env: Env, nonce: int, deadlineMs: int, recipient: addres
         i += 1;
     }
     val historyIndex = SCCP_MAX_HISTORY_SIZE - 1;
-    val historyRoot = sccpMerkleRoot(
-        sccpHistoryLeaf(77, blockRoot, 512),
+    var x = blockX(env.networkId, env.generation, env.committee.root(), 1099, [fillerLeaf(9)]);
+    x.messageCount = 512;
+    x.historyRoot = sccpMerkleRoot(
+        sccpHistoryLeaf(1077, blockRoot, 512),
         historyIndex,
         SCCP_MAX_HISTORY_SIZE,
         historyPath,
     );
-    val statement: TestStatement = {
-        height: 99,
-        epoch: 9,
-        timestampMs: T0 * 1000,
-        blockHash: 0x99,
-        sccpRoot: fillerLeaf(9),
-        messageCount: 512,
-        historyRoot,
-        historySize: SCCP_MAX_HISTORY_SIZE,
-        rosterDigest: env.digest(),
-        nextRosterDigest: 0,
-    };
-    return (
-        statement,
-        signByThreshold(env.roster, statement.digest(env.networkId)),
-        {
-            height: 77,
-            sccpRoot: blockRoot,
-            messageCount: 512,
-            leafIndex: historyIndex,
-            pathLen: 32,
-            path: sccpBuildHashPath(historyPath),
-        },
-        {
-            leafIndex: 511,
-            pathLen: 9,
+    x.historySize = SCCP_MAX_HISTORY_SIZE;
+    return {
+        payload,
+        x,
+        cert: certifyFor(env, env.committee, x),
+        proof: messageProofCell(
+            511,
+            blockPath,
             payload,
-            path: sccpBuildHashPath(blockPath),
-        },
-    );
+            blockRefCell(1077, blockRoot, 512, historyIndex, historyPath),
+        ),
+        messageId: inboundMessageId(env.networkId, payload, env.minter.address),
+    };
 }
 
 get fun `test worst-case finalize gas per step and the floors`() {
-    val env = setupEnvWith(31, 0, SCCP_TON_AMOUNT_LIMIT * 4);
-    expect(env.roster.t()).toEqual(21);
+    val env = setupEnvWith(31, SCCP_TON_AMOUNT_LIMIT * 4);
+    expect(env.committee.q()).toEqual(21);
     val alice = testing.treasury("alice").address;
-    val (statement, sigs, history, proof) = worstCaseHistorical(
+    val delivery = worstCaseHistorical(
         env,
         3 * 512 + 7,
         T0 * 1000 + DAY_MS,
@@ -422,18 +438,7 @@ get fun `test worst-case finalize gas per step and the floors`() {
     );
     val value = finalizeValue(env, 3 * 512 + 7);
     println("finalize_required_value (deploys 4 buckets): {}", value);
-    val res = env
-        .minter
-        .sendSccpFinalizeHistorical(
-            env.deployer,
-            1,
-            env.deployer,
-            statement.attestation(),
-            sigs,
-            history,
-            proof,
-            { value, bounce: true },
-        );
+    val res = sendFinalize(env, env.deployer, delivery, value);
     expect(res).toHaveAllSuccessfulTxs();
     expect(jettonBalanceOf(env, alice)).toEqual(SCCP_TON_AMOUNT_LIMIT - 1);
     println(
@@ -442,7 +447,7 @@ get fun `test worst-case finalize gas per step and the floors`() {
     );
     expectGas(
         "minter finalize historical n=31",
-        gasOf<SccpFinalizeHistorical>(res, env.minter.address),
+        gasOf<SccpFinalize>(res, env.minter.address),
         SCCP_GAS_MINTER_FINALIZE,
     );
     expectGas(
@@ -484,7 +489,8 @@ get fun `test worst-case finalize gas per step and the floors`() {
     // a second finalize into an existing bucket and wallet
     val d = deliver(
         env,
-        env.roster,
+        env.committee,
+        env.generation,
         3 * 512 + 8,
         5,
         alice,
@@ -507,7 +513,7 @@ get fun `test worst-case finalize gas per step and the floors`() {
     );
 }
 
-get fun `test finalize gas with the n=4 roster`() {
+get fun `test finalize gas with the n=4 committee`() {
     val env = setupEnv();
     val alice = testing.treasury("alice").address;
     val res = finalizeOk(env, 0, 10, alice);
@@ -527,28 +533,16 @@ get fun `test finalize gas with the n=4 roster`() {
 }
 
 get fun `test worst-case void gas`() {
-    val env = setupEnvWith(31, 0, SCCP_TON_AMOUNT_LIMIT);
+    val env = setupEnvWith(31, SCCP_TON_AMOUNT_LIMIT);
     val alice = testing.treasury("alice").address;
-    val (statement, sigs, history, proof) = worstCaseHistorical(env, 5, (T0 + 10) * 1000, alice);
+    val delivery = worstCaseHistorical(env, 5, (T0 + 10) * 1000, alice);
     testing.setNow(T0 + 11);
-    val res = env
-        .minter
-        .sendSccpVoidExpiredHistorical(
-            env.deployer,
-            1,
-            env.deployer,
-            5,
-            statement.attestation(),
-            sigs,
-            history,
-            proof,
-            { value: env.minter.voidRequiredValue(5), bounce: true },
-        );
+    val res = sendVoidExpired(env, env.deployer, 5, delivery, env.minter.voidRequiredValue(5));
     expect(res).toHaveAllSuccessfulTxs();
     expect(isConsumedAt(env, 5)).toBeTrue();
     expectGas(
         "minter void historical n=31",
-        gasOf<SccpVoidExpiredHistorical>(res, env.minter.address),
+        gasOf<SccpVoidExpired>(res, env.minter.address),
         SCCP_GAS_MINTER_VOID,
     );
     expectGas(
@@ -559,7 +553,7 @@ get fun `test worst-case void gas`() {
 }
 
 get fun `test rotation and control gas at n=31`() {
-    val env = setupEnvWith(31, 0, SCCP_TON_AMOUNT_LIMIT);
+    val env = setupEnvWith(31, SCCP_TON_AMOUNT_LIMIT);
     val c = deliverControl(env, 1, true);
     val control = sendApplyControl(env, c);
     expect(control).toHaveAllSuccessfulTxs();
@@ -568,14 +562,9 @@ get fun `test rotation and control gas at n=31`() {
         gasOf<SccpApplyControl>(control, env.minter.address),
         SCCP_GAS_MINTER_APPLY_CONTROL,
     );
-    // historical worst case: control at leaf 511 of 512, history path 32
-    val leaf = sccpControlLeaf(
-        env.networkId,
-        env.minter.address.accountId(),
-        TEST_REVISION,
-        2,
-        false,
-    );
+    // Full native control at leaf 511 of 512 with a 32-level history path.
+    val fields = parliamentControl(2, false);
+    val leaf = controlLeafOf(env, fields);
     var blockPath: array<int> = [];
     var i = 0;
     while (i < 9) {
@@ -590,69 +579,50 @@ get fun `test rotation and control gas at n=31`() {
         i += 1;
     }
     val historyIndex = SCCP_MAX_HISTORY_SIZE - 1;
-    val statement: TestStatement = {
-        height: 98,
-        epoch: 9,
-        timestampMs: T0 * 1000,
-        blockHash: 0x98,
-        sccpRoot: fillerLeaf(8),
-        messageCount: 512,
-        historyRoot: sccpMerkleRoot(
-            sccpHistoryLeaf(76, blockRoot, 512),
-            historyIndex,
-            SCCP_MAX_HISTORY_SIZE,
-            historyPath,
-        ),
-        historySize: SCCP_MAX_HISTORY_SIZE,
-        rosterDigest: env.digest(),
-        nextRosterDigest: 0,
-    };
-    val historical = env
-        .minter
-        .sendSccpApplyControlHistorical(
-            env.deployer,
-            1,
-            env.deployer,
-            statement.attestation(),
-            signByThreshold(env.roster, statement.digest(env.networkId)),
-            {
-                height: 76,
-                sccpRoot: blockRoot,
-                messageCount: 512,
-                leafIndex: historyIndex,
-                pathLen: 32,
-                path: sccpBuildHashPath(historyPath),
-            },
-            {
-                controlNonce: 2,
-                paused: false,
-                leafIndex: 511,
-                pathLen: 9,
-                path: sccpBuildHashPath(blockPath),
-            },
-            { value: env.minter.applyControlRequiredValue(), bounce: true },
-        );
+    var x = blockX(env.networkId, env.generation, env.committee.root(), 1098, [fillerLeaf(8)]);
+    x.messageCount = 512;
+    x.historyRoot = sccpMerkleRoot(
+        sccpHistoryLeaf(1076, blockRoot, 512),
+        historyIndex,
+        SCCP_MAX_HISTORY_SIZE,
+        historyPath,
+    );
+    x.historySize = SCCP_MAX_HISTORY_SIZE;
+    val proof = controlProofCell(
+        fields.nonce,
+        fields.track,
+        fields.parliamentPaused,
+        fields.fastPauseUntilMs,
+        fields.certificateId,
+        fields.effectHash,
+        511,
+        blockPath,
+        blockRefCell(1076, blockRoot, 512, historyIndex, historyPath),
+    );
+    val historical = sendApplyControlCells(
+        env,
+        env.deployer,
+        certifyFor(env, env.committee, x),
+        null,
+        proof,
+        env.minter.applyControlRequiredValue(),
+    );
     expect(historical).toHaveAllSuccessfulTxs();
     expect(env.minter.getSccpState().controlNonce).toEqual(2);
     expectGas(
         "apply control historical n=31",
-        gasOf<SccpApplyControlHistorical>(historical, env.minter.address),
+        gasOf<SccpApplyControl>(historical, env.minter.address),
         SCCP_GAS_MINTER_APPLY_CONTROL,
     );
-    val next = makeRoster(
-        8,
-        31,
-        0,
-        0,
-        T0 * 1000 - 1000,
-        T0 * 1000 + 14 * DAY_MS,
-    );
-    val res = rotateTo(env, next, 400);
+    // Different 31-key root: this must pay the full successor-key validation cost.
+    val next = testCommittee(31, 4);
+    expect(next.root()).toNotEqual(env.committee.root());
+    val res = rotateTo(env, next, 1200);
     expect(res).toHaveAllSuccessfulTxs();
     expectGas(
         "rotation n=31 -> n=31",
-        gasOf<SccpRotate>(res, env.minter.address),
-        SCCP_GAS_MINTER_ROTATE,
+        gasOf<SccpCheckpoint>(res, env.minter.address),
+        SCCP_GAS_MINTER_CHECKPOINT,
     );
     val small = setupEnv();
     val controlSmall = sendApplyControl(small, deliverControl(small, 1, true));
@@ -660,8 +630,11 @@ get fun `test rotation and control gas at n=31`() {
         "gas apply control n=4: {}",
         gasOf<SccpApplyControl>(controlSmall, small.minter.address),
     );
-    val rotateSmall = rotateTo(small, nextRoster(small.roster, 4, 4, T0 * 1000 - 1000), 401);
-    println("gas rotation n=4 -> n=4: {}", gasOf<SccpRotate>(rotateSmall, small.minter.address));
+    val rotateSmall = rotateTo(small, testCommittee(4, 4), 1200);
+    println(
+        "gas rotation n=4 -> n=4: {}",
+        gasOf<SccpCheckpoint>(rotateSmall, small.minter.address),
+    );
 }
 
 get fun `test burn, void frozen, deploy and unconsume gas`() {
@@ -698,7 +671,7 @@ get fun `test burn, void frozen, deploy and unconsume gas`() {
         SCCP_GAS_MINTER_DEPLOY_BUCKETS,
     );
 
-    testing.setNow(env.roster.validUntilMs / 1000 + 1);
+    testing.setNow(defaultPin(env.committee).untilMs / 1000 + 1);
     val frozen = env
         .minter
         .sendSccpVoidFrozen(
@@ -793,9 +766,16 @@ get fun `test wallet transfer gas`() {
 get fun `test an underfunded minter charges its floor deficit to the next caller`() {
     testing.setNow(T0);
     val deployer = testing.treasury("deployer");
-    val roster = defaultRoster(4, 0);
+    val committee = testCommittee(4, 0);
     val (minter, res) = deployWithInit(
-        canonicalStorage(VEC_NETWORK_ID, TEST_REVISION, TEST_MAX_SUPPLY, roster),
+        canonicalStorage(
+            VEC_NETWORK_ID,
+            VEC_CONSENSUS_INSTANCE,
+            TEST_REVISION,
+            TEST_MAX_SUPPLY,
+            defaultPin(committee),
+            committee.keys,
+        ),
         deployer.address,
         grams("0.2"),
     );
@@ -804,7 +784,9 @@ get fun `test an underfunded minter charges its floor deficit to the next caller
         minter,
         deployer: deployer.address,
         networkId: VEC_NETWORK_ID,
-        roster,
+        instance: VEC_CONSENSUS_INSTANCE,
+        generation: TEST_GENERATION,
+        committee,
     };
     val balance = testing.getAccountBalance(minter.address);
     expect(balance < sccpMinterFloor()).toBeTrue();

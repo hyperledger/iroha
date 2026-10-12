@@ -309,11 +309,13 @@ fn commit_sccp_parameters(state: &State) {
 #[test]
 fn a_failed_sccp_exempt_transaction_is_charged_within_its_signed_intent() {
     let _fee_guard = crate::status::nexus_fee_test_lock().lock().unwrap();
-    // Fault evidence is eligible whenever SCCP exists; this one fails its signature check at
-    // execution. One instruction: base fee 1 + one instruction at 1.
-    let fault = || {
+    // A decodable keeper advance is eligible while SCCP exists, then fails because its
+    // light client is absent. One instruction: base fee 1 + one instruction at 1.
+    let keeper = || {
         vec![InstructionBox::from(
-            crate::smartcontracts::isi::sccp::test_support::SampleInstructions::fault(),
+            crate::smartcontracts::isi::sccp::test_support::SampleInstructions::keeper_advance(
+                iroha_data_model::bridge::SccpNetworkV1::EthereumMainnet,
+            ),
         )]
     };
     for (limit, balance_after) in [(Some(2_u32), 8_u32), (Some(1), 10), (None, 10)] {
@@ -323,14 +325,14 @@ fn a_failed_sccp_exempt_transaction_is_charged_within_its_signed_intent() {
             || FeePaymentIntent::authority(Vec::new(), None),
             |maximum| payment(&asset, maximum),
         );
-        let source = carrier(&state, vec![input(&state, fault(), intent, false)]);
+        let source = carrier(&state, vec![input(&state, keeper(), intent, false)]);
         let (mut block, _recording) = recorded_network_block(&state, &source);
         execute(&mut block, &source).unwrap();
         let row = network_row(&block, 0);
         let reason = format!("{:?}", row.result.0);
-        assert!(row.result.is_err(), "{limit:?}: the fault evidence fails");
+        assert!(row.result.is_err(), "{limit:?}: the keeper advance fails");
         assert!(
-            reason.contains("SCCP fault"),
+            reason.contains("is not installed"),
             "{limit:?}: the failure keeps its own reason: {reason}"
         );
         assert_eq!(
@@ -349,7 +351,7 @@ fn a_failed_sccp_exempt_transaction_is_charged_within_its_signed_intent() {
 #[test]
 fn an_sccp_shape_that_is_not_eligible_pays_the_ordinary_fee() {
     let _fee_guard = crate::status::nexus_fee_test_lock().lock().unwrap();
-    // Without SCCP in the parent World nothing is exempt: fault evidence is an ordinary
+    // Without SCCP in the parent World nothing is exempt: this keeper shape is an ordinary
     // transaction, quoted at admission and charged on failure like any other.
     let (state, asset) = priced_fixture(None);
     let source = carrier(
@@ -357,7 +359,9 @@ fn an_sccp_shape_that_is_not_eligible_pays_the_ordinary_fee() {
         vec![input(
             &state,
             vec![InstructionBox::from(
-                crate::smartcontracts::isi::sccp::test_support::SampleInstructions::fault(),
+                crate::smartcontracts::isi::sccp::test_support::SampleInstructions::keeper_advance(
+                    iroha_data_model::bridge::SccpNetworkV1::EthereumMainnet,
+                ),
             )],
             FeePaymentIntent::authority(Vec::new(), None),
             false,
@@ -369,7 +373,7 @@ fn an_sccp_shape_that_is_not_eligible_pays_the_ordinary_fee() {
     assert!(row.result.is_err());
     let reason = format!("{:?}", row.result.0);
     assert!(
-        !reason.contains("SCCP fault"),
+        !reason.contains("is not installed"),
         "fee admission refuses it before execution: {reason}"
     );
     assert_eq!(balance(&block, &asset, &ALICE_ID), Quantity::from(10_u32));
@@ -526,6 +530,7 @@ fn actual_failed_execution_fee_authority_is_once_only_and_bound_to_its_source_co
 fn actual_raw_vm_rejection_retains_and_charges_consumed_work_once() {
     use iroha_data_model::{
         ValidationFail,
+        executor::fault::{IvmFaultKindV1, IvmFaultPositionV1, IvmInvocationSelectorV1},
         transaction::{IvmBytecode, error::TransactionRejectionReason},
     };
     let _fee_guard = crate::status::nexus_fee_test_lock().lock().unwrap();
@@ -561,9 +566,17 @@ fn actual_raw_vm_rejection_retains_and_charges_consumed_work_once() {
     block.gas_limit_per_block = gas_limit;
     let fragments = block.committed_fragment_count();
     execute(&mut block, &source).unwrap();
-    assert!(matches!(network_row(&block, 0).result.as_ref(),
-        Err(TransactionRejectionReason::Validation(ValidationFail::NotPermitted(reason)))
-        if reason.contains("gas")));
+    let result = network_row(&block, 0).result.as_ref();
+    let Err(TransactionRejectionReason::Validation(ValidationFail::IvmFault(fault))) = result
+    else {
+        panic!("raw VM exhaustion must retain its structured execution fault: {result:?}");
+    };
+    assert_eq!(fault.kind, IvmFaultKindV1::OutOfGas);
+    assert_eq!(fault.site.selector, IvmInvocationSelectorV1::Generic);
+    assert!(matches!(
+        fault.site.position,
+        IvmFaultPositionV1::Execute { .. }
+    ));
     assert_eq!(block.gas_used_in_block, gas_limit);
     assert_eq!(balance(&block, &asset, &ALICE_ID), Quantity::from(9_u32));
     assert_eq!(

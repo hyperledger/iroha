@@ -1,9 +1,15 @@
 // SccpTairaXorMinter: TEP-74 Jetton master of Taira XOR on TON with the SCCP
 // v1 bridge built in (specs/sccp.md §5.1, §5.3).
 //
-// There is no owner, admin, upgrade path or setter. The minting pause changes
-// only through `sccp_apply_control` / `sccp_apply_control_historical` with a
-// Parliament control leaf attested by the Taira bridge roster (§5.1.6).
+// There is no owner, admin, upgrade path or setter. The minter trusts one
+// thing: a Sumeragi `CommitQC` of Taira's current committee generation over a
+// finality header `X`, which is one BLS12-381 aggregate of exactly `q = n − f`
+// signers whose keys the minter stores (§5.1.3). Certificates drive the
+// committee state machine of §5.1.2 (checkpoints, `high`, rotations and the
+// latch) and prove messages and control leaves. The minting pause changes
+// only through `sccp_apply_control` / `sccp_apply_control_checkpoint` with a
+// Taira control leaf (§5.1.6). The committee state is the current generation
+// and three checkpoint slots: it does not grow with rotations.
 // Replay flags live in `SccpConsumedBucket` children (512 nonces each), which
 // the minter activates once per index (§5.3.4 step 2).
 //
@@ -11,6 +17,9 @@
 // undoes its effect, or is recorded in `retries` for a permissionless
 // `sccp_retry` (§5.3.4). External-out events are sent with bounce on action
 // failure, so a failed event aborts and bounces the whole step.
+// TODO: WP-TON (map step T7): the Acton suites under `tests/unit` still
+// drive the retired attestation minter. Port them to the test support of
+// `sccp-test-helpers.tolk` so that every handler here has a test.
 
 import "@stdlib/gas-payments"
 import "@stdlib/strings"
@@ -20,6 +29,7 @@ import "sccp-constants"
 import "sccp-crypto"
 import "sccp-errors"
 import "sccp-fees"
+import "sccp-finality"
 import "sccp-messages"
 import "sccp-storage"
 import "sccp-verify"
@@ -34,14 +44,14 @@ contract SccpTairaXorMinter {
 
 type MinterMessage =
     | SccpInit
+    | SccpCheckpoint
     | SccpFinalize
-    | SccpFinalizeHistorical
+    | SccpFinalizeCheckpoint
     | SccpVoidExpired
-    | SccpVoidExpiredHistorical
+    | SccpVoidExpiredCheckpoint
     | SccpVoidFrozen
-    | SccpRotate
     | SccpApplyControl
-    | SccpApplyControlHistorical
+    | SccpApplyControlCheckpoint
     | SccpDeployBuckets
     | SccpRetry
     | SccpConsumed
@@ -56,78 +66,82 @@ type MinterMessage =
 /// Outgoing messages whose bounces the minter handles (§5.3.4 steps 2, 6, 7).
 type MinterBounce = SccpConsume | InternalTransferStep | SccpUnconsume | SccpActivateBucket
 
-/// Members, size and threshold of the roster that signed an attestation.
-struct SignerSet {
-    members: cell
-    n: int
-    t: int
-}
-
-/// A statement whose signatures verified against an accepted roster.
-struct VerifiedAttestation {
-    a: Attestation
-    tail: AttestationTail
+/// The certified header a finalize, void or control acts on (§5.1.3), with
+/// what obtaining it changed. A stored checkpoint changes nothing.
+struct ObtainedX {
+    x: XHeader
+    /// The signature was verified in this call, so `sccp_certificate` is due
+    /// (§5.1.3 step 12). False on the cheap path and for a stored checkpoint.
+    fullPath: bool
+    /// `^Checkpoints` with the checkpoint of `x` recorded, so
+    /// `sccp_checkpointed` is due; null when nothing was recorded.
+    checkpoints: cell?
+    /// The committee state with `high` raised to `x.height`; null when `high`
+    /// did not rise.
+    committee: Cell<CommitteeState>?
 }
 
 // ---------------------------------------------------------------------------
 // Shared checks.
 
-/// §5.1.2: the current roster while valid, or the previous one within its
-/// grace-capped validity. Members come from storage.
-fun acceptedSigners(
-    roster: Cell<RosterState>,
-    prevRoster: Cell<PrevRoster>?,
-    rosterDigest: int,
+/// Obtains the certified header of a finalize, void or control (§5.1.2
+/// "Which entry points may do what"). `source` is the `^TairaCert` of an
+/// inline entry point or the `^CheckpointRef` of a `*_checkpoint` one.
+///
+/// Inline, in this order: `VerifyCertificate` as CUR with the keys from
+/// storage (§5.1.3 steps 1–11); V1–V3, where a violation throws
+/// `LatchRequired`, because only `sccp_checkpoint` latches; `Live`
+/// (`Equivocated` when latched, `CommitteeNotAccepted` when expired). The
+/// checkpoint is then recorded and `high` rises. A rotation installs no
+/// successor here.
+///
+/// Checkpoint: the use check of §5.1.3 (`sccpUseCheckpoint`), which includes
+/// `Live` and changes nothing.
+@inline_ref
+fun obtainX(
+    source: cell,
+    isInline: bool,
+    tairaNetworkId: int,
+    instance: int,
+    equivocated: bool,
+    committee: CommitteeState,
+    cps: Checkpoints,
     nowMs: int,
-): SignerSet {
-    assert (rosterDigest != 0) throw SccpErrors.RosterNotAccepted;
-    val current = roster.load();
-    if ((rosterDigest == current.digest) & (nowMs <= current.validUntilMs)) {
+): ObtainedX {
+    if (!isInline) {
         return {
-            members: current.members,
-            n: current.n,
-            t: current.t,
+            x: sccpUseCheckpoint(source, equivocated, committee, cps, nowMs),
+            fullPath: false,
+            checkpoints: null,
+            committee: null,
         };
     }
-    if (prevRoster != null) {
-        val prev = prevRoster!.load();
-        if ((rosterDigest == prev.digest) & (prev.digest != 0) & (nowMs <= prev.validUntilMs)) {
-            return {
-                members: prev.members,
-                n: prev.n,
-                t: prev.t,
-            };
-        }
+    val verified = sccpVerifyCertificate(source, tairaNetworkId, instance, committee, cps);
+    val x = verified.x;
+    val (reason, _, _) = sccpViolation(x, committee, cps);
+    assert (reason == 0) throw SccpErrors.LatchRequired;
+    sccpRequireLive(equivocated, committee.untilMs, nowMs);
+    var obtained: ObtainedX = {
+        x,
+        fullPath: verified.fullPath,
+        checkpoints: null,
+        committee: null,
+    };
+    var slots = cps;
+    if (slots.insert(x.height, x.id)) {
+        obtained.checkpoints = slots.toCell();
     }
-    throw SccpErrors.RosterNotAccepted;
-}
-
-/// Parses an attestation, checks the §3.6.1 invariants, the roster
-/// acceptance and at least `t` valid signatures over its digest.
-fun verifyAttestation(
-    networkId: int,
-    roster: Cell<RosterState>,
-    prevRoster: Cell<PrevRoster>?,
-    attestation: Cell<Attestation>,
-    signatures: cell,
-    nowMs: int,
-): VerifiedAttestation {
-    val a = attestation.load();
-    val tail = a.tail.load();
-    sccpCheckAttestation(a, tail);
-    val signers = acceptedSigners(roster, prevRoster, tail.rosterDigest, nowMs);
-    sccpVerifySignatures(
-        sccpAttestationDigest(networkId, a, tail),
-        signatures,
-        signers.members,
-        signers.n,
-        signers.t,
-    );
-    return { a, tail };
+    if (x.height > committee.high) {
+        var raised = committee;
+        raised.high = x.height;
+        obtained.committee = raised.toCell();
+    }
+    return obtained;
 }
 
 /// Buckets a consume on bucket `idx` deploys: 0 when it exists, else
 /// `idx − deployed + 1` up to `SCCP_MAX_DEPLOY_AHEAD` (§5.3.4 step 2).
+@inline
 fun bucketDeployCount(idx: int, deployed: int): int {
     if (idx < deployed) {
         return 0;
@@ -149,6 +163,7 @@ fun sendBucketActivation(minter: address, bucketCode: cell, index: int, queryId:
 }
 
 /// Activates buckets `[first, end)`, in order.
+@inline_ref
 fun sendBucketActivations(minter: address, bucketCode: cell, first: int, end: int, queryId: int) {
     var i = first;
     while (i < end) {
@@ -166,17 +181,18 @@ fun sendToBucket<TBody>(
     value: coins,
     mode: int,
 ) {
-    val msg = createMessage({
+    val toBucket = createMessage({
         bounce: BounceMode.Only256BitsOfBody,
         dest: sccpBucketAddress(minter, idx, bucketCode),
         value,
         body,
     });
-    msg.send(mode);
+    toBucket.send(mode);
 }
 
 /// Sends a bounceable `sccp_unconsume{nonce}` (§5.3.4 step 7); its bounce
 /// records a retry.
+@inline_ref
 fun sendUnconsume(minter: address, bucketCode: cell, nonce: int, mode: int) {
     sendToBucket(
         minter,
@@ -195,7 +211,38 @@ fun emitEvent<TBody>(body: TBody) {
     event.send(SEND_MODE_REGULAR | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
 }
 
+/// Publishes a certificate that passed the full verification path (§5.1.3
+/// step 12), whatever follows it: a checkpoint, a rotation, a latch or a use.
+/// `cert` is the `^TairaCert` as it arrived. A step that later aborts drops
+/// the event with its other effects.
+@inline_ref
+fun emitCertificate(height: int, generation: int, cert: cell) {
+    emitEvent(SccpCertificateEvent {
+        height,
+        generation,
+        cert: cert as Cell<TairaCert>,
+    });
+}
+
+/// Sends the events an obtained header owes, in the order of §5.1.3:
+/// `sccp_certificate` after a full-path verification, then
+/// `sccp_checkpointed` for a recorded checkpoint. `source` is the certificate
+/// of the inline form; a stored checkpoint owes no event.
+fun emitObtained(obtained: ObtainedX, source: cell) {
+    val x = obtained.x;
+    if (obtained.fullPath) {
+        emitCertificate(x.height, x.generation, source);
+    }
+    if (obtained.checkpoints != null) {
+        emitEvent(SccpCheckpointedEvent {
+            height: x.height,
+            id: x.id,
+        });
+    }
+}
+
 /// Returns everything above the reserved floor to `response` (TEP-74 excesses).
+@inline_ref
 fun returnExcess(response: address, queryId: int) {
     val excess = createMessage({
         bounce: BounceMode.NoBounce,
@@ -203,38 +250,63 @@ fun returnExcess(response: address, queryId: int) {
         value: 0,
         body: ReturnExcessesBack { queryId },
     });
+    // SAFETY: every caller reserves the minter's floor or its prior balance
+    // first (`sccpReserveMinterFloor`, `sccpReservePriorBalance`), so the
+    // balance carried here is only the unspent part of the incoming value.
     excess.send(SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_IGNORE_ERRORS);
 }
 
 // ---------------------------------------------------------------------------
-// Finalize and void (§5.1.3, §5.1.8, §5.3.4 steps 1–2).
+// Finalize and void (§5.1.5, §5.1.8, §5.3.4 steps 1–2).
 
+/// The minter step of `sccp_finalize*` (kind mint) and `sccp_void_expired*`
+/// (kind void). `source` is the `^TairaCert` of the inline form or the
+/// `^CheckpointRef` of the checkpoint form, and `message` the `^MessageProof`.
+///
+/// Checks, in this order (§5.1.2 "Check order and errors", §5.3.4 finalize
+/// step 1); the first failure is the exit code:
+///
+/// 1. `initialized` (`NotInitialized`) and `GLOBALID` (`WrongChain`);
+/// 2. the proof cell and the payload with its recipient (`BadSnake`,
+///    `BadPayload`, `BadRecipient`), before `X`, because the required value
+///    depends on the payload nonce;
+/// 3. the bucket of the nonce is at most four past the deployed ones
+///    (`BucketNotDeployed`);
+/// 4. the entry value (`NotEnoughValue`), before any signature work;
+/// 5. `X` and `Live` (`obtainX`);
+/// 6. mint only: no effective pause (`MintingIsPaused`);
+/// 7. the block reference (`BadSnake`, `BadProof`);
+/// 8. the deadline (`DeadlinePassed` for a mint, `DeadlineNotReached` for a
+///    void);
+/// 9. the leaf path (`BadSnake`, `BadProof`);
+/// 10. void only: `nonceArgument` is the payload nonce (`BadNonce`);
+/// 11. mint only: the supply cap with the pending supply
+///     (`SupplyCapExceeded`).
+///
+/// The step then reserves the pending supply of a mint, stores what an inline
+/// certificate changed, activates the missing buckets and sends
+/// `sccp_consume` to the bucket of the nonce. The bucket's reply completes or
+/// refuses the step (`sccp_consumed`, `sccp_already_consumed`).
+@inline_ref
 fun handleConsumeRequest(
     valueCoins: coins,
     kind: int,
     queryId: int,
     response: address,
     nonceArgument: int,
-    attestation: Cell<Attestation>,
-    signatures: cell,
-    history: Cell<HistoryProof>?,
-    message: Cell<MessageProof>,
+    source: cell,
+    isInline: bool,
+    message: cell,
 ) {
     var st = lazy MinterStorage.load();
     assert (st.initialized) throw SccpErrors.NotInitialized;
     assert (sccpGlobalId() == SCCP_TON_GLOBAL_ID) throw SccpErrors.WrongChain;
     val isMint = kind == SCCP_CONSUME_KIND_MINT;
-    if (isMint) {
-        assert (!st.mintingPaused) throw SccpErrors.MintingIsPaused;
-    }
     val config = st.config.load();
-    val proof = message.load();
+    val proof = sccpOpenMessageProof(message);
     val minter = contract.getAddress();
     val minterHash = minter.accountId();
     val payload = sccpParseInboundPayload(proof.payload, config.routeRevision, minterHash);
-    if (!isMint) {
-        assert (nonceArgument == payload.nonce) throw SccpErrors.BadNonce;
-    }
     val idx = payload.nonce >> SCCP_BUCKET_SHIFT;
     val deployed = st.deployedBuckets;
     val deployCount = bucketDeployCount(idx, deployed);
@@ -245,28 +317,39 @@ fun handleConsumeRequest(
     sccpCheckEntryValue(valueCoins, required);
 
     val nowMs = sccpNowMs();
-    val verified = verifyAttestation(
+    val obtained = obtainX(
+        source,
+        isInline,
         config.tairaNetworkId,
-        st.roster,
-        st.prevRoster,
-        attestation,
-        signatures,
+        config.consensusInstance,
+        st.equivocated,
+        st.committee.load(),
+        Checkpoints.load(st.checkpoints),
         nowMs,
     );
-    val messageId = sccpInboundMessageId(config.tairaNetworkId, payload.payloadHash);
-    sccpVerifyLeafInclusion(
-        sccpTransferLeaf(messageId, minterHash),
-        proof.leafIndex,
-        proof.pathLen,
-        proof.path,
-        verified.a,
-        verified.tail,
-        history,
-    );
+    if (isMint) {
+        assert (
+            !sccpEffectivePause(st.parliamentPaused, st.fastPauseUntilMs, nowMs)
+        ) throw SccpErrors.MintingIsPaused;
+    }
+    val (sccpRoot, messageCount) = sccpCheckBlockRef(proof.block, obtained.x);
     if (isMint) {
         assert (nowMs <= payload.deadlineMs) throw SccpErrors.DeadlinePassed;
     } else {
         assert (nowMs > payload.deadlineMs) throw SccpErrors.DeadlineNotReached;
+    }
+    val messageId = sccpInboundMessageId(config.tairaNetworkId, payload.payloadHash);
+    sccpVerifyLeaf(
+        sccpTransferLeaf(messageId, minterHash),
+        proof.leafIndex,
+        proof.pathLen,
+        proof.path,
+        sccpRoot,
+        messageCount,
+    );
+    if (!isMint) {
+        // §5.1.8: after the leaf path and before the consumed set
+        assert (nonceArgument == payload.nonce) throw SccpErrors.BadNonce;
     }
 
     var amount = 0;
@@ -282,9 +365,17 @@ fun handleConsumeRequest(
     if (deployCount > 0) {
         st.deployedBuckets = idx + 1;
     }
+    // the checkpoint and the raised `high` of an inline certificate
+    if (obtained.checkpoints != null) {
+        st.checkpoints = obtained.checkpoints;
+    }
+    if (obtained.committee != null) {
+        st.committee = obtained.committee;
+    }
     st.save();
 
     sccpReserveMinterFloor(valueCoins, required);
+    emitObtained(obtained, source);
     if (deployCount > 0) {
         sendBucketActivations(minter, config.bucketCode, deployed, idx + 1, queryId);
     }
@@ -310,60 +401,237 @@ fun handleConsumeRequest(
 }
 
 // ---------------------------------------------------------------------------
-// Parliament controls (§5.1.6).
+// Parliament and fast-pause controls (§5.1.6).
 
+/// The minter step of `sccp_apply_control*`. `source` is the `^TairaCert` of
+/// the inline form or the `^CheckpointRef` of the checkpoint form, and
+/// `control` the `^ControlProof`. The step is permissionless and is not
+/// blocked by the pause.
+///
+/// Checks, in this order; the first failure is the exit code:
+///
+/// 1. `initialized` (`NotInitialized`) and `GLOBALID` (`WrongChain`);
+/// 2. the proof cell (`BadSnake`);
+/// 3. the entry value (`NotEnoughValue`), before any signature work;
+/// 4. `X` and `Live` (`obtainX`);
+/// 5. the block reference (`BadSnake`, `BadProof`);
+/// 6. the leaf path of the §3.4 control leaf, computed from the minter's own
+///    network id, account id and revision and the supplied fields (`BadSnake`,
+///    `BadProof`);
+/// 7. the §3.4 constraints (`BadControl`);
+/// 8. `control_nonce` above the stored one (`StaleControl`). Gaps are
+///    allowed: only the newest control needs to be applied.
+///
+/// It then sets `parliament_paused`, the clamped `fast_pause_until_ms` and
+/// `control_nonce`, counts the operation and emits `sccp_control_applied`.
+@inline_ref
 fun handleApplyControl(
     valueCoins: coins,
     queryId: int,
     response: address,
-    attestation: Cell<Attestation>,
-    signatures: cell,
-    history: Cell<HistoryProof>?,
-    control: Cell<ControlProof>,
+    source: cell,
+    isInline: bool,
+    control: cell,
 ) {
     var st = lazy MinterStorage.load();
     assert (st.initialized) throw SccpErrors.NotInitialized;
     assert (sccpGlobalId() == SCCP_TON_GLOBAL_ID) throw SccpErrors.WrongChain;
+    val proof = sccpOpenControlProof(control);
     val required = sccpApplyControlRequiredValue();
+    // §5.3.5: the value is checked before any signature is verified.
     sccpCheckEntryValue(valueCoins, required);
+
     val nowMs = sccpNowMs();
     val config = st.config.load();
-    val verified = verifyAttestation(
+    val obtained = obtainX(
+        source,
+        isInline,
         config.tairaNetworkId,
-        st.roster,
-        st.prevRoster,
-        attestation,
-        signatures,
+        config.consensusInstance,
+        st.equivocated,
+        st.committee.load(),
+        Checkpoints.load(st.checkpoints),
         nowMs,
     );
-    val proof = control.load();
-    val leaf = sccpControlLeaf(
-        config.tairaNetworkId,
-        contract.getAddress().accountId(),
-        config.routeRevision,
-        proof.controlNonce,
-        proof.paused,
-    );
-    sccpVerifyLeafInclusion(
-        leaf,
+    val (sccpRoot, messageCount) = sccpCheckBlockRef(proof.block, obtained.x);
+    sccpVerifyLeaf(
+        sccpControlLeaf(
+            config.tairaNetworkId,
+            contract.getAddress().accountId(),
+            config.routeRevision,
+            proof.controlNonce,
+            proof.track,
+            proof.parliamentPaused,
+            proof.fastPauseUntilMs,
+            proof.certificateId,
+            proof.effectHash,
+        ),
         proof.leafIndex,
         proof.pathLen,
         proof.path,
-        verified.a,
-        verified.tail,
-        history,
+        sccpRoot,
+        messageCount,
     );
+    sccpCheckControl(proof.track, proof.fastPauseUntilMs, proof.certificateId, proof.effectHash);
     assert (proof.controlNonce > st.controlNonce) throw SccpErrors.StaleControl;
-    st.mintingPaused = proof.paused;
+
+    val fastPauseUntilMs = sccpAppliedFastPauseUntilMs(proof.fastPauseUntilMs, nowMs);
+    st.parliamentPaused = proof.parliamentPaused;
+    st.fastPauseUntilMs = fastPauseUntilMs;
     st.controlNonce = proof.controlNonce;
-    st.opCount += 1;
+    st.opCount = sccpBumpedOpCount(st.opCount);
+    // the checkpoint and the raised `high` of an inline certificate
+    if (obtained.checkpoints != null) {
+        st.checkpoints = obtained.checkpoints;
+    }
+    if (obtained.committee != null) {
+        st.committee = obtained.committee;
+    }
     st.save();
 
     sccpReserveMinterFloor(valueCoins, required);
+    emitObtained(obtained, source);
     emitEvent(SccpControlAppliedEvent {
         controlNonce: proof.controlNonce,
-        paused: proof.paused,
+        track: proof.track,
+        parliamentPaused: proof.parliamentPaused,
+        fastPauseUntilMs,
+        certificateId: proof.certificateId,
     });
+    returnExcess(response, queryId);
+}
+
+// ---------------------------------------------------------------------------
+// Checkpoints and rotations (§5.1.2, §5.1.3).
+
+/// The minter step of `sccp_checkpoint`: one certificate of
+/// `submitCheckpoints`. It is permissionless, works while paused and does not
+/// count toward `op_count`.
+///
+/// Checks, in this order; the first failure is the exit code:
+///
+/// 1. `initialized` (`NotInitialized`) and `GLOBALID` (`WrongChain`);
+/// 2. the entry value (`NotEnoughValue`), before any signature work;
+/// 3. `Live` (`Equivocated` when latched, `CommitteeNotAccepted` when
+///    expired);
+/// 4. `VerifyCertificate` as CUR with the keys from storage (§5.1.3 steps
+///    1–11).
+///
+/// A violation V1–V3 then latches: `equivocated = true`, `cur.untilMs = 0`,
+/// `sccp_latched`, and the excess returns to `response`. The latch is an
+/// outcome and never throws; the keys of a successor are not read, so a
+/// violating certificate latches whatever `nextKeys` holds.
+///
+/// Otherwise the updates of §5.1.2 apply: the checkpoint is recorded when its
+/// height is absent and a slot takes it (`sccp_checkpointed`), `high` rises,
+/// and a rotation installs the successor (`sccp_committee_rotated`). A
+/// rotation to another root requires `nextKeys` with the keys of
+/// `X.next_committee_root` (`BadCommittee`, `BadSnake`), which replace the
+/// stored `KeyChunk` chain; a heartbeat keeps the chain and does not read
+/// `nextKeys`. A successor that is already expired is installed all the same:
+/// the state persists and the minter is `Frozen` from then on. A certificate
+/// that changes nothing throws `NothingToDo`.
+@inline_ref
+fun handleCheckpoint(
+    valueCoins: coins,
+    queryId: int,
+    response: address,
+    cert: cell,
+    nextKeys: cell?,
+) {
+    var st = lazy MinterStorage.load();
+    assert (st.initialized) throw SccpErrors.NotInitialized;
+    assert (sccpGlobalId() == SCCP_TON_GLOBAL_ID) throw SccpErrors.WrongChain;
+    val required = sccpCheckpointRequiredValue();
+    // §5.3.5: the value is checked before any signature is verified.
+    sccpCheckEntryValue(valueCoins, required);
+
+    val nowMs = sccpNowMs();
+    var committee = st.committee.load();
+    sccpRequireLive(st.equivocated, committee.untilMs, nowMs);
+    val config = st.config.load();
+    var cps = Checkpoints.load(st.checkpoints);
+    val verified = sccpVerifyCertificate(
+        cert,
+        config.tairaNetworkId,
+        config.consensusInstance,
+        committee,
+        cps,
+    );
+    val x = verified.x;
+
+    val (reason, a, b) = sccpViolation(x, committee, cps);
+    if (reason != 0) {
+        st.equivocated = true;
+        committee.untilMs = 0;
+        st.committee = committee.toCell();
+        st.save();
+
+        sccpReserveMinterFloor(valueCoins, required);
+        if (verified.fullPath) {
+            emitCertificate(x.height, x.generation, cert);
+        }
+        emitEvent(SccpLatchedEvent {
+            reason,
+            generation: x.generation,
+            height: x.height,
+            a,
+            b,
+        });
+        returnExcess(response, queryId);
+        return;
+    }
+
+    val recorded = cps.insert(x.height, x.id);
+    var committeeChanged = false;
+    if (x.height > committee.high) {
+        committee.high = x.height;
+        committeeChanged = true;
+    }
+    val isRotation = x.isRotation();
+    if (isRotation) {
+        // the successor's keys are checked only now, after V1–V3
+        if (x.nextCommitteeRoot != committee.root) {
+            committee.n = sccpRequireSuccessorKeys(nextKeys, x.nextCommitteeRoot);
+            committee.keys = nextKeys!;
+        }
+        committee.root = x.nextCommitteeRoot;
+        committee.untilMs = sccpRotationUntilMs(x, nowMs);
+        // X6 bounds a rotation's height and generation by 2^64 − 2. No V3
+        // fired, so `high` already is the handoff height; it is written as
+        // §5.1.2 update 3 states the successor.
+        committee.start = x.height + 1;
+        committee.high = x.height;
+        committee.generation = x.generation + 1;
+        committeeChanged = true;
+    }
+    assert (recorded | committeeChanged) throw SccpErrors.NothingToDo;
+    if (recorded) {
+        st.checkpoints = cps.toCell();
+    }
+    if (committeeChanged) {
+        st.committee = committee.toCell();
+    }
+    st.save();
+
+    sccpReserveMinterFloor(valueCoins, required);
+    if (verified.fullPath) {
+        emitCertificate(x.height, x.generation, cert);
+    }
+    if (recorded) {
+        emitEvent(SccpCheckpointedEvent {
+            height: x.height,
+            id: x.id,
+        });
+    }
+    if (isRotation) {
+        emitEvent(SccpCommitteeRotatedEvent {
+            generation: committee.generation,
+            root: committee.root,
+            untilMs: committee.untilMs,
+            start: committee.start,
+        });
+    }
     returnExcess(response, queryId);
 }
 
@@ -374,6 +642,10 @@ fun onInternalMessage(in: InMessage) {
     val msg = lazy MinterMessage.fromSlice(in.body);
 
     match (msg) {
+        SccpCheckpoint => {
+            handleCheckpoint(in.valueCoins, msg.queryId, msg.response, msg.cert, msg.nextKeys);
+        }
+
         SccpFinalize => {
             handleConsumeRequest(
                 in.valueCoins,
@@ -381,23 +653,21 @@ fun onInternalMessage(in: InMessage) {
                 msg.queryId,
                 msg.response,
                 0,
-                msg.attestation,
-                msg.signatures,
-                null,
+                msg.cert,
+                true,
                 msg.message,
             );
         }
 
-        SccpFinalizeHistorical => {
+        SccpFinalizeCheckpoint => {
             handleConsumeRequest(
                 in.valueCoins,
                 SCCP_CONSUME_KIND_MINT,
                 msg.queryId,
                 msg.response,
                 0,
-                msg.attestation,
-                msg.signatures,
-                msg.history,
+                msg.ref,
+                false,
                 msg.message,
             );
         }
@@ -409,23 +679,21 @@ fun onInternalMessage(in: InMessage) {
                 msg.queryId,
                 msg.response,
                 msg.nonce,
-                msg.attestation,
-                msg.signatures,
-                null,
+                msg.cert,
+                true,
                 msg.message,
             );
         }
 
-        SccpVoidExpiredHistorical => {
+        SccpVoidExpiredCheckpoint => {
             handleConsumeRequest(
                 in.valueCoins,
                 SCCP_CONSUME_KIND_VOID,
                 msg.queryId,
                 msg.response,
                 msg.nonce,
-                msg.attestation,
-                msg.signatures,
-                msg.history,
+                msg.ref,
+                false,
                 msg.message,
             );
         }
@@ -435,21 +703,19 @@ fun onInternalMessage(in: InMessage) {
                 in.valueCoins,
                 msg.queryId,
                 msg.response,
-                msg.attestation,
-                msg.signatures,
-                null,
+                msg.cert,
+                true,
                 msg.control,
             );
         }
 
-        SccpApplyControlHistorical => {
+        SccpApplyControlCheckpoint => {
             handleApplyControl(
                 in.valueCoins,
                 msg.queryId,
                 msg.response,
-                msg.attestation,
-                msg.signatures,
-                msg.history,
+                msg.ref,
+                false,
                 msg.control,
             );
         }
@@ -472,8 +738,25 @@ fun onInternalMessage(in: InMessage) {
             if (tail.kind == SCCP_CONSUME_KIND_MINT) {
                 val amount = msg.amount as coins;
                 st.pendingSupply -= amount;
+                if (st.equivocated) {
+                    // §5.3.4 item 6: the latch fired while this mint was in
+                    // flight. Nothing is minted: the pending supply is
+                    // released and the bucket clears the flag, so the nonce
+                    // stays voidable through `sccp_void_frozen`. A bounced
+                    // unconsume is recorded in `retries`. Expiry alone does
+                    // not cancel a mint in flight.
+                    st.save();
+                    sendUnconsume(
+                        minter,
+                        config.bucketCode,
+                        nonce,
+                        SEND_MODE_PAY_FEES_SEPARATELY | SEND_MODE_BOUNCE_ON_ACTION_FAIL,
+                    );
+                    returnExcess(tail.response, msg.queryId);
+                    return;
+                }
                 st.totalSupply += amount;
-                st.opCount += 1;
+                st.opCount = sccpBumpedOpCount(st.opCount);
                 st.save();
                 emitEvent(SccpFinalizedEvent {
                     messageId: tail.messageId,
@@ -492,9 +775,12 @@ fun onInternalMessage(in: InMessage) {
                         forwardPayload: beginCell().storeUint(0, 1).toSlice(),
                     },
                 });
+                // SAFETY: `sccpReservePriorBalance` above kept the balance the
+                // minter had before this reply, so the mint carries only
+                // the value the reply brought.
                 mint.send(SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
             } else {
-                st.opCount += 1;
+                st.opCount = sccpBumpedOpCount(st.opCount);
                 st.save();
                 emitEvent(SccpVoidedEvent {
                     messageId: tail.messageId,
@@ -558,7 +844,7 @@ fun onInternalMessage(in: InMessage) {
                     config.bucketCode,
                 )
             ) throw SccpErrors.NotBucket;
-            st.opCount += 1;
+            st.opCount = sccpBumpedOpCount(st.opCount);
             st.save();
             // paid by the value attached to the range request; a failure
             // bounces and the bucket clears the range
@@ -584,19 +870,21 @@ fun onInternalMessage(in: InMessage) {
         }
 
         SccpVoidFrozen => {
+            // §5.1.8: the range is checked before `Frozen`.
             var st = lazy MinterStorage.load();
             assert (st.initialized) throw SccpErrors.NotInitialized;
-            val nowMs = sccpNowMs();
-            val roster = st.roster.load();
-            assert (nowMs > roster.validUntilMs) throw SccpErrors.NotFrozen;
-            if (st.prevRoster != null) {
-                assert (nowMs > st.prevRoster!.load().validUntilMs) throw SccpErrors.NotFrozen;
-            }
+            assert (sccpGlobalId() == SCCP_TON_GLOBAL_ID) throw SccpErrors.WrongChain;
             val first = msg.firstNonce;
             val count = msg.count;
-            assert ((count >= 1) & (count <= SCCP_BUCKET_BITS)) throw SccpErrors.BadRange;
+            assert ((count >= 1) & (count <= SCCP_MAX_VOID_FROZEN_RANGE)) throw SccpErrors.BadRange;
+            // One bucket. A bucket ends at a multiple of 512, so the last
+            // nonce of a valid range is at most 2^64 − 1.
             val idx = first >> SCCP_BUCKET_SHIFT;
             assert (((first + count - 1) >> SCCP_BUCKET_SHIFT) == idx) throw SccpErrors.BadRange;
+            // `Frozen`: latched or past `cur.untilMs`, permanently (§5.1.2)
+            assert (
+                !sccpIsLive(st.equivocated, st.committee.load().untilMs, sccpNowMs())
+            ) throw SccpErrors.NotFrozen;
             val deployed = st.deployedBuckets;
             val deployCount = bucketDeployCount(idx, deployed);
             val required = sccpVoidFrozenRequiredValue(deployCount);
@@ -626,78 +914,10 @@ fun onInternalMessage(in: InMessage) {
             returnExcess(msg.response, msg.queryId);
         }
 
-        SccpRotate => {
-            var st = lazy MinterStorage.load();
-            assert (st.initialized) throw SccpErrors.NotInitialized;
-            val required = sccpRotateRequiredValue();
-            sccpCheckEntryValue(in.valueCoins, required);
-            val nowMs = sccpNowMs();
-            val config = st.config.load();
-            val roster = st.roster.load();
-            val a = msg.attestation.load();
-            val tail = a.tail.load();
-            sccpCheckAttestation(a, tail);
-            // §5.1.5 step 1: the current roster only.
-            assert (tail.rosterDigest != 0) throw SccpErrors.RosterNotAccepted;
-            assert (tail.rosterDigest == roster.digest) throw SccpErrors.RosterNotAccepted;
-            assert (nowMs <= roster.validUntilMs) throw SccpErrors.RosterNotAccepted;
-            sccpVerifySignatures(
-                sccpAttestationDigest(config.tairaNetworkId, a, tail),
-                msg.signatures,
-                roster.members,
-                roster.n,
-                roster.t,
-            );
-            // Step 2.
-            assert (tail.nextRosterDigest != 0) throw SccpErrors.BadRotation;
-            val next = msg.next.load();
-            val nextDigest = sccpRosterDigest(
-                config.tairaNetworkId,
-                next.generation,
-                next.validFromMs,
-                next.validUntilMs,
-                next.n,
-                next.t,
-                next.members,
-            );
-            assert (nextDigest == tail.nextRosterDigest) throw SccpErrors.BadRotation;
-            // Step 3.
-            assert (next.generation == roster.generation + 1) throw SccpErrors.BadRotation;
-            assert (next.validFromMs == a.timestampMs) throw SccpErrors.BadRotation;
-            sccpCheckRosterValidity(next.validFromMs, next.validUntilMs, nowMs);
-            // Step 4. `next.members` is stored as sent: `sccpRosterDigest` walked
-            // every chunk and rejected exotic cells, so it is canonical and ordinary.
-            val prev: PrevRoster = {
-                digest: roster.digest,
-                validUntilMs: min(roster.validUntilMs, nowMs + SCCP_PREVIOUS_ROSTER_GRACE_MS),
-                n: roster.n,
-                t: roster.t,
-                members: roster.members,
-            };
-            val installed: RosterState = {
-                digest: nextDigest,
-                generation: next.generation,
-                validFromMs: next.validFromMs,
-                validUntilMs: next.validUntilMs,
-                n: next.n,
-                t: next.t,
-                members: next.members,
-            };
-            st.prevRoster = prev.toCell();
-            st.roster = installed.toCell();
-            st.save();
-            sccpReserveMinterFloor(in.valueCoins, required);
-            emitEvent(SccpRosterRotatedEvent {
-                generation: next.generation,
-                digest: nextDigest,
-                validUntilMs: next.validUntilMs,
-            });
-            returnExcess(msg.response, msg.queryId);
-        }
-
         SccpDeployBuckets => {
             var st = lazy MinterStorage.load();
             assert (st.initialized) throw SccpErrors.NotInitialized;
+            assert (sccpGlobalId() == SCCP_TON_GLOBAL_ID) throw SccpErrors.WrongChain;
             val count = msg.count;
             assert (
                 (count >= 1) & (count <= SCCP_MAX_DEPLOY_BUCKETS_PER_CALL)
@@ -725,6 +945,7 @@ fun onInternalMessage(in: InMessage) {
             // resend bounces, so each recorded step runs at most once.
             var st = lazy MinterStorage.load();
             assert (st.initialized) throw SccpErrors.NotInitialized;
+            assert (sccpGlobalId() == SCCP_TON_GLOBAL_ID) throw SccpErrors.WrongChain;
             val required = sccpRetryRequiredValue();
             sccpCheckEntryValue(in.valueCoins, required);
             val nonce = msg.nonce;
@@ -757,6 +978,7 @@ fun onInternalMessage(in: InMessage) {
         BurnNotificationForMinter => {
             var st = lazy MinterStorage.load();
             assert (st.initialized) throw SccpErrors.NotInitialized;
+            assert (sccpGlobalId() == SCCP_TON_GLOBAL_ID) throw SccpErrors.WrongChain;
             val config = st.config.load();
             val owner = msg.burnInitiator;
             assert (
@@ -773,7 +995,11 @@ fun onInternalMessage(in: InMessage) {
                 SccpErrors.BadRecipient,
             );
 
+            // §5.1.7: source nonces are 0 ..= 2^64 − 2. An exhausted counter
+            // throws `BadNonce` here, before any state change, and the bounce
+            // of `burn_notification` restores the wallet balance.
             val nonce = st.outboundNonce;
+            val nextNonce = sccpNextOutboundNonce(nonce);
             val payload = sccpBuildOutboundPayload(
                 nonce,
                 config.routeRevision,
@@ -784,8 +1010,8 @@ fun onInternalMessage(in: InMessage) {
             );
             val messageId = sccpOutboundMessageId(config.tairaNetworkId, payload.payloadHash);
             st.totalSupply -= amount;
-            st.outboundNonce = nonce + 1;
-            st.opCount += 1;
+            st.outboundNonce = nextNonce;
+            st.opCount = sccpBumpedOpCount(st.opCount);
             st.save();
 
             // §5.3.5: a burn never pays toward the minter floor, and a failed
@@ -799,43 +1025,55 @@ fun onInternalMessage(in: InMessage) {
                 payload: payload.cell,
             });
             if (msg.sendExcessesTo != null) {
-                returnExcess(msg.sendExcessesTo!, msg.queryId);
+                returnExcess(msg.sendExcessesTo, msg.queryId);
             }
         }
 
         SccpInit => {
+            // §5.3.1: completes the deployment, once and for anyone. Taira
+            // recomputes the minter address from the canonical initial data
+            // (§4.14.3 P3); these checks hold the deployed data to it.
             var st = MinterStorage.load();
             assert (!st.initialized) throw SccpErrors.AlreadyInitialized;
             assert (sccpGlobalId() == SCCP_TON_GLOBAL_ID) throw SccpErrors.WrongChain;
-            // Canonical initial data (§5.3.1).
+            // Canonical initial data: no latch, zero counters and supplies,
+            // no pause, no bucket, no checkpoint and no retry.
             assert (
-                (st.totalSupply == 0) & (st.pendingSupply == 0) & (st.outboundNonce == 0) &
+                (!st.equivocated) & (st.totalSupply == 0) & (st.pendingSupply == 0) &
+                (st.outboundNonce == 0) &
                 (st.opCount == 0) &
                 (st.controlNonce == 0) &
-                (!st.mintingPaused) &
+                (!st.parliamentPaused) &
+                (st.fastPauseUntilMs == 0) &
                 (st.deployedBuckets == 0) &
-                (st.prevRoster == null) &
+                Checkpoints.isCanonicalEmpty(st.checkpoints) &
                 st.retries.isEmpty()
             ) throw SccpErrors.BadConfig;
+            // A deployable configuration and pin (§5.1.1).
             val config = st.config.load();
+            val pin = config.initial.load();
             assert (
-                (config.tairaNetworkId != 0) & (config.routeRevision != 0) & (config.maxSupply != 0)
+                (config.tairaNetworkId != 0) & (config.consensusInstance != 0) &
+                (config.routeRevision != 0) &
+                (config.maxSupply != 0) &
+                (pin.generation >= 1) &
+                (pin.root != 0) &
+                (pin.start >= 1)
             ) throw SccpErrors.BadConfig;
-            val roster = st.roster.load();
-            val digest = sccpRosterDigest(
-                config.tairaNetworkId,
-                roster.generation,
-                roster.validFromMs,
-                roster.validUntilMs,
-                roster.n,
-                roster.t,
-                roster.members,
-            );
+            // The stored keys are the committee of the pinned root: a valid
+            // `n`, the canonical ordinary `KeyChunk` list (`BadSnake`),
+            // strictly ascending keys and their keccak root.
+            val committee = st.committee.load();
+            assert (committee.root == pin.root) throw SccpErrors.BadCommittee;
+            sccpRequireStoredCommittee(committee.keys, committee.n, pin.root);
+            // The remaining committee fields are the pin, with `high = start − 1`.
             assert (
-                (digest == roster.digest) & (digest == config.initialDigest)
-            ) throw SccpErrors.BadRoster;
-            assert (roster.generation == config.initialGeneration) throw SccpErrors.BadRoster;
-            sccpCheckRosterValidity(roster.validFromMs, roster.validUntilMs, sccpNowMs());
+                (committee.generation == pin.generation) & (committee.start == pin.start) &
+                (committee.high == pin.start - 1) &
+                (committee.untilMs == pin.untilMs)
+            ) throw SccpErrors.BadConfig;
+            // `now_ms < until_ms ≤ now_ms + MAX_VALIDITY_MS + MAX_INIT_SLACK_MS`
+            assert (sccpInitUntilMsIsValid(sccpNowMs(), pin.untilMs)) throw SccpErrors.BadConfig;
             st.initialized = true;
             st.save();
         }
@@ -999,31 +1237,33 @@ get fun get_wallet_address(ownerAddress: address): address {
     return sccpWalletAddress(ownerAddress, contract.getAddress(), config.walletCode);
 }
 
+/// The bridge state in the order of §5.3.6. `effectivePaused` is the pause
+/// at the time of the call: `parliamentPaused ∨ now_ms < fastPauseUntilMs`.
 get fun get_sccp_state(): SccpStateReply {
     val st = MinterStorage.load();
     val config = st.config.load();
-    val roster = st.roster.load();
-    var prevDigest = 0;
-    var prevValidUntilMs = 0;
-    if (st.prevRoster != null) {
-        val prev = st.prevRoster!.load();
-        prevDigest = prev.digest;
-        prevValidUntilMs = prev.validUntilMs;
-    }
+    val pin = config.initial.load();
+    val committee = st.committee.load();
     return {
         initialized: st.initialized,
+        equivocated: st.equivocated,
         tairaNetworkId: config.tairaNetworkId,
+        consensusInstance: config.consensusInstance,
         routeRevision: config.routeRevision,
-        initialGeneration: config.initialGeneration,
-        initialDigest: config.initialDigest,
-        digest: roster.digest,
-        generation: roster.generation,
-        validUntilMs: roster.validUntilMs,
-        prevDigest,
-        prevValidUntilMs,
+        initialGeneration: pin.generation,
+        initialRoot: pin.root,
+        initialStart: pin.start,
+        initialUntilMs: pin.untilMs,
+        root: committee.root,
+        untilMs: committee.untilMs,
+        start: committee.start,
+        high: committee.high,
+        generation: committee.generation,
         outboundNonce: st.outboundNonce,
         opCount: st.opCount,
-        mintingPaused: st.mintingPaused,
+        parliamentPaused: st.parliamentPaused,
+        fastPauseUntilMs: st.fastPauseUntilMs,
+        effectivePaused: sccpEffectivePause(st.parliamentPaused, st.fastPauseUntilMs, sccpNowMs()),
         controlNonce: st.controlNonce,
         totalSupply: st.totalSupply,
         pendingSupply: st.pendingSupply,
@@ -1032,12 +1272,38 @@ get fun get_sccp_state(): SccpStateReply {
     };
 }
 
-/// Members of the current roster, in §3.7 order.
-get fun get_sccp_members(): array<int> {
+/// The current committee generation `cur` with its `^KeyChunk` list of `n`
+/// compressed keys in canonical order (§5.1.1). A latch shows as `untilMs = 0`
+/// with `equivocated` set in `get_sccp_state`.
+get fun get_sccp_committee(): SccpCommitteeReply {
     val st = lazy MinterStorage.load();
-    val roster = st.roster.load();
-    val (members, _) = sccpLoadMembers(roster.members, roster.n);
-    return members;
+    val committee = st.committee.load();
+    return {
+        root: committee.root,
+        untilMs: committee.untilMs,
+        start: committee.start,
+        high: committee.high,
+        generation: committee.generation,
+        n: committee.n,
+        keys: committee.keys,
+    };
+}
+
+/// The stored checkpoints (§5.1.3): `count` slots `(height, keccak256(X))` in
+/// ascending height order, unused slots zero. A `*_checkpoint` message names
+/// one of them by its `X`.
+get fun get_sccp_checkpoints(): SccpCheckpointsReply {
+    val st = lazy MinterStorage.load();
+    val cps = Checkpoints.load(st.checkpoints);
+    return {
+        count: cps.count,
+        height0: cps.h0,
+        id0: cps.id0,
+        height1: cps.h1,
+        id1: cps.id1,
+        height2: cps.h2,
+        id2: cps.id2,
+    };
 }
 
 get fun get_bucket_address(index: int): address {
@@ -1072,14 +1338,14 @@ get fun deploy_buckets_required_value(count: int): int {
     return sccpMinterQuote(sccpDeployBucketsRequiredValue(count));
 }
 
-/// Required value of `sccp_apply_control` and `sccp_apply_control_historical`.
+/// Required value of `sccp_apply_control` and `sccp_apply_control_checkpoint`.
 get fun apply_control_required_value(): int {
     return sccpMinterQuote(sccpApplyControlRequiredValue());
 }
 
-/// Required value of one `sccp_rotate`.
-get fun rotate_required_value(): int {
-    return sccpMinterQuote(sccpRotateRequiredValue());
+/// Required value of one `sccp_checkpoint`, with or without `next_keys`.
+get fun checkpoint_required_value(): int {
+    return sccpMinterQuote(sccpCheckpointRequiredValue());
 }
 
 /// Required value of `sccp_retry`.

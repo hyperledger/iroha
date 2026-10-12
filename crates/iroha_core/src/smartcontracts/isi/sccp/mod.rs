@@ -1,35 +1,32 @@
-//! SCCP v1 core: state access, block hooks, admission and the ten v1 instructions
-//! (`specs/sccp.md` §4).
+//! SCCP v1 execution: native Sumeragi finality, committee generations and message state.
 //!
-//! The [`Execute`] implementations below delegate each v1 instruction to exactly one entry
-//! point. The modules, by the workstream that owns them:
+//! Each current instruction delegates to one Core entry point. SCCP committee keys come
+//! from the authenticated consensus schedule; no separate attestation-key or signing
+//! protocol participates in execution.
 //!
-//! | Modules | Owner |
-//! |---|---|
-//! | [`init`], [`params`], [`bridge_keys`], [`attestations`], [`faults`], [`admission`], [`fees`] | ws31 (inbound eligibility arms: ws41) |
-//! | [`hook`], [`roster`], [`commitment`], [`subjects`], [`prune`] | ws30 |
-//! | [`outbound`], [`escrow`], [`recipients`] | ws32 |
-//! | [`registry`], [`governance`], [`controls`], [`light_clients`] (Parliament half) | ws33 |
-//! | [`light_clients`] (advance half), [`inbound`], [`settle`], [`voids`], [`self_claim`] | ws41 |
-//! | [`read`] (views and proof bundles served by Torii) | ws35 |
+//! With SCCP absent, admission classifies no transaction as SCCP-exempt. The finalizer
+//! returns the canonical inactive header and leaves SCCP state untouched.
 //!
-//! With SCCP absent (no `sccp_parameters`), every hook is a no-op and admission classifies no
-//! transaction as SCCP-exempt, so block production and queue behavior are unchanged.
+//! TODO: complete native forgery evidence, shared keepalive and certified read bundles in
+//! the coordinated shared-model migration before qualifying SCCP routes for release.
 
 pub mod admission;
-pub mod attestations;
-pub mod bridge_keys;
+pub mod anchors;
 pub mod commitment;
+pub mod context;
 pub mod controls;
 pub mod escrow;
-pub mod faults;
 pub mod fees;
+pub mod forgery;
+pub mod generation;
 pub mod governance;
 pub mod height;
+mod holds;
 pub mod hook;
 pub mod inbound;
 pub mod init;
 pub mod leaves;
+pub(crate) mod liability;
 pub mod light_clients;
 pub mod outbound;
 pub mod params;
@@ -37,11 +34,9 @@ pub mod prune;
 pub mod read;
 pub mod recipients;
 pub mod registry;
-pub mod roster;
 pub mod self_claim;
 pub mod settle;
 pub mod store;
-pub mod subjects;
 pub mod voids;
 pub mod witness;
 
@@ -59,14 +54,13 @@ use iroha_data_model::{
         error::InstructionExecutionError as Error,
         sccp::{
             AdvanceSccpLightClientV1, InitializeSccpV1, RecordSccpMessage,
-            ReportSccpLightClientEquivocationV1, SetSccpBridgeKeyV1, SettleSccpV1,
-            SubmitSccpAttestationFaultV1, SubmitSccpAttestationsV1, SubmitSccpInboundMessageV1,
-            SubmitSccpOutboundVoidV1,
+            ReportSccpLightClientEquivocationV1, SettleSccpV1, SubmitSccpForgeryEvidenceV1,
+            SubmitSccpInboundMessageV1, SubmitSccpOutboundVoidV1,
         },
     },
 };
 
-/// Return whether `instruction` is one of the ten SCCP v1 instructions.
+/// Return whether `instruction` is a current SCCP v1 instruction.
 ///
 /// Every SCCP instruction routes to the universal dataspace (§4.19) and is admitted by the
 /// Initial executor because core enforces every SCCP rule.
@@ -74,13 +68,11 @@ use iroha_data_model::{
 pub fn is_sccp_instruction(instruction: &dyn Instruction) -> bool {
     let any = instruction.as_any();
     any.is::<InitializeSccpV1>()
-        || any.is::<SetSccpBridgeKeyV1>()
-        || any.is::<SubmitSccpAttestationsV1>()
-        || any.is::<SubmitSccpAttestationFaultV1>()
         || any.is::<RecordSccpMessage>()
         || any.is::<SubmitSccpInboundMessageV1>()
         || any.is::<SettleSccpV1>()
         || any.is::<SubmitSccpOutboundVoidV1>()
+        || any.is::<SubmitSccpForgeryEvidenceV1>()
         || any.is::<AdvanceSccpLightClientV1>()
         || any.is::<ReportSccpLightClientEquivocationV1>()
 }
@@ -102,9 +94,6 @@ macro_rules! delegate_execute {
 
 delegate_execute! {
     InitializeSccpV1 => init::execute_initialize,
-    SetSccpBridgeKeyV1 => bridge_keys::execute_set_bridge_key,
-    SubmitSccpAttestationsV1 => attestations::execute_submit_attestations,
-    SubmitSccpAttestationFaultV1 => faults::execute_submit_fault,
     RecordSccpMessage => outbound::execute_record,
     SubmitSccpInboundMessageV1 => inbound::execute_submit_inbound,
     SettleSccpV1 => settle::execute_settle,
@@ -153,5 +142,21 @@ mod tests {
                 "{instruction:?}: {error}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod parameter_mutation_tests;
+
+// Execution is one-shot and cannot be authorized by an IVM or callback instruction.
+impl Execute for SubmitSccpForgeryEvidenceV1 {
+    fn execute(
+        self,
+        _authority: &AccountId,
+        state_transaction: &mut StateTransaction<'_, '_>,
+    ) -> Result<(), Error> {
+        state_transaction.consume_direct_sccp_forgery(&self)?;
+        forgery::execute_forgery(&self, state_transaction)
+            .map_err(|error| error.into_instruction_error(state_transaction))
     }
 }

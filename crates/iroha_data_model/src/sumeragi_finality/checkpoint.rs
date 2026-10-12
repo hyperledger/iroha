@@ -99,12 +99,15 @@ impl SumeragiFinalityCheckpoint {
     /// the original consensus-visible committed execution, including the complete schedule,
     /// result, beacon and executed-wire commitment. Offered proofs cannot provide that source.
     /// The supplied tip may be historical; no current time or live effect is granted.
+    /// `scope` must come from the caller's independently selected authenticated root. It is
+    /// used only to check these DATA and does not install authority into this checkpoint.
     ///
     /// # Errors
     /// Refuses empty/excessive/discontinuous witnesses, foreign roots or invalid framing.
     pub fn with_independently_authenticated_decision_data(
         &self,
         proofs: &[SumeragiFinalityProof],
+        scope: CertifiedResultScope,
     ) -> Result<Self, FinalityError> {
         self.validate_bounds()?;
         let tip = proofs
@@ -122,7 +125,7 @@ impl SumeragiFinalityCheckpoint {
                 proof.height() == first + u64::try_from(offset).map_err(malformed)?,
                 "native decision data is discontinuous",
             )?;
-            let decoded = proof.decode_checked()?;
+            let decoded = proof.decode_checked(scope)?;
             if proof.height() == 1 {
                 need(
                     decoded

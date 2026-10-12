@@ -37,6 +37,8 @@ pub(in crate::state) struct RetainedExecutionOutputs {
 /// Actual attachment remains nonpublishable until witness/finality admission is
 /// complete. Retain the exact result wire binding; never clear the State marker.
 pub(in crate::state) struct SealedExecutionOutputs {
+    // Exact post-execution X from this original owner, never recomputed at publication.
+    sccp_finality_header: iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1,
     proposal: iroha_crypto::HashOf<iroha_data_model::block::BlockHeader>,
     wire_hash: Hash,
     wire_bytes: u64,

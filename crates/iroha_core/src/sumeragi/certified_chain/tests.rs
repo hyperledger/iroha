@@ -186,7 +186,12 @@ fn frames_without_a_matching_header_preimage_or_certificate_are_refused() {
     let bare = crate::block::reserve_block_for_tests()
         .initialize(original.as_ref().clone().with_commit_certificate(None));
     assert_eq!(
-        read_frame(bare, 3).err(),
+        read_frame(
+            bare,
+            3,
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
+        )
+        .err(),
         Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
             ChainReadError::MissingCertificate { height: 3 }
         ))
@@ -196,7 +201,12 @@ fn frames_without_a_matching_header_preimage_or_certificate_are_refused() {
         header.payload_hash = Hash32([7; 32])
     });
     assert_eq!(
-        read_frame(wrong_payload, 3).err(),
+        read_frame(
+            wrong_payload,
+            3,
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
+        )
+        .err(),
         Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
             ChainReadError::HeaderMismatch { height: 3 }
         ))
@@ -204,19 +214,40 @@ fn frames_without_a_matching_header_preimage_or_certificate_are_refused() {
     // A header of another height.
     let wrong_height = with_parts(&original, |header, _, _| header.height = 4);
     assert_eq!(
-        read_frame(wrong_height, 3).err(),
+        read_frame(
+            wrong_height,
+            3,
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
+        )
+        .err(),
         Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
             ChainReadError::HeaderMismatch { height: 3 }
         ))
     );
     // A result preimage that commits another executed block.
     let wrong_wire = with_parts(&original, |_, _, preimage| {
-        let mut commitment = ExecutionResultCommitment::decode(preimage).unwrap();
+        let (commitment_header, mut commitment) =
+            iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+                preimage,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            )
+            .unwrap()
+            .into_parts();
         commitment.execution.executed_block_wire_len += 1;
-        *preimage = commitment.preimage().unwrap();
+        *preimage = iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
+            commitment_header,
+            commitment.clone(),
+        )
+        .preimage()
+        .unwrap();
     });
     assert_eq!(
-        read_frame(wrong_wire, 3).err(),
+        read_frame(
+            wrong_wire,
+            3,
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
+        )
+        .err(),
         Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
             ChainReadError::ExecutionMismatch { height: 3 }
         ))
@@ -224,7 +255,11 @@ fn frames_without_a_matching_header_preimage_or_certificate_are_refused() {
     // Garbage in the preimage or header.
     let garbage = with_parts(&original, |_, _, preimage| *preimage = vec![1, 2, 3]);
     assert!(matches!(
-        read_frame(garbage, 3),
+        read_frame(
+            garbage,
+            3,
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
+        ),
         Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
             ChainReadError::Malformed { height: 3, .. }
         ))
@@ -243,7 +278,11 @@ fn frames_without_a_matching_header_preimage_or_certificate_are_refused() {
         )),
     );
     assert!(matches!(
-        read_frame(headed, 1),
+        read_frame(
+            headed,
+            1,
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
+        ),
         Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
             ChainReadError::Malformed { height: 1, .. }
         ))
@@ -261,12 +300,23 @@ fn certificates_that_do_not_certify_the_stored_block_are_refused() {
     certify(Clone::clone(&original)).expect("the stored certificate verifies");
     // A preimage whose `R` is not the certified one (its executed wire is unchanged).
     let other_result = with_parts(&original, |_, _, preimage| {
-        let mut commitment = ExecutionResultCommitment::decode(preimage).unwrap();
+        let (commitment_header, mut commitment) =
+            iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+                preimage,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            )
+            .unwrap()
+            .into_parts();
         let schedule::ScheduledSlot::Ready(next) = &mut commitment.schedule.after_next else {
             unreachable!()
         };
         next.params.block_time_ms += 1;
-        *preimage = commitment.preimage().unwrap();
+        *preimage = iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
+            commitment_header,
+            commitment.clone(),
+        )
+        .preimage()
+        .unwrap();
     });
     assert_eq!(
         certify(other_result).err(),
@@ -395,8 +445,18 @@ fn assert_two_valid_certificates_of_one_block_give_one_consensus_receipt(
     assert_ne!(other_qc.signers, qc.signers);
     let other = with_parts(&original, |_, qc, _| *qc = other_qc.clone());
     assert_ne!(other.commit_certificate(), original.commit_certificate());
-    let left = read_frame(Clone::clone(&original), 3).expect("committed read");
-    let right = read_frame(Clone::clone(&other), 3).expect("committed read");
+    let left = read_frame(
+        Clone::clone(&original),
+        3,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+    )
+    .expect("committed read");
+    let right = read_frame(
+        Clone::clone(&other),
+        3,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+    )
+    .expect("committed read");
     assert_eq!(left.id(), right.id());
     assert_eq!(left.header(), right.header());
     assert_eq!(
@@ -763,14 +823,25 @@ fn pinned_genesis_result_is_unsigned_until_a_real_successor_authenticates_it() {
     let (chain, _) = chain();
     let genesis = frame(&chain, 1);
     let certificate = genesis.commit_certificate().unwrap();
-    let mut result = ExecutionResultCommitment::decode(certificate.result_preimage()).unwrap();
+    let (result_header, mut result) =
+        iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+            certificate.result_preimage(),
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        )
+        .unwrap()
+        .into_parts();
     result.execution.world_state_root = Hash::new(b"unsigned pinned genesis execution replacement");
     let changed = crate::block::reserve_block_for_tests().initialize(
         genesis.as_ref().clone().with_commit_certificate(Some(
             CommitCertificate::from_untrusted_parts(
                 certificate.consensus_header().to_vec(),
                 certificate.commit_qc().to_vec(),
-                result.preimage().unwrap(),
+                iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
+                    result_header,
+                    result.clone(),
+                )
+                .preimage()
+                .unwrap(),
                 certificate.availability().to_vec(),
             ),
         )),
@@ -922,9 +993,20 @@ fn borrowed_native_frames_reject_changed_result_even_under_unchanged_header_hash
         .collect::<Vec<_>>();
     let hashes = frames.iter().map(|block| block.hash()).collect::<Vec<_>>();
     frames[1] = with_parts(&frames[1], |_, _, preimage| {
-        let mut result = ExecutionResultCommitment::decode(preimage).unwrap();
+        let (result_header, mut result) =
+            iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+                preimage,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            )
+            .unwrap()
+            .into_parts();
         result.execution.ordinary_writes_root = Hash::new(b"changed borrowed R");
-        *preimage = result.preimage().unwrap();
+        *preimage = iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
+            result_header,
+            result.clone(),
+        )
+        .preimage()
+        .unwrap();
     });
     assert_eq!(frames[1].hash(), hashes[1]);
     let reader = CertifiedChain::from_frames(&chain_id, &network, &hashes, &frames).unwrap();

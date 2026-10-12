@@ -269,9 +269,14 @@ fn current_payload_selects_full_block_gas_call_with_idle_catalog_route() {
     // not divide this original input's gas budget or transfer pending ownership.
     for _ in 0..2 {
         assert!(
-            crate::sumeragi::payload::select(&state, &queue, max_bytes, 0)
-                .expect("completed original routing read")
-                .is_empty(),
+            crate::sumeragi::payload::select(
+                &state.view(),
+                &queue,
+                max_bytes,
+                &crate::sumeragi::payload::MergeProposal::default()
+            )
+            .expect("completed original routing read")
+            .is_empty(),
             "the global chain cannot steal fresh native-lane work"
         );
         let selected = lane_inputs
@@ -351,8 +356,13 @@ fn current_native_fifo_survives_unrelated_global_application_on_consensus_stack(
     let assert_retained = || {
         assert_eq!((queue.active_len(), queue.queued_len()), (2, 2));
         for _ in 0..2 {
-            let selected = crate::sumeragi::payload::select(&state, &queue, 1024 * 1024, 0)
-                .expect("completed routing read");
+            let selected = crate::sumeragi::payload::select(
+                &state.view(),
+                &queue,
+                1024 * 1024,
+                &crate::sumeragi::payload::MergeProposal::default(),
+            )
+            .expect("completed routing read");
             assert_eq!(
                 selected
                     .iter()

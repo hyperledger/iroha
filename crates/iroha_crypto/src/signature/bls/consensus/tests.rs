@@ -1543,3 +1543,28 @@ mod fixture {
             .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
     }
 }
+
+#[test]
+fn single_key_verifier_uses_native_suite_without_pop_or_committee_authority() {
+    let secret = private_key(0);
+    let key = bytes::<48>(PUBLIC_KEYS[0]);
+    let preimage = sample_preimage(ConsensusContext::Commit);
+    let digest = ConsensusDigest::from_preimage(&preimage).unwrap();
+    let signature = sign(&secret, &digest).unwrap();
+    assert!(verify_single(&key, &digest, &signature));
+    assert!(!verify_single(
+        &bytes::<48>(PUBLIC_KEYS[1]),
+        &digest,
+        &signature
+    ));
+    let old = Signature::try_new(&secret, &preimage).unwrap();
+    let old: [u8; 96] = old.payload().try_into().unwrap();
+    assert!(!verify_single(&key, &digest, &old));
+    let mut scratch = ConsensusAggregateScratch::new(|_| Ok::<_, ()>(())).unwrap();
+    without_allocations(|| {
+        assert!(!scratch.verify_single(&[0; 48], &digest, &signature));
+        assert!(!scratch.verify_single(&key, &digest, &identity_signature()));
+        assert!(!scratch.verify_single(&key, &digest, &old));
+        assert!(scratch.verify_single(&key, &digest, &signature));
+    });
+}

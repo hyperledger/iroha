@@ -64,7 +64,18 @@ pub(super) fn authenticated_native_execution(
     );
     let mut bytes = vec![0; len];
     blocks.read_block_data(index.start, &mut bytes)?;
-    authenticated_local_execution(&bytes, &verified, &finality.validators)
+    authenticated_local_execution(
+        &bytes,
+        &verified,
+        &finality.validators,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::from_root_scope(
+            iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(
+                &finality.trusted_genesis,
+            )?
+            .sumeragi_context
+            .root_scope,
+        ),
+    )
 }
 
 fn verify_ordinary_execution(
@@ -110,6 +121,7 @@ fn authenticated_local_execution(
     bytes: &[u8],
     verified: &VerifiedSumeragiBlock,
     validators: &[FinalityValidator],
+    scope: iroha_data_model::sumeragi_finality::CertifiedResultScope,
 ) -> Result<Vec<u8>> {
     ensure!(
         (1..=AUTHENTICATED_BLOCK_PROOFS_MAX_BLOCK_WIRE_BYTES_V1).contains(&bytes.len()),
@@ -128,7 +140,7 @@ fn authenticated_local_execution(
         block_wire: bytes.to_vec(),
         committee: validators.to_vec(),
     }
-    .decode_checked()?;
+    .decode_checked(scope)?;
     // Different valid quorum witnesses are allowed; execution identity excludes only
     // the certificate. The current verifier authenticates every result and wire binding.
     let canonical = block.with_commit_certificate(None).encode_wire()?;
@@ -299,7 +311,13 @@ mod tests {
         let (_, _, verified, validators) = fixture();
         let bytes = verified.block().encode_wire().unwrap();
         assert_eq!(
-            authenticated_local_execution(&bytes, &verified, &validators).unwrap(),
+            authenticated_local_execution(
+                &bytes,
+                &verified,
+                &validators,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
+            )
+            .unwrap(),
             verified.canonical_executed_wire().unwrap()
         );
         for certificate in [
@@ -317,18 +335,35 @@ mod tests {
                 .with_commit_certificate(certificate)
                 .encode_wire()
                 .unwrap();
-            assert!(authenticated_local_execution(&changed, &verified, &validators).is_err());
+            assert!(
+                authenticated_local_execution(
+                    &changed,
+                    &verified,
+                    &validators,
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
+                )
+                .is_err()
+            );
         }
         let mut changed = bytes;
         changed.push(0);
-        assert!(authenticated_local_execution(&changed, &verified, &validators).is_err());
+        assert!(
+            authenticated_local_execution(
+                &changed,
+                &verified,
+                &validators,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
+            )
+            .is_err()
+        );
         let mut changed = validators;
         changed.swap(0, 1);
         assert!(
             authenticated_local_execution(
                 &verified.block().encode_wire().unwrap(),
                 &verified,
-                &changed
+                &changed,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
             )
             .is_err()
         );

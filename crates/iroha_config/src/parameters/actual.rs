@@ -81,8 +81,7 @@ use std::{
 mod actual_soranet_handshake_debug;
 mod kagemusha_enrollment;
 pub use kagemusha_enrollment::{
-    KagemushaEnrollmentGoogle, KagemushaEnrollmentIssuer, KagemushaEnrollmentProvider,
-    KagemushaEnrollmentWorker,
+    KagemushaEnrollmentIssuer, KagemushaEnrollmentProvider, KagemushaEnrollmentWorker,
 };
 mod sccp;
 #[path = "actual_sorafs_reputation.rs"]
@@ -97,10 +96,10 @@ use norito::{
     streaming::EntropyMode,
 };
 pub use sccp::{
-    SCCP_MAX_SECRET_HEADER_NAME_BYTES, SCCP_RESERVED_SECRET_HEADER_NAMES, SccpAttestor,
-    SccpEndpointError, SccpLightClientKeeper, SccpLightClientKeeperEndpoints, SccpNode,
-    SccpSecretHeader, SccpTonLiteserver, compiled_http_endpoints, compiled_ton_liteservers,
-    derived_bridge_key_dir, parse_sccp_http_endpoint, parse_sccp_secret_header_name,
+    SCCP_MAX_SECRET_HEADER_NAME_BYTES, SCCP_RESERVED_SECRET_HEADER_NAMES, SccpEndpointError,
+    SccpKeeper, SccpLightClientKeeper, SccpLightClientKeeperEndpoints, SccpNode, SccpSecretHeader,
+    SccpTonLiteserver, compiled_http_endpoints, compiled_ton_liteservers, derived_keeper_key_dir,
+    parse_sccp_http_endpoint, parse_sccp_secret_header_name,
 };
 pub use sorafs_reputation::{
     SorafsReputationFinalizedArchiveRetentionAuthority, SorafsReputationRuntime,
@@ -198,7 +197,7 @@ pub struct Root<G = Genesis> {
     pub settlement: Settlement,
     /// Streaming configuration (control-plane key material).
     pub streaming: Streaming,
-    /// Node-local SCCP attestor and light-client keeper.
+    /// Node-local SCCP keeper and its light-client duty.
     pub sccp: SccpNode,
     /// Node data directory, when the configuration uses the fixed `data_dir` layout.
     pub data_dir: Option<DataDir>,
@@ -2735,7 +2734,9 @@ pub struct Governance {
     pub min_turnout: u128,
     /// Alternates retained for each attempt-local Parliament body draw.
     pub parliament_alternate_size: usize,
-    /// Exact future-beacon delay frozen into Parliament sortition requests.
+    /// Minimum future-beacon delay frozen into Parliament attempts. A sortition request targets
+    /// the first consensus-native `NPoS` pulse height at or after its request height plus this
+    /// delay.
     pub parliament_sortition_pulse_delay_blocks: u64,
     /// Consensus block-height span for immutable Parliament invitation responses.
     pub parliament_invitation_phase_blocks: u64,
@@ -10669,10 +10670,6 @@ pub struct Sccp {
     pub max_native_header_bytes_per_transaction: NonZeroU64,
     /// Maximum framed native-finality header bytes committed in one block.
     pub max_native_header_bytes_per_block: NonZeroU64,
-    /// Maximum secp256k1 recoveries in one transaction.
-    pub max_secp256k1_recoveries_per_transaction: NonZeroU32,
-    /// Maximum secp256k1 recoveries committed in one block.
-    pub max_secp256k1_recoveries_per_block: NonZeroU32,
     /// Maximum Ed25519 signature checks in one transaction.
     pub max_ed25519_signature_checks_per_transaction: NonZeroU32,
     /// Maximum Ed25519 signature checks committed in one block.
@@ -10702,10 +10699,6 @@ impl_default!(Sccp => {
                 defaults::zk::sccp::MAX_NATIVE_HEADER_BYTES_PER_TRANSACTION,
             max_native_header_bytes_per_block:
                 defaults::zk::sccp::MAX_NATIVE_HEADER_BYTES_PER_BLOCK,
-            max_secp256k1_recoveries_per_transaction:
-                defaults::zk::sccp::MAX_SECP256K1_RECOVERIES_PER_TRANSACTION,
-            max_secp256k1_recoveries_per_block:
-                defaults::zk::sccp::MAX_SECP256K1_RECOVERIES_PER_BLOCK,
             max_ed25519_signature_checks_per_transaction:
                 defaults::zk::sccp::MAX_ED25519_SIGNATURE_CHECKS_PER_TRANSACTION,
             max_ed25519_signature_checks_per_block:

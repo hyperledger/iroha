@@ -12,13 +12,13 @@ use iroha_core::{
     query::store::LiveQueryStore,
     smartcontracts::isi::sccp::{commitment, light_clients},
     state::{State, StateTransaction, World},
+    sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
 };
 use iroha_crypto::{Algorithm, KeyPair};
 use iroha_data_model::{
     account::AccountId,
     block::BlockHeader,
     sccp::{
-        attestation::{SccpAttestationStatusV1, SccpAttestationSubjectV1},
         control::{SccpControlRecordV1, SccpLeafRefV1, SccpTransferLeafRefV1},
         deployment::{SccpDeploymentV1, SccpEvmDeploymentV1},
         escrow::sccp_xor_route_escrow_account_id_v1,
@@ -31,7 +31,6 @@ use iroha_data_model::{
         },
         outbound::{SccpOutboundMessageRecordV1, SccpOutboundStatusV1, SccpStatusHeightV1},
         registry::{SccpRouteRevisionV1, SccpRouteV1},
-        roster::{SccpBridgeRosterV1, SccpRosterMemberV1},
     },
 };
 use std::num::NonZeroU64;
@@ -111,8 +110,6 @@ fn route(state: &State, next_outbound_nonce: u64) -> SccpRouteV1 {
         }),
         1_000_000,
         1,
-        [0x35; 32],
-        1,
     );
     revision.next_outbound_nonce = next_outbound_nonce;
     revision.next_control_nonce = 2;
@@ -183,26 +180,8 @@ fn inbound_record(height: u64) -> SccpInboundRecordV1 {
     }
 }
 
-fn roster() -> SccpBridgeRosterV1 {
-    SccpBridgeRosterV1 {
-        generation: 1,
-        valid_from_ms: 0,
-        valid_until_ms: 1_209_600_000,
-        activation_height: 1,
-        handoff_height: None,
-        members: (1..=4_u8)
-            .map(|seed| SccpRosterMemberV1 {
-                address: [seed; 20],
-                peer: None,
-            })
-            .collect(),
-        threshold: 3,
-        digest: [1; 32],
-    }
-}
-
-/// A state with route revision 1 of Ethereum, three outbound records (nonce 0 recorded and
-/// attested, nonce 1 recorded, nonce 2 refunded), one inbound record, two controls and an
+/// A state with an injected route revision 1 of Ethereum, three outbound records (nonces 0
+/// and 1 recorded, nonce 2 refunded), one inbound record, two controls and an
 /// Ethereum light client with three checkpoints.
 fn seeded() -> (State, [u8; 32], [u8; 32], u64) {
     let state = blank_state();
@@ -212,7 +191,6 @@ fn seeded() -> (State, [u8; 32], [u8; 32], u64) {
     let route = route(&state, 3);
     seed(&state, |transaction| {
         store::routes::insert(transaction, ETH, route).expect("route");
-        store::rosters::insert(transaction, 1, roster()).expect("roster");
         record_outbound(transaction, 0, 10, SccpOutboundStatusV1::Recorded);
         record_outbound(transaction, 1, 11, SccpOutboundStatusV1::Recorded);
         record_outbound(
@@ -221,32 +199,6 @@ fn seeded() -> (State, [u8; 32], [u8; 32], u64) {
             12,
             SccpOutboundStatusV1::Refunded(SccpStatusHeightV1 { height: 20 }),
         );
-        store::attestation_subjects::insert(
-            transaction,
-            10,
-            SccpAttestationSubjectV1 {
-                height: 10,
-                epoch: 0,
-                timestamp_ms: 40_000,
-                sccp_root: [0; 32],
-                message_count: 1,
-                history_root: [0; 32],
-                history_size: 1,
-                generation: 1,
-                roster_digest: [1; 32],
-                next_roster_digest: [0; 32],
-            },
-        )
-        .expect("subject");
-        store::attestation_status::insert(
-            transaction,
-            10,
-            SccpAttestationStatusV1 {
-                signer_bitmap: 0b111,
-                attested_at_height: Some(11),
-            },
-        )
-        .expect("status");
         store::inbound_messages::insert(transaction, [0x44; 32], inbound_record(15))
             .expect("inbound");
         for (nonce, height) in [(1_u64, 10_u64), (2, 11)] {
@@ -254,11 +206,14 @@ fn seeded() -> (State, [u8; 32], [u8; 32], u64) {
                 transaction,
                 (ETH, 1, nonce),
                 SccpControlRecordV1 {
-                    paused: nonce == 1,
+                    track: 1,
+                    parliament_paused: nonce == 1,
+                    fast_pause_until_ms: 0,
                     height,
                     commitment_index: 1,
                     leaf: [9; 32],
-                    proposal_id: [8; 32],
+                    certificate_id: [8; 32],
+                    effect_hash: [0x45; 32],
                 },
             )
             .expect("control");
@@ -338,31 +293,9 @@ fn numbers_and_directions_parse_with_defaults() {
 }
 
 #[test]
-fn attestation_choices_default_to_own() {
-    assert_eq!(
-        parse_choice(&AttestationQuery::default()).ok(),
-        Some(SccpAttestationChoiceV1::Own)
-    );
-    assert_eq!(
-        parse_choice(&AttestationQuery {
-            attestation: Some("latest".into())
-        })
-        .ok(),
-        Some(SccpAttestationChoiceV1::Latest)
-    );
-    assert!(
-        parse_choice(&AttestationQuery {
-            attestation: Some("soon".into())
-        })
-        .is_err()
-    );
-}
-
-#[test]
 fn read_errors_map_to_http_statuses() {
     for (failure, status) in [
         (SccpReadError::NotFound("x".into()), StatusCode::NOT_FOUND),
-        (SccpReadError::Pending("x".into()), StatusCode::CONFLICT),
         (SccpReadError::Pruned("x".into()), StatusCode::GONE),
         (SccpReadError::Invalid("x".into()), StatusCode::BAD_REQUEST),
     ] {
@@ -423,8 +356,41 @@ async fn immutable_response_validator_refuses_changed_representation_or_body() {
 }
 
 #[tokio::test]
+async fn held_inbound_status_roundtrips_without_terminal_cache_authority() {
+    let state = blank_state();
+    let id = [0x55_u8; 32];
+    let mut record = inbound_record(15);
+    record.status = SccpInboundStatusV1::pending(SccpPendingReasonV1::Held);
+    // Injected DATA tests read/transport behavior only, not evidence or hold authority.
+    seed(&state, |transaction| {
+        store::inbound_messages::insert(transaction, id, record.clone()).expect("held inbound");
+    });
+    let view = state.view();
+    let mut conditional = HeaderMap::new();
+    conditional.insert(header::IF_NONE_MATCH, HeaderValue::from_static("*"));
+    for json in [false, true] {
+        let accept = if json { json_accept() } else { norito_accept() };
+        let response = message_response(&view, &hex::encode(id), Some(&accept), &conditional);
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "a held record cannot yield 304"
+        );
+        assert!(response.headers().get(header::ETAG).is_none());
+        let bytes = body(response).await;
+        let decoded: SccpMessageStatusV1 = if json {
+            norito::json::from_slice(&bytes).expect("held JSON")
+        } else {
+            norito::decode_from_bytes(&bytes).expect("held Norito")
+        };
+        assert_eq!(decoded.inbound().map(|view| &view.record), Some(&record));
+        assert!(!decoded.is_final());
+    }
+}
+
+#[tokio::test]
 async fn message_route_serves_the_status_union() {
-    let (state, recorded_attested, refunded, _) = seeded();
+    let (state, first_recorded, refunded, _) = seeded();
     let view = state.view();
     let accept = norito_accept();
     let headers = HeaderMap::new();
@@ -436,21 +402,15 @@ async fn message_route_serves_the_status_union() {
     ))
     .await;
     assert_eq!(unknown, SccpMessageStatusV1::Unknown);
-    let attested = message_response(
-        &view,
-        &hex::encode(recorded_attested),
-        Some(&accept),
-        &headers,
-    );
+    let first = message_response(&view, &hex::encode(first_recorded), Some(&accept), &headers);
     assert!(
-        attested.headers().get(header::ETAG).is_none(),
+        first.headers().get(header::ETAG).is_none(),
         "a recorded state can still change"
     );
-    let attested: SccpMessageStatusV1 = decode(attested).await;
+    let first: SccpMessageStatusV1 = decode(first).await;
     assert!(matches!(
-        attested.outbound().map(|view| view.state),
-        Some(SccpOutboundStateV1::Attested(progress))
-            if progress.subject_height == 10 && progress.signers == 3 && progress.threshold == 3
+        first.outbound().map(|view| view.state),
+        Some(SccpOutboundStateV1::Recorded(state)) if state.deadline_ms == 9_000
     ));
     let recorded: SccpMessageStatusV1 = decode(message_response(
         &view,
@@ -601,7 +561,7 @@ async fn recent_route_pages_both_directions() {
 }
 
 #[tokio::test]
-async fn controls_route_reports_attestation_progress() {
+async fn controls_route_preserves_committed_records_and_nonce_order() {
     let (state, ..) = seeded();
     let view = state.view();
     let accept = norito_accept();
@@ -615,9 +575,12 @@ async fn controls_route_reports_attestation_progress() {
     .await;
     assert_eq!(page.next_control_nonce, 2);
     assert_eq!(page.controls.len(), 2);
-    assert!(page.controls[0].attestation.is_attested());
-    assert!(!page.controls[1].attestation.is_attested());
-    assert!(page.controls[0].record.paused);
+    assert_eq!(page.controls[0].control_nonce, 1);
+    assert_eq!(page.controls[0].record.height, 10);
+    assert_eq!(page.controls[1].control_nonce, 2);
+    assert_eq!(page.controls[1].record.height, 11);
+    assert!(!page.controls[1].record.parliament_paused);
+    assert!(page.controls[0].record.parliament_paused);
     let after: SccpControlPageV1 = decode(controls_response(
         &view,
         "ethereum-mainnet",
@@ -770,33 +733,10 @@ async fn history_route_serves_logarithmic_paths_with_validators() {
 }
 
 #[tokio::test]
-async fn proof_and_governance_routes_report_missing_records() {
+async fn governance_route_reports_missing_records_and_malformed_ids() {
     let (state, ..) = seeded();
     let view = state.view();
     let accept = norito_accept();
-    let headers = HeaderMap::new();
-    assert_eq!(
-        error_code(message_proof_response(
-            &view,
-            &"99".repeat(32),
-            &AttestationQuery::default(),
-            Some(&accept),
-            &headers,
-        ))
-        .await,
-        (StatusCode::NOT_FOUND, "sccp_not_found".to_owned())
-    );
-    assert_eq!(
-        error_code(control_proof_response(
-            &view,
-            ("ethereum-mainnet", 1, 9),
-            &AttestationQuery::default(),
-            Some(&accept),
-            &headers,
-        ))
-        .await,
-        (StatusCode::NOT_FOUND, "sccp_not_found".to_owned())
-    );
     assert_eq!(
         error_code(governance_proposal_response(
             &view,
@@ -814,11 +754,20 @@ async fn proof_and_governance_routes_report_missing_records() {
 
 #[tokio::test]
 async fn capabilities_list_paths_profiles_and_limits() {
-    let state = blank_state();
-    let capabilities: SccpCapabilitiesV1 =
-        decode(capabilities_response(&state.view(), Some(&norito_accept()))).await;
+    let chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000))
+        .expect("genuine Global genesis");
+    let capabilities: SccpCapabilitiesV1 = decode(capabilities_response(
+        &chain.state().view(),
+        Some(&norito_accept()),
+    ))
+    .await;
+    assert_eq!(capabilities.consensus_instance, chain.instance().0);
+    assert_eq!(
+        capabilities.finality,
+        read::api::SccpFinalityConstantsV1::current()
+    );
     assert_eq!(capabilities.limits, SccpReadLimitsV1::v1());
-    assert_eq!(capabilities.profiles.len(), 4);
+    assert_eq!(capabilities.profiles.len(), 3);
     for route in iroha_torii_shared::route_catalog::sccp::ROUTES {
         assert!(
             capabilities
@@ -834,6 +783,73 @@ async fn capabilities_list_paths_profiles_and_limits() {
             .path_templates
             .iter()
             .any(|path| path == "/v1/sccp/light-clients/{network}/checkpoints")
+    );
+}
+
+#[tokio::test]
+async fn capabilities_advertise_native_proofs_and_reject_retired_rosters() {
+    let chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000))
+        .expect("genuine Global genesis");
+    let capabilities: SccpCapabilitiesV1 = decode(capabilities_response(
+        &chain.state().view(),
+        Some(&norito_accept()),
+    ))
+    .await;
+    assert_eq!(capabilities.consensus_instance, chain.instance().0);
+    assert_eq!(
+        capabilities.finality,
+        read::api::SccpFinalityConstantsV1::current()
+    );
+    for native in [
+        iroha_torii_shared::route_catalog::sccp::MESSAGE_PROOF,
+        iroha_torii_shared::route_catalog::sccp::CONTROL_PROOF,
+        iroha_torii_shared::route_catalog::sccp::FINALITY,
+        iroha_torii_shared::route_catalog::sccp::CURRENT_COMMITTEE,
+        iroha_torii_shared::route_catalog::sccp::COMMITTEE,
+        iroha_torii_shared::route_catalog::sccp::COMMITTEE_ROTATIONS,
+    ] {
+        assert!(
+            capabilities
+                .path_templates
+                .iter()
+                .any(|path| path == native.path()),
+            "native read route is not advertised: {}",
+            native.path()
+        );
+    }
+    for retired in [
+        "/v1/sccp/rosters/current",
+        "/v1/sccp/rosters/rotations",
+        "/v1/sccp/rosters/{generation}",
+    ] {
+        assert!(
+            !capabilities
+                .path_templates
+                .iter()
+                .any(|path| path == retired),
+            "retired certificate transport remains advertised: {retired}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn capabilities_keep_unavailable_and_unsupported_scope_distinct() {
+    let state = blank_state();
+    assert_eq!(
+        error_code(capabilities_response(&state.view(), Some(&norito_accept()))).await,
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "sccp_unavailable".to_owned()
+        )
+    );
+    // Core's genuine private-root control covers authority selection; this checks only
+    // the shared endpoint's distinct mapping, without fabricating an execution tip.
+    assert_eq!(
+        error_code(read_error(&SccpReadError::UnsupportedScope)).await,
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "route_unavailable".to_owned()
+        )
     );
 }
 
@@ -883,14 +899,6 @@ async fn numeric_query_values_reach_the_handlers_as_text() {
         .await
         .expect("history query");
     assert_eq!(history.size.as_deref(), Some("16"));
-    let attestation: AttestationQuery = extract_query("/v1/sccp/messages/00/proof?attestation=42")
-        .await
-        .expect("attestation query");
-    assert_eq!(attestation.attestation.as_deref(), Some("42"));
-    let rotation: RotationQuery = extract_query("/v1/sccp/rotations?after_generation=3&limit=4")
-        .await
-        .expect("rotation query");
-    assert_eq!(rotation.after_generation.as_deref(), Some("3"));
     assert_eq!(
         extract_query::<OutboundQuery>(
             "/v1/sccp/outbound/ethereum-mainnet/1?from_nonce=1&from_nonce=2"

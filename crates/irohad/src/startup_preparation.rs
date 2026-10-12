@@ -282,7 +282,9 @@ impl PreparedStartup {
                     [],
                     &state_execution_budget,
                 )
-                .map_err(|error| Report::new(error).change_context(StartError::InitKura))?;
+                .map_err(|error: iroha_core::state::WorldConstructionError| {
+                    Report::new(error).change_context(StartError::InitKura)
+                })?;
                 if let Some(genesis_block) = effective_genesis {
                     iroha_core::sns::seed_genesis_alias_bootstrap(
                         &mut world,

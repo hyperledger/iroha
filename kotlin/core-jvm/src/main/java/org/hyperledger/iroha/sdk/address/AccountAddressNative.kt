@@ -51,6 +51,6 @@ internal object AccountAddressNative {
 
     private fun unavailable() = AccountAddressException(
         AccountAddressErrorCode.NATIVE_BRIDGE_UNAVAILABLE,
-        "Account addresses require the complete ABI-28 Rust address validator from connect_norito_bridge",
+        "Account addresses require the complete ABI-29 Rust address validator from connect_norito_bridge",
     )
 }

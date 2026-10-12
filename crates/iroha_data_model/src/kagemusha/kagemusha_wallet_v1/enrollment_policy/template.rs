@@ -9,7 +9,7 @@ use super::*;
 /// The independent release/configuration owner authenticates this complete original.
 /// A decoded template grants no registration, eligibility, attestation or signing authority.
 /// Concrete policies remain bound to one exact asset; no wildcard enters a credential or proof.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletEnrollmentPolicyTemplateV1"
 )]
@@ -20,7 +20,7 @@ pub struct KagemushaWalletEnrollmentPolicyTemplateV1 {
     pub scheme_id: [u8; 32],
     /// Exact selected app-policy digest.
     pub app_policy: [u8; 32],
-    /// Mandatory platform verifier inputs, including the original root pin.
+    /// Mandatory platform verifier inputs: the Android root set or the Apple root pin.
     pub platform: KagemushaWalletEnrollmentPlatformV1,
     /// Selected controls, unchanged for every derived concrete asset policy.
     pub regulatory_policy: KagemushaWalletRegulatoryPolicyV1,
@@ -50,37 +50,7 @@ impl KagemushaWalletEnrollmentPolicyTemplateV1 {
                 "enrollment_policy.attestation_lease_lifetime_ms",
             ));
         }
-        match self.platform {
-            KagemushaWalletEnrollmentPlatformV1::Android {
-                attestation_root_sha256,
-                patch_floor_yyyymm,
-                play_integrity_maximum_age_ms,
-                ..
-            } => {
-                require_nonzero_v1(
-                    "enrollment_policy.attestation_root_sha256",
-                    &attestation_root_sha256,
-                )?;
-                let year = patch_floor_yyyymm / 100;
-                let month = patch_floor_yyyymm % 100;
-                if !(1900..=9999).contains(&year) || !(1..=12).contains(&month) {
-                    return Err(invalid_v1("enrollment_policy.patch_floor_yyyymm"));
-                }
-                if play_integrity_maximum_age_ms == 0
-                    || play_integrity_maximum_age_ms > self.challenge_lifetime_ms
-                {
-                    return Err(invalid_v1(
-                        "enrollment_policy.play_integrity_maximum_age_ms",
-                    ));
-                }
-            }
-            KagemushaWalletEnrollmentPlatformV1::Apple {
-                attestation_root_sha256,
-            } => require_nonzero_v1(
-                "enrollment_policy.attestation_root_sha256",
-                &attestation_root_sha256,
-            )?,
-        }
+        self.platform.validate()?;
         Ok(())
     }
 
@@ -99,7 +69,7 @@ impl KagemushaWalletEnrollmentPolicyTemplateV1 {
             return Err(invalid_v1("enrollment_policy.app_policy"));
         }
         if !matches!(
-            (&app.identity, self.platform),
+            (&app.identity, &self.platform),
             (
                 KagemushaWalletAppIdentityV1::Android { .. },
                 KagemushaWalletEnrollmentPlatformV1::Android { .. }
@@ -127,7 +97,7 @@ impl KagemushaWalletEnrollmentPolicyTemplateV1 {
             scheme_id: self.scheme_id,
             asset_digest: asset.asset_digest(),
             app_policy: self.app_policy,
-            platform: self.platform,
+            platform: self.platform.clone(),
             regulatory_policy: self.regulatory_policy,
             challenge_lifetime_ms: self.challenge_lifetime_ms,
             attestation_lease_lifetime_ms: self.attestation_lease_lifetime_ms,

@@ -1,423 +1,256 @@
-//! Parliament destination controls (spec §4.14.6, §5.1.6, §7.1 steps 2 and 5, §7.4).
+//! Native Parliament and fast-pause controls and wallet scheduling (§5.1.6, §7.1).
 //!
-//! The minting pause of a destination changes only through control leaves that the Parliament
-//! enacts on Taira and anyone applies with `applyControl` once the enacting block is attested.
-//! The destination accepts a control only with a nonce above its last applied one, so only the
-//! newest control matters. This module holds the two wallet decisions of §7.1 and the local
-//! verification of a control proof bundle:
-//!
-//! - [`check_may_record`] (step 2): refuse to record a transfer while the newest control, taken
-//!   over the destination's `controlNonce()`/`mintingPaused()` and Taira's newest control
-//!   (recorded or attested), is a pause. A resume that Taira recorded but nobody applied yet
-//!   does not refuse, because step 5 applies it before finalizing.
-//! - [`plan_before_finalize`] (step 5): apply Taira's newest control first when its nonce is
-//!   above the destination's, wait while it is not attested, and never finalize on a paused
-//!   destination. Wallet software must not skip this step.
-//! - [`verify_control_bundle`]: the attestation, roster, acceptance and signature checks of
-//!   [`super::bundle`], the bundle's network and revision equal to the deployment's, the control
-//!   leaf computed from the deployment's own immutables and the bundle's nonce and pause flag
-//!   (never taken from the bundle), its Merkle path directly or through the history root, and a
-//!   nonce above the destination's (a stale control would revert with `StaleControl()`).
+//! Planning uses coherent destination time and the higher control nonce. It never treats a
+//! Torii readiness label as certificate verification: applying a control requires the native
+//! proof preflight below. Fast pause expiry remains distinct from Parliament pause.
 
-use core::fmt;
-
+use super::bundle::{BundleError, BundleSourceV1, VerifiedSourceV1};
 use iroha_sccp::{
     api::SccpControlProofBundleV1,
-    v1::proof::{ControlProofV1, HistoryProofV1, verify_control_direct, verify_control_historical},
+    v1::destination::{
+        CertificateSourceV1, ControlProofV1, DestinationObservationV1, PauseStateV1,
+    },
 };
 
-use super::bundle::{BundleError, DestinationContextV1, VerifiedAttestationV1, verify_attested};
-
-/// The destination's applied control state (`controlNonce()`, `mintingPaused()`).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct DestinationControlStateV1 {
-    /// Nonce of the last applied control, 0 before the first.
-    pub control_nonce: u64,
-    /// Whether minting is paused.
-    pub minting_paused: bool,
-}
-
-/// Taira's newest control for the deployment (`GET /v1/sccp/controls/{network}/{revision}`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Latest Taira control information used only to schedule a subsequent proof fetch.
+/// The caller must bind it to its selected network/revision; it is not finality evidence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TairaControlV1 {
-    /// Control nonce.
+    /// Strictly increasing control nonce.
     pub control_nonce: u64,
-    /// Pause (`true`) or resume (`false`).
-    pub paused: bool,
-    /// Whether the enacting block is attested, so the control can be applied.
-    pub attested: bool,
+    /// Parliament's persistent pause bit after the control.
+    pub parliament_paused: bool,
+    /// Fast-pause expiry after the control, or zero.
+    pub fast_pause_until_ms: u64,
+    /// Whether a native certificate is available to fetch, not whether it is trusted.
+    pub provable: bool,
 }
-
-/// Where the newest control comes from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+impl TairaControlV1 {
+    /// Whether the control leaves minting paused at the coherent destination time.
+    #[must_use]
+    pub const fn effective(&self, now_ms: u64) -> bool {
+        self.parliament_paused || now_ms < self.fast_pause_until_ms
+    }
+}
+/// Where the higher control nonce was observed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ControlSourceV1 {
-    /// The destination's own applied state is the newest.
+    /// Destination's current applied state.
     Destination,
-    /// Taira holds a newer control that the destination has not applied.
+    /// A newer recorded Taira control.
     Taira,
 }
-
-/// The newest control over the destination and Taira (§7.1 step 2).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Newest control at the destination observation's time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NewestControlV1 {
-    /// Its nonce.
+    /// Higher nonce (ties retain the destination's applied state).
     pub control_nonce: u64,
-    /// Whether it pauses minting.
+    /// Whether that control currently pauses minting.
     pub paused: bool,
-    /// Where it comes from.
+    /// Source of the selected control.
     pub source: ControlSourceV1,
 }
-
-/// The newest of the destination's applied control and Taira's newest control.
+/// Select the higher nonce without collapsing Parliament and fast-pause expiry.
 #[must_use]
 pub fn newest_control(
-    destination: &DestinationControlStateV1,
+    observation: &DestinationObservationV1,
     taira: Option<&TairaControlV1>,
 ) -> NewestControlV1 {
+    let destination = observation.pause();
     match taira {
         Some(taira) if taira.control_nonce > destination.control_nonce => NewestControlV1 {
             control_nonce: taira.control_nonce,
-            paused: taira.paused,
+            paused: taira.effective(observation.now_ms()),
             source: ControlSourceV1::Taira,
         },
         _ => NewestControlV1 {
             control_nonce: destination.control_nonce,
-            paused: destination.minting_paused,
+            paused: destination.effective,
             source: ControlSourceV1::Destination,
         },
     }
 }
-
-/// Why a transfer must not be recorded (§7.1 step 2).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// A newer control currently pauses minting, so recording must wait.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NewestControlIsPause {
-    /// The pausing control.
+    /// The control that prevents recording.
     pub newest: NewestControlV1,
 }
-
-impl fmt::Display for NewestControlIsPause {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl core::fmt::Display for NewestControlIsPause {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
-            formatter,
+            f,
             "the newest destination control (nonce {}) pauses minting",
             self.newest.control_nonce
         )
     }
 }
-
 impl std::error::Error for NewestControlIsPause {}
-
-/// §7.1 step 2: refuse to record a transfer while the newest control is a pause.
+/// Refuse recording while the highest control nonce currently leaves minting paused.
 ///
 /// # Errors
-///
-/// Returns [`NewestControlIsPause`].
+/// Returns the selected pausing control.
 pub fn check_may_record(
-    destination: &DestinationControlStateV1,
+    observation: &DestinationObservationV1,
     taira: Option<&TairaControlV1>,
 ) -> Result<(), NewestControlIsPause> {
-    let newest = newest_control(destination, taira);
+    let newest = newest_control(observation, taira);
     if newest.paused {
         Err(NewestControlIsPause { newest })
     } else {
         Ok(())
     }
 }
-
-/// What must happen on the destination before a finalization (§7.1 step 5).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Required scheduling before any finalization; this is not certificate admission.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PreFinalizeActionV1 {
-    /// The destination is up to date and minting: finalize.
+    /// No newer control and the destination currently permits minting.
     Finalize,
-    /// Apply Taira's newer, attested control first; finalize afterwards only if it resumes.
+    /// Fetch and verify a native proof, then apply the newer control before finalizing.
     ApplyControl {
-        /// The control to apply.
+        /// Control to prove and apply.
         control_nonce: u64,
-        /// Whether it pauses minting (then the finalization stops and the message is refunded
-        /// through a void after its deadline).
+        /// Whether it currently pauses minting.
         paused: bool,
     },
-    /// Taira's newer control is not attested yet: wait, then apply it.
-    AwaitAttestation {
-        /// The pending control.
+    /// A newer recorded control has no available native certificate yet.
+    AwaitCertificate {
+        /// Pending control nonce.
         control_nonce: u64,
-        /// Whether it pauses minting.
+        /// Whether it currently pauses minting.
         paused: bool,
     },
-    /// The destination is up to date and paused: do not finalize.
+    /// Up-to-date destination remains paused.
     Paused,
 }
-
-/// §7.1 step 5: decide what must happen before `finalizeFromTaira*`.
+/// Never skip a newer control; a pending resume must also be applied before minting.
 #[must_use]
 pub fn plan_before_finalize(
-    destination: &DestinationControlStateV1,
+    observation: &DestinationObservationV1,
     taira: Option<&TairaControlV1>,
 ) -> PreFinalizeActionV1 {
-    match taira {
-        Some(taira) if taira.control_nonce > destination.control_nonce => {
-            if taira.attested {
-                PreFinalizeActionV1::ApplyControl {
-                    control_nonce: taira.control_nonce,
-                    paused: taira.paused,
-                }
-            } else {
-                PreFinalizeActionV1::AwaitAttestation {
-                    control_nonce: taira.control_nonce,
-                    paused: taira.paused,
-                }
+    let newest = newest_control(observation, taira);
+    if let Some(taira) = taira.filter(|_| newest.source == ControlSourceV1::Taira) {
+        if taira.provable {
+            PreFinalizeActionV1::ApplyControl {
+                control_nonce: newest.control_nonce,
+                paused: newest.paused,
+            }
+        } else {
+            PreFinalizeActionV1::AwaitCertificate {
+                control_nonce: newest.control_nonce,
+                paused: newest.paused,
             }
         }
-        _ if destination.minting_paused => PreFinalizeActionV1::Paused,
-        _ => PreFinalizeActionV1::Finalize,
+    } else if newest.paused {
+        PreFinalizeActionV1::Paused
+    } else {
+        PreFinalizeActionV1::Finalize
     }
 }
 
-/// Why a control bundle cannot be applied.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ControlBundleError {
-    /// The bundle names another network or revision than the deployment.
-    WrongDeployment,
-    /// The attestation, roster or signatures fail (see [`BundleError`]).
-    Attestation(BundleError),
-    /// The control nonce is not above the destination's `controlNonce()` (the call would
-    /// revert with `StaleControl()`).
-    Stale,
-}
-
-impl fmt::Display for ControlBundleError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::WrongDeployment => formatter.write_str(
-                "control bundle targets another network or revision than the deployment",
-            ),
-            Self::Attestation(error) => write!(formatter, "control bundle: {error}"),
-            Self::Stale => formatter
-                .write_str("the control nonce is not above the destination's applied nonce"),
-        }
-    }
-}
-
-impl std::error::Error for ControlBundleError {}
-
-impl From<BundleError> for ControlBundleError {
-    fn from(error: BundleError) -> Self {
-        Self::Attestation(error)
-    }
-}
-
-/// A control bundle verified for one deployment.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Immutable verified control call and its projected pause after the native expiry clamp.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerifiedControlBundleV1 {
-    /// The accepted attestation with trimmed signatures.
-    pub attested: VerifiedAttestationV1,
-    /// `ControlProofV1` for the calldata.
-    pub control: ControlProofV1,
-    /// `HistoryProofV1` in historical mode.
-    pub history: Option<HistoryProofV1>,
-    /// The control leaf computed from the deployment's immutables.
-    pub leaf: [u8; 32],
+    network: iroha_data_model::bridge::SccpNetworkV1,
+    source: VerifiedSourceV1,
+    proof: ControlProofV1,
+    after: PauseStateV1,
+    historical: bool,
 }
-
 impl VerifiedControlBundleV1 {
-    /// Whether the control is proven through the history root.
+    /// Destination profile actually authenticated by the proof preflight.
     #[must_use]
-    pub fn is_historical(&self) -> bool {
-        self.history.is_some()
+    pub const fn network(&self) -> iroha_data_model::bridge::SccpNetworkV1 {
+        self.network
     }
 
-    /// Whether a finalization may follow once the control is applied (it resumes minting).
+    /// Exact native certificate or checkpoint reference.
     #[must_use]
-    pub fn finalize_allowed_after_apply(&self) -> bool {
-        !self.control.paused
+    pub fn source(&self) -> CertificateSourceV1<'_> {
+        self.source.borrow()
+    }
+    /// Exact complete native control proof.
+    #[must_use]
+    pub const fn proof(&self) -> &ControlProofV1 {
+        &self.proof
+    }
+    /// Whether the control block precedes the certified header.
+    #[must_use]
+    pub const fn is_historical(&self) -> bool {
+        self.historical
+    }
+    /// Projected pause at the observation's time, including the fast-pause clamp.
+    #[must_use]
+    pub const fn after(&self) -> PauseStateV1 {
+        self.after
+    }
+    /// Whether the successfully applied control leaves minting enabled at that time.
+    #[must_use]
+    pub const fn finalize_allowed_after_apply(&self) -> bool {
+        !self.after.effective
     }
 }
-
-/// Verify a control bundle for the deployment in `context` whose applied control state is
-/// `applied` (§5.1.6 steps 2–4).
+/// Verify the route-bound complete control leaf through the shared native destination checks.
+/// The observation supplies the nonce and both pause mechanisms; no second mutable state
+/// argument can contradict it.
 ///
 /// # Errors
-///
-/// Returns the first failing [`ControlBundleError`].
+/// Returns a label/shape error, missing observation or the exact native proof refusal.
 pub fn verify_control_bundle(
     bundle: &SccpControlProofBundleV1,
-    context: &DestinationContextV1,
-    applied: &DestinationControlStateV1,
-) -> Result<VerifiedControlBundleV1, ControlBundleError> {
-    bundle.check_shape().map_err(BundleError::Shape)?;
-    if bundle.network != context.destination.network
-        || bundle.revision != context.destination.route_revision
-    {
-        return Err(ControlBundleError::WrongDeployment);
-    }
-    let attested = verify_attested(
-        &bundle.statement,
-        &bundle.digest,
-        &bundle.roster,
-        &bundle.signatures,
-        context,
-    )?;
-    let attestation = &attested.signed.attestation;
-    let control = bundle.control_proof();
-    let history = bundle.history_proof();
-    let leaf = match &history {
-        None => {
-            if bundle.message_count != attestation.message_count {
-                return Err(BundleError::MessageCountMismatch.into());
-            }
-            verify_control_direct(
-                attestation,
-                &control,
-                &context.taira_network_id,
-                &context.destination,
-            )
-            .map_err(BundleError::Proof)?
-        }
-        Some(history) => {
-            if bundle.message_count != history.block.message_count {
-                return Err(BundleError::MessageCountMismatch.into());
-            }
-            verify_control_historical(
-                attestation,
-                history,
-                &control,
-                &context.taira_network_id,
-                &context.destination,
-            )
-            .map_err(BundleError::Proof)?
-        }
-    };
-    if control.control_nonce <= applied.control_nonce {
-        return Err(ControlBundleError::Stale);
-    }
+    observation: &DestinationObservationV1,
+    source: BundleSourceV1,
+) -> Result<VerifiedControlBundleV1, BundleError> {
+    let deployment = observation.deployment();
+    let proof = bundle.control_proof(deployment.network, deployment.route_revision)?;
+    let source = VerifiedSourceV1::from_bundle(&bundle.certificate, source)?;
+    let after = observation.preflight_control(source.borrow(), &proof)?;
     Ok(VerifiedControlBundleV1 {
-        attested,
-        control,
-        history,
-        leaf,
+        network: observation.deployment().network,
+        source,
+        proof,
+        after,
+        historical: bundle.is_historical(),
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use iroha_data_model::{bridge::SccpNetworkV1, sccp::attestation::SccpAttestationStatementV1};
-    use iroha_sccp::{
-        api::{SccpRosterViewV1, SccpSignatureSetV1},
-        v1::{
-            eip712::AttestationFieldsV1,
-            hashes::{control_leaf, keccak256, word_address},
-            merkle::PromoteOddTree,
-            proof::{DestinationV1, ProofError},
-            roster::{RosterStateV1, RosterV1},
-            signature::{SignatureSetV1, address_of_secret, sign_digest},
-        },
-    };
-
+    use super::super::test_support::{Fixture, NOW, reads};
     use super::*;
-
-    const TAIRA: [u8; 32] = [0x11; 32];
-    const T0: u64 = 1_800_000_000_000;
-
-    fn secret(index: u8) -> [u8; 32] {
-        keccak256(&[b"SCCP/WALLET/CONTROL/TEST", &[index]])
-    }
-
-    fn deployment(revision: u32) -> DestinationV1 {
-        DestinationV1 {
-            network: SccpNetworkV1::BscMainnet,
-            route_revision: revision,
-            destination_word: word_address(&[0x22; 20]),
+    use iroha_sccp::v1::destination::{DestinationError, DestinationFlavor, PreflightError};
+    use std::collections::BTreeMap;
+    fn control(nonce: u64, paused: bool, provable: bool) -> TairaControlV1 {
+        TairaControlV1 {
+            control_nonce: nonce,
+            parliament_paused: paused,
+            fast_pause_until_ms: 0,
+            provable,
         }
     }
-
-    fn fixture() -> (SccpControlProofBundleV1, DestinationContextV1) {
-        let mut members: Vec<[u8; 20]> = (0..4)
-            .map(|index| address_of_secret(&secret(index)).expect("secret"))
-            .collect();
-        members.sort_unstable();
-        let roster = RosterV1 {
-            generation: 1,
-            valid_from_ms: T0,
-            valid_until_ms: T0 + 86_400_000,
-            members,
-        };
-        let destination = deployment(2);
-        let leaf = control_leaf(
-            &TAIRA,
-            destination.network,
-            &destination.destination_word,
-            2,
-            4,
-            true,
+    fn observed(paused: bool) -> DestinationObservationV1 {
+        let f = Fixture::new(DestinationFlavor::Evm);
+        let initial = f.observation(NOW, BTreeMap::new());
+        f.observation_with(
+            NOW,
+            *initial.committee(),
+            BTreeMap::new(),
+            PauseStateV1 {
+                control_nonce: 3,
+                parliament_paused: paused,
+                fast_pause_until_ms: 0,
+                effective: paused,
+            },
         )
-        .expect("leaf");
-        let tree = PromoteOddTree::block(&[[0x05; 32], leaf]).expect("tree");
-        let statement = SccpAttestationStatementV1 {
-            height: 9,
-            epoch: 0,
-            timestamp_ms: T0 + 500,
-            block_hash: [0x99; 32],
-            sccp_root: tree.root(),
-            message_count: 2,
-            history_root: [0x88; 32],
-            history_size: 4,
-            roster_digest: roster.digest(&TAIRA).expect("digest"),
-            next_roster_digest: [0; 32],
-        };
-        let digest = AttestationFieldsV1::from(statement).digest(&TAIRA);
-        let entries: Vec<(usize, [u8; 65])> = (0..3)
-            .map(|key| {
-                let address = address_of_secret(&secret(key)).expect("secret");
-                let index = roster
-                    .members
-                    .iter()
-                    .position(|member| *member == address)
-                    .expect("member");
-                (index, sign_digest(&secret(key), &digest).expect("sign"))
-            })
-            .collect();
-        let set = SignatureSetV1::from_signers(roster.n(), &entries).expect("set");
-        let bundle = SccpControlProofBundleV1 {
-            network: destination.network,
-            revision: 2,
-            control_nonce: 4,
-            paused: true,
-            leaf_index: 1,
-            message_count: 2,
-            path: tree.path(1).expect("path"),
-            statement,
-            digest,
-            roster: SccpRosterViewV1::from_roster(&roster, &TAIRA).expect("view"),
-            signatures: SccpSignatureSetV1::try_from(&set).expect("view"),
-            history: None,
-        };
-        let context = DestinationContextV1 {
-            taira_network_id: TAIRA,
-            destination,
-            roster_state: RosterStateV1::initial(&roster, &TAIRA, T0).expect("state"),
-            now_ms: T0 + 1_000,
-        };
-        (bundle, context)
     }
-
     #[test]
-    fn newest_control_prefers_the_higher_nonce() {
-        let destination = DestinationControlStateV1 {
-            control_nonce: 3,
-            minting_paused: false,
-        };
-        let newer = TairaControlV1 {
-            control_nonce: 4,
-            paused: true,
-            attested: false,
-        };
-        let older = TairaControlV1 {
-            control_nonce: 3,
-            paused: true,
-            attested: true,
-        };
+    fn newest_control_prefers_higher_nonce_and_keeps_pause_expiry() {
+        let view = observed(false);
+        let newer = control(4, true, false);
+        let equal = control(3, true, true);
         assert_eq!(
-            newest_control(&destination, Some(&newer)),
+            newest_control(&view, Some(&newer)),
             NewestControlV1 {
                 control_nonce: 4,
                 paused: true,
@@ -425,152 +258,104 @@ mod tests {
             }
         );
         assert_eq!(
-            newest_control(&destination, Some(&older)).source,
+            newest_control(&view, Some(&equal)).source,
             ControlSourceV1::Destination
         );
-        assert_eq!(
-            newest_control(&destination, None).source,
-            ControlSourceV1::Destination
+        assert!(!newest_control(&view, None).paused);
+        let fast = TairaControlV1 {
+            parliament_paused: false,
+            fast_pause_until_ms: NOW,
+            ..newer
+        };
+        assert!(!newest_control(&view, Some(&fast)).paused);
+        assert!(
+            newest_control(
+                &view,
+                Some(&TairaControlV1 {
+                    fast_pause_until_ms: NOW + 1,
+                    ..fast
+                })
+            )
+            .paused
         );
     }
-
     #[test]
-    fn recording_is_refused_only_behind_a_newest_pause() {
-        let running = DestinationControlStateV1 {
-            control_nonce: 1,
-            minting_paused: false,
-        };
-        let paused = DestinationControlStateV1 {
-            control_nonce: 1,
-            minting_paused: true,
-        };
-        let pending_pause = TairaControlV1 {
-            control_nonce: 2,
-            paused: true,
-            attested: false,
-        };
-        let pending_resume = TairaControlV1 {
-            control_nonce: 2,
-            paused: false,
-            attested: false,
-        };
-        assert!(check_may_record(&running, None).is_ok());
-        assert!(check_may_record(&running, Some(&pending_pause)).is_err());
-        assert!(check_may_record(&paused, None).is_err());
-        assert!(check_may_record(&paused, Some(&pending_resume)).is_ok());
-        let error = check_may_record(&paused, None).expect_err("paused");
-        assert!(error.to_string().contains("nonce 1"));
+    fn recording_is_refused_only_behind_newest_effective_pause() {
+        assert!(check_may_record(&observed(true), None).is_err());
+        assert!(check_may_record(&observed(false), None).is_ok());
+        assert!(check_may_record(&observed(false), Some(&control(4, true, false))).is_err());
+        assert!(check_may_record(&observed(true), Some(&control(4, false, false))).is_ok());
+        assert!(check_may_record(&observed(true), Some(&control(3, false, true))).is_err());
+        assert!(
+            check_may_record(&observed(true), None)
+                .unwrap_err()
+                .to_string()
+                .contains("nonce 3")
+        );
     }
-
     #[test]
-    fn finalization_applies_newer_controls_first() {
-        let running = DestinationControlStateV1 {
-            control_nonce: 1,
-            minting_paused: false,
-        };
-        let paused = DestinationControlStateV1 {
-            control_nonce: 1,
-            minting_paused: true,
-        };
-        let attested_resume = TairaControlV1 {
-            control_nonce: 3,
-            paused: false,
-            attested: true,
-        };
-        let unattested_pause = TairaControlV1 {
-            control_nonce: 3,
-            paused: true,
-            attested: false,
-        };
-        let stale = TairaControlV1 {
-            control_nonce: 1,
-            paused: false,
-            attested: true,
-        };
+    fn finalization_applies_newer_controls_before_minting() {
         assert_eq!(
-            plan_before_finalize(&running, None),
+            plan_before_finalize(&observed(false), None),
             PreFinalizeActionV1::Finalize
         );
         assert_eq!(
-            plan_before_finalize(&paused, None),
+            plan_before_finalize(&observed(true), None),
             PreFinalizeActionV1::Paused
         );
-        assert_eq!(
-            plan_before_finalize(&paused, Some(&attested_resume)),
-            PreFinalizeActionV1::ApplyControl {
-                control_nonce: 3,
-                paused: false
-            }
-        );
-        assert_eq!(
-            plan_before_finalize(&running, Some(&unattested_pause)),
-            PreFinalizeActionV1::AwaitAttestation {
-                control_nonce: 3,
-                paused: true
-            }
-        );
-        assert_eq!(
-            plan_before_finalize(&paused, Some(&stale)),
-            PreFinalizeActionV1::Paused
-        );
+        for paused in [false, true] {
+            assert_eq!(
+                plan_before_finalize(&observed(!paused), Some(&control(4, paused, true))),
+                PreFinalizeActionV1::ApplyControl {
+                    control_nonce: 4,
+                    paused
+                }
+            );
+            assert_eq!(
+                plan_before_finalize(&observed(!paused), Some(&control(4, paused, false))),
+                PreFinalizeActionV1::AwaitCertificate {
+                    control_nonce: 4,
+                    paused
+                }
+            );
+        }
     }
-
     #[test]
-    fn control_bundles_verify_for_their_own_deployment_only() {
-        let (bundle, context) = fixture();
-        let applied = DestinationControlStateV1::default();
-        let verified = verify_control_bundle(&bundle, &context, &applied).expect("verifies");
-        assert!(!verified.is_historical());
-        assert!(!verified.finalize_allowed_after_apply());
-        assert_eq!(verified.control.control_nonce, 4);
-        assert_eq!(verified.attested.attested().signatures.popcount(), 3);
-
-        let mut other_revision = bundle.clone();
-        other_revision.revision = 3;
-        assert_eq!(
-            verify_control_bundle(&other_revision, &context, &applied),
-            Err(ControlBundleError::WrongDeployment)
-        );
-        let foreign = DestinationContextV1 {
-            destination: deployment(3),
-            ..context
-        };
-        let mut relabeled = bundle.clone();
-        relabeled.revision = 3;
-        assert_eq!(
-            verify_control_bundle(&relabeled, &foreign, &applied),
-            Err(ControlBundleError::Attestation(BundleError::Proof(
-                ProofError::BadBlockPath
-            )))
-        );
-        let mut flipped = bundle.clone();
-        flipped.paused = false;
-        assert_eq!(
-            verify_control_bundle(&flipped, &context, &applied),
-            Err(ControlBundleError::Attestation(BundleError::Proof(
-                ProofError::BadBlockPath
-            )))
-        );
-        let stale = DestinationControlStateV1 {
-            control_nonce: 4,
-            minting_paused: false,
-        };
-        assert_eq!(
-            verify_control_bundle(&bundle, &context, &stale),
-            Err(ControlBundleError::Stale)
-        );
-        let mut wrong_count = bundle;
-        wrong_count.message_count = 3;
-        assert_eq!(
-            verify_control_bundle(&wrong_count, &context, &applied),
-            Err(ControlBundleError::Attestation(
-                BundleError::MessageCountMismatch
-            ))
-        );
-        assert!(
-            ControlBundleError::WrongDeployment
-                .to_string()
-                .contains("revision")
-        );
+    fn control_bundles_verify_for_own_deployment_full_leaf_and_nonce() {
+        let f = Fixture::new(DestinationFlavor::Evm);
+        for history in [false, true] {
+            let good = f.control(history, true, 0);
+            let view = f.observation(NOW, reads(&good.certificate, false));
+            let accepted = verify_control_bundle(&good, &view, BundleSourceV1::Inline).unwrap();
+            assert_eq!(accepted.is_historical(), history);
+            assert!(!accepted.finalize_allowed_after_apply());
+            assert_eq!(accepted.proof().effect_hash, good.effect_hash);
+            let mut bad = good.clone();
+            bad.revision += 1;
+            assert!(verify_control_bundle(&bad, &view, BundleSourceV1::Inline).is_err());
+            let mut bad = good.clone();
+            bad.network = iroha_data_model::bridge::SccpNetworkV1::BscMainnet;
+            assert!(verify_control_bundle(&bad, &view, BundleSourceV1::Inline).is_err());
+            let mut bad = good.clone();
+            bad.effect_hash[0] ^= 1;
+            assert_eq!(
+                verify_control_bundle(&bad, &view, BundleSourceV1::Inline),
+                Err(BundleError::Preflight(PreflightError::Destination(
+                    DestinationError::BadProof
+                )))
+            );
+            let stale = f.observation_with(
+                NOW,
+                *view.committee(),
+                reads(&good.certificate, false),
+                accepted.after(),
+            );
+            assert_eq!(
+                verify_control_bundle(&good, &stale, BundleSourceV1::Inline),
+                Err(BundleError::Preflight(PreflightError::Destination(
+                    DestinationError::StaleControl
+                )))
+            );
+        }
     }
 }

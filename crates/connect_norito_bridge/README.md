@@ -1,6 +1,6 @@
 # Native SDK bridge
 
-`connect_norito_bridge` exposes the current ABI-28 C and JNI bridge to the SDKs.
+`connect_norito_bridge` exposes the current ABI-29 C and JNI bridge to the SDKs.
 The ordinary Rust target emits `cdylib`, `staticlib`, and `rlib` outputs; Rust
 consumers and tests retain the `rlib` interface.
 
@@ -56,21 +56,43 @@ qualification remain open.
 
 
 For initial enrollment, trusted native startup constructs CoreZK `EnrollmentOwnerV1`
-from the approved scheme, exact policy originals and pinned original root DER, then
-registers `NativeEnrollmentRuntime` through `retain_native_enrollment`. The typed
+from the approved scheme and exact policy originals; on Apple it also selects the pinned
+App Attestation root DER. Android selects no root original: its leaf-first `KeyMint` chain
+carries its own root, which the issuer matches by SPKI against the policy's root set. A
+policy naming an unimplemented or unqualified vendor adapter fails installation. Native
+then registers `NativeEnrollmentRuntime` through `retain_native_enrollment`. The typed
 C/JNI enrollment begin accepts a retry ID and account/asset originals, returning native-selected
 issuer dispatch DATA. The signed pre-key permit must pass native scope, signature and elapsed-time
-checks before the existing-account challenge can authorize hardware generation. Android sends
-DER plus an opaque Play Integrity token; the issuer separately acquires Google's
-original response. Native retains the exact account-authorized E5 and issuer-signed E6
-before returning them. Complete-source loader handoff preserves the same opaque handle
+checks before the existing-account challenge can authorize hardware generation. Android E5
+evidence is the `KeyMint` chain only (2–8 DER certificates, at most 65,536 bytes in all): no
+Play Integrity token, Google account, vendor online verdict or second attested key. Native
+retains the exact account-authorized E5 and issuer-signed E6 before returning them. Complete-source loader handoff preserves the same opaque handle
 and exclusive provider on failures. `beginEnrolled` still requires a fresh existing-account
 signature through ordinary original admission. No foreign liveness or hardware verdict
 can substitute for issuer checks. The E6 transport bound is separate from Payment10KB.
 
 The enrollment handle's explicit `abandon` action permanently closes an unused enrollment
-before runtime handoff and returns its exact retained signed ledger control. Native refuses
-once Bootstrap commits. Closing the handle only releases ownership. Abandon output is published
+before runtime handoff and returns an explicit result: result 58 (`LocalAbandoned`) for a slot
+that never had an enrollment marker, which has nothing to submit, or result 28 with the exact
+retained signed Abandonment frame (`Abandonment(frame)`) for the holder's account to submit
+until its finalized inclusion is authenticated. Native refuses once Bootstrap commits.
+
+Every operation runs the design §5.3 runtime capacity check on the phone before it proves its
+step and again before it commits. The bounds come from the installed relations: free custody
+storage must cover the operation's reservation plus the largest fold-witness schedule, and
+memory available to the app (`MemAvailable` on Android, `os_proc_available_memory` on iOS) must
+cover the largest installed relation's peak proving memory. A shortfall is the typed failure
+`-12` (`CONNECT_NORITO_KAGEMUSHA_WALLET_NOT_ENOUGH_STORAGE`) or `-14`
+(`CONNECT_NORITO_KAGEMUSHA_WALLET_NOT_ENOUGH_MEMORY`): nothing is debited or credited, the
+receipt or Payment stays deliverable, and the holder retries after freeing space. It is never a
+device verdict. An unanswered memory probe evaluates storage only. Retained outcomes and resumed
+selections never depend on current capacity.
+
+Issuer refusals carry the closed `u16` codes 1–12 of the design's refusal table. Core and the
+SDKs relay a code unchanged; `connect_norito_kagemusha_wallet_enrollment_refusal_v1` (JNI
+`KagemushaWalletNativeV1.enrollmentRefusal`) returns its holder class (1 Phone, 2 App,
+3 Attempt, 4 Account) for the evidence platform, and refuses zero, unknown and
+platform-inapplicable codes as protocol errors. Closing the handle only releases ownership. Abandon output is published
 before an immutable digest selection, and nothing is returned until both are durable; a missing
 selected original is refused. Recovery may complete a missing selection for a present valid
 original. This local mechanism does not establish protection against complete filesystem rollback.

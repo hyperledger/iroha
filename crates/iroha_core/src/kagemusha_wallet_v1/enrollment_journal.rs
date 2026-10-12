@@ -31,9 +31,10 @@ pub enum EnrollmentJournalErrorV1 {
     /// The permanent selection or exact original differs.
     #[error("enrollment journal selection conflicts")]
     Conflict,
-    /// The authenticated definitive eligibility observation denies this operation.
-    #[error("enrollment eligibility denied")]
-    Ineligible,
+    /// The authenticated definitive eligibility observation denies this operation, with its
+    /// closed reason: `AccountNotApproved` (11) or `AccountFrozen` (12).
+    #[error("enrollment eligibility denied: code {}", .0.code())]
+    Ineligible(iroha_data_model::kagemusha::KagemushaWalletEnrollmentRefusalV1),
     /// This owner observed a failed publication and must reopen and reconcile.
     #[error("enrollment journal outcome is uncertain")]
     Uncertain,
@@ -112,6 +113,49 @@ pub enum EnrollmentJournalPhaseV1 {
     Issued,
 }
 
+/// Selection of the exact worker exchange whose authenticated reply is the retained terminal
+/// refusal. With the retained E5, preparation, configuration and journal incarnation it
+/// rebuilds that exchange, so every exposure checks the retained reply against all of its
+/// bindings again. The first terminal exchange is kept across every later retry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, norito::NoritoSchema)]
+#[norito_schema(name = "iroha_core.kagemusha.enrollment.refusal_exchange.v1")]
+struct WorkerRefusalExchange {
+    /// 1 Complete, 2 Recover, 3 Inspect.
+    action: u8,
+    /// Nonzero fresh exchange identifier.
+    exchange: [u8; 32],
+    /// Trusted dispatch time of that exchange.
+    dispatch_time_ms: u64,
+}
+impl WorkerRefusalExchange {
+    fn of(
+        exchange: &iroha_core_zk::kagemusha_wallet_enrollment_v1::issuer_worker::VerifierExchangeV1,
+    ) -> Result<Self> {
+        use iroha_core_zk::kagemusha_wallet_enrollment_v1::issuer_worker::ActionV1;
+        let action = match exchange.action().ok_or(Invalid)? {
+            ActionV1::Complete => 1,
+            ActionV1::Recover => 2,
+            ActionV1::Inspect => 3,
+        };
+        Ok(Self {
+            action,
+            exchange: exchange.exchange_id(),
+            dispatch_time_ms: exchange.dispatch_time_ms().ok_or(Invalid)?,
+        })
+    }
+    fn action(
+        self,
+    ) -> Result<iroha_core_zk::kagemusha_wallet_enrollment_v1::issuer_worker::ActionV1> {
+        use iroha_core_zk::kagemusha_wallet_enrollment_v1::issuer_worker::ActionV1;
+        Ok(match self.action {
+            1 => ActionV1::Complete,
+            2 => ActionV1::Recover,
+            3 => ActionV1::Inspect,
+            _ => return Err(Invalid),
+        })
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Encode, Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_core.kagemusha.enrollment.record.v1")]
 struct Record {
@@ -129,6 +173,21 @@ struct Record {
     credential_body: Vec<u8>,
     issued: Vec<u8>,
     eligibility: Vec<eligibility::EligibilityRecord>,
+    /// The Enrollment signer was invoked for the frozen credential body. Recovery of a
+    /// `Signing` attempt with this set never signs again: the outcome is unknown unless the
+    /// exact signed E6 is retained.
+    signing_dispatched: bool,
+    /// Closed code (11 or 12) of an authenticated eligibility denial retained before any
+    /// credential could exist; 0 when none. It is terminal for the attempt: no later approval,
+    /// restart or retry resumes it.
+    refusal: u16,
+    /// Nonce of the exact retained signed denial that `refusal` names; zero when none.
+    refusal_nonce: [u8; 32],
+    /// Closed code (1-10) of the authenticated worker refusal retained with `Rejected`; 0 in
+    /// every other phase. Every retry answers it unchanged without live worker dependencies.
+    worker_refusal: u16,
+    /// The exchange whose reply `worker_result` is, present exactly with `worker_refusal`.
+    worker_refusal_exchange: Option<WorkerRefusalExchange>,
 }
 impl Record {
     fn validate(&self) -> Result<()> {
@@ -160,6 +219,27 @@ impl Record {
             || verified == self.worker_result.is_empty()
             || signing == self.credential_body.is_empty()
             || (self.phase == Issued) == self.issued.is_empty()
+            || (self.signing_dispatched && !signing)
+            || ((self.refusal == 0) != (self.refusal_nonce == [0; 32]))
+            || ((self.phase == Rejected) != (self.worker_refusal != 0))
+            || ((self.worker_refusal != 0) != self.worker_refusal_exchange.is_some())
+            || self.worker_refusal_exchange.is_some_and(|exchange| {
+                exchange.action().is_err()
+                    || exchange.exchange == [0; 32]
+                    || exchange.dispatch_time_ms < self.verification_time_ms
+            })
+            || (self.worker_refusal != 0
+                && iroha_data_model::kagemusha::KagemushaWalletEnrollmentRefusalV1::from_code(
+                    self.worker_refusal,
+                )
+                .is_none_or(|refusal| refusal.is_eligibility()))
+            || (self.refusal != 0
+                && (self.signing_dispatched
+                    || matches!(self.phase, Issued | Rejected)
+                    || iroha_data_model::kagemusha::KagemushaWalletEnrollmentRefusalV1::from_code(
+                        self.refusal,
+                    )
+                    .is_none_or(|refusal| !refusal.is_eligibility())))
             || (selected && self.verification_time_ms != 0)
             || selected != (self.worker_configuration == [0; 32])
             || (!evidence && self.worker_result_time_ms != 0)
@@ -212,6 +292,28 @@ impl EnrollmentAttemptV1 {
     pub fn worker_result(&self) -> Option<&[u8]> {
         (!self.record.worker_result.is_empty()).then_some(self.record.worker_result.as_slice())
     }
+    /// Terminal eligibility refusal retained before any credential could exist. Every later
+    /// operation on the attempt returns it unchanged; a new attempt is required.
+    pub fn refusal(
+        &self,
+    ) -> Option<iroha_data_model::kagemusha::KagemushaWalletEnrollmentRefusalV1> {
+        iroha_data_model::kagemusha::KagemushaWalletEnrollmentRefusalV1::from_code(
+            self.record.refusal,
+        )
+    }
+    /// Closed reason of the retained worker refusal (`Rejected`); retries return it unchanged.
+    pub fn worker_refusal(
+        &self,
+    ) -> Option<iroha_data_model::kagemusha::KagemushaWalletEnrollmentRefusalV1> {
+        iroha_data_model::kagemusha::KagemushaWalletEnrollmentRefusalV1::from_code(
+            self.record.worker_refusal,
+        )
+    }
+    /// Whether no credential exists or may exist for the attempt: not issued and the signer was
+    /// never invoked. Only then can an eligibility denial be terminal.
+    pub fn pre_issuance(&self) -> bool {
+        self.record.phase != EnrollmentJournalPhaseV1::Issued && !self.record.signing_dispatched
+    }
     /// Exact signed E6 original after durable issuance. Never regenerate it on retry.
     pub fn issued(&self) -> Option<&[u8]> {
         (self.record.phase == EnrollmentJournalPhaseV1::Issued)
@@ -241,6 +343,62 @@ pub struct EnrollmentJournalV1 {
     scope_frame: Vec<u8>,
     scope: [u8; 32],
     uncertain: bool,
+    /// Digests of the exact bytes this owner published or durably adopted, by name (bounded:
+    /// an evicted entry is simply adopted again on its next read). A record read back after a
+    /// restart may be visible without being durable (a crash before its directory sync); it is
+    /// republished on a fresh inode before any outcome it holds is exposed.
+    adopted: std::sync::Mutex<std::collections::BTreeMap<String, [u8; 32]>>,
+}
+/// Bound of the adoption memo; reaching it clears the memo.
+const ADOPTED_MAX: usize = 4_096;
+fn adopted_digest(bytes: &[u8]) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash.update(b"iroha:kagemusha:issuer-journal-adopted:v1\0");
+    hash.update(bytes);
+    hash.finalize().into()
+}
+fn remember_adopted(
+    adopted: &mut std::collections::BTreeMap<String, [u8; 32]>,
+    name: &str,
+    bytes: &[u8],
+) {
+    if adopted.len() >= ADOPTED_MAX && !adopted.contains_key(name) {
+        adopted.clear();
+    }
+    adopted.insert(name.to_owned(), adopted_digest(bytes));
+}
+/// Deterministic test injection around the journal's actual publication and adoption steps;
+/// ordering tests only, not a physical power-loss qualification.
+#[cfg(test)]
+pub(super) mod fault {
+    use std::cell::Cell;
+    thread_local! {
+        /// The next publication stages, syncs and renames its record into place but never
+        /// synchronizes the parent directory, then reports the uncertainty.
+        pub(crate) static UNCERTAIN_AFTER_RENAME: Cell<bool> = const { Cell::new(false) };
+        /// Every adoption fails before republication while set.
+        pub(crate) static ADOPTION_FAILS: Cell<bool> = const { Cell::new(false) };
+    }
+    /// Stage, sync and rename `bytes` over `name` without synchronizing the parent directory
+    /// (the window a crash or lost writeback leaves visible but not durable), then report it.
+    #[cfg(unix)]
+    pub(super) fn rename_without_parent_sync(
+        directory: &iroha_fs::PrivateDirectory,
+        name: &str,
+        bytes: &[u8],
+    ) -> std::io::Result<()> {
+        use std::{io::Write as _, os::unix::fs::OpenOptionsExt as _};
+        let staged = directory.path().join(format!(".injected-{name}"));
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&staged)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        std::fs::rename(&staged, directory.path().join(name))?;
+        Err(std::io::Error::other("injected parent sync uncertainty"))
+    }
 }
 fn scope_digest(original: &[u8]) -> Result<[u8; 32]> {
     if original.is_empty() || original.len() > SCOPE_MAX {
@@ -323,6 +481,7 @@ impl EnrollmentJournalV1 {
             scope_frame: scope_frame(scope_original)?,
             scope: scope_digest(scope_original)?,
             uncertain: false,
+            adopted: std::sync::Mutex::new(std::collections::BTreeMap::new()),
         };
         value.require_custody()?;
         Ok(value)
@@ -372,7 +531,34 @@ impl EnrollmentJournalV1 {
         if record.scope != self.scope || record.selection.key != *key {
             return Err(Invalid);
         }
+        self.adopt(&filename(key)?, &original)?;
         Ok(Some(EnrollmentAttemptV1 { record, original }))
+    }
+    /// Durably adopt the exact visible bytes of `name` before exposing anything they hold:
+    /// republished on a fresh inode with file and directory synchronization, once per owner.
+    /// An unknown adoption stays an error; nothing is exposed and the next read retries.
+    fn adopt(&self, name: &str, bytes: &[u8]) -> Result<()> {
+        let mut adopted = self.adopted.lock().map_err(|_| Unavailable)?;
+        if adopted
+            .get(name)
+            .is_some_and(|known| *known == adopted_digest(bytes))
+        {
+            return Ok(());
+        }
+        #[cfg(test)]
+        if fault::ADOPTION_FAILS.with(std::cell::Cell::get) {
+            return Err(Uncertain);
+        }
+        self.directory
+            .write_atomic(name, bytes, PublishMode::Replace)
+            .map_err(|_| Uncertain)?;
+        self.require_custody()?;
+        match self.directory.read_optional(name, bytes.len()) {
+            Ok(Some(current)) if current.as_slice() == bytes => {}
+            _ => return Err(Uncertain),
+        }
+        remember_adopted(&mut adopted, name, bytes);
+        Ok(())
     }
     /// Permanently select one E1. Exact retries recover it; changed selections conflict.
     /// # Errors
@@ -401,6 +587,11 @@ impl EnrollmentJournalV1 {
             credential_body: Vec::new(),
             issued: Vec::new(),
             eligibility: Vec::new(),
+            signing_dispatched: false,
+            refusal: 0,
+            refusal_nonce: [0; 32],
+            worker_refusal: 0,
+            worker_refusal_exchange: None,
         };
         let original = encode(&record)?;
         self.publish(
@@ -419,8 +610,35 @@ impl EnrollmentJournalV1 {
     }
     fn publish(&mut self, name: &str, bytes: &[u8], mode: PublishMode) -> Result<()> {
         self.publish_with(name, bytes, mode, |directory, name, bytes, mode| {
+            #[cfg(all(test, unix))]
+            if fault::UNCERTAIN_AFTER_RENAME.with(|armed| armed.replace(false)) {
+                return fault::rename_without_parent_sync(directory, name, bytes);
+            }
             directory.write_atomic(name, bytes, mode)
         })
+    }
+    /// The authoritative current version of `attempt`: its retained terminal eligibility
+    /// refusal, if any, or for a stale cursor its retained worker refusal. Any other cursor older
+    /// than the current record is stale.
+    /// # Errors
+    /// `Conflict` for a stale or missing record; unavailable or uncertain custody.
+    pub fn current_refusal(
+        &self,
+        attempt: &EnrollmentAttemptV1,
+    ) -> Result<Option<iroha_data_model::kagemusha::KagemushaWalletEnrollmentRefusalV1>> {
+        let current = self.read(&attempt.record.selection.key)?.ok_or(Conflict)?;
+        if let Some(refusal) = current.refusal() {
+            return Ok(Some(refusal));
+        }
+        if current.original != attempt.original {
+            // A stale cursor of a rejected attempt answers its verified retained worker refusal;
+            // the current cursor lets the operation first check its exact retained E5.
+            return self
+                .verified_worker_refusal(&current)?
+                .map(Some)
+                .ok_or(Conflict);
+        }
+        Ok(None)
     }
     fn publish_with(
         &mut self,
@@ -439,10 +657,19 @@ impl EnrollmentJournalV1 {
             self.uncertain = true;
             return Err(Uncertain);
         }
+        remember_adopted(
+            &mut *self.adopted.lock().map_err(|_| Unavailable)?,
+            name,
+            bytes,
+        );
         Ok(())
     }
     fn advance(&mut self, attempt: &mut EnrollmentAttemptV1, record: Record) -> Result<()> {
         self.require_current(attempt)?;
+        // A terminal eligibility refusal admits no further transition.
+        if attempt.record.refusal != 0 {
+            return Err(Conflict);
+        }
         let original = encode(&record)?;
         self.publish(
             &filename(&record.selection.key)?,
@@ -522,15 +749,21 @@ impl EnrollmentJournalV1 {
         &mut self,
         attempt: &mut EnrollmentAttemptV1,
         original: Vec<u8>,
-        rejected: bool,
+        refusal: Option<(
+            iroha_data_model::kagemusha::KagemushaWalletEnrollmentRefusalV1,
+            WorkerRefusalExchange,
+        )>,
         evidence_time_ms: u64,
     ) -> Result<()> {
         use EnrollmentJournalPhaseV1::*;
+        let rejected = refusal.is_some();
         let phase = if rejected { Rejected } else { Evidence };
         if attempt.phase() == phase || (!rejected && matches!(attempt.phase(), Signing | Issued)) {
             self.require_current(attempt)?;
             return if attempt.record.worker_result == original
                 && attempt.record.worker_result_time_ms == evidence_time_ms
+                && attempt.worker_refusal() == refusal.map(|(reason, _)| reason)
+                && attempt.record.worker_refusal_exchange == refusal.map(|(_, exchange)| exchange)
             {
                 Ok(())
             } else {
@@ -544,6 +777,8 @@ impl EnrollmentJournalV1 {
         record.phase = phase;
         record.worker_result = original;
         record.worker_result_time_ms = evidence_time_ms;
+        record.worker_refusal = refusal.map_or(0, |(reason, _)| reason.code());
+        record.worker_refusal_exchange = refusal.map(|(_, exchange)| exchange);
         self.advance(attempt, record)
     }
     /// Retain an independently checked actual signed E6 before returning any bytes to a client.
@@ -571,6 +806,52 @@ impl EnrollmentJournalV1 {
         record.phase = Issued;
         record.issued = original;
         self.advance(attempt, record)
+    }
+}
+
+/// One retained worker-refusal binding replaced by a test.
+#[cfg(test)]
+#[derive(Debug, Clone)]
+pub(crate) enum WorkerRefusalTamperForTests {
+    /// Cache another closed code.
+    Code(u16),
+    /// Replace the exact retained reply frame.
+    Reply(Vec<u8>),
+    /// Replace the retained exchange identifier.
+    Exchange([u8; 32]),
+    /// Replace the retained exchange dispatch time.
+    DispatchTime(u64),
+    /// Replace the retained exchange action tag.
+    Action(u8),
+}
+
+/// Test-only tampering of retained custody, used by issuer regressions that must observe a
+/// canonical record whose cached worker refusal no longer matches its retained original.
+#[cfg(test)]
+impl EnrollmentJournalV1 {
+    /// Republish the record of `attempt` with one retained worker-refusal binding replaced.
+    pub(crate) fn tamper_worker_refusal_for_tests(
+        &mut self,
+        attempt: &EnrollmentAttemptV1,
+        tamper: WorkerRefusalTamperForTests,
+    ) -> Result<()> {
+        let mut record = attempt.record.clone();
+        let exchange = record.worker_refusal_exchange.as_mut().ok_or(Invalid)?;
+        match tamper {
+            WorkerRefusalTamperForTests::Code(code) => record.worker_refusal = code,
+            WorkerRefusalTamperForTests::Reply(reply) => record.worker_result = reply,
+            WorkerRefusalTamperForTests::Exchange(id) => exchange.exchange = id,
+            WorkerRefusalTamperForTests::DispatchTime(time) => exchange.dispatch_time_ms = time,
+            WorkerRefusalTamperForTests::Action(action) => exchange.action = action,
+        }
+        let name = filename(&record.selection.key)?;
+        self.publish(&name, &encode(&record)?, PublishMode::Replace)
+    }
+
+    /// Republish the exact original bytes of `attempt`.
+    pub(crate) fn restore_for_tests(&mut self, attempt: &EnrollmentAttemptV1) -> Result<()> {
+        let name = filename(&attempt.record.selection.key)?;
+        self.publish(&name, &attempt.original, PublishMode::Replace)
     }
 }
 

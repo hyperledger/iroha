@@ -258,6 +258,18 @@ impl Authority {
         )
     }
 
+    fn result_scope(&self) -> Result<iroha_data_model::sumeragi_finality::CertifiedResultScope> {
+        Ok(
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::from_root_scope(
+                iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(
+                    &self.trusted_genesis,
+                )?
+                .sumeragi_context
+                .root_scope,
+            ),
+        )
+    }
+
     fn verifier(&self) -> Result<SumeragiFinalityVerifier> {
         Ok(SumeragiFinalityVerifier::new(
             &self.trusted_genesis,
@@ -284,7 +296,7 @@ fn validate_attestation(
     challenge: [u8; 32],
     attestation: &SumeragiFinalityAttestation,
 ) -> Result<()> {
-    attestation.verify()?;
+    attestation.verify(authority.result_scope()?)?;
     let body = &attestation.body;
     require(
         body.challenge == challenge
@@ -552,7 +564,12 @@ impl<'a> Preflight<'a> {
             let height = NonZeroU64::new(client.get_sumeragi_status()?.committed_height)
                 .ok_or_else(|| eyre!("validator has no durable tip"))?;
             let attestation = client
-                .get_sumeragi_finality_attestation(height, challenge, &peer.peer_id)?
+                .get_sumeragi_finality_attestation(
+                    height,
+                    challenge,
+                    &peer.peer_id,
+                    self.authority.result_scope()?,
+                )?
                 .into_attestation();
             validate_attestation(&self.authority, peer, challenge, &attestation)?;
             Ok(attestation)
@@ -1098,6 +1115,7 @@ fn verify_peer_state(
         height,
         challenge,
         &peer.peer_id,
+        authority.result_scope()?,
     ))? {
         PeerRead::Verified(attestation) => attestation.into_attestation(),
         PeerRead::Pending => {
@@ -1333,6 +1351,7 @@ fn complete<C: RunContext>(
             height,
             challenge,
             &peer.peer_id,
+            authority.result_scope()?,
         ))? {
             PeerRead::Verified(attestation) => attestation.into_attestation(),
             PeerRead::Pending => {

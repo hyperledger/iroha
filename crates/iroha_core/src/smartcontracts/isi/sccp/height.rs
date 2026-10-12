@@ -1,18 +1,59 @@
-//! Authenticated native height inputs for the SCCP post-execution roster hook.
+//! Authenticated native height inputs for the SCCP post-execution generation hook.
 //!
 //! The original output finalizer advances the World consensus schedule before SCCP reads it.
 //! Each ready slot retains the exact epoch authorization and ordered committee. At an epoch
-//! boundary, the next roster must also be authorized; a pending slot fails closed. Neither
+//! boundary, the next committee must also be authorized; a pending slot fails closed. Neither
 //! registration state nor unauthenticated staged genesis writes can create voting authority.
 
 use crate::state::WorldReadOnly;
 use iroha_data_model::parameter::system::ConsensusMode;
-use iroha_model_base::peer::PeerId;
 
-/// Consensus inputs of one height for the SCCP roster rule (§4.3.2).
+/// Ordered committee keys held inline, with the protocol's 31-member upper bound.
+/// This source container adds no wire or voting authority; geometry and exact
+/// key validation remain at the existing authenticated schedule/plan boundaries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SccpHeightKeysV1 {
+    values: [[u8; 48]; 31],
+    len: usize,
+}
+impl SccpHeightKeysV1 {
+    /// Copy bounded keys in their original order without heap allocation.
+    ///
+    /// # Errors
+    /// Returns the observed count if it exceeds the protocol maximum.
+    pub fn try_from_slice(keys: &[[u8; 48]]) -> Result<Self, usize> {
+        if keys.len() > 31 {
+            return Err(keys.len());
+        }
+        let mut result = Self {
+            values: [[0; 48]; 31],
+            len: keys.len(),
+        };
+        result.values[..keys.len()].copy_from_slice(keys);
+        Ok(result)
+    }
+}
+impl std::ops::Deref for SccpHeightKeysV1 {
+    type Target = [[u8; 48]];
+    fn deref(&self) -> &Self::Target {
+        &self.values[..self.len]
+    }
+}
+impl std::ops::DerefMut for SccpHeightKeysV1 {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.values[..self.len]
+    }
+}
+impl AsRef<[[u8; 48]]> for SccpHeightKeysV1 {
+    fn as_ref(&self) -> &[[u8; 48]] {
+        self
+    }
+}
+
+/// Consensus inputs of one height for the SCCP committee rule (§4.3.2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SccpHeightInputsV1 {
-    /// Consensus mode that selected the roster.
+    /// Consensus mode that selected the committee.
     pub mode: ConsensusMode,
     /// Executing height `h`.
     pub height: u64,
@@ -20,10 +61,10 @@ pub struct SccpHeightInputsV1 {
     pub epoch: u64,
     /// Last height of the epoch of `h`; `h` is a boundary iff it equals `height`.
     pub epoch_end_height: u64,
-    /// Voting roster of `h`, in canonical consensus order.
-    pub roster: Vec<PeerId>,
-    /// Voting roster of the next epoch, present exactly at a boundary.
-    pub next_roster: Option<Vec<PeerId>>,
+    /// BLS voting keys of `h`, in canonical consensus order.
+    pub keys: SccpHeightKeysV1,
+    /// BLS voting keys of the next epoch, present exactly at a boundary.
+    pub next_keys: Option<SccpHeightKeysV1>,
 }
 
 /// Where block validation takes the SCCP height inputs of the block it executes.
@@ -60,6 +101,9 @@ pub enum SccpHeightInputsError {
     /// A height does not fit `u64`.
     #[error("height arithmetic overflows")]
     Overflow,
+    /// An authenticated slot has invalid committee geometry, keys or proofs.
+    #[error("the consensus committee at height {0} is malformed")]
+    MalformedCommittee(u64),
 }
 
 impl SccpHeightInputsV1 {
@@ -90,20 +134,14 @@ impl SccpHeightInputsV1 {
             .map_err(|_| SccpHeightInputsError::Unscheduled(height))?;
         let epoch = current.epoch.authorization.epoch;
         let epoch_end_height = current.epoch.authorization.last_height;
-        let next_roster = if height == epoch_end_height {
+        let next_keys = if height == epoch_end_height {
             let next_height = height
                 .checked_add(1)
                 .ok_or(SccpHeightInputsError::Overflow)?;
             let next = schedule
                 .ready(next_height)
                 .map_err(|_| SccpHeightInputsError::Unscheduled(next_height))?;
-            Some(
-                next.epoch
-                    .committee
-                    .iter()
-                    .map(|member| member.validator.clone())
-                    .collect(),
-            )
+            Some(committee_keys(next, next_height)?)
         } else {
             None
         };
@@ -112,13 +150,8 @@ impl SccpHeightInputsV1 {
             height,
             epoch,
             epoch_end_height,
-            roster: current
-                .epoch
-                .committee
-                .iter()
-                .map(|member| member.validator.clone())
-                .collect(),
-            next_roster,
+            keys: committee_keys(current, height)?,
+            next_keys,
         })
     }
 
@@ -127,6 +160,31 @@ impl SccpHeightInputsV1 {
     pub fn is_boundary(&self) -> bool {
         self.height == self.epoch_end_height
     }
+}
+
+fn committee_keys(
+    slot: &crate::sumeragi::schedule::ScheduledConfig,
+    height: u64,
+) -> Result<SccpHeightKeysV1, SccpHeightInputsError> {
+    // Keep the existing full authenticated schedule validation. Its own model
+    // allocation boundary is not replaced or claimed by this inline SCCP list.
+    slot.height_config()
+        .map_err(|_| SccpHeightInputsError::MalformedCommittee(height))?;
+    let len = slot.epoch.committee.len();
+    if len > 31 {
+        return Err(SccpHeightInputsError::MalformedCommittee(height));
+    }
+    let mut keys = SccpHeightKeysV1 {
+        values: [[0; 48]; 31],
+        len,
+    };
+    for (key, member) in keys.values.iter_mut().zip(&slot.epoch.committee) {
+        let source = crate::sumeragi::schedule::consensus_key(&member.validator)
+            .map_err(|_| SccpHeightInputsError::MalformedCommittee(height))?;
+        *key = <[u8; 48]>::try_from(source.as_bytes())
+            .map_err(|_| SccpHeightInputsError::MalformedCommittee(height))?;
+    }
+    Ok(keys)
 }
 
 /// Return `(epoch, epoch_end_height)` of `height` for fixed-length Sumeragi-core epochs of
@@ -165,6 +223,25 @@ pub fn sumeragi_epoch(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inline_keys_preserve_order_and_refuse_only_excess_capacity() {
+        for count in [0, 1, 4, 7, 31] {
+            let keys = (0..count)
+                .map(|i| [u8::try_from(i).unwrap(); 48])
+                .collect::<Vec<_>>();
+            let kept = SccpHeightKeysV1::try_from_slice(&keys).unwrap();
+            assert_eq!(&*kept, keys.as_slice());
+            assert_eq!(&*kept.clone(), keys.as_slice());
+        }
+        assert_eq!(SccpHeightKeysV1::try_from_slice(&[[1; 48]; 32]), Err(32));
+        // Duplicate/invalid geometry is still visible to the plan validator.
+        assert_eq!(
+            &*SccpHeightKeysV1::try_from_slice(&[[0; 48]; 4]).unwrap(),
+            &[[0; 48]; 4]
+        );
+    }
+
     use crate::{
         smartcontracts::isi::sccp::test_support::{blank_state, header},
         sumeragi::schedule::{ChainParamsRecord, ConsensusSchedule, ScheduledConfig},
@@ -212,10 +289,17 @@ mod tests {
         let epoch = crate::sumeragi::epoch::authenticated_genesis(&signed)
             .map(|genesis| genesis.into_parts().0)
             .unwrap();
-        let roster = epoch
+        let keys = epoch
             .committee
             .iter()
-            .map(|member| member.validator.clone())
+            .map(|member| {
+                <[u8; 48]>::try_from(
+                    crate::sumeragi::schedule::consensus_key(&member.validator)
+                        .unwrap()
+                        .as_bytes(),
+                )
+                .unwrap()
+            })
             .collect::<Vec<_>>();
         let params = ChainParamsRecord::from_parameters(&Default::default());
         let graph = ConsensusSchedule::from_owned_entries(vec![
@@ -244,10 +328,10 @@ mod tests {
         let inner =
             SccpHeightInputsV1::from_sumeragi_schedule(&block.world, 4, 1, ConsensusMode::Npos)
                 .unwrap();
-        assert_eq!(inner.roster, roster);
+        assert_eq!(&*inner.keys, keys.as_slice());
         assert_eq!(inner.epoch, 0);
         assert_eq!(inner.epoch_end_height, 5);
-        assert_eq!(inner.next_roster, None);
+        assert_eq!(inner.next_keys, None);
         assert!(!inner.is_boundary());
         assert_eq!(
             SccpHeightInputsV1::from_sumeragi_schedule(&block.world, 5, 1, ConsensusMode::Npos),

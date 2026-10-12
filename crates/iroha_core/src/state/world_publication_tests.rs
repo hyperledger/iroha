@@ -303,12 +303,53 @@ impl<T> WriterHold for T {}
 
 #[test]
 fn every_busy_world_field_releases_all_earlier_writers_and_retains_complete_retry() {
+    // These two admitted fields acquire their actual original-pool current/undo
+    // writers. Holding them must exercise the same busy path as every other field.
+    macro_rules! hold_field {
+        ($world:ident, sccp_forgery_offences) => {{
+            let storage = &$world.sccp_forgery_offences;
+            let scope = storage
+                .allocation_budget()
+                .try_owned_refund_scope()
+                .expect("original offence fixture refund scope");
+            let mut slot = storage
+                .try_block_acquisition_owned(&scope)
+                .expect("original offence fixture pool");
+            slot.try_initialize(mv::BlockMode::Ordinary)
+                .expect("original offence fixture current/undo writers");
+            slot.into_block()
+        }};
+        ($world:ident, sccp_forgery_max_generation) => {{
+            use crate::state::world_acquisition::{
+                OriginalControlSource as _, WorldFieldAcquisition as _,
+            };
+            let cell = &$world.sccp_forgery_max_generation;
+            let budget = $world.sccp_forgery_offences.allocation_budget();
+            let layouts = cell
+                .generation_layouts()
+                .into_iter()
+                .chain([cell.successor_layout()])
+                .flatten();
+            let mut original = budget
+                .try_reserve_layouts(layouts)
+                .expect("original max cell fixture layouts");
+            let mut slot = cell
+                .original_acquisition(budget, &mut original)
+                .expect("original max cell fixture admission");
+            slot.try_initialize(mv::BlockMode::Ordinary)
+                .expect("original max cell fixture current/undo writers");
+            slot.into_block()
+        }};
+        ($world:ident, $field:ident) => {
+            $world.$field.block()
+        };
+    }
     macro_rules! holders {
         (; [$($prefix:ident,)*] [$($privacy:ident,)*] [$($suffix:ident,)*]) => {
             [
-                $((stringify!($prefix), |world: &World| -> Box<dyn WriterHold + '_> { Box::new(world.$prefix.block()) }),)*
-                $((stringify!($privacy), |world: &World| -> Box<dyn WriterHold + '_> { Box::new(world.$privacy.block()) }),)*
-                $((stringify!($suffix), |world: &World| -> Box<dyn WriterHold + '_> { Box::new(world.$suffix.block()) }),)*
+                $((stringify!($prefix), |world: &World| -> Box<dyn WriterHold + '_> { Box::new(hold_field!(world, $prefix)) }),)*
+                $((stringify!($privacy), |world: &World| -> Box<dyn WriterHold + '_> { Box::new(hold_field!(world, $privacy)) }),)*
+                $((stringify!($suffix), |world: &World| -> Box<dyn WriterHold + '_> { Box::new(hold_field!(world, $suffix)) }),)*
             ]
         };
     }
@@ -973,4 +1014,97 @@ fn world_refusal_retains_prefix_callbacks_and_original_shells_through_enclosing_
     assert_eq!(all_images(&world), before);
     assert!(journal.matches_current(&world));
     drop(prepare(journal, &world).abort());
+}
+
+#[test]
+fn generation_scope_refusal_returns_exact_world_journal_and_retries() {
+    use crate::smartcontracts::isi::sccp::test_support::sample_generation;
+    use crate::state::sccp_generation_custody::GenerationFixtureStorage as _;
+    let world = fixture();
+    let mut original = world.block();
+    let record = sample_generation(1, 1);
+    original
+        .sccp_committee_generations
+        .insert(1, record.clone());
+    let journal = capture(original);
+    let identity = physical_custody(&journal);
+    let before = all_images(&world);
+    let budget = world.sccp_committee_generations.allocation_budget();
+    let original_limit = budget.limit_bytes();
+    // No replacement capacity: every new scope control is refused before writers.
+    budget.set_limit_bytes(budget.reserved_bytes());
+    let (journal, error, cleanup) = journal
+        .try_prepare_publication(&world, |_, _| Ok::<_, ()>(()))
+        .err()
+        .unwrap();
+    assert!(matches!(
+        error,
+        WorldPublicationError::Field(FieldRefusal {
+            cause: PublicationPreparationError::Admission(
+                mv::storage::AdmittedStorageError::Allocation(_)
+            ),
+            ..
+        })
+    ));
+    drop(cleanup);
+    assert_eq!(physical_custody(&journal), identity);
+    assert_eq!(all_images(&world), before);
+    budget.set_limit_bytes(original_limit);
+    let prepared = prepare(journal, &world);
+    let published = prepared.publish();
+    drop(published);
+    assert_eq!(
+        world
+            .sccp_committee_generations
+            .view()
+            .get(&1)
+            .map(|v| &**v),
+        Some(&record)
+    );
+    assert_all_writers_released(&world);
+}
+
+#[test]
+fn generation_world_busy_retry_keeps_original_current_undo_and_reader() {
+    use crate::smartcontracts::isi::sccp::test_support::sample_generation;
+    use crate::state::sccp_generation_custody::GenerationFixtureStorage as _;
+    let world = fixture();
+    let mut original = world.block();
+    original
+        .sccp_committee_generations
+        .insert(1, sample_generation(1, 1));
+    original.commit();
+    let reader = world.sccp_committee_generations.view();
+    let old = reader.get(&1).unwrap().clone();
+    let competing = capture(world.block());
+    let mut next = world.block();
+    next.sccp_committee_generations.remove(1);
+    next.sccp_committee_generations
+        .insert(2, sample_generation(2, 2));
+    let journal = capture(next);
+    let identity = physical_custody(&journal);
+    let held = prepare(competing, &world);
+    let (journal, error, cleanup) = journal
+        .try_prepare_publication(&world, |_, _| Ok::<_, ()>(()))
+        .err()
+        .unwrap();
+    assert!(matches!(
+        error,
+        WorldPublicationError::Field(FieldRefusal {
+            cause: PublicationPreparationError::Busy(_),
+            ..
+        })
+    ));
+    drop(cleanup);
+    assert_eq!(physical_custody(&journal), identity);
+    drop(held);
+    drop(prepare(journal, &world).publish());
+    assert_eq!(reader.get(&1), Some(&old));
+    let snapshot = world.sccp_committee_generations.snapshot();
+    assert!(snapshot.current().get(&1).is_none());
+    assert_eq!(snapshot.current().get(&2).unwrap().generation, 2);
+    assert_eq!(snapshot.revert_map().get(&1).unwrap().as_ref(), Some(&old));
+    assert!(snapshot.revert_map().get(&2).unwrap().is_none());
+    drop(snapshot);
+    assert_all_writers_released(&world);
 }

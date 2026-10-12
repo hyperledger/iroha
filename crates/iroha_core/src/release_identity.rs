@@ -212,7 +212,7 @@ impl BuildIdentity {
 /// ([`WireMessage`](iroha_sumeragi::message::WireMessage) plus native
 /// [`Evidence`](iroha_sumeragi::message::Evidence) frames), and the canonical
 /// [`ExecutionResultCommitment`](iroha_data_model::sumeragi_finality::ExecutionResultCommitment)
-/// payload carried inside result witnesses, with the IVM ABI hash of
+/// body carried after the fixed SCCP finality header X in result witnesses, with the IVM ABI hash of
 /// the sole first-release syscall policy through
 /// [`wire_schema_hash_of`](iroha_data_model::wire_schema::wire_schema_hash_of). Each
 /// root is rendered against its own types because the wires describe different
@@ -220,7 +220,9 @@ impl BuildIdentity {
 /// consensus byte domains (control
 /// witnesses, availability tables, rows) are described as length-prefixed byte
 /// sequences named with the lengths their decoders admit; the formats inside them are
-/// not part of the schema. The value is independent of the compilation target but not
+/// not part of the schema. TODO: separately bind the raw CertifiedResult X layout and
+/// outer-result hashing contract in the release wire identity; this schema fingerprint
+/// alone covers the body and does not attest the opaque X format. The value is independent of the compilation target but not
 /// of the enabled features (the crypto `Algorithm` schema lists feature-gated
 /// variants), so release tooling reads it from a native build of the same commit with
 /// the release feature set.

@@ -76,11 +76,21 @@ fn original_result_frame_refusal_is_local_and_same_bytes_retry() {
             .unwrap(),
     );
     let wire = frame.encode_wire().unwrap();
-    let original = read_frame(Clone::clone(&frame), 1).unwrap();
-    let error: ExecutionAttemptError<ChainReadError> =
-        no_decode_allocation(|| read_frame(Clone::clone(&frame), 1))
-            .unwrap_err()
-            .into();
+    let original = read_frame(
+        Clone::clone(&frame),
+        1,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
+    let error: ExecutionAttemptError<ChainReadError> = no_decode_allocation(|| {
+        read_frame(
+            Clone::clone(&frame),
+            1,
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        )
+    })
+    .unwrap_err()
+    .into();
     let ExecutionAttemptError::Deferred(local) = error else {
         panic!("the original result decoder refusal is not malformed evidence: {error:?}");
     };
@@ -90,7 +100,12 @@ fn original_result_frame_refusal_is_local_and_same_bytes_retry() {
     );
     assert!(local.allocation_refusal().is_none());
     assert_eq!(frame.encode_wire().unwrap(), wire);
-    let retry = read_frame(Clone::clone(&frame), 1).unwrap();
+    let retry = read_frame(
+        Clone::clone(&frame),
+        1,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
     assert_eq!(retry.result(), original.result());
     assert_eq!(retry.core_hash(), original.core_hash());
     assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
@@ -126,13 +141,24 @@ fn malformed_original_result_frame_is_a_completed_rejection() {
             ),
         )),
     );
-    let error: ExecutionAttemptError<ChainReadError> = read_frame(changed, 1).unwrap_err().into();
+    let error: ExecutionAttemptError<ChainReadError> = read_frame(
+        changed,
+        1,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap_err()
+    .into();
     assert!(matches!(
         error,
         ExecutionAttemptError::Rejected(ChainReadError::Malformed { height: 1, .. })
     ));
     assert!(
-        read_frame(original, 1).is_ok(),
+        read_frame(
+            original,
+            1,
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
+        )
+        .is_ok(),
         "original signed frame remains valid"
     );
 }
@@ -261,4 +287,85 @@ fn original_availability_constructor_refusal_retries_without_installing_authorit
     .unwrap();
     assert_eq!(provider.instance(), chain.instance());
     assert!(provider.height_config(2).unwrap().is_some());
+}
+
+#[test]
+fn certified_wrapper_scope_and_block_time_are_checked_by_both_reader_owners() {
+    use iroha_data_model::sumeragi_finality::{
+        CertifiedResultScope, CertifiedResultV1, SccpFinalityHeaderV1,
+        certified_result::{FLAG_ACTIVE, context_committee_root},
+    };
+    let chain = original_chain();
+    let original = chain.committed(1).block().clone();
+    let certificate = original.commit_certificate().unwrap();
+    let decoded = CertifiedResultV1::decode(
+        certificate.result_preimage(),
+        CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
+    let mut fields = decoded.header().fields();
+    fields.flags = FLAG_ACTIVE;
+    fields.generation = 1;
+    fields.committee_root = context_committee_root(&decoded.commitment().schedule.current).unwrap();
+    let active = CertifiedResultV1::new(
+        SccpFinalityHeaderV1::from_fields(&fields).unwrap(),
+        decoded.commitment().clone(),
+        CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
+    let changed = |bytes: Vec<u8>| {
+        crate::block::reserve_block_for_tests().initialize(
+            original.as_ref().clone().with_commit_certificate(Some(
+                iroha_data_model::block::CommitCertificate::from_untrusted_parts(
+                    certificate.consensus_header().to_vec(),
+                    certificate.commit_qc().to_vec(),
+                    bytes,
+                    certificate.availability().to_vec(),
+                ),
+            )),
+        )
+    };
+    // Structural read only: this does not turn a modified genesis result into execution authority.
+    let active_frame = changed(active.preimage().unwrap());
+    read_frame(active_frame.clone(), 1, CertifiedResultScope::TairaGlobal).unwrap();
+    let mut late = active.header().fields();
+    late.timestamp_ms += 1;
+    let wrong_time = CertifiedResultV1::from_parts_unvalidated(
+        SccpFinalityHeaderV1::from_fields(&late).unwrap(),
+        active.commitment().clone(),
+    );
+    for (source, scope) in [
+        (active_frame, CertifiedResultScope::NonGlobal),
+        (
+            changed(wrong_time.preimage().unwrap()),
+            CertifiedResultScope::TairaGlobal,
+        ),
+        (
+            changed(decoded.commitment().preimage().unwrap()),
+            CertifiedResultScope::TairaGlobal,
+        ),
+    ] {
+        let expected = read_frame(source.clone(), 1, scope).unwrap_err();
+        assert!(matches!(
+            &expected,
+            ExecutionAttemptError::Rejected(ChainReadError::Malformed { height: 1, .. })
+        ));
+        let budget = iroha_allocation::AllocationBudget::new(16 * 1024 * 1024);
+        let actual = AdmittedCommittedBlock::read(
+            source,
+            1,
+            scope,
+            &mut EpochValidationScope::new(),
+            &budget,
+        )
+        .err()
+        .expect("same wrapper refusal in original prepaid destination");
+        assert_eq!(expected.to_string(), actual.to_string());
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+    let retry = read_frame(original.clone(), 1, CertifiedResultScope::TairaGlobal).unwrap();
+    assert_eq!(
+        retry.block().encode_wire().unwrap(),
+        original.encode_wire().unwrap()
+    );
 }

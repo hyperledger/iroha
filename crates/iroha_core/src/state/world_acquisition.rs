@@ -16,7 +16,7 @@ mod original_control;
 pub(super) use original_control::OriginalControlSource;
 pub(super) use original_control::{
     OriginalWorldFields, WorldPlacement, add_original_control_demand, initialize_original_field,
-    original_cell,
+    original_cell, original_storage_scope,
 };
 
 /// Acquisition adapters retain actual slots and forward physical or policy refusal.
@@ -319,4 +319,33 @@ pub(super) fn original_world_cell_control_bytes(world: &super::World) -> usize {
         }};
     }
     with_world_overlay_fields!(sum_successors, world)
+}
+
+/// Original prepaid maps retain all partial acquisition state until aggregate release.
+pub(super) struct PrepaidAcquisition<'a, K: mv::Key, V: mv::Value, P>(
+    pub(super) mv::storage::BlockAcquisitionSlot<'a, K, V, concread::bptree::Prepaid<P>>,
+)
+where
+    P: mv::storage::AdmittedStoragePolicy
+        + concread::bptree::ClonePlanning<K, V>
+        + concread::bptree::ClonePlanning<K, Option<V>>;
+impl<'a, K: mv::Key, V: mv::Value, P> WorldFieldAcquisition for PrepaidAcquisition<'a, K, V, P>
+where
+    P: mv::storage::AdmittedStoragePolicy
+        + concread::bptree::ClonePlanning<K, V>
+        + concread::bptree::ClonePlanning<K, Option<V>>,
+{
+    type Block = mv::storage::Block<'a, K, V, concread::bptree::Prepaid<P>>;
+    fn try_initialize(&mut self, mode: BlockMode) -> Result<(), AdmittedStorageError> {
+        self.0.try_initialize(mode)
+    }
+    fn release(&mut self) {
+        self.0.release();
+    }
+    fn take_block(&mut self) -> Self::Block {
+        self.0.take_block()
+    }
+    fn into_block(self) -> Self::Block {
+        self.0.into_block()
+    }
 }

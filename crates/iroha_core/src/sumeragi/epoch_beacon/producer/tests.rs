@@ -1,8 +1,11 @@
 //! Native producer coverage over an actually executed/certified four-validator prefix.
 //!
-//! The DKG/session is explicit component prestate; Parliament demand enters through canonical
-//! attempt admission and its derived index. The prefix's genesis, native parent hash and R are
-//! real; this fixture does not claim live-network qualification of the seeded component rows.
+//! The DKG/session is explicit component prestate. Pulse demand is consensus-native: the
+//! fixture chain is NPoS with a ten-block epoch, so its ninth height is the pre-boundary height
+//! (`height + 1 == authorization.last_height`) and no governance row takes part in creating it.
+//! The prefix's genesis, native parent hash and R are real; this fixture does not claim
+//! live-network qualification of the seeded component rows. The Permissioned [`prefix`] has no
+//! native pulse cadence and is the no-demand source.
 
 use super::*;
 use crate::{
@@ -17,15 +20,27 @@ use crate::{
 };
 use iroha_crypto::{Algorithm, Hash, KeyPair};
 use iroha_data_model::{
+    account::AccountId,
+    asset::{AssetBalancePolicy, AssetDefinition},
+    block::consensus::SumeragiRootScope,
     consensus::{
         GLOBAL_THRESHOLD_BEACON_VERSION_V1, GlobalThresholdBeaconDkgSessionV1,
         GlobalThresholdBeaconPartialSignatureV1,
     },
-    governance::types::{BeaconSessionId, GovernanceAttemptId},
+    governance::types::BeaconSessionId,
+    isi::Register,
+    nexus::{PublicLaneValidatorRecord, PublicLaneValidatorStatus},
+    parameter::{
+        Parameter,
+        system::{SumeragiConsensusMode, SumeragiNposParameters, SumeragiParameter},
+    },
 };
+use iroha_model_base::{metadata::Metadata, topology::LaneId};
+use iroha_primitives::numeric::{NumericSpec, Quantity};
 use std::{
     collections::BTreeSet,
     io::Write as _,
+    num::NonZeroU64,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
@@ -62,9 +77,50 @@ struct Fixture {
     counts: Vec<Arc<AtomicUsize>>,
     context: ApplicationControlContext,
 }
+/// Length of the fixture's NPoS epoch: heights 1..=10, so the native pulse height is 9.
+const NPOS_EPOCH_LENGTH_BLOCKS: u64 = 10;
+
+/// A Permissioned prefix through height 8. It has no native pulse cadence: no height of this
+/// chain demands a pulse.
 fn prefix() -> CertifiedTestChain {
     let mut chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000)).unwrap();
     while chain.height() < 8 {
+        chain.commit(Vec::new());
+    }
+    chain
+}
+/// An actually executed NPoS prefix through `height` whose signed genesis fixes a ten-block
+/// epoch. Only its pre-boundary height 9 demands a pulse; every other height is ordinary.
+fn npos_prefix(height: u64) -> CertifiedTestChain {
+    let mut config = TestChainConfig::new(World::new(), 1_000);
+    config.consensus_mode = SumeragiConsensusMode::Npos;
+    let policy = SumeragiNposParameters {
+        epoch_length_blocks: NonZeroU64::new(NPOS_EPOCH_LENGTH_BLOCKS).unwrap(),
+        epoch_seed: [0x62; 32],
+        evidence_horizon_blocks: 1,
+        slashing_delay_blocks: 1,
+        ..SumeragiNposParameters::default()
+    };
+    policy.validate().expect("bounded ten-block fixture policy");
+    // The signed genesis carries the network currency its boundary reconciles.
+    config.genesis_instructions.push(
+        Register::asset_definition(AssetDefinition::new(
+            policy.xor_asset_definition_id.clone(),
+            "Network XOR",
+            NumericSpec::fractional(9),
+            AssetBalancePolicy::Global,
+            None,
+        ))
+        .into(),
+    );
+    config.genesis_parameters.extend([
+        Parameter::Sumeragi(SumeragiParameter::EpochLengthBlocks(
+            policy.epoch_length_blocks,
+        )),
+        Parameter::Custom(policy.into_custom_parameter()),
+    ]);
+    let mut chain = CertifiedTestChain::start(config).expect("actual signed NPoS genesis");
+    while chain.height() < height {
         chain.commit(Vec::new());
     }
     chain
@@ -94,8 +150,47 @@ fn build_context(context: &ApplicationControlContext, view: u64) -> ControlWitne
         parent_result: context.parent_result,
     }
 }
+/// The generic native-beacon fixture: consensus-native NPoS demand at the pre-boundary height 9.
 fn fixture() -> Fixture {
-    let chain = prefix();
+    let fixture = seeded(npos_prefix(8));
+    {
+        let view = fixture.chain.state().view();
+        let retained = view.world().consensus_schedule();
+        let current = &retained.ready(9).unwrap().epoch;
+        assert_eq!(current.mode, ConsensusMode::Npos);
+        assert_eq!(current.authorization.last_height, NPOS_EPOCH_LENGTH_BLOCKS);
+        assert_eq!(
+            current.authorization.beacon,
+            BeaconEpochBindingV1::Bootstrap,
+            "the genesis epoch admits the seeded session under its bootstrap binding"
+        );
+        assert!(
+            view.world()
+                .parliament_required_beacon_pulse_slots()
+                .iter()
+                .next()
+                .is_none(),
+            "no governance row takes part in the fixture's demand"
+        );
+        assert!(
+            super::super::required(SumeragiRootScope::Global, view.world(), current, 9).unwrap(),
+            "the pre-boundary height is the consensus-native demand"
+        );
+        assert!(
+            !super::super::required(SumeragiRootScope::Global, view.world(), current, 8).unwrap()
+                && !super::super::required(SumeragiRootScope::Global, view.world(), current, 10)
+                    .unwrap(),
+            "ordinary and boundary heights demand no pulse"
+        );
+    }
+    fixture
+}
+
+/// Seed the genuinely proved DKG session as active component prestate over an executed
+/// eight-block prefix and attach one producer per validator seat. Demand is whatever the
+/// chain itself authenticates at height 9; this function creates none.
+fn seeded(chain: CertifiedTestChain) -> Fixture {
+    assert_eq!(chain.height(), 8);
     let mut pairs = (0xC1..=0xC4)
         .map(|seed| KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal))
         .collect::<Vec<_>>();
@@ -150,8 +245,6 @@ fn fixture() -> Fixture {
         .activate(session.record().adaptive_dkg.finalized_at_height)
         .unwrap();
     assert!(session.record().adaptive_dkg.finalized_at_height <= chain.height());
-    let (attempt_id, _, attempt) =
-        crate::beacon::tests::pending_batched_sortition_attempt(&chain.network_id(), &roster, 9);
     chain.setup_world_at(2_000, |transaction| {
         transaction
             .world
@@ -161,17 +254,6 @@ fn fixture() -> Fixture {
             .world
             .global_beacon_active_session
             .insert(GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY, id);
-        transaction
-            .world
-            .put_parliament_attempt(attempt)
-            .expect("admit the producer's Parliament demand");
-        assert_eq!(
-            transaction
-                .world
-                .parliament_required_beacon_pulse_slots
-                .get(&(BeaconSessionId::for_network_v1(&chain.network_id()), 9)),
-            Some(&BTreeSet::from([attempt_id]))
-        );
     });
     let counts = pairs
         .iter()
@@ -392,6 +474,32 @@ fn all_seats_drive_real_shares_once_and_followers_use_only_transported_pulse() {
     let hashes = (1..=fixture.chain.height())
         .map(|height| fixture.chain.committed(height).block_hash())
         .collect::<Vec<_>>();
+    // Restore validation of an NPoS cut additionally requires the live stake owner of every
+    // committee seat. Like the session, these rows are explicit component prestate: the
+    // fixture's signed genesis registers no staking custody.
+    drop(source);
+    fixture.chain.setup_world_at(2_000, |transaction| {
+        for (peer, _) in fixture.chain.validators() {
+            let owner = AccountId::new(peer.public_key().clone());
+            transaction.world.public_lane_validators.insert(
+                (LaneId::SINGLE, owner.clone()),
+                PublicLaneValidatorRecord {
+                    lane_id: LaneId::SINGLE,
+                    validator: owner.clone(),
+                    peer_id: peer.clone(),
+                    stake_account: owner,
+                    total_stake: Quantity::from(1_000_u32),
+                    self_stake: Quantity::from(1_000_u32),
+                    metadata: Metadata::default(),
+                    status: PublicLaneValidatorStatus::Active,
+                    activation_height: 0,
+                    election_exit_height: None,
+                    deactivation_height: None,
+                },
+            );
+        }
+    });
+    let source = fixture.chain.state().view();
     crate::state::validator_committee::validate_committed_progress(
         source.world(),
         source.chain_id(),
@@ -506,28 +614,6 @@ fn wrong_source_sender_and_proof_never_change_the_owned_round() {
         IngressOutcome::Finalized
     );
     assert_eq!(fixture.counts[0].load(Ordering::SeqCst), 1);
-    drop(source);
-    fixture.chain.setup_world_at(2_000, |transaction| {
-        transaction
-            .world
-            .parliament_unavailable_beacon_pulse_slots
-            .insert(
-                (
-                    BeaconSessionId::for_network_v1(&fixture.chain.network_id()),
-                    9,
-                ),
-                BTreeSet::from([GovernanceAttemptId::new([0xA1; 32])]),
-            );
-    });
-    let source = fixture.chain.state().view();
-    let mut fresh = NativeBeaconProducer::new(fixture.chain.instance(), None, None);
-    assert!(
-        matches!(
-            fresh.drive(&source, &fixture.context, applied),
-            Err(NativeBeaconError::Source(_))
-        ),
-        "an unavailable committed slot cannot open a new local signing round"
-    );
 }
 
 #[test]
@@ -1072,6 +1158,7 @@ fn readiness_reprobes_same_applied_cut_without_signing_and_excludes_stale_genera
     let (horizon, ready) = reporting.read(generation, 9, 8).unwrap();
     assert!(ready && horizon.local_provider_ready && horizon.session_covers_next_pulse);
     assert_eq!(horizon.next_required_pulse_height, Some(9));
+    assert_eq!(horizon.epoch_length_blocks, NPOS_EPOCH_LENGTH_BLOCKS);
     assert_eq!(
         fixture.counts[0].load(Ordering::SeqCst),
         0,
@@ -1152,6 +1239,235 @@ fn readiness_no_demand_does_not_require_a_beacon_session() {
     assert_eq!(horizon.next_required_pulse_height, None);
     assert_eq!(horizon.active_session_id, None);
     assert!(!horizon.local_provider_ready);
+}
+
+/// Parliament admission, kept apart from the generic NPoS fixture above.
+///
+/// On a Permissioned chain (no native pulse cadence) a canonically admitted Parliament
+/// sortition attempt derives its governance-local slot index and nothing else: consensus
+/// demands no pulse for the slot, the readiness horizon has no height, and the producer
+/// neither signs nor waits for shares.
+#[test]
+fn parliament_attempt_admission_derives_the_slot_index_and_no_pulse_demand() {
+    let mut fixture = seeded(prefix());
+    let chain = &fixture.chain;
+    let roster = chain
+        .validators()
+        .iter()
+        .map(|(peer, _)| peer.clone())
+        .collect::<Vec<_>>();
+    let applied = (8, fixture.context.parent_hash);
+    {
+        let view = chain.state().view();
+        let retained = view.world().consensus_schedule();
+        let current = &retained.ready(9).unwrap().epoch;
+        assert_eq!(current.mode, ConsensusMode::Permissioned);
+        assert!(
+            !super::super::required(SumeragiRootScope::Global, view.world(), current, 9).unwrap(),
+            "a Permissioned chain without an admitted attempt has no demand"
+        );
+    }
+    let (attempt_id, _, attempt) =
+        crate::beacon::tests::pending_batched_sortition_attempt(&chain.network_id(), &roster, 9);
+    chain.setup_world_at(2_000, |transaction| {
+        transaction
+            .world
+            .put_parliament_attempt(attempt)
+            .expect("admit the producer's Parliament demand");
+        assert_eq!(
+            transaction
+                .world
+                .parliament_required_beacon_pulse_slots
+                .get(&(BeaconSessionId::for_network_v1(&chain.network_id()), 9)),
+            Some(&BTreeSet::from([attempt_id]))
+        );
+    });
+    let state = chain.state();
+    let generation = state.state_view_generation();
+    let view = state.view();
+    {
+        let retained = view.world().consensus_schedule();
+        let current = &retained.ready(9).unwrap().epoch;
+        assert!(
+            !super::super::required(SumeragiRootScope::Global, view.world(), current, 9).unwrap(),
+            "the admitted governance slot creates no consensus demand"
+        );
+    }
+    let reporting = fixture.producers[0]
+        .attach_readiness(&state.ivm_execution_budget())
+        .unwrap();
+    fixture.producers[0]
+        .refresh_readiness(&view, &fixture.context, applied, generation)
+        .unwrap();
+    let (horizon, ready) = reporting.read(generation, 9, 8).unwrap();
+    assert!(ready, "no demand remains, so custody is not required");
+    assert_eq!(horizon.epoch_length_blocks, 0);
+    assert_eq!(
+        horizon.next_required_pulse_height, None,
+        "the horizon has no Parliament-derived height"
+    );
+    assert!(!horizon.session_covers_next_pulse);
+    for producer in &mut fixture.producers {
+        assert!(
+            producer
+                .drive(&view, &fixture.context, applied)
+                .unwrap()
+                .is_none(),
+            "no signing round opens for a governance slot"
+        );
+        assert!(producer.active.is_none());
+        assert!(
+            producer
+                .build(&build_context(&fixture.context, 0))
+                .unwrap()
+                .is_empty(),
+            "the control witness is empty instead of waiting for shares"
+        );
+    }
+    assert!(
+        fixture
+            .counts
+            .iter()
+            .all(|count| count.load(Ordering::SeqCst) == 0),
+        "no seat signs a partial for a governance slot"
+    );
+}
+
+/// The readiness horizon is consensus-native only. A pending governance slot at a height that
+/// is not this chain's native pulse height never becomes the next required pulse, and on a
+/// Permissioned root governance state makes no validator depend on beacon custody.
+#[test]
+fn readiness_horizon_is_native_only_with_pending_parliament_slots() {
+    // NPoS, mid-epoch: tip 5, native pulse at 9, a governance slot awaited at 7.
+    let chain = npos_prefix(5);
+    let npos_context = context(&chain);
+    assert_eq!(npos_context.height, 6);
+    let roster = chain
+        .validators()
+        .iter()
+        .map(|(peer, _)| peer.clone())
+        .collect::<Vec<_>>();
+    let key: [u8; 48] = roster[0]
+        .public_key()
+        .try_to_bytes()
+        .unwrap()
+        .1
+        .try_into()
+        .unwrap();
+    // The attempt froze another epoch length, so its slot 7 is an ordinary height here, as a
+    // timed-OVN release height is.
+    let (attempt_id, _, attempt) =
+        crate::beacon::tests::pending_batched_sortition_attempt(&chain.network_id(), &roster, 7);
+    let slot = (BeaconSessionId::for_network_v1(&chain.network_id()), 7);
+    chain.setup_world_at(2_000, |transaction| {
+        transaction
+            .world
+            .put_parliament_attempt(attempt)
+            .expect("admit the pending governance slot");
+    });
+    let state = chain.state();
+    let generation = state.state_view_generation();
+    let view = state.view();
+    assert_eq!(
+        view.world()
+            .parliament_required_beacon_pulse_slots()
+            .get(&slot),
+        Some(&BTreeSet::from([attempt_id]))
+    );
+    {
+        let retained = view.world().consensus_schedule();
+        let current = &retained.ready(6).unwrap().epoch;
+        assert_eq!(current.mode, ConsensusMode::Npos);
+        for height in 6..=10 {
+            assert_eq!(
+                super::super::required(SumeragiRootScope::Global, view.world(), current, height)
+                    .unwrap(),
+                height == 9,
+                "only the pre-boundary height {height} == 9 is demanded"
+            );
+        }
+    }
+    let mut validator = NativeBeaconProducer::new(chain.instance(), Some(key), None);
+    let report = validator
+        .attach_readiness(&state.ivm_execution_budget())
+        .unwrap();
+    validator
+        .refresh_readiness(
+            &view,
+            &npos_context,
+            (5, npos_context.parent_hash),
+            generation,
+        )
+        .unwrap();
+    let (horizon, ready) = report.read(generation, 6, 5).unwrap();
+    assert_eq!(horizon.epoch_length_blocks, NPOS_EPOCH_LENGTH_BLOCKS);
+    assert_eq!(
+        horizon.next_required_pulse_height,
+        Some(9),
+        "the native boundary pulse, not the governance slot at 7"
+    );
+    assert!(
+        !ready,
+        "the native obligation still needs custody; governance state did not create it"
+    );
+    assert!(
+        validator
+            .drive(&view, &npos_context, (5, npos_context.parent_hash))
+            .unwrap()
+            .is_none()
+            && validator.active.is_none(),
+        "height 6 opens no round"
+    );
+    drop(view);
+
+    // Permissioned: the same kind of pending slot at the next height, and no session at all.
+    let chain = prefix();
+    let context = context(&chain);
+    let roster = chain
+        .validators()
+        .iter()
+        .map(|(peer, _)| peer.clone())
+        .collect::<Vec<_>>();
+    let key: [u8; 48] = roster[0]
+        .public_key()
+        .try_to_bytes()
+        .unwrap()
+        .1
+        .try_into()
+        .unwrap();
+    let (attempt_id, _, attempt) =
+        crate::beacon::tests::pending_batched_sortition_attempt(&chain.network_id(), &roster, 9);
+    chain.setup_world_at(2_000, |transaction| {
+        transaction
+            .world
+            .put_parliament_attempt(attempt)
+            .expect("admit the pending governance slot");
+    });
+    let state = chain.state();
+    let generation = state.state_view_generation();
+    let view = state.view();
+    assert_eq!(
+        view.world()
+            .parliament_required_beacon_pulse_slots()
+            .get(&(BeaconSessionId::for_network_v1(&chain.network_id()), 9)),
+        Some(&BTreeSet::from([attempt_id]))
+    );
+    assert!(view.world().active_global_beacon_key_session().is_none());
+    let mut validator = NativeBeaconProducer::new(chain.instance(), Some(key), None);
+    let report = validator
+        .attach_readiness(&state.ivm_execution_budget())
+        .unwrap();
+    validator
+        .refresh_readiness(&view, &context, (8, context.parent_hash), generation)
+        .unwrap();
+    let (horizon, ready) = report.read(generation, 9, 8).unwrap();
+    assert!(
+        ready,
+        "a validator without beacon custody is ready: Parliament state demands none"
+    );
+    assert_eq!(horizon.next_required_pulse_height, None);
+    assert_eq!(horizon.active_session_id, None);
+    assert!(!horizon.local_provider_ready && !horizon.session_covers_next_pulse);
 }
 
 #[path = "execution_tests.rs"]

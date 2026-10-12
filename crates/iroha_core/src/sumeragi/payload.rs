@@ -134,6 +134,9 @@ pub enum PayloadError {
     /// Original State acquisition refusal before preparing staking effects.
     #[error("staking State acquisition deferred: {0}")]
     StakingAdmission(#[source] crate::state::StateAdmissionError),
+    /// Original local forgery recheck refusal, retaining its physical preparation owner.
+    #[error("SCCP forgery proposal preparation failed: {0}")]
+    SccpForgeryPreparation(#[source] crate::state::StateStorageAdmissionError),
     /// The original versioned decoder refused this unfinished local attempt.
     #[error("payload decoding was refused by local resources: {0}")]
     DecodeResource(crate::execution_attempt::ExecutionDeferred),
@@ -277,6 +280,120 @@ pub fn assemble_with_merges(
         Ok(first)
     } else {
         build(canonical)
+    }
+}
+
+/// Recheck selected forgery inputs against the exact committed parent before capturing
+/// the Queue payload lease. Dropping a stale input changes the canonical clock, so every
+/// retained forgery is rechecked after any removal. The accepted objects keep their order
+/// and ownership; no transaction graph is copied, and a queue precheck is never reused.
+/// A local refusal aborts this attempt without removing any input from the Queue itself.
+pub(crate) fn recheck_sccp_forgery_for_proposal(
+    view: &crate::state::StateView<'_>,
+    assembly: Assembly<'_>,
+    selected: &mut Vec<AcceptedTransaction<'static>>,
+    merges: &MergeProposal,
+) -> Result<(), PayloadError> {
+    use crate::smartcontracts::isi::sccp::admission;
+
+    loop {
+        // Empty and ordinary selections need no extra original-history or pairing work.
+        if !selected.iter().any(|transaction| {
+            admission::exempt_class_of_entrypoint(view.world(), transaction.entrypoint())
+                == Some(admission::SccpExemptClassV1::ForgeryEvidence)
+        }) {
+            return Ok(());
+        }
+        let minimum = assembly
+            .parent
+            .header()
+            .creation_time()
+            .checked_add(assembly.cadence)
+            .ok_or(PayloadError::TimeOverflow)?;
+        let minimum = if merges.merges.is_empty() {
+            minimum
+        } else {
+            minimum.max(Duration::from_millis(merges.time_floor_ms))
+        };
+        let time = crate::block::creation_time_after_inputs(
+            minimum,
+            selected.iter().map(AcceptedTransaction::entrypoint),
+        )
+        .ok_or(PayloadError::TimeOverflow)?;
+        let time_ms = u64::try_from(time.as_millis()).map_err(|_| PayloadError::TimeOverflow)?;
+        let budget = view.execution_budget();
+        let before = selected.len();
+        let mut refusal = None;
+        let mut kept_forgery = false;
+        selected.retain(|transaction| {
+            if refusal.is_some()
+                || admission::exempt_class_of_entrypoint(view.world(), transaction.entrypoint())
+                    != Some(admission::SccpExemptClassV1::ForgeryEvidence)
+            {
+                return true;
+            }
+            // The current-parent selector enforces this same quota. Keep it here as well
+            // for direct candidate callers; a second valid forgery is not block work.
+            if kept_forgery {
+                return false;
+            }
+            match current_sccp_forgery(view, assembly.parent, transaction, time_ms, &budget) {
+                Ok(true) => {
+                    kept_forgery = true;
+                    true
+                }
+                Ok(false) => false,
+                Err(error) => {
+                    refusal = Some(error);
+                    true
+                }
+            }
+        });
+        if let Some(original) = refusal {
+            return Err(original);
+        }
+        if selected.len() == before {
+            return Ok(());
+        }
+    }
+}
+
+/// Check one signed carrier without granting a reusable verification or execution receipt.
+/// Only authenticated protocol rejection permits this proposal attempt to skip its row.
+fn current_sccp_forgery(
+    view: &crate::state::StateView<'_>,
+    parent: &SignedBlock,
+    transaction: &AcceptedTransaction<'_>,
+    time_ms: u64,
+    budget: &iroha_allocation::AllocationBudget,
+) -> Result<bool, PayloadError> {
+    use crate::smartcontracts::isi::sccp::forgery;
+    use iroha_data_model::{isi::sccp::SubmitSccpForgeryEvidenceV1, transaction::Executable};
+
+    let invalid_source = || {
+        PayloadError::SccpForgeryPreparation(crate::state::StateStorageAdmissionError::SccpForgery(
+            crate::state::sccp_forgery_custody::ForgeryStorageError::Invalid,
+        ))
+    };
+    let evidence = transaction
+        .external()
+        .and_then(|signed| {
+            let Executable::Instructions(instructions) = signed.instructions() else {
+                return None;
+            };
+            let [only] = instructions.as_ref() else {
+                return None;
+            };
+            only.as_any().downcast_ref::<SubmitSccpForgeryEvidenceV1>()
+        })
+        .ok_or_else(invalid_source)?;
+    match forgery::verify_for_proposal(view, parent, evidence, time_ms, budget) {
+        Ok(()) => Ok(true),
+        Err(error) if error.is_protocol_rejection() => Ok(false),
+        Err(error) => Err(error
+            .into_local_refusal()
+            .map(PayloadError::SccpForgeryPreparation)
+            .unwrap_or_else(|_| invalid_source())),
     }
 }
 
@@ -498,19 +615,29 @@ fn require_proposal(block: SignedBlock) -> Result<SignedBlock, PayloadError> {
     Ok(block)
 }
 
-/// Select queued transactions for the block after `parent` (FIFO, peeked, never removed),
+/// Select queued transactions after the view's committed parent (FIFO, peeked, never removed),
 /// within `max_bytes` of transaction bytes, the on-chain transaction cap and the FASTPQ source
-/// policy's Network input cap less `reserved` (the block's merged lane transactions).
+/// policy's Network input cap less `merges.transactions`. The original view supplies routing,
+/// scheduling and forgery authority; queued rows are neither removed nor granted a receipt.
 /// Fresh inputs routed to a native lane are selected by that lane; the global
 /// chain selects direct inputs and rescues inputs whose lane has stalled. A rescue is
 /// subject to the same `max_bytes`: a lane input larger than the global budget is skipped.
+/// Forgery evidence is reverified against this original committed parent before spending
+/// block capacity. Later inputs can change the canonical time, so the builder must still
+/// call `recheck_sccp_forgery_for_proposal` before capturing its final Queue lease.
+///
+/// # Errors
+/// Preserves local routing, original-history and forgery preparation refusals. Such errors
+/// leave every queued input resident and cannot become a transaction rejection.
 pub fn select(
-    state: &State,
+    view: &crate::state::StateView<'_>,
     queue: &std::sync::Arc<Queue>,
     max_bytes: usize,
-    reserved: usize,
-) -> Result<Vec<AcceptedTransaction<'static>>, crate::execution_attempt::ExecutionDeferred> {
-    let view = state.view();
+    merges: &MergeProposal,
+) -> Result<Vec<AcceptedTransaction<'static>>, PayloadError> {
+    use crate::smartcontracts::isi::sccp::admission::{
+        SccpExemptBlockBudgetV1, SccpExemptClassV1, exempt_class_of_entrypoint,
+    };
     let block_parameters = view.world().parameters().block();
     // The next block executes under the FASTPQ source policy frozen at its start (the
     // committed one): proposal packing honours its Network input cap, as validation does.
@@ -521,13 +648,13 @@ pub fn select(
     let max_transactions = usize::try_from(block_parameters.max_transactions().get())
         .unwrap_or(usize::MAX)
         .min(fastpq_inputs)
-        .saturating_sub(reserved);
-    let Some(pending) = queue.bounded_pending_snapshot(&view, MAX_QUEUE_SCAN) else {
+        .saturating_sub(merges.transactions);
+    let Some(pending) = queue.bounded_pending_snapshot(view, MAX_QUEUE_SCAN) else {
         return Ok(Vec::new());
     };
     // The global chain sequences lane 0; transactions routed to a lane reach it through that
     // lane's merged blocks (`specs/sumeragi_lanes.md` §5).
-    let routing = super::lanes::routing::RoutingSnapshot::of(&view)?;
+    let routing = super::lanes::routing::RoutingSnapshot::of(view)?;
     let height = u64::try_from(view.height())
         .unwrap_or(u64::MAX)
         .saturating_add(1);
@@ -547,6 +674,10 @@ pub fn select(
     });
     let mut selected = Vec::new();
     let mut bytes = 0usize;
+    let mut sccp_budget = SccpExemptBlockBudgetV1::new(view.world());
+    let mut forgery_selected = false;
+    let mut original_parent = None;
+    let budget = view.execution_budget();
     for transaction in pending {
         if selected.len() >= max_transactions {
             break;
@@ -565,6 +696,68 @@ pub fn select(
         if next > max_bytes {
             continue;
         }
+        let class = exempt_class_of_entrypoint(view.world(), transaction.entrypoint());
+        if class == Some(SccpExemptClassV1::ForgeryEvidence) {
+            if forgery_selected {
+                continue;
+            }
+            if original_parent.is_none() {
+                let parent_height = NonZeroUsize::new(view.height()).ok_or_else(|| {
+                    PayloadError::ParentService(
+                        "forgery selection requires the original committed parent".into(),
+                    )
+                })?;
+                original_parent = Some(
+                    view.canonical_history()
+                        .executed_block(parent_height, |_, _| Ok(()))
+                        .map_err(|error| match error {
+                            ExecutionAttemptError::Deferred(original) => {
+                                PayloadError::RoutingDeferred(original)
+                            }
+                            ExecutionAttemptError::Rejected(error) => {
+                                PayloadError::ParentService(error.to_string())
+                            }
+                        })?,
+                );
+            }
+            let parent = original_parent.as_ref().ok_or_else(|| {
+                PayloadError::ParentService("original forgery parent was not retained".into())
+            })?;
+            let scheduled = view
+                .world()
+                .consensus_schedule()
+                .ready(height)
+                .map_err(|error| PayloadError::ParentService(error.to_string()))?;
+            let minimum = parent
+                .header()
+                .creation_time()
+                .checked_add(Duration::from_millis(scheduled.params.block_time_ms))
+                .ok_or(PayloadError::TimeOverflow)?;
+            let minimum = if merges.merges.is_empty() {
+                minimum
+            } else {
+                minimum.max(Duration::from_millis(merges.time_floor_ms))
+            };
+            let time = crate::block::creation_time_after_inputs(
+                minimum,
+                selected
+                    .iter()
+                    .map(AcceptedTransaction::entrypoint)
+                    .chain(std::iter::once(transaction.entrypoint())),
+            )
+            .ok_or(PayloadError::TimeOverflow)?;
+            let time_ms =
+                u64::try_from(time.as_millis()).map_err(|_| PayloadError::TimeOverflow)?;
+            if !current_sccp_forgery(view, parent, &transaction, time_ms, &budget)? {
+                // A now-genuine/duplicate/expired row spends neither bytes, transaction
+                // count nor SCCP quota. It retains its original Queue custody.
+                continue;
+            }
+        }
+        if !sccp_budget.admit(class) {
+            continue;
+        }
+        forgery_selected |= class == Some(SccpExemptClassV1::ForgeryEvidence);
         bytes = next;
         selected.push(transaction);
     }
@@ -888,3 +1081,7 @@ mod work_tests;
 #[cfg(test)]
 #[path = "payload/resource_contract_tests.rs"]
 mod resource_contract_tests;
+
+#[cfg(test)]
+#[path = "payload/forgery_tests.rs"]
+mod forgery_tests;

@@ -188,7 +188,7 @@ fn certify(keys: &[KeyPair], header: &BlockHeader, bytes: &[u8]) -> iroha_sumera
                 height: header.height,
                 view: 0,
                 block_hash: header.hash(&crypto),
-                result: result_of_preimage(bytes),
+                result: result_of_preimage(bytes).unwrap(),
                 signer: index,
                 sig: iroha_sumeragi::types::Signature([0; iroha_sumeragi::types::SIGNATURE_LEN]),
             };
@@ -257,7 +257,18 @@ fn evidence_fixture() -> ValidatorCommitteeProvisioningEvidenceV1 {
         .unwrap(),
     )
     .unwrap();
-    let mut parent_result = result_of_preimage(&initial.preimage().unwrap());
+    let initial = iroha_data_model::sumeragi_finality::CertifiedResultV1::new(
+        iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+            *network.as_bytes(),
+            1,
+            genesis.header().creation_time_ms,
+        )
+        .unwrap(),
+        initial,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
+    let mut parent_result = result_of_preimage(&initial.preimage().unwrap()).unwrap();
     genesis = genesis.with_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
         Vec::new(),
         Vec::new(),
@@ -437,6 +448,17 @@ fn evidence_fixture() -> ValidatorCommitteeProvisioningEvidenceV1 {
             .unwrap(),
         )
         .unwrap();
+        let result = iroha_data_model::sumeragi_finality::CertifiedResultV1::new(
+            iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+                *network.as_bytes(),
+                height,
+                block.header().creation_time_ms,
+            )
+            .unwrap(),
+            result,
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        )
+        .unwrap();
         let preimage = result.preimage().unwrap();
         let qc = certify(&keys, &header, &preimage);
         block = block.with_commit_certificate(Some(
@@ -534,7 +556,12 @@ fn committee_boundary_requires_exact_native_quorum() {
     let block = selecting.decode_block(limits()).unwrap();
     let certificate = block.commit_certificate().unwrap();
     let header: BlockHeader = norito::decode_canonical(certificate.consensus_header()).unwrap();
-    let result = ExecutionResultCommitment::decode(certificate.result_preimage()).unwrap();
+    let certified_result = iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+        certificate.result_preimage(),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
+    let result = certified_result.commitment();
     let qc: iroha_sumeragi::message::Qc =
         norito::decode_canonical(certificate.commit_qc()).unwrap();
     assert_eq!(header.height, 10);
@@ -580,18 +607,13 @@ fn committee_boundary_requires_exact_native_quorum() {
         let signatures = keys
             .iter()
             .take(count)
-            .map(|key| Signature::try_new(key.private_key(), &qc.preimage()).unwrap())
+            .map(|key| {
+                iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &qc.preimage())
+                    .unwrap()
+            })
             .collect::<Vec<_>>();
         qc.agg_sig = iroha_sumeragi::types::AggregateSignature(
-            iroha_crypto::bls_normal_aggregate_signatures(
-                &signatures
-                    .iter()
-                    .map(Signature::payload)
-                    .collect::<Vec<_>>(),
-            )
-            .unwrap()
-            .try_into()
-            .unwrap(),
+            iroha_crypto::bls::consensus::aggregate(&signatures).unwrap(),
         );
     };
     let mut insufficient = qc.clone();

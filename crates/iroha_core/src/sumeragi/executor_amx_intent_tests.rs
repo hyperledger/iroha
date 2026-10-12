@@ -425,13 +425,13 @@ fn original_paid_intent_capture_rejects_changed_carrier_execution_and_foreign_po
             let pointer = context.canonical_bytes().as_ptr();
             assert!(original.witness.matches_original_native_execution(
                 original.valid.as_ref(),
-                result.get().execution
+                result.get().commitment().execution
             ));
             assert!(!original.witness.matches_original_native_execution(
                 chain.committed(1).block(),
-                result.get().execution
+                result.get().commitment().execution
             ));
-            let mut changed_execution = result.get().execution;
+            let mut changed_execution = result.get().commitment().execution;
             changed_execution.ordinary_writes_root =
                 iroha_crypto::Hash::new(b"substituted native writes");
             assert!(

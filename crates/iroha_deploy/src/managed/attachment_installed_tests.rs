@@ -1054,6 +1054,7 @@ fn source_for(
         clients.clone(),
         peers.iter().cloned().zip(clients).collect(),
         Instant::now() + Duration::from_secs(20),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     )?)
 }
 

@@ -142,11 +142,17 @@ fn run(block: &mut StateBlock<'_>, source: &SignedBlock) {
 
 fn metadata(
     block: &mut StateBlock<'_>,
-    _: &SignedBlock,
+    source: &SignedBlock,
     routes: &[crate::queue::RoutingDecision],
 ) -> Result<ExecutionOutputSealMetadata, String> {
     assert_eq!(routes.len(), 1);
     Ok(ExecutionOutputSealMetadata {
+        sccp_finality_header: iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+            *block.network_id().as_bytes(),
+            source.header().height().get(),
+            source.header().creation_time_ms,
+        )
+        .unwrap(),
         committed_fragment_count: u64::try_from(block.committed_fragment_count()).unwrap(),
     })
 }
@@ -158,6 +164,13 @@ fn actual_three_phase_seal_keeps_proposal_and_exact_wire_and_blocks_publication(
     let signatures = source.signatures().cloned().collect::<Vec<_>>();
     let (mut block, _recording) = recorded_network_block(&state, &source);
     run(&mut block, &source);
+    assert!(block.sealed_sccp_finality_header(&source).is_err());
+    let expected_x = iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+        *block.network_id().as_bytes(),
+        header.height().get(),
+        header.creation_time_ms,
+    )
+    .unwrap();
     let rows = retained(&block).rows.clone();
     assert_eq!(rows.len(), 3);
     assert!(matches!(
@@ -170,6 +183,10 @@ fn actual_three_phase_seal_keeps_proposal_and_exact_wire_and_blocks_publication(
     ));
     block.seal_execution_outputs(&mut source, metadata).unwrap();
     assert_eq!(source.header(), header);
+    assert_eq!(
+        block.sealed_sccp_finality_header(&source).unwrap(),
+        expected_x
+    );
     assert_eq!(source.signatures().cloned().collect::<Vec<_>>(), signatures);
     assert_eq!(source.execution_outputs(), rows);
     assert_eq!(
@@ -356,6 +373,7 @@ fn changed_signature_invalidates_exact_attachment_without_changing_proposal() {
         .unwrap();
     assert_eq!(source.hash(), proposal);
     assert!(block.verify_execution_output_seal(&source).is_err());
+    assert!(block.sealed_sccp_finality_header(&source).is_err());
 }
 
 #[test]
@@ -464,4 +482,37 @@ fn seal_verification_uses_values_instead_of_noop_or_rolled_back_touch_history() 
         block.commit().unwrap_err(),
         TransactionsBlockError::ExecutionOutputCapacity
     ));
+}
+
+#[test]
+fn finalizer_header_must_match_original_network_height_and_time() {
+    use iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1;
+    for mutation in 0..3 {
+        let (state, mut source) = seal_fixture();
+        let (mut block, _recording) = recorded_network_block(&state, &source);
+        run(&mut block, &source);
+        let result = block.seal_execution_outputs(&mut source, |state, source, routes| {
+            let mut value = metadata(state, source, routes)?;
+            let mut network = value.sccp_finality_header.network_id();
+            let mut height = value.sccp_finality_header.height();
+            let mut timestamp = value.sccp_finality_header.timestamp_ms();
+            match mutation {
+                0 => network[0] ^= 1,
+                1 => height += 1,
+                _ => timestamp += 1,
+            }
+            value.sccp_finality_header =
+                SccpFinalityHeaderV1::inactive(network, height, timestamp).unwrap();
+            Ok::<_, String>(value)
+        });
+        assert!(
+            matches!(result, Err(ExecutionOutputSealError::Owner(error)) if error.contains("finality header"))
+        );
+        assert!(!source.has_results());
+        assert!(block.sealed_sccp_finality_header(&source).is_err());
+        assert!(matches!(
+            block.execution_output_plan,
+            Some(ExecutionOutputPlanState::Poisoned)
+        ));
+    }
 }

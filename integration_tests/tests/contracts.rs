@@ -1186,8 +1186,12 @@ async fn verify_contract_finality_everywhere(
             move || -> Result<Hash> {
                 let mut tip = None;
                 for current in 1..=height {
-                    let proof =
-                        client.get_sumeragi_finality_proof(NonZeroU64::new(current).unwrap())?;
+                    let proof = client.get_sumeragi_finality_proof(
+                        NonZeroU64::new(current).unwrap(),
+                        iroha_data_model::sumeragi_finality::CertifiedResultScope::from_root_scope(
+                            verifier.root_scope(),
+                        ),
+                    )?;
                     tip = Some(verifier.verify(&proof)?);
                 }
                 let tip = tip.ok_or_else(|| eyre!("finality height must be positive"))?;

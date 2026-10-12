@@ -3,14 +3,14 @@
 use super::{Client, RuntimeOwner};
 use crate::{
     Result,
-    client::sccp::{SccpAttestation, SccpDirection},
+    client::sccp::{SccpDirection, SccpFinalityAt, SccpProofAt},
 };
 use iroha_data_model::{bridge::SccpNetworkV1, sccp::registry::SccpRouteV1};
 use iroha_sccp::api::{
-    SccpCapabilitiesV1, SccpControlPageV1, SccpControlProofBundleV1,
-    SccpGovernanceProposalDetailV1, SccpHistoryPathViewV1, SccpLcCheckpointCoverV1,
-    SccpLightClientDetailV1, SccpMessageProofBundleV1, SccpMessageStatusV1, SccpOutboundPageV1,
-    SccpRecentMessagesV1, SccpRosterViewV1, SccpRotationChainV1,
+    SccpCapabilitiesV1, SccpCertificateV1, SccpControlPageV1, SccpControlProofBundleV1,
+    SccpGenerationV1, SccpGovernanceProposalDetailV1, SccpHistoryPathViewV1,
+    SccpLcCheckpointCoverV1, SccpLightClientDetailV1, SccpMessageProofBundleV1,
+    SccpMessageStatusV1, SccpOutboundPageV1, SccpRecentMessagesV1, SccpRotationV1,
 };
 
 /// Blocking SCCP reads backed by the asynchronous SCCP capability.
@@ -32,7 +32,7 @@ impl Client {
 }
 
 impl Sccp<'_> {
-    /// Read the Taira identity, parameters and attestation health.
+    /// Read the Taira identity, parameters and inbound light-client profiles.
     ///
     /// # Errors
     /// Returns the asynchronous operation error or a typed runtime rejection.
@@ -96,6 +96,73 @@ impl Sccp<'_> {
     /// Returns the asynchronous operation error or a typed runtime rejection.
     pub fn message(&self, message_id: &[u8; 32]) -> Result<SccpMessageStatusV1> {
         self.runtime.block_on(self.inner.message(message_id))?
+    }
+
+    /// Read native message proof DATA for independent destination verification.
+    ///
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn message_proof(
+        &self,
+        message_id: &[u8; 32],
+        at: SccpProofAt,
+    ) -> Result<SccpMessageProofBundleV1> {
+        self.runtime
+            .block_on(self.inner.message_proof(message_id, at))?
+    }
+
+    /// Read native control proof DATA for independent destination verification.
+    ///
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn control_proof(
+        &self,
+        network: SccpNetworkV1,
+        revision: u32,
+        control_nonce: u64,
+        at: SccpProofAt,
+    ) -> Result<SccpControlProofBundleV1> {
+        self.runtime.block_on(
+            self.inner
+                .control_proof(network, revision, control_nonce, at),
+        )?
+    }
+
+    /// Read original native certificate DATA at the selected height.
+    ///
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn finality(&self, at: SccpFinalityAt) -> Result<SccpCertificateV1> {
+        self.runtime.block_on(self.inner.finality(at))?
+    }
+
+    /// Read current committee DATA through the same bounded asynchronous transport.
+    ///
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn current_committee(&self) -> Result<SccpGenerationV1> {
+        self.runtime.block_on(self.inner.current_committee())?
+    }
+
+    /// Read retained generation DATA with its current-view liability.
+    ///
+    /// # Errors
+    /// Preserves the asynchronous operation error or a typed runtime rejection.
+    pub fn committee(&self, generation: std::num::NonZeroU64) -> Result<SccpGenerationV1> {
+        self.runtime.block_on(self.inner.committee(generation))?
+    }
+
+    /// Read ordered native transitions starting with the supplied generation's handoff.
+    ///
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn committee_rotations(
+        &self,
+        after_generation: u64,
+        limit: usize,
+    ) -> Result<Vec<SccpRotationV1>> {
+        self.runtime
+            .block_on(self.inner.committee_rotations(after_generation, limit))?
     }
 
     /// Read the newest records of one direction.
@@ -184,62 +251,5 @@ impl Sccp<'_> {
     ) -> Result<SccpGovernanceProposalDetailV1> {
         self.runtime
             .block_on(self.inner.governance_proposal(content_id))?
-    }
-
-    /// Read the proof bundle of one outbound message.
-    ///
-    /// # Errors
-    /// Returns the asynchronous operation error or a typed runtime rejection.
-    pub fn message_proof(
-        &self,
-        message_id: &[u8; 32],
-        attestation: SccpAttestation,
-    ) -> Result<SccpMessageProofBundleV1> {
-        self.runtime
-            .block_on(self.inner.message_proof(message_id, attestation))?
-    }
-
-    /// Read the proof bundle of one destination control.
-    ///
-    /// # Errors
-    /// Returns the asynchronous operation error or a typed runtime rejection.
-    pub fn control_proof(
-        &self,
-        network: SccpNetworkV1,
-        revision: u32,
-        control_nonce: u64,
-        attestation: SccpAttestation,
-    ) -> Result<SccpControlProofBundleV1> {
-        self.runtime.block_on(self.inner.control_proof(
-            network,
-            revision,
-            control_nonce,
-            attestation,
-        ))?
-    }
-
-    /// Read the current roster generation.
-    ///
-    /// # Errors
-    /// Returns the asynchronous operation error or a typed runtime rejection.
-    pub fn current_roster(&self) -> Result<SccpRosterViewV1> {
-        self.runtime.block_on(self.inner.current_roster())?
-    }
-
-    /// Read one roster generation.
-    ///
-    /// # Errors
-    /// Returns the asynchronous operation error or a typed runtime rejection.
-    pub fn roster(&self, generation: u64) -> Result<SccpRosterViewV1> {
-        self.runtime.block_on(self.inner.roster(generation))?
-    }
-
-    /// Read the catch-up rotation chain.
-    ///
-    /// # Errors
-    /// Returns the asynchronous operation error or a typed runtime rejection.
-    pub fn rotations(&self, after_generation: u64, limit: usize) -> Result<SccpRotationChainV1> {
-        self.runtime
-            .block_on(self.inner.rotations(after_generation, limit))?
     }
 }

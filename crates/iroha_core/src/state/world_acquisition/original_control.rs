@@ -310,3 +310,56 @@ impl OriginalControlSource for TriggerSet {
         Ok(OrdinaryAcquisition(self.block_acquisition()))
     }
 }
+
+impl<K: Key, V: Value, P> OriginalControlSource for Storage<K, V, concread::bptree::Prepaid<P>>
+where
+    P: mv::storage::AdmittedStoragePolicy
+        + concread::bptree::ClonePlanning<K, V>
+        + concread::bptree::ClonePlanning<K, Option<V>>,
+{
+    type Acquisition<'a>
+        = super::PrepaidAcquisition<'a, K, V, P>
+    where
+        Self: 'a;
+    // This store funds its scope and MV writers from its own retained original
+    // pool. The outer World budget funds the enclosing shell, not a new map pool.
+    fn successor_layout(&self) -> Option<Layout> {
+        None
+    }
+    fn original_acquisition<'a>(
+        &'a self,
+        _: &AllocationBudget,
+        _: &mut AllocationReservation,
+    ) -> Result<Self::Acquisition<'a>, AdmittedStorageError> {
+        let scope = original_storage_scope(self.allocation_budget())?;
+        self.try_block_acquisition_owned(&scope)
+            .map(super::PrepaidAcquisition)
+    }
+}
+
+/// Retain a fallible original-pool scope before any enclosing writer is acquired.
+pub(in crate::state) fn original_storage_scope(
+    budget: &AllocationBudget,
+) -> Result<iroha_allocation::OwnedAllocationScope, AdmittedStorageError> {
+    use iroha_allocation::{OwnedAllocationScope, OwnedScopeError};
+    let layout = OwnedAllocationScope::allocation_layout();
+    let mut reservation = budget
+        .try_reserve(layout)
+        .map_err(AdmittedStorageError::Allocation)?;
+    let charge = reservation
+        .try_split(layout)
+        .expect("exact original scope layout");
+    OwnedAllocationScope::try_from_charge(budget, charge).map_err(|(charge, error)| {
+        drop(charge);
+        match error {
+            OwnedScopeError::ForeignPool => AdmittedStorageError::ScopeIdentity,
+            OwnedScopeError::LayoutMismatch { expected, actual } => {
+                AdmittedStorageError::PolicyDemand {
+                    expected_bytes: expected.size(),
+                    remaining_bytes: actual.size(),
+                }
+            }
+            OwnedScopeError::Allocator { layout } => AdmittedStorageError::Allocator { layout },
+        }
+    })
+}

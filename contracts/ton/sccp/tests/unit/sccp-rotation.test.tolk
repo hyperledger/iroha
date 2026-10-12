@@ -1,6 +1,5 @@
-// Roster rotation and weak subjectivity (§5.1.2, §5.1.5): the current roster
-// signs the next one, the previous roster keeps a capped grace, sequential
-// rotations, and every generation, digest and validity bound.
+// Native committee rotation (§5.1.2–§5.1.3): current-generation CommitQC,
+// exact handoff checkpoint reuse, sequential heights, expiry and key custody.
 
 import "@stdlib/exotic-cells"
 import "@acton/emulation/network"
@@ -15,94 +14,75 @@ import "@contracts/sccp-messages"
 import "@contracts/sccp-storage"
 import "@contracts/sccp-verify"
 import "@wrappers/SccpTairaXorMinter.gen"
+import "sccp-test-bls"
 import "sccp-test-helpers"
 import "sccp-test-vectors.gen"
 
-get fun `test rotation installs the next roster and keeps the previous one in grace`() {
+get fun `test rotation installs the successor and retains the initial pin`() {
     val env = setupEnv();
-    val next = nextRoster(env.roster, 7, 4, T0 * 1000 - 5000);
-    val res = rotateTo(env, next, 300);
+    val next = testCommittee(7, 4);
+    val res = rotateTo(env, next, 1200);
     expect(res).toHaveSuccessfulTx<ReturnExcessesBack>({ to: env.deployer });
-    // §5.1.5 step 4: the new generation, digest and expiry
     val event = res
-        .findExternalOutMessage<SccpRosterRotatedEvent>({ from: env.minter.address })!
+        .findExternalOutMessage<SccpCommitteeRotatedEvent>({ from: env.minter.address })!
         .loadBody();
     expect(event.generation).toEqual(8);
-    expect(event.digest).toEqual(next.digest(env.networkId));
-    expect(event.validUntilMs).toEqual(next.validUntilMs);
+    expect(event.root).toEqual(next.root());
+    expect(event.untilMs).toEqual(T0 * 1000 + TEST_VALIDITY_MS);
+    expect(event.start).toEqual(1201);
     val state = env.minter.getSccpState();
-    expect(state.digest).toEqual(next.digest(env.networkId));
+    expect(state.root).toEqual(next.root());
     expect(state.generation).toEqual(8);
-    expect(state.validUntilMs).toEqual(next.validUntilMs);
-    expect(state.prevDigest).toEqual(env.digest());
-    expect(state.prevValidUntilMs).toEqual(T0 * 1000 + SCCP_PREVIOUS_ROSTER_GRACE_MS);
-    // rotations are not counted
+    expect(state.untilMs).toEqual(T0 * 1000 + TEST_VALIDITY_MS);
+    expect(state.start).toEqual(1201);
+    expect(state.high).toEqual(1200);
     expect(state.opCount).toEqual(0);
-    expect(state.initialDigest).toEqual(env.digest());
+    expect(state.initialRoot).toEqual(env.committee.root());
     expect(state.initialGeneration).toEqual(7);
-    expect(env.minter.getSccpMembers()).toEqual(next.members);
+    expect(state.initialStart).toEqual(TEST_START_HEIGHT);
+    expect(env.minter.getSccpCommittee().keys.hash()).toEqual(next.keysCell().hash());
 }
 
-get fun `test previous roster grace is capped by its own validity`() {
-    testing.setNow(T0);
-    val deployer = testing.treasury("deployer");
-    // current roster expires in 2 hours, before the 24 h grace would end
-    val roster = makeRoster(
-        7,
-        4,
-        0,
-        0,
-        T0 * 1000 - HOUR_MS,
-        T0 * 1000 + 2 * HOUR_MS,
+get fun `test successor expiry is clamped to the local clock`() {
+    val env = setupEnv();
+    val next = testCommittee(4, 4);
+    val x = rotationX(
+        env.networkId,
+        env.generation,
+        env.committee.root(),
+        1200,
+        T0 * 1000 + DAY_MS,
+        next.root(),
+        2 * HOUR_MS,
     );
-    val (minter, _) = deployWithInit(
-        canonicalStorage(VEC_NETWORK_ID, TEST_REVISION, TEST_MAX_SUPPLY, roster),
-        deployer.address,
-        grams("10"),
+    expect(
+        checkpointBy(env, env.committee, x, next.keysCell()),
+    ).toHaveSuccessfulTx<SccpCheckpoint>({ to: env.minter.address });
+    expect(env.minter.getSccpState().untilMs).toEqual(T0 * 1000 + 2 * HOUR_MS);
+    testing.setNow(T0 + 2 * HOUR_MS / 1000 + 1);
+    val expired = rotationX(
+        env.networkId,
+        8,
+        next.root(),
+        1201,
+        testing.getNow() * 1000,
+        next.root(),
+        DAY_MS,
     );
-    val env: Env = {
-        minter,
-        deployer: deployer.address,
-        networkId: VEC_NETWORK_ID,
-        roster,
-    };
-    rotateTo(env, nextRoster(roster, 4, 4, T0 * 1000), 300);
-    expect(env.minter.getSccpState().prevValidUntilMs).toEqual(T0 * 1000 + 2 * HOUR_MS);
+    expect(checkpointBy(env, next, expired, null)).toHaveFailedTx<SccpCheckpoint>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.CommitteeNotAccepted as int });
 }
 
-get fun `test the previous roster finalizes within grace and not after`() {
+get fun `test only the exact handoff checkpoint remains usable after rotation`() {
     val env = setupEnv();
     val alice = testing.treasury("alice").address;
-    val old = env.roster;
-    val next = nextRoster(env.roster, 4, 4, T0 * 1000 - 5000);
-    rotateTo(env, next, 300);
-    val newEnv: Env = {
-        minter: env.minter,
-        deployer: env.deployer,
-        networkId: env.networkId,
-        roster: next,
-    };
-    // signed by the previous roster, within grace
-    val d = deliver(
+    val next = testCommittee(4, 4);
+    val stale = deliverAt(
         env,
-        old,
-        0,
-        10,
-        alice,
-        T0 * 1000 + 3 * DAY_MS,
-        0,
-        1,
-    );
-    expect(
-        sendFinalize(env, env.deployer, d, finalizeValue(env, 0)),
-    ).toHaveSuccessfulTx<SccpFinalize>({
-        to: env.minter.address,
-    });
-    // after grace the previous roster is refused, the new one works
-    testing.setNow(T0 + SCCP_PREVIOUS_ROSTER_GRACE_MS / 1000 + 1);
-    val late = deliver(
-        env,
-        old,
+        env.committee,
+        env.generation,
+        1199,
         1,
         10,
         alice,
@@ -110,15 +90,55 @@ get fun `test the previous roster finalizes within grace and not after`() {
         0,
         1,
     );
+    // Retain a genuine non-handoff predecessor before the current committee changes.
     expect(
-        sendFinalize(env, env.deployer, late, finalizeValue(env, 1)),
-    ).toHaveFailedTx<SccpFinalize>({
-        to: env.minter.address,
-        exitCode: SccpErrors.RosterNotAccepted as int,
-    });
-    val fresh = deliver(
-        newEnv,
+        sendCheckpoint(env, env.deployer, stale.cert, null, grams("1")),
+    ).toHaveSuccessfulTx<SccpCheckpoint>({ to: env.minter.address });
+    var handoff = deliverAt(
+        env,
+        env.committee,
+        env.generation,
+        1200,
+        0,
+        10,
+        alice,
+        T0 * 1000 + 3 * DAY_MS,
+        0,
+        1,
+    );
+    handoff.x.flags = SCCP_X_FLAG_ACTIVE | SCCP_X_FLAG_ROTATION;
+    handoff.x.timestampMs = T0 * 1000;
+    handoff.x.validityMs = TEST_VALIDITY_MS;
+    handoff.x.nextCommitteeRoot = next.root();
+    handoff.cert = certifyFor(env, env.committee, handoff.x);
+    // The proof still names the same block root and height.
+    expect(
+        sendCheckpoint(env, env.deployer, handoff.cert, next.keysCell(), grams("1")),
+    ).toHaveSuccessfulTx<SccpCheckpoint>({ to: env.minter.address });
+    expect(
+        sendFinalize(env, env.deployer, handoff, finalizeValue(env, 0)),
+    ).toHaveFailedTx<SccpFinalize>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.CommitteeNotAccepted as int });
+    expect(
+        sendFinalizeCheckpoint(env, env.deployer, handoff, finalizeValue(env, 0)),
+    ).toHaveSuccessfulTx<SccpFinalizeCheckpoint>({ to: env.minter.address });
+    expect(
+        sendFinalize(env, env.deployer, stale, finalizeValue(env, 1)),
+    ).toHaveFailedTx<SccpFinalize>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.CommitteeNotAccepted as int });
+    // Both original checkpoints fit; this reaches U1/U2, not UnknownCheckpoint.
+    expect(
+        sendFinalizeCheckpoint(env, env.deployer, stale, finalizeValue(env, 1)),
+    ).toHaveFailedTx<SccpFinalizeCheckpoint>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.CommitteeNotAccepted as int });
+    val fresh = deliverAt(
+        env,
         next,
+        8,
+        1201,
         1,
         10,
         alice,
@@ -127,295 +147,272 @@ get fun `test the previous roster finalizes within grace and not after`() {
         1,
     );
     expect(
-        sendFinalize(newEnv, env.deployer, fresh, finalizeValue(env, 1)),
-    ).toHaveSuccessfulTx<SccpFinalize>({
-        to: env.minter.address,
-    });
+        sendFinalize(env, env.deployer, fresh, finalizeValue(env, 1)),
+    ).toHaveSuccessfulTx<SccpFinalize>({ to: env.minter.address });
     expect(jettonBalanceOf(env, alice)).toEqual(20);
 }
 
-get fun `test sequential rotations replay each generation`() {
+get fun `test sequential rotations advance one generation and height`() {
     val env = setupEnv();
-    val g8 = nextRoster(env.roster, 4, 4, T0 * 1000 - 5000);
-    rotateTo(env, g8, 300);
-    val env8: Env = {
-        minter: env.minter,
-        deployer: env.deployer,
-        networkId: env.networkId,
-        roster: g8,
-    };
-    val g9 = nextRoster(g8, 31, 0, T0 * 1000 - 1000);
-    rotateTo(env8, g9, 301);
+    val g8 = testCommittee(4, 4);
+    rotateTo(env, g8, 1200);
+    val g9 = testCommittee(31, 0);
+    rotateFrom(env, g8, 8, g9, 1201);
     val state = env.minter.getSccpState();
     expect(state.generation).toEqual(9);
-    expect(state.prevDigest).toEqual(g8.digest(env.networkId));
-    // generation 7 is gone entirely
+    expect(state.root).toEqual(g9.root());
+    expect(state.start).toEqual(1202);
+    expect(state.high).toEqual(1201);
     val alice = testing.treasury("alice").address;
-    val stale = deliver(
-        env,
-        env.roster,
-        0,
-        1,
-        alice,
-        T0 * 1000 + DAY_MS,
-        0,
-        1,
-    );
-    expect(sendFinalize(env, env.deployer, stale, grams("5"))).toHaveFailedTx<SccpFinalize>({
-        to: env.minter.address,
-        exitCode: SccpErrors.RosterNotAccepted as int,
-    });
-    // skipping a generation is refused
-    val env9: Env = {
-        minter: env.minter,
-        deployer: env.deployer,
-        networkId: env.networkId,
-        roster: g9,
-    };
-    val g11 = makeRoster(
-        11,
-        4,
-        0,
-        8,
+    val stale = deliverDefault(env, 0, 1, alice);
+    expect(
+        sendFinalize(env, env.deployer, stale, grams("5")),
+    ).toHaveFailedTx<SccpFinalize>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.CommitteeNotAccepted as int });
+    val skipped = rotationX(
+        env.networkId,
+        10,
+        g9.root(),
+        1202,
         T0 * 1000,
-        T0 * 1000 + DAY_MS,
+        testCommittee(4, 8).root(),
+        DAY_MS,
     );
-    val statement = rotationStatement(env9, g9, g11, 302);
     expect(
-        sendRotate(
-            env9,
-            statement,
-            signByThreshold(g9, statement.digest(env.networkId)),
-            g11.spec(),
-        ),
-    ).toHaveFailedTx<SccpRotate>({
-        to: env.minter.address,
-        exitCode: SccpErrors.BadRotation as int,
-    });
+        checkpointBy(env, g9, skipped, testCommittee(4, 8).keysCell()),
+    ).toHaveFailedTx<SccpCheckpoint>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.CommitteeNotAccepted as int });
 }
 
-get fun `test only the current roster may sign a rotation`() {
+get fun `test only the current committee may sign a rotation`() {
     val env = setupEnv();
-    val g8 = nextRoster(env.roster, 4, 4, T0 * 1000 - 5000);
-    rotateTo(env, g8, 300);
-    val env8: Env = {
-        minter: env.minter,
-        deployer: env.deployer,
-        networkId: env.networkId,
-        roster: g8,
-    };
-    val g9 = nextRoster(g8, 4, 8, T0 * 1000);
-    // generation 7 (previous, still in grace) signs: refused
-    val statement = rotationStatement(env, env.roster, g9, 301);
+    val g8 = testCommittee(4, 4);
+    rotateTo(env, g8, 1200);
+    val g9 = testCommittee(4, 8);
+    val stale = rotationX(
+        env.networkId,
+        env.generation,
+        env.committee.root(),
+        1201,
+        T0 * 1000,
+        g9.root(),
+        DAY_MS,
+    );
     expect(
-        sendRotate(
-            env8,
-            statement,
-            signByThreshold(env.roster, statement.digest(env.networkId)),
-            g9.spec(),
-        ),
-    ).toHaveFailedTx<SccpRotate>({
-        to: env.minter.address,
-        exitCode: SccpErrors.RosterNotAccepted as int,
-    });
+        checkpointBy(env, env.committee, stale, g9.keysCell()),
+    ).toHaveFailedTx<SccpCheckpoint>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.CommitteeNotAccepted as int });
+    // Claiming the current root with old keys does not authenticate it.
+    var forged = stale;
+    forged.generation = 8;
+    forged.committeeRoot = g8.root();
+    expect(
+        checkpointBy(env, env.committee, forged, g9.keysCell()),
+    ).toHaveFailedTx<SccpCheckpoint>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.BadSignature as int });
 }
 
-get fun `test rotation checks the announced digest and the timestamp binding`() {
+get fun `test rotation binds the announced root timestamp and exact quorum`() {
     val env = setupEnv();
-    val next = nextRoster(env.roster, 4, 4, T0 * 1000 - 5000);
-    // next digest zero
-    var zero = rotationStatement(env, env.roster, next, 300);
-    zero.nextRosterDigest = 0;
+    val next = testCommittee(4, 4);
+    val x = rotationX(
+        env.networkId,
+        env.generation,
+        env.committee.root(),
+        1200,
+        T0 * 1000,
+        next.root(),
+        DAY_MS,
+    );
+    var zero = x;
+    zero.nextCommitteeRoot = 0;
     expect(
-        sendRotate(env, zero, signByThreshold(env.roster, zero.digest(env.networkId)), next.spec()),
-    ).toHaveFailedTx<SccpRotate>({
-        to: env.minter.address,
-        exitCode: SccpErrors.BadRotation as int,
-    });
-    // a different roster than the announced one
-    val other = nextRoster(env.roster, 4, 5, T0 * 1000 - 5000);
-    val announced = rotationStatement(env, env.roster, next, 300);
+        checkpointBy(env, env.committee, zero, next.keysCell()),
+    ).toHaveFailedTx<SccpCheckpoint>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.BadHeader as int });
     expect(
-        sendRotate(
+        checkpointBy(env, env.committee, x, testCommittee(4, 5).keysCell()),
+    ).toHaveFailedTx<SccpCheckpoint>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.BadCommittee as int });
+    // A timestamp change without a new QC is a signature failure.
+    val qc = defaultQc(x.height);
+    val signature = blsAggregateSign(
+        env.committee.secretsOf(0b0111),
+        commitMessage(env.instance, qc, x),
+    );
+    var shifted = x;
+    shifted.timestampMs += 1;
+    expect(
+        sendCheckpoint(
             env,
-            announced,
-            signByThreshold(env.roster, announced.digest(env.networkId)),
-            other.spec(),
+            env.deployer,
+            certOf(signature, 0b0111, qc, shifted),
+            next.keysCell(),
+            grams("1"),
         ),
-    ).toHaveFailedTx<SccpRotate>({
-        to: env.minter.address,
-        exitCode: SccpErrors.BadRotation as int,
-    });
-    // valid_from differs from the boundary timestamp
-    var shifted = rotationStatement(env, env.roster, next, 300);
-    shifted.timestampMs = next.validFromMs + 1;
-    expect(
-        sendRotate(
-            env,
-            shifted,
-            signByThreshold(env.roster, shifted.digest(env.networkId)),
-            next.spec(),
-        ),
-    ).toHaveFailedTx<SccpRotate>({
-        to: env.minter.address,
-        exitCode: SccpErrors.BadRotation as int,
-    });
-    // unsigned by enough members
-    val fine = rotationStatement(env, env.roster, next, 300);
-    expect(
-        sendRotate(
-            env,
-            fine,
-            signBySlots(env.roster, fine.digest(env.networkId), [0, 1]),
-            next.spec(),
-        ),
-    ).toHaveFailedTx<SccpRotate>({
-        to: env.minter.address,
-        exitCode: SccpErrors.TooFewSignatures as int,
-    });
-}
-
-get fun `test rotation validity, skew and valid_from bounds`() {
-    val now = T0 * 1000;
-    val bounds: array<[int, int]> = [
-        [now + SCCP_MAX_CLOCK_SKEW_MS + 1, now + 2 * DAY_MS],
-        [now - DAY_MS, now - DAY_MS + SCCP_MAX_ROSTER_VALIDITY_MS + 1],
-        [now - 2 * DAY_MS, now],
-        [now + 1, now + SCCP_MAX_ROSTER_VALIDITY_MS + 1],
-    ];
-    val env = setupEnv();
+    ).toHaveFailedTx<SccpCheckpoint>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.BadSignature as int });
+    val bitmaps: array<int> = [0b0011, 0b1111];
     var i = 0;
-    while (i < bounds.size()) {
-        val [from, until] = bounds.get(i);
-        val next = makeRoster(
-            8,
-            4,
-            0,
-            4,
-            from,
-            until,
-        );
-        val statement = rotationStatement(env, env.roster, next, 300);
+    while (i < bitmaps.size()) {
+        val cert = certifyBy(env.committee, bitmaps.get(i), env.instance, qc, x);
         expect(
-            sendRotate(
-                env,
-                statement,
-                signByThreshold(env.roster, statement.digest(env.networkId)),
-                next.spec(),
-            ),
-        ).toHaveFailedTx<SccpRotate>({
-            to: env.minter.address,
-            exitCode: SccpErrors.BadRosterValidity as int,
-        });
+            sendCheckpoint(env, env.deployer, cert, next.keysCell(), grams("1")),
+        ).toHaveFailedTx<SccpCheckpoint>({ to: env
+                .minter
+                .address, exitCode: SccpErrors.BadCertificate as int });
         i += 1;
     }
-    // the edges pass
-    val edge = makeRoster(
-        8,
-        4,
-        0,
-        4,
-        now + SCCP_MAX_CLOCK_SKEW_MS,
-        now + SCCP_MAX_ROSTER_VALIDITY_MS,
-    );
-    rotateTo(env, edge, 300);
 }
 
-get fun `test rotation rejects a malformed next roster`() {
+get fun `test rotation validity bounds and already expired successor`() {
     val env = setupEnv();
-    val next = nextRoster(env.roster, 4, 4, T0 * 1000 - 5000);
-    val statement = rotationStatement(env, env.roster, next, 300);
-    val sigs = signByThreshold(env.roster, statement.digest(env.networkId));
-    var badThreshold = next.spec();
-    badThreshold.t = 4;
-    expect(sendRotate(env, statement, sigs, badThreshold)).toHaveFailedTx<SccpRotate>({
-        to: env.minter.address,
-        exitCode: SccpErrors.BadRoster as int,
-    });
-    var badOrder = next.spec();
-    badOrder.members = sccpBuildMembers(
-        [keyAddress(5), keyAddress(4), keyAddress(6), keyAddress(7)],
-    );
-    expect(sendRotate(env, statement, sigs, badOrder)).toHaveFailedTx<SccpRotate>({
-        to: env.minter.address,
-        exitCode: SccpErrors.BadRoster as int,
-    });
-}
-
-get fun `test rotation rejects library-cell member chunks and stores an ordinary list`() {
-    val env = setupEnv();
-    // n = 4: the whole list as a reference to a published library holding the
-    // canonical chunk (CTOS alone would resolve it and pass the digest check)
-    val next = nextRoster(env.roster, 4, 4, T0 * 1000 - 5000);
-    val canonical = next.membersCell();
-    testing.registerLibrary(canonical);
-    val statement = rotationStatement(env, env.roster, next, 300);
-    val sigs = signByThreshold(env.roster, statement.digest(env.networkId));
-    var headLibrary = next.spec();
-    headLibrary.members = canonical.toLibraryReference();
-    expect(sendRotate(env, statement, sigs, headLibrary)).toHaveFailedTx<SccpRotate>({
-        to: env.minter.address,
-        exitCode: SccpErrors.BadSnake as int,
-    });
-    // n = 7: an ordinary first chunk linking a library-reference last chunk
-    val next7 = nextRoster(env.roster, 7, 4, T0 * 1000 - 5000);
-    val lastChunk = beginCell().storeUint(next7.members.get(6), 160).storeMaybeRef(null).endCell();
-    testing.registerLibrary(lastChunk);
-    var head = beginCell();
+    val next = testCommittee(4, 4);
+    val bad: array<int> = [0, SCCP_MAX_VALIDITY_MS + 1];
     var i = 0;
-    while (i < SCCP_MEMBERS_PER_CHUNK) {
-        head.storeUint(next7.members.get(i), 160);
+    while (i < bad.size()) {
+        val x = rotationX(
+            env.networkId,
+            env.generation,
+            env.committee.root(),
+            1200,
+            T0 * 1000,
+            next.root(),
+            bad.get(i),
+        );
+        expect(
+            checkpointBy(env, env.committee, x, next.keysCell()),
+        ).toHaveFailedTx<SccpCheckpoint>({ to: env
+                .minter
+                .address, exitCode: SccpErrors.BadHeader as int });
         i += 1;
     }
-    var tailLibrary = next7.spec();
-    tailLibrary.members = head.storeMaybeRef(lastChunk.toLibraryReference()).endCell();
-    val statement7 = rotationStatement(env, env.roster, next7, 301);
+    // A genuine old handoff persists even when its successor is already expired.
+    val expired = rotationX(
+        env.networkId,
+        env.generation,
+        env.committee.root(),
+        1200,
+        T0 * 1000 - 2 * DAY_MS,
+        next.root(),
+        DAY_MS,
+    );
     expect(
-        sendRotate(
-            env,
-            statement7,
-            signByThreshold(env.roster, statement7.digest(env.networkId)),
-            tailLibrary,
-        ),
-    ).toHaveFailedTx<SccpRotate>({
-        to: env.minter.address,
-        exitCode: SccpErrors.BadSnake as int,
-    });
-    expect(env.minter.getSccpState().generation).toEqual(7);
-    // the ordinary encoding rotates, and the stored list is that ordinary cell
-    rotateTo(env, next7, 302);
+        checkpointBy(env, env.committee, expired, next.keysCell()),
+    ).toHaveSuccessfulTx<SccpCheckpoint>({ to: env.minter.address });
     expect(env.minter.getSccpState().generation).toEqual(8);
-    expect(env.minter.getSccpMembers()).toEqual(next7.members);
-    val installed = storedMinterData(env.minter.address).roster.load();
-    val (_, isExotic) = installed.members.beginParseSpecial();
-    expect(isExotic).toBeFalse();
-    expect(installed.members.hash()).toEqual(next7.membersCell().hash());
+    expect(env.minter.getSccpState().untilMs).toEqual(T0 * 1000 - DAY_MS);
+    expect(env.minter.getSccpState().equivocated).toBeFalse();
+    val fresh = setupEnv();
+    val edge = rotationX(
+        fresh.networkId,
+        fresh.generation,
+        fresh.committee.root(),
+        1200,
+        T0 * 1000 + DAY_MS,
+        next.root(),
+        SCCP_MAX_VALIDITY_MS,
+    );
+    expect(
+        checkpointBy(fresh, fresh.committee, edge, next.keysCell()),
+    ).toHaveSuccessfulTx<SccpCheckpoint>({ to: fresh.minter.address });
+    expect(fresh.minter.getSccpState().untilMs).toEqual(T0 * 1000 + SCCP_MAX_VALIDITY_MS);
 }
 
-/// Minter storage read from the emulated account state.
-fun storedMinterData(minter: address): MinterStorage {
-    val account = testing.getAccountState(minter)!;
-    val state = account.storage.state;
-    if (state is TlbAccountStateActive) {
-        return MinterStorage.fromCell(state.stateInit.data!);
+get fun `test rotation rejects missing malformed and unordered next keys`() {
+    val env = setupEnv();
+    val next = testCommittee(4, 4);
+    val x = rotationX(
+        env.networkId,
+        env.generation,
+        env.committee.root(),
+        1200,
+        T0 * 1000,
+        next.root(),
+        DAY_MS,
+    );
+    val k = next.keys;
+    val cases: array<cell?> = [
+        null,
+        sccpBuildKeys([k.get(0), k.get(1), k.get(2)]),
+        sccpBuildKeys([k.get(1), k.get(0), k.get(2), k.get(3)]),
+        sccpBuildKeys([k.get(0), k.get(0), k.get(2), k.get(3)]),
+    ];
+    var i = 0;
+    while (i < cases.size()) {
+        expect(
+            checkpointBy(env, env.committee, x, cases.get(i)),
+        ).toHaveFailedTx<SccpCheckpoint>({ to: env
+                .minter
+                .address, exitCode: SccpErrors.BadCommittee as int });
+        i += 1;
     }
-    throw SccpErrors.InvalidMessage;
+}
+
+get fun `test rotation rejects library keys and retains an ordinary list`() {
+    val env = setupEnv();
+    val next = testCommittee(4, 4);
+    val canonical = next.keysCell();
+    testing.registerLibrary(canonical);
+    val tail = canonical.beginParse().preloadRef();
+    testing.registerLibrary(tail);
+    val k = next.keys;
+    val tailLibrary = beginCell()
+        .storeSlice(k.get(0))
+        .storeSlice(k.get(1))
+        .storeMaybeRef(tail.toLibraryReference())
+        .endCell();
+    val x = rotationX(
+        env.networkId,
+        env.generation,
+        env.committee.root(),
+        1200,
+        T0 * 1000,
+        next.root(),
+        DAY_MS,
+    );
+    val cases: array<cell> = [canonical.toLibraryReference(), tailLibrary];
+    var i = 0;
+    while (i < cases.size()) {
+        expect(
+            checkpointBy(env, env.committee, x, cases.get(i)),
+        ).toHaveFailedTx<SccpCheckpoint>({ to: env
+                .minter
+                .address, exitCode: SccpErrors.BadSnake as int });
+        i += 1;
+    }
+    expect(env.minter.getSccpState().generation).toEqual(7);
+    rotateTo(env, next, 1200);
+    expect(env.minter.getSccpState().generation).toEqual(8);
+    val installed = minterStorage(env).committee.load();
+    val (_, isExotic) = installed.keys.beginParseSpecial();
+    expect(isExotic).toBeFalse();
+    expect(installed.keys.hash()).toEqual(canonical.hash());
 }
 
 get fun `test an expired destination cannot rotate`() {
     val env = setupEnv();
-    val next = nextRoster(env.roster, 4, 4, env.roster.validUntilMs + 1000);
-    testing.setNow(env.roster.validUntilMs / 1000 + 1);
-    val statement = rotationStatement(env, env.roster, next, 300);
+    val next = testCommittee(4, 4);
+    testing.setNow(defaultPin(env.committee).untilMs / 1000 + 1);
+    val x = rotationX(
+        env.networkId,
+        env.generation,
+        env.committee.root(),
+        1200,
+        testing.getNow() * 1000,
+        next.root(),
+        DAY_MS,
+    );
     expect(
-        sendRotate(
-            env,
-            statement,
-            signByThreshold(env.roster, statement.digest(env.networkId)),
-            next.spec(),
-        ),
-    ).toHaveFailedTx<SccpRotate>({
-        to: env.minter.address,
-        exitCode: SccpErrors.RosterNotAccepted as int,
-    });
+        checkpointBy(env, env.committee, x, next.keysCell()),
+    ).toHaveFailedTx<SccpCheckpoint>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.CommitteeNotAccepted as int });
 }

@@ -401,7 +401,12 @@ fn assert_funded_original_boundary_result_graph_is_borrowed_without_redecoding(
     let original = frame(chain, 10);
     let preimage = original.commit_certificate().unwrap().result_preimage();
     let original_preimage = preimage.as_ptr();
-    let current = read_frame(Clone::clone(&original), 10).unwrap();
+    let current = read_frame(
+        Clone::clone(&original),
+        10,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
     let original_committee = current.commitment().schedule.current.committee.as_ptr();
     let parent = chain.committed(9);
     let schedule::ScheduledSlot::Ready(scheduled) = &parent.commitment().schedule.next else {
@@ -497,7 +502,12 @@ fn assert_native_certificate_rejects_foreign_signature_before_borrowing_graph(
     let outcome = reader
         .verification_context()
         .verify_certificate_with_scratch_admission(
-            read_frame(Clone::clone(&changed), 10).unwrap(),
+            read_frame(
+                Clone::clone(&changed),
+                10,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            )
+            .unwrap(),
             &authority,
             Some(&config),
             Some(read(Clone::clone(&changed), &budget)),
@@ -525,7 +535,12 @@ fn assert_native_certificate_rejects_foreign_signature_before_borrowing_graph(
     let receipt = reader
         .verification_context()
         .verify_certificate_with_scratch_admission(
-            read_frame(Clone::clone(&original), 10).unwrap(),
+            read_frame(
+                Clone::clone(&original),
+                10,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            )
+            .unwrap(),
             &authority,
             Some(&config),
             Some(read(Clone::clone(&original), &budget)),
@@ -549,7 +564,12 @@ fn native_boundary_quorums_bind_every_signed_field() {
     let mut chain = CertifiedTestChain::npos_boundary_fixture();
     chain.commit_with(Some(10_000), Vec::new(), Signers::LastThree);
     let original = frame(&chain, 10);
-    let current = read_frame(Clone::clone(&original), 10).unwrap();
+    let current = read_frame(
+        Clone::clone(&original),
+        10,
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
     let parent = chain.committed(9);
     let schedule::ScheduledSlot::Ready(scheduled) = &parent.commitment().schedule.next else {
         panic!("the original committed parent authenticates H10");

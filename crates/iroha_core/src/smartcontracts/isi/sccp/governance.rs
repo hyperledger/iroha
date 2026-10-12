@@ -9,8 +9,11 @@
 //! `rev(s)` for each subject inside the same effect transaction; any failed precondition fails
 //! the whole enactment, which the pipeline records as `ExecutionFailed` with no SCCP change.
 
+#[path = "governance/registration.rs"]
+mod registration;
+
 use super::{
-    Error, controls, escrow, light_clients,
+    Error, controls, escrow, light_clients, params,
     recipients::{self, SccpRecipientClassV1},
     registry, store,
 };
@@ -21,18 +24,14 @@ use iroha_data_model::{
         deployment::SccpDeploymentV1,
         events::{SccpEvent, SccpGovernanceEnactedV1, SccpStrandedReleasedV1},
         governance::{
-            SccpClearBridgeKeyFaultActionV1, SccpGovernanceActionV1, SccpGovernanceProposalV1,
-            SccpGovernanceSubjectV1, SccpRegisterRouteActionV1, SccpReleaseStrandedActionV1,
-            SccpRouteRevisionActionV1, SccpSwitchRevisionActionV1,
+            SccpGovernanceActionV1, SccpGovernanceProposalV1, SccpGovernanceSubjectV1,
+            SccpRegisterRouteActionV1, SccpReleaseStrandedActionV1, SccpRouteRevisionActionV1,
+            SccpSwitchRevisionActionV1,
         },
-        registry::{SccpRouteActivationV1, SccpRouteRevisionV1},
+        registry::SccpRouteActivationV1,
     },
 };
-use iroha_sccp::v1::{
-    constants::TON_AMOUNT_BOUND,
-    roster::RosterV1,
-    ton_cell::{TonMinterInitV1, minter_account_id},
-};
+use iroha_sccp::v1::constants::TON_AMOUNT_BOUND;
 
 fn refuse(reason: impl core::fmt::Display) -> Error {
     Error::InvariantViolation(format!("SCCP governance: {reason}").into())
@@ -123,6 +122,7 @@ pub fn enact(
     state_transaction: &mut StateTransaction<'_, '_>,
     proposal: &SccpGovernanceProposalV1,
     proposal_id: [u8; 32],
+    cause: controls::ControlCauseV1,
 ) -> Result<(), Error> {
     if proposal.network_id != *state_transaction.network_id() {
         return Err(refuse("the proposal belongs to a different NetworkId"));
@@ -131,7 +131,7 @@ pub fn enact(
         return Err(refuse("SCCP does not exist on this network"));
     }
     for (index, action) in proposal.actions.iter().enumerate() {
-        apply_action(state_transaction, action, proposal_id)
+        apply_action(state_transaction, action, proposal_id, cause)
             .map_err(|error| refuse(format_args!("action {index}: {error}")))?;
     }
     let subjects = proposal.subjects();
@@ -156,6 +156,7 @@ fn apply_action(
     state_transaction: &mut StateTransaction<'_, '_>,
     action: &SccpGovernanceActionV1,
     proposal_id: [u8; 32],
+    cause: controls::ControlCauseV1,
 ) -> Result<(), Error> {
     match action {
         SccpGovernanceActionV1::RegisterRoute(register) => {
@@ -184,17 +185,26 @@ fn apply_action(
             set_taira_paused(state_transaction, action.network, action.paused)
         }
         SccpGovernanceActionV1::SetDestinationPaused(action) => {
-            let recordable = store::routes::get(&*state_transaction.world, &action.network)
-                .and_then(|route| route.revisions.get(&action.revision))
-                .is_some_and(|revision| revision.activation != SccpRouteActivationV1::Retired);
+            let Some(mut route) =
+                store::routes::get(&*state_transaction.world, &action.network).cloned()
+            else {
+                return Ok(());
+            };
             // A revision retired or removed since the proposal has nothing left to mint.
-            if recordable {
+            if let Some(revision) = route
+                .revisions
+                .get_mut(&action.revision)
+                .filter(|revision| revision.activation != SccpRouteActivationV1::Retired)
+            {
+                // The caller writes only its own Parliament flag. record_control snapshots
+                // the complete post-update state inside this same isolated effect transaction.
+                revision.destination_paused = action.paused;
+                store::routes::insert(state_transaction, action.network, route)?;
                 controls::record_control(
                     state_transaction,
                     action.network,
                     action.revision,
-                    action.paused,
-                    proposal_id,
+                    cause,
                 )?;
             }
             Ok(())
@@ -209,64 +219,14 @@ fn apply_action(
             light_clients::freeze(state_transaction, action, proposal_id)
         }
         SccpGovernanceActionV1::SetParameters(action) => {
-            action
-                .next
-                .validate()
-                .map_err(|error| refuse(format_args!("parameters: {error}")))?;
-            store::parameters::set(state_transaction, Some(action.next.clone()));
+            params::validate_next(state_transaction, &action.next)?;
+            store::parameters::set(state_transaction, Some(action.next));
             Ok(())
-        }
-        SccpGovernanceActionV1::ClearBridgeKeyFault(action) => {
-            clear_bridge_key_fault(state_transaction, action)
         }
         SccpGovernanceActionV1::ActivateLightClientProfile(action) => {
             light_clients::activate_profile(state_transaction, action, proposal_id)
         }
     }
-}
-
-/// Check that generation `generation` can pin a new deployment at `now_ms` and return it as
-/// the `iroha_sccp` roster with its stored digest (§4.14.3 `RegisterRoute`).
-fn pinnable_generation(
-    world: &(impl WorldReadOnly + ?Sized),
-    generation: u64,
-    now_ms: u64,
-    roster_max_age_ms: u64,
-) -> Result<(RosterV1, [u8; 32]), Error> {
-    let roster = store::rosters::get(world, &generation)
-        .ok_or_else(|| refuse(format_args!("generation {generation} does not exist")))?;
-    if roster.is_inert() {
-        return Err(refuse(format_args!("generation {generation} is inert")));
-    }
-    if roster.valid_until_ms <= now_ms.saturating_add(roster_max_age_ms) {
-        return Err(refuse(format_args!(
-            "generation {generation} expires too soon to rotate"
-        )));
-    }
-    // Every handoff from the pinned generation to the current one must be attested, so the
-    // deployment can be rotated forward to the signing generation.
-    let current = *store::roster_current::get(world);
-    for successor in generation..current {
-        let handoff = store::rosters::get(world, &successor)
-            .and_then(|roster| roster.handoff_height)
-            .ok_or_else(|| refuse(format_args!("generation {successor} has no handoff")))?;
-        let attested = store::attestation_status::get(world, &handoff)
-            .is_some_and(|status| status.attested_at_height.is_some());
-        if !attested {
-            return Err(refuse(format_args!(
-                "the handoff subject {handoff} of generation {successor} is unattested"
-            )));
-        }
-    }
-    Ok((
-        RosterV1 {
-            generation,
-            valid_from_ms: roster.valid_from_ms,
-            valid_until_ms: roster.valid_until_ms,
-            members: roster.members.iter().map(|member| member.address).collect(),
-        },
-        roster.digest,
-    ))
 }
 
 fn register_route(
@@ -275,12 +235,10 @@ fn register_route(
 ) -> Result<(), Error> {
     let network = register.network;
     let world = &*state_transaction.world;
-    let roster_max_age_ms = store::parameters::get(world)
+    store::parameters::get(world)
         .as_ref()
-        .map(|params| params.roster_max_age_ms)
         .ok_or_else(|| refuse("SCCP does not exist on this network"))?;
-    let mut route = store::routes::get(world, &network)
-        .cloned()
+    let route = store::routes::get(world, &network)
         .ok_or_else(|| refuse(format_args!("no route to {}", network.profile_key())))?;
     let expected_revision = route
         .latest_revision()
@@ -300,53 +258,13 @@ fn register_route(
         return Err(refuse(format_args!("supply cap {cap} is out of bounds")));
     }
     ensure_word_unused(world, &register.deployment)?;
-    let now_ms = state_transaction.block_unix_timestamp_ms();
-    let (roster, digest) = pinnable_generation(
-        world,
-        register.initial_roster_generation,
-        now_ms,
-        roster_max_age_ms,
-    )?;
-    if let SccpDeploymentV1::Ton(ton) = &register.deployment {
-        let init = TonMinterInitV1 {
-            taira_network_id: *state_transaction.network_id().as_bytes(),
-            route_revision: register.revision,
-            max_supply: cap,
-            roster,
-            wallet_code: ton.wallet_code,
-            bucket_code: ton.bucket_code,
-        };
-        let expected = minter_account_id(&init, ton.minter_code)
-            .map_err(|error| refuse(format_args!("TON minter address: {error}")))?;
-        if expected != ton.master_account {
-            return Err(refuse(
-                "the TON master account is not the canonical minter address",
-            ));
-        }
-    }
-    let height = state_transaction._curr_block.height().get();
-    let word = register.deployment.destination_word();
-    route.revisions.insert(
-        register.revision,
-        SccpRouteRevisionV1::staged(
-            register.revision,
-            register.deployment.clone(),
-            cap,
-            register.initial_roster_generation,
-            digest,
-            height,
-        ),
-    );
-    store::routes::insert(state_transaction, network, route)?;
-    store::destination_words::insert(state_transaction, word, (network, register.revision))?;
-    registry::emit_activation_changed(
-        state_transaction,
-        network,
-        register.revision,
-        None,
-        Some(SccpRouteActivationV1::Staged),
-    );
-    Ok(())
+    registration::validate_available(state_transaction, register)?;
+    // TODO: §4.14.3 P0/P5: install only after the owned Parliament ballot and SCCP
+    // reconciliation launch gates, and the retained forgery maximum, are available.
+    // Successful pin/deployment validation is not permission to infer absent evidence.
+    Err(refuse(
+        "RegisterRoute launch/reconciliation and forgery authority are unavailable",
+    ))
 }
 
 fn revision_activation(
@@ -545,34 +463,19 @@ fn set_taira_paused(
     Ok(())
 }
 
-fn clear_bridge_key_fault(
-    state_transaction: &mut StateTransaction<'_, '_>,
-    action: &SccpClearBridgeKeyFaultActionV1,
-) -> Result<(), Error> {
-    let mut state = store::bridge_keys::get(&*state_transaction.world, &action.peer)
-        .cloned()
-        .ok_or_else(|| refuse("the peer has no bridge-key state"))?;
-    if state.barred != Some(action.fault) {
-        return Err(refuse("the peer's newest fault is not the named one"));
-    }
-    state.barred = None;
-    store::bridge_keys::insert(state_transaction, action.peer.clone(), state)?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::smartcontracts::isi::sccp::test_support::{
-        blank_state, header, peer, sample_bridge_key_state, sample_proposal, sample_roster,
+        blank_state, header, sample_generation, sample_pin, sample_proposal,
     };
     use iroha_data_model::sccp::{
-        deployment::SccpEvmDeploymentV1,
+        deployment::{SccpEvmDeploymentV1, SccpTonCodeRefV1, SccpTonDeploymentV1},
         governance::{
             SccpSetDestinationPausedActionV1, SccpSetParametersActionV1, SccpSetTairaPausedActionV1,
         },
-        keys::SccpFaultRefV1,
         params::SccpParametersV1,
+        registry::SccpRouteRevisionV1,
     };
 
     const NETWORK: SccpNetworkV1 = SccpNetworkV1::EthereumMainnet;
@@ -601,8 +504,8 @@ mod tests {
             network: NETWORK,
             revision,
             deployment: evm(seed),
+            initial_committee: sample_pin(&sample_generation(1, 1)),
             max_wrapped_supply: 1_000_000_000_000,
-            initial_roster_generation: 1,
         })
     }
 
@@ -610,8 +513,93 @@ mod tests {
     fn setup(stx: &mut StateTransaction<'_, '_>) {
         store::parameters::set(stx, Some(SccpParametersV1::taira_default()));
         escrow::create_route_escrows(stx).expect("escrows");
-        store::rosters::insert(stx, 1, sample_roster(1, 1)).expect("roster");
-        store::roster_current::set(stx, 1);
+        store::committee_generations::insert(stx, 1, sample_generation(1, 1)).expect("generation");
+        store::committee_current::set(stx, 1);
+    }
+
+    /// Existing-state fixture for lifecycle tests, not evidence of successful registration.
+    /// RegisterRoute still requires the original identity and all launch/forgery authority.
+    fn existing_staged(stx: &mut StateTransaction<'_, '_>, revision: u32, seed: u8) {
+        let mut route = store::routes::get(&*stx.world, &NETWORK)
+            .cloned()
+            .expect("route");
+        let deployment = evm(seed);
+        route.revisions.insert(
+            revision,
+            SccpRouteRevisionV1::staged(
+                revision,
+                deployment,
+                sample_pin(store::committee_generations::get(&*stx.world, &1).expect("generation")),
+                1_000_000_000_000,
+                1,
+            ),
+        );
+        store::routes::insert(stx, NETWORK, route).expect("existing revision");
+        store::destination_words::insert(stx, deployment.destination_word(), (NETWORK, revision))
+            .expect("existing destination");
+    }
+
+    #[test]
+    fn register_route_refuses_without_authenticated_native_committee_pin() {
+        let state = blank_state();
+        let mut block = state.block(header(5));
+        let mut stx = block.transaction();
+        setup(&mut stx);
+        let code = SccpTonCodeRefV1 {
+            hash: [5; 32],
+            depth: 0,
+        };
+        for (network, deployment) in [
+            (NETWORK, evm(7)),
+            (
+                SccpNetworkV1::TonMainnet,
+                SccpDeploymentV1::Ton(SccpTonDeploymentV1 {
+                    master_account: [9; 32],
+                    minter_code: code,
+                    wallet_code: code,
+                    bucket_code: code,
+                }),
+            ),
+        ] {
+            let before = store::routes::get(&*stx.world, &network)
+                .cloned()
+                .expect("route");
+            let proposal = proposal(
+                stx.network_id,
+                Vec::new(),
+                vec![SccpGovernanceActionV1::RegisterRoute(
+                    SccpRegisterRouteActionV1 {
+                        network,
+                        revision: 1,
+                        deployment,
+                        initial_committee: sample_pin(&sample_generation(1, 1)),
+                        max_wrapped_supply: 1_000_000_000_000,
+                    },
+                )],
+            );
+            let error = enact(
+                &mut stx,
+                &proposal,
+                [1; 32],
+                controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
+            )
+            .expect_err("no original authority for the supplied native pin");
+            assert!(
+                error
+                    .to_string()
+                    .contains("original committed execution tip is absent"),
+                "{error}"
+            );
+            assert_eq!(store::routes::get(&*stx.world, &network), Some(&before));
+            assert!(!store::destination_words::contains(
+                &*stx.world,
+                &deployment.destination_word()
+            ));
+            assert_eq!(
+                store::governance_revision(&*stx.world, &SccpGovernanceSubjectV1::Route(network)),
+                0
+            );
+        }
     }
 
     fn activation(stx: &StateTransaction<'_, '_>, revision: u32) -> Option<SccpRouteActivationV1> {
@@ -671,7 +659,7 @@ mod tests {
     }
 
     #[test]
-    fn enactment_registers_activates_pauses_and_counts_revisions() {
+    fn existing_revision_activation_pause_and_subject_counts_follow_their_rules() {
         let state = blank_state();
         let mut block = state.block(header(5));
         let mut stx = block.transaction();
@@ -679,8 +667,8 @@ mod tests {
         setup(&mut stx);
         let route = SccpGovernanceSubjectV1::Route(NETWORK);
         let control = SccpGovernanceSubjectV1::RouteControl(NETWORK);
-        let bring_up = proposal(id, vec![(route.clone(), 0)], vec![register(1, 7)]);
-        enact(&mut stx, &bring_up, [1; 32]).expect("register");
+        existing_staged(&mut stx, 1, 7);
+        store::set_governance_revision(&mut stx, route.clone(), 1);
         assert_eq!(activation(&stx, 1), Some(SccpRouteActivationV1::Staged));
         assert_eq!(store::governance_revision(&*stx.world, &route), 1);
         assert_eq!(
@@ -690,7 +678,8 @@ mod tests {
         let staged = store::routes::get(&*stx.world, &NETWORK)
             .and_then(|route| route.revisions.get(&1))
             .expect("revision");
-        assert_eq!(staged.initial_roster_digest, sample_roster(1, 1).digest);
+        assert_eq!(staged.deployment, evm(7));
+        assert_eq!(staged.destination_word, evm(7).destination_word());
 
         // Activation needs a usable light client; the failure leaves the caller to drop the
         // effect transaction.
@@ -704,7 +693,13 @@ mod tests {
                 },
             )],
         );
-        let error = enact(&mut stx, &activate, [2; 32]).expect_err("no light client");
+        let error = enact(
+            &mut stx,
+            &activate,
+            [2; 32],
+            controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
+        )
+        .expect_err("no light client");
         assert!(error.to_string().contains("light client"), "{error}");
 
         // Force the revision live to exercise the pause pair.
@@ -725,7 +720,13 @@ mod tests {
                 }),
             ],
         );
-        enact(&mut stx, &pause, [3; 32]).expect("pause");
+        enact(
+            &mut stx,
+            &pause,
+            [3; 32],
+            controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
+        )
+        .expect("pause");
         assert_eq!(activation(&stx, 1), Some(SccpRouteActivationV1::Paused));
         assert!(registry::destination_paused(&*stx.world, NETWORK, 1));
         assert_eq!(store::governance_revision(&*stx.world, &route), 2);
@@ -744,6 +745,7 @@ mod tests {
             &mut stx,
             &proposal(id, vec![(route.clone(), 2)], vec![register(5, 9)]),
             [4; 32],
+            controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
         )
         .expect_err("revision gap");
         assert!(error.to_string().contains("next revision"), "{error}");
@@ -754,19 +756,9 @@ mod tests {
         let state = blank_state();
         let mut block = state.block(header(5));
         let mut stx = block.transaction();
-        let id = stx.network_id;
         setup(&mut stx);
-        let route = SccpGovernanceSubjectV1::Route(NETWORK);
-        enact(
-            &mut stx,
-            &proposal(
-                id,
-                vec![(route.clone(), 0)],
-                vec![register(1, 7), register(2, 8)],
-            ),
-            [1; 32],
-        )
-        .expect("register two");
+        existing_staged(&mut stx, 1, 7);
+        existing_staged(&mut stx, 2, 8);
         registry::set_activation(&mut stx, NETWORK, 1, SccpRouteActivationV1::Bidirectional)
             .expect("live");
         let revision = |revision| SccpRouteRevisionActionV1 {
@@ -781,6 +773,7 @@ mod tests {
                 to: 2,
             }),
             [2; 32],
+            controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
         )
         .expect("switch");
         assert_eq!(
@@ -797,6 +790,7 @@ mod tests {
             &mut stx,
             &SccpGovernanceActionV1::RetireRevision(revision(1)),
             [3; 32],
+            controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
         )
         .expect_err("pending");
         store::set_pending_counts(&mut stx, (NETWORK, 1), (0, 0));
@@ -804,6 +798,7 @@ mod tests {
             &mut stx,
             &SccpGovernanceActionV1::RetireRevision(revision(1)),
             [3; 32],
+            controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
         )
         .expect("retire");
         assert_eq!(activation(&stx, 1), Some(SccpRouteActivationV1::Retired));
@@ -816,20 +811,17 @@ mod tests {
                 paused: true,
             }),
             [4; 32],
+            controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
         )
         .expect("no-op");
         assert_eq!(store::control_messages::len(&*stx.world), 0);
 
-        enact(
-            &mut stx,
-            &proposal(id, vec![(route.clone(), 1)], vec![register(3, 9)]),
-            [5; 32],
-        )
-        .expect("register third");
+        existing_staged(&mut stx, 3, 9);
         apply_action(
             &mut stx,
             &SccpGovernanceActionV1::RemoveStaged(revision(3)),
             [6; 32],
+            controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
         )
         .expect("remove");
         assert_eq!(activation(&stx, 3), None);
@@ -841,43 +833,9 @@ mod tests {
             &mut stx,
             &SccpGovernanceActionV1::RemoveStaged(revision(2)),
             [7; 32],
+            controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
         )
         .expect_err("live revisions cannot be removed");
-    }
-
-    #[test]
-    fn bridge_key_faults_clear_only_by_name() {
-        let state = blank_state();
-        let mut block = state.block(header(5));
-        let mut stx = block.transaction();
-        setup(&mut stx);
-        let fault = SccpFaultRefV1 {
-            address: [4; 20],
-            height: 3,
-        };
-        let mut key_state = sample_bridge_key_state(1);
-        key_state.barred = Some(SccpFaultRefV1 {
-            address: [4; 20],
-            height: 4,
-        });
-        store::bridge_keys::insert(&mut stx, peer(1), key_state).expect("state");
-        let action = SccpGovernanceActionV1::ClearBridgeKeyFault(SccpClearBridgeKeyFaultActionV1 {
-            peer: peer(1),
-            fault,
-        });
-        apply_action(&mut stx, &action, [1; 32]).expect_err("a newer fault");
-        let mut key_state = store::bridge_keys::get(&*stx.world, &peer(1))
-            .cloned()
-            .expect("state");
-        key_state.barred = Some(fault);
-        store::bridge_keys::insert(&mut stx, peer(1), key_state).expect("state");
-        apply_action(&mut stx, &action, [1; 32]).expect("clear");
-        assert_eq!(
-            store::bridge_keys::get(&*stx.world, &peer(1))
-                .expect("state")
-                .barred,
-            None
-        );
     }
 
     #[test]
@@ -909,6 +867,7 @@ mod tests {
                 &mut stx,
                 &proposal(id, vec![(subject.clone(), 0)], vec![activate(1)]),
                 [1; 32],
+                controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
             )
             .expect_err("not above version 1");
             assert!(error.to_string().contains("does not exceed"), "{error}");
@@ -925,6 +884,7 @@ mod tests {
                 &mut stx,
                 &proposal(id, vec![(subject.clone(), 0)], vec![activate(2)]),
                 [2; 32],
+                controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
             )
             .expect_err("version 2 is not compiled");
             assert!(stx.execution_deferral().is_some());
@@ -939,13 +899,61 @@ mod tests {
         let mut stx = block.transaction();
         let id = stx.network_id;
         let proposal = sample_proposal(id);
-        enact(&mut stx, &proposal, [1; 32]).expect_err("no SCCP");
+        enact(
+            &mut stx,
+            &proposal,
+            [1; 32],
+            controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
+        )
+        .expect_err("no SCCP");
         let mut foreign = proposal;
         foreign.network_id = iroha_data_model::NetworkId::from_genesis_hash(
             iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::new([9; 32])),
         );
         setup(&mut stx);
-        let error = enact(&mut stx, &foreign, [1; 32]).expect_err("foreign network");
+        let error = enact(
+            &mut stx,
+            &foreign,
+            [1; 32],
+            controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
+        )
+        .expect_err("foreign network");
         assert!(error.to_string().contains("NetworkId"), "{error}");
+    }
+
+    #[test]
+    fn set_parameters_validates_the_full_pinned_policy_before_writing() {
+        let state = blank_state();
+        let mut block = state.block(header(5));
+        let mut stx = block.transaction();
+        setup(&mut stx);
+        stx.nexus.staking.unbonding_delay = std::time::Duration::from_secs(21 * 86_400);
+        stx.nexus.staking.max_slash_bps = 1;
+        let consensus = &mut stx.world.parameters.get_mut().sumeragi;
+        consensus.epoch_length_blocks = std::num::NonZeroU64::new(3_600).expect("epoch");
+        consensus.block_cadence_ms = std::num::NonZeroU64::new(1_000).expect("cadence");
+        let original = *store::parameters::get(&*stx.world);
+        let mut next = original.expect("original parameters");
+        next.enabled = false;
+        let action = SccpGovernanceActionV1::SetParameters(SccpSetParametersActionV1 { next });
+        stx.nexus.staking.unbonding_delay -= std::time::Duration::from_millis(1);
+        let error = apply_action(
+            &mut stx,
+            &action,
+            [7; 32],
+            controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
+        )
+        .expect_err("short delay");
+        assert!(error.to_string().contains("unbonding_delay"), "{error}");
+        assert_eq!(*store::parameters::get(&*stx.world), original);
+        stx.nexus.staking.unbonding_delay += std::time::Duration::from_millis(1);
+        apply_action(
+            &mut stx,
+            &action,
+            [7; 32],
+            controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
+        )
+        .expect("valid complete parameters");
+        assert_eq!(*store::parameters::get(&*stx.world), Some(next));
     }
 }

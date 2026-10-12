@@ -191,3 +191,22 @@ impl<'a, K: Key, V: Value> StorageField<'a, K, V> {
         })
     }
 }
+
+impl<'a, K: Key, V: Value, P> StorageField<'a, K, V, concread::bptree::Prepaid<P>>
+where
+    P: mv::storage::AdmittedStoragePolicy
+        + concread::bptree::ClonePlanning<K, V>
+        + concread::bptree::ClonePlanning<K, Option<V>>,
+{
+    pub(crate) fn install_frozen_publication(
+        &mut self,
+        target: &'a mv::storage::Storage<K, V, concread::bptree::Prepaid<P>>,
+    ) -> Result<(), mv::storage::AdmittedStorageError> {
+        // Every field's installation completes before any physical reacquisition.
+        let scope =
+            crate::state::world_acquisition::original_storage_scope(target.allocation_budget())?;
+        self.begin_frozen_publication(|original| {
+            mv::storage::BlockPublicationSlot::try_from_frozen_owned(original, target, &scope)
+        })
+    }
+}

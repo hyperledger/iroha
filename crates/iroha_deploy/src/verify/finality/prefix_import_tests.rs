@@ -82,10 +82,10 @@ fn prefix_import_refuses_a_foreign_retained_decision_without_replacing_its_sourc
     // This API builds untrusted restart data. Each proof is individually well-formed,
     // but the foreign height-two committee cannot replace the selected signed genesis.
     let malformed = checkpoint
-        .with_independently_authenticated_decision_data(&[
-            chain.proof(1).clone(),
-            foreign.proof(2).clone(),
-        ])
+        .with_independently_authenticated_decision_data(
+            &[chain.proof(1).clone(), foreign.proof(2).clone()],
+            chain.verifier().result_scope(),
+        )
         .unwrap();
     let malformed_bytes = malformed.encode_canonical().unwrap();
     for _ in 0..2 {

@@ -6802,11 +6802,13 @@ fn evaluate_node_compatibility(capabilities: &norito::json::Value) -> DataModelC
         Err(error) => DataModelCompatibility::SchemaIncompatible(error),
     }
 }
-/// Sole evidence kind exposed by the first-release Sumeragi audit API.
+/// Closed evidence kinds exposed as DATA by the first-release audit API.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SumeragiEvidenceKind {
     /// Original native signed evidence with independently authenticated attribution.
     NativeSumeragiEvidence,
+    /// Exact recorded SCCP certificate and attribution DATA; decoding grants no authority.
+    SccpForgeryEvidence,
 }
 
 impl SumeragiEvidenceKind {
@@ -6815,6 +6817,7 @@ impl SumeragiEvidenceKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::NativeSumeragiEvidence => "NativeSumeragiEvidence",
+            Self::SccpForgeryEvidence => "SccpForgeryEvidence",
         }
     }
 }
@@ -6844,6 +6847,7 @@ impl norito::json::JsonDeserialize for SumeragiEvidenceKind {
     ) -> Result<Self, norito::json::Error> {
         match parser.parse_string()?.as_str() {
             "NativeSumeragiEvidence" => Ok(Self::NativeSumeragiEvidence),
+            "SccpForgeryEvidence" => Ok(Self::SccpForgeryEvidence),
             other => Err(norito::json::Error::Message(format!(
                 "unknown Sumeragi evidence kind `{other}`"
             ))),
@@ -6993,12 +6997,25 @@ pub struct SumeragiEvidenceOffender {
     pub peer_id: iroha_model_base::peer::PeerId,
 }
 
-/// One strict JSON audit record returned by `/v1/sumeragi/evidence`.
+/// Closed JSON audit DATA, selected explicitly without a native fallback.
+///
+/// Neither variant authenticates the server's claim. In particular SCCP projection does not
+/// enable runtime forgery admission or reinterpret signed QC fields as trusted authority.
+#[derive(Clone, Debug, PartialEq, Eq, JsonSerialize, JsonDeserialize)]
+#[norito(tag = "kind", content = "value", deny_unknown_fields)]
+pub enum SumeragiEvidenceAuditRecord {
+    /// Original native frame audit and its retained root/lane attribution.
+    NativeSumeragiEvidence(SumeragiNativeEvidenceAuditRecord),
+    /// Exact canonical SCCP evidence and attribution offered by the server.
+    SccpForgeryEvidence(SccpForgeryEvidenceAuditRecord),
+}
+
+/// Original native audit payload. This is transported DATA, not local verification.
 #[derive(Clone, Debug, PartialEq, Eq, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub struct SumeragiEvidenceAuditRecord {
-    /// Sole canonical native evidence kind.
-    pub kind: SumeragiEvidenceKind,
+pub struct SumeragiNativeEvidenceAuditRecord {
+    /// Original root or lane liability clock; never an inferred SCCP generation.
+    pub scope: iroha_data_model::block::consensus::EvidenceScope,
     /// Original native signed artifact class.
     pub class: SumeragiEvidenceClass,
     /// Native consensus instance independently resolved at admission.
@@ -7029,6 +7046,26 @@ pub struct SumeragiEvidenceAuditRecord {
     pub penalty_status: SumeragiEvidencePenaltyStatus,
 }
 
+/// Exact SCCP model DATA with the enclosing committed record metadata.
+#[derive(Clone, Debug, PartialEq, Eq, JsonSerialize, JsonDeserialize)]
+#[norito(deny_unknown_fields)]
+pub struct SccpForgeryEvidenceAuditRecord {
+    /// Original fixed certificate, optional anchor and immutable generation attribution.
+    pub record: iroha_data_model::sccp::native::SccpForgeryRecordV1,
+    /// Canonical recorded scope and offender attribution; signed QC context is unverified DATA.
+    pub attribution: iroha_data_model::block::consensus::EvidenceAttribution,
+    /// Block height at which this record was committed.
+    pub recorded_height: u64,
+    /// View recorded with the committed entry.
+    pub recorded_view: u64,
+    /// Millisecond timestamp recorded with the committed entry.
+    pub recorded_ms: u64,
+    /// Height whose block first admitted the record, not the signed SCCP height.
+    pub consensus_admitted_height: u64,
+    /// Closed deterministic penalty lifecycle.
+    pub penalty_status: SumeragiEvidencePenaltyStatus,
+}
+
 /// Strict JSON response returned by `/v1/sumeragi/evidence`.
 #[derive(Clone, Debug, PartialEq, Eq, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
@@ -7046,7 +7083,7 @@ pub struct SumeragiEvidenceListFilter {
     pub limit: Option<u32>,
     /// Offset into the persisted evidence list (`0..=10000`).
     pub offset: Option<u32>,
-    /// Optional filter by the sole first-release evidence kind.
+    /// Optional explicit filter by one closed evidence kind.
     pub kind: Option<SumeragiEvidenceKind>,
 }
 
@@ -7956,6 +7993,23 @@ impl Client {
             Self::parse_typed_json_ok_response(&response, "Failed to get sumeragi evidence list")?;
         validate_sumeragi_evidence_page(decoded.total, decoded.items.len(), filter)
             .wrap_err("Failed to get sumeragi evidence list")?;
+        if let Some(expected) = filter.kind {
+            if decoded.items.iter().any(|item| {
+                let actual = match item {
+                    SumeragiEvidenceAuditRecord::NativeSumeragiEvidence(_) => {
+                        SumeragiEvidenceKind::NativeSumeragiEvidence
+                    }
+                    SumeragiEvidenceAuditRecord::SccpForgeryEvidence(_) => {
+                        SumeragiEvidenceKind::SccpForgeryEvidence
+                    }
+                };
+                actual != expected
+            }) {
+                return Err(eyre!(
+                    "Failed to get sumeragi evidence list: response kind does not match requested filter"
+                ));
+            }
+        }
         Ok(decoded)
     }
     /// GET `/v1/sumeragi/evidence` — list committed evidence entries (Norito wire).
@@ -7995,6 +8049,23 @@ impl Client {
             })?;
         validate_sumeragi_evidence_page(decoded.total, decoded.items.len(), filter)
             .wrap_err("Failed to get sumeragi evidence list")?;
+        if let Some(expected) = filter.kind {
+            if decoded.items.iter().any(|item| {
+                let actual = match &item.evidence {
+                    iroha_data_model::block::consensus::RecordedEvidenceV1::Native(_) => {
+                        SumeragiEvidenceKind::NativeSumeragiEvidence
+                    }
+                    iroha_data_model::block::consensus::RecordedEvidenceV1::SccpForgery(_) => {
+                        SumeragiEvidenceKind::SccpForgeryEvidence
+                    }
+                };
+                actual != expected
+            }) {
+                return Err(eyre!(
+                    "Failed to get sumeragi evidence list: response kind does not match requested filter"
+                ));
+            }
+        }
         Ok(decoded)
     }
 }
@@ -8300,7 +8371,7 @@ mod evidence_filter_tests {
 mod evidence_json_contract_tests {
     use super::*;
 
-    fn valid_record_json() -> String {
+    pub(super) fn valid_record_json() -> String {
         let context = "01".repeat(Hash::LENGTH);
         let instance = "23".repeat(Hash::LENGTH);
         let generation = "45".repeat(Hash::LENGTH);
@@ -8312,22 +8383,175 @@ mod evidence_json_contract_tests {
         .expect("fixture key");
         let peer = iroha_model_base::peer::PeerId::new(key.public_key().clone());
         format!(
-            r#"{{"kind":"NativeSumeragiEvidence","class":"phase_vote","instance":"{instance}","height":42,"epoch":3,"context_id":"{context}","authority_generation":"{generation}","offenders":[{{"signer":2,"peer_id":"{peer}"}}],"safety_violation":false,"native_frame_hash":"{frame_hash}","recorded_height":43,"recorded_view":8,"recorded_ms":1234,"consensus_admitted_height":43,"penalty_status":{{"status":"pending","details":null}}}}"#
+            r#"{{"kind":"NativeSumeragiEvidence","value":{{"scope":{{"kind":"root","value":null}},"class":"phase_vote","instance":"{instance}","height":42,"epoch":3,"context_id":"{context}","authority_generation":"{generation}","offenders":[{{"signer":2,"peer_id":"{peer}"}}],"safety_violation":false,"native_frame_hash":"{frame_hash}","recorded_height":43,"recorded_view":8,"recorded_ms":1234,"consensus_admitted_height":43,"penalty_status":{{"status":"pending","details":null}}}}}}"#
         )
     }
 
+    // Syntax-only transport DATA: no signature or historical-authority acceptance is asserted.
+    pub(super) fn sccp_data_record() -> iroha_data_model::block::consensus::EvidenceRecord {
+        use iroha_data_model::{
+            account::AccountId,
+            block::consensus::{
+                EvidenceAttribution, EvidenceOffender, EvidencePenaltyStatus, EvidenceRecord,
+                EvidenceScope, RecordedEvidenceV1,
+            },
+            isi::sccp::SubmitSccpForgeryEvidenceV1,
+            sccp::native::{
+                SccpAnchorWitnessV1, SccpForgeryOffenderV1, SccpForgeryRecordV1, SccpForgeryRuleV1,
+            },
+        };
+        let key =
+            iroha_crypto::KeyPair::try_from_seed(vec![43; 32], iroha_crypto::Algorithm::Ed25519)
+                .unwrap();
+        let peer =
+            iroha_crypto::KeyPair::try_from_seed(vec![44; 32], iroha_crypto::Algorithm::BlsNormal)
+                .unwrap();
+        EvidenceRecord {
+            evidence: RecordedEvidenceV1::SccpForgery(SccpForgeryRecordV1 {
+                evidence: SubmitSccpForgeryEvidenceV1 {
+                    qc: [0xa1; 116],
+                    header: [0xb2; 221],
+                    aggregate_signature: [0xc3; 96],
+                    anchor: Some(SccpAnchorWitnessV1 {
+                        core_hash: [0; 32],
+                        result: [0; 32],
+                        path: [[7; 32]; 12],
+                    }),
+                },
+                rule: SccpForgeryRuleV1::E4,
+                generation: 7,
+                start_height: 23,
+                offenders: vec![SccpForgeryOffenderV1 {
+                    signer: 0,
+                    lane_id: iroha_model_base::topology::LaneId::new(1),
+                    validator: AccountId::new(key.public_key().clone()),
+                    activation_height: 19,
+                }],
+            }),
+            attribution: EvidenceAttribution {
+                scope: EvidenceScope::SccpGeneration { generation: 7 },
+                instance: [1; 32],
+                height: 23,
+                epoch: 99,
+                context_id: [2; 32],
+                authority_generation: [3; 32],
+                offenders: vec![EvidenceOffender {
+                    signer: 0,
+                    peer_id: iroha_model_base::peer::PeerId::new(peer.public_key().clone()),
+                    lane_stake: None,
+                }],
+                safety_violation: false,
+            },
+            recorded_at_height: 42,
+            recorded_at_view: 5,
+            recorded_at_ms: 1234,
+            penalty_status: EvidencePenaltyStatus::Pending,
+        }
+    }
+
+    #[test]
+    fn closed_audit_sccp_data_preserves_original_payload_and_rejects_native_substitution() {
+        use iroha_data_model::block::consensus::RecordedEvidenceV1;
+        let record = sccp_data_record();
+        let RecordedEvidenceV1::SccpForgery(forgery) = record.evidence else {
+            panic!("SCCP DATA variant")
+        };
+        let audit =
+            SumeragiEvidenceAuditRecord::SccpForgeryEvidence(SccpForgeryEvidenceAuditRecord {
+                record: forgery.clone(),
+                attribution: record.attribution.clone(),
+                recorded_height: 42,
+                recorded_view: 5,
+                recorded_ms: 1234,
+                consensus_admitted_height: 42,
+                penalty_status: record.penalty_status,
+            });
+        let json = norito::json::to_json(&audit).unwrap();
+        let decoded: SumeragiEvidenceAuditRecord = norito::json::from_json(&json).unwrap();
+        assert_eq!(decoded, audit);
+        let SumeragiEvidenceAuditRecord::SccpForgeryEvidence(decoded) = decoded else {
+            panic!("no native fallback")
+        };
+        assert_eq!(decoded.record, forgery);
+        assert_eq!(decoded.attribution, record.attribution);
+        assert_eq!(
+            decoded.record.evidence.anchor.unwrap().result,
+            [0; 32],
+            "raw R stays exact, including zero"
+        );
+        assert_eq!(
+            decoded.attribution.epoch, 99,
+            "signed QC metadata remains offered DATA"
+        );
+        for bad in [
+            json.replace("SccpForgeryEvidence", "NativeSumeragiEvidence"),
+            json.replace("SccpForgeryEvidence", "UnknownEvidence"),
+            json.replacen("{", "{\"retired\":true,", 1),
+            json.replacen("{", "{\"kind\":\"NativeSumeragiEvidence\",", 1),
+        ] {
+            assert!(norito::json::from_json::<SumeragiEvidenceAuditRecord>(&bad).is_err());
+        }
+        let canonical_record = norito::json::to_json(&sccp_data_record()).unwrap();
+        assert!(
+            norito::json::from_json::<SumeragiEvidenceAuditRecord>(&canonical_record).is_err(),
+            "canonical state layout is not an audit fallback"
+        );
+        assert!(
+            norito::json::from_json::<SumeragiEvidenceAuditRecord>(
+                &norito::json::to_json(&forgery).unwrap()
+            )
+            .is_err(),
+            "bare forgery is not an audit record"
+        );
+    }
+
+    #[test]
+    fn native_audit_requires_explicit_tag_and_scope() {
+        let json = valid_record_json();
+        assert!(
+            norito::json::from_json::<SumeragiEvidenceAuditRecord>(
+                &json.replace("\"scope\":{\"kind\":\"root\",\"value\":null},", "")
+            )
+            .is_err()
+        );
+        let value: norito::json::Value = norito::json::from_json(&json).unwrap();
+        assert!(
+            norito::json::from_json::<SumeragiEvidenceAuditRecord>(
+                &norito::json::to_json(&value["value"]).unwrap()
+            )
+            .is_err()
+        );
+        for kind in [
+            SumeragiEvidenceKind::NativeSumeragiEvidence,
+            SumeragiEvidenceKind::SccpForgeryEvidence,
+        ] {
+            assert_eq!(
+                norito::json::from_json::<SumeragiEvidenceKind>(
+                    &norito::json::to_json(&kind).unwrap()
+                )
+                .unwrap(),
+                kind
+            );
+        }
+    }
     #[test]
     fn evidence_json_dtos_accept_the_exact_contract() {
         let record: SumeragiEvidenceAuditRecord =
             norito::json::from_str(&valid_record_json()).expect("valid evidence audit record");
-        assert_eq!(record.kind, SumeragiEvidenceKind::NativeSumeragiEvidence);
-        assert_eq!(record.class, SumeragiEvidenceClass::PhaseVote);
-        assert_eq!(record.offenders[0].signer, 2);
+        let SumeragiEvidenceAuditRecord::NativeSumeragiEvidence(native) = &record else {
+            panic!("native audit variant must remain explicit");
+        };
         assert_eq!(
-            record.penalty_status,
+            native.scope,
+            iroha_data_model::block::consensus::EvidenceScope::Root
+        );
+        assert_eq!(native.class, SumeragiEvidenceClass::PhaseVote);
+        assert_eq!(native.offenders[0].signer, 2);
+        assert_eq!(
+            native.penalty_status,
             SumeragiEvidencePenaltyStatus::Pending
         );
-        assert_eq!(record.context_id.to_string(), "01".repeat(Hash::LENGTH));
+        assert_eq!(native.context_id.to_string(), "01".repeat(Hash::LENGTH));
 
         let list_json = format!(r#"{{"total":1,"items":[{}]}}"#, valid_record_json());
         let list: SumeragiEvidenceListResponse =
@@ -8337,9 +8561,12 @@ mod evidence_json_contract_tests {
         let encoded = norito::json::to_json(&list).expect("encode typed evidence list response");
         let value: norito::json::Value =
             norito::json::from_str(&encoded).expect("decode rendered response value");
-        let item = value["items"][0]
+        let tagged = value["items"][0].as_object().expect("closed audit tag");
+        assert_eq!(tagged.len(), 2);
+        assert_eq!(tagged["kind"].as_str(), Some("NativeSumeragiEvidence"));
+        let item = tagged["value"]
             .as_object()
-            .expect("rendered evidence record object");
+            .expect("rendered native audit payload");
         assert_eq!(item.len(), 15);
     }
 
@@ -11269,6 +11496,126 @@ mod evidence_http_tests {
         super::tests::assert_operator_signature_headers(&snapshot);
     }
     #[test]
+    fn get_evidence_list_sccp_filter_is_transported_exactly() {
+        let (response, snapshot) = captured_evidence_list(SumeragiEvidenceListFilter {
+            kind: Some(SumeragiEvidenceKind::SccpForgeryEvidence),
+            ..SumeragiEvidenceListFilter::default()
+        });
+        assert!(response.unwrap().items.is_empty());
+        assert_eq!(
+            snapshot
+                .url
+                .query_pairs()
+                .find(|(key, _)| key == "kind")
+                .unwrap()
+                .1,
+            "SccpForgeryEvidence"
+        );
+    }
+    #[test]
+    fn get_evidence_list_json_binds_each_returned_kind_to_requested_filter() {
+        use iroha_data_model::block::consensus::RecordedEvidenceV1;
+        let native: SumeragiEvidenceAuditRecord =
+            norito::json::from_json(&super::evidence_json_contract_tests::valid_record_json())
+                .unwrap();
+        let offered = super::evidence_json_contract_tests::sccp_data_record();
+        let RecordedEvidenceV1::SccpForgery(record) = offered.evidence else {
+            panic!("SCCP transport DATA")
+        };
+        let sccp =
+            SumeragiEvidenceAuditRecord::SccpForgeryEvidence(SccpForgeryEvidenceAuditRecord {
+                record,
+                attribution: offered.attribution,
+                recorded_height: offered.recorded_at_height,
+                recorded_view: offered.recorded_at_view,
+                recorded_ms: offered.recorded_at_ms,
+                consensus_admitted_height: offered.recorded_at_height,
+                penalty_status: offered.penalty_status,
+            });
+        for (actual, item) in [
+            (SumeragiEvidenceKind::NativeSumeragiEvidence, native),
+            (SumeragiEvidenceKind::SccpForgeryEvidence, sccp),
+        ] {
+            for expected in [
+                None,
+                Some(SumeragiEvidenceKind::NativeSumeragiEvidence),
+                Some(SumeragiEvidenceKind::SccpForgeryEvidence),
+            ] {
+                let payload = SumeragiEvidenceListResponse {
+                    total: 1,
+                    items: vec![item.clone()],
+                };
+                let json = norito::json::to_json(&payload).unwrap();
+                let (response, _) =
+                    capture_request(json_response(StatusCode::OK, &json), |mock_transport| {
+                        client_with_base_url(base_url())
+                            .with_test_http_transport(mock_transport.clone())
+                            .get_sumeragi_evidence_list(SumeragiEvidenceListFilter {
+                                kind: expected,
+                                ..SumeragiEvidenceListFilter::default()
+                            })
+                    });
+                if expected.is_none() || expected == Some(actual) {
+                    assert_eq!(response.unwrap(), payload);
+                } else {
+                    assert!(
+                        response
+                            .unwrap_err()
+                            .to_string()
+                            .contains("response kind does not match requested filter")
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn get_evidence_list_wire_binds_each_returned_kind_to_requested_filter() {
+        for (actual, item) in [
+            (
+                SumeragiEvidenceKind::NativeSumeragiEvidence,
+                sample_record(),
+            ),
+            (
+                SumeragiEvidenceKind::SccpForgeryEvidence,
+                super::evidence_json_contract_tests::sccp_data_record(),
+            ),
+        ] {
+            for expected in [
+                None,
+                Some(SumeragiEvidenceKind::NativeSumeragiEvidence),
+                Some(SumeragiEvidenceKind::SccpForgeryEvidence),
+            ] {
+                let payload = SumeragiEvidenceListWireResponse {
+                    total: 1,
+                    items: vec![item.clone()],
+                };
+                let (response, _) = capture_request(
+                    norito_response(StatusCode::OK, &payload),
+                    |mock_transport| {
+                        client_with_base_url(base_url())
+                            .with_test_http_transport(mock_transport.clone())
+                            .get_sumeragi_evidence_list_wire(SumeragiEvidenceListFilter {
+                                kind: expected,
+                                ..SumeragiEvidenceListFilter::default()
+                            })
+                    },
+                );
+                if expected.is_none() || expected == Some(actual) {
+                    assert_eq!(response.unwrap(), payload);
+                } else {
+                    assert!(
+                        response
+                            .unwrap_err()
+                            .to_string()
+                            .contains("response kind does not match requested filter")
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn get_evidence_list_fetches_typed_json_with_bounded_query() {
         let filter = SumeragiEvidenceListFilter {
             limit: Some(5),
@@ -11471,19 +11818,16 @@ mod evidence_http_tests {
                 sig: NativeSignature([0; SIGNATURE_LEN]),
             };
             vote.sig = NativeSignature(
-                Signature::new(key.private_key(), &vote.preimage())
-                    .payload()
-                    .try_into()
-                    .expect("BLS signature width"),
+                iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &vote.preimage())
+                    .unwrap(),
             );
             vote
         };
         EvidenceRecord {
-            evidence: Evidence::from_native(&NativeEvidence::VoteEquivocation(
-                vote(0x55),
-                vote(0x66),
-            ))
-            .expect("native signed pair"),
+            evidence: iroha_data_model::block::consensus::RecordedEvidenceV1::Native(
+                Evidence::from_native(&NativeEvidence::VoteEquivocation(vote(0x55), vote(0x66)))
+                    .expect("native signed pair"),
+            ),
             attribution: EvidenceAttribution {
                 scope: iroha_data_model::block::consensus::EvidenceScope::Root,
                 instance: [0x53; 32],
@@ -11511,9 +11855,10 @@ mod evidence_http_tests {
         let snapshots: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
         let client = client_with_base_url(base_url());
         let sample = sample_record();
+        let forgery = super::evidence_json_contract_tests::sccp_data_record();
         let payload = SharedSumeragiEvidenceListWireResponse {
             total: 7,
-            items: vec![sample.clone()],
+            items: vec![sample.clone(), forgery.clone()],
         };
         assert_eq!(
             norito::schema::identity::frame_hash::<SharedSumeragiEvidenceListWireResponse>(),
@@ -11531,7 +11876,7 @@ mod evidence_http_tests {
         )
         .expect("wire request");
         assert_eq!(response.total, 7);
-        assert_eq!(response.items, vec![sample]);
+        assert_eq!(response.items, vec![sample, forgery]);
         let snapshot = snapshots
             .lock()
             .expect("lock snapshots")
@@ -27975,13 +28320,17 @@ mod tests {
         assert_canonical_account_signed_request(&client, snapshot);
     }
     fn compiled_contract_code_artifact_fixture() -> &'static [u8] {
-        // Retained compiler-produced, admitted public fixture; regeneration and
-        // provenance live beside these repository-local bytes. No compiler is
-        // required to run the SDK regression.
+        // The canonical compiler owner publishes this artifact and its manifest
+        // together after independent native admission. No compiler is needed here.
         let artifact = include_bytes!("../tests/fixtures/contract_code_readback/code_readback.to");
+        let manifest: iroha_data_model::smart_contract::manifest::ContractManifest =
+            norito::json::from_str(include_str!(
+                "../tests/fixtures/contract_code_readback/code_readback.manifest.json"
+            ))
+            .expect("decode the compiler-owned SDK contract manifest");
         assert_eq!(
-            hex::encode(iroha_data_model::smart_contract::contract_code_hash(artifact).as_ref()),
-            "c6005c844c0414f55939dc48b9ecf6e550f967db06f5af4f422b4cf1bb64c5bb",
+            iroha_data_model::smart_contract::contract_code_hash(artifact),
+            manifest.code_hash.expect("native artifact identity"),
             "checked-in fixture must retain its native artifact identity"
         );
         artifact
