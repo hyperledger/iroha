@@ -901,9 +901,18 @@ retains its source for retry and never enters the deterministic negative cache. 
 CommitQC preparation and cold replay bypass the guard. Routing `LaneBatch` has no native block
 timestamp; its effective clock and committed drift source remain a separate integration gap.
 
+**Builder ownership.** Global selection leaves future signed inputs in their original Queue
+admission. Future-only work returns a clock retry instead of an empty answer, so the driver's
+timer retries the final input without another admission. The original assembled header gates
+publication, including parent cadence and certified lane floors. Clock waiting retains the
+same source, input lease and funded output; completed output reuse rechecks the clock after
+the physical parent and Queue lease. A local clock regression withholds that same output until
+the boundary recovers, without changing its canonical bytes or any validity result.
+
 **Verification.** Full-State CT1 and certified-flag forwarding have Core controls HC257/HC258
-(SC5 and the CT1 portion of SC17). CT3 canonical builder pacing, routing-lane CT1 and CT5 remain
-open (SC6, SC12 and the remaining SC17 scope in §13.4). The machine's
+(SC5 and the CT1 portion of SC17). Global CT3 input and canonical publication pacing have
+HC259/HC260 controls, including original retained output and certified lane floors (SC6).
+Routing-lane CT1 and CT5 remain open (SC12 and the remaining SC17 scope in §13.4). The machine's
 emission of `certified` is MS51, killed by `det_s51_execute_certified_flag` and
 `f33_hidden_prepareqc_due_work_block_commits_after_lag`. The deterministic simulator models CT1
 and CT5 in its toy application (§13.1): per-machine wall clocks with skew, block times stamped
@@ -3929,7 +3938,8 @@ profile and the same strict named-test, normal-exit and complete-harness require
 | HC256 | Decision delivery skips the original Begin/Decision namespace join after instruction admission | `native_amx_decision_delivery_final_namespace_refusal_preserves_original_instruction` | Genuine paid execution and native replay produce the original Decision. Replacing its archive namespace immediately after funded instruction admission must refuse delivery while retaining that exact instruction; restoring the original namespace permits delivery with unchanged proof pointers and complete refund. |
 | HC257 | Omit CT1 in full State execution | `sumeragi::executor::clock_tests::prepare_withheld_while_block_time_ahead` | A genuine future block returns local Failed before effects and without a negative cache entry. Advancing the injected clock to the exact committed allowance boundary permits the same original execution. |
 | HC258 | Drop `Execute.certified` in the production driver | `sumeragi::driver::tests::sched::certified_execution_flag_reaches_the_application_without_inference` | False and true reach the application unchanged on every request, including repeated original execution. `certified_execution_skips_clock_guards` additionally exercises the actual worker request, identical result, certificate authentication and cold replay. |
-| HC259 | Global and routing-lane selection includes future signed inputs | `proposer_clock_selection_retains_future_signed_inputs_until_the_exact_time`; `lane_proposer_clock_selection_preserves_future_inputs_and_resumes_after_advance` | A valid queued input one millisecond ahead of the injected proposer clock remains resident and unselected; advancing to its exact time selects its unchanged identity, and rewinding withholds it again. This is CT3 input pacing; canonical assembly and retained-payload pacing require their own controls. |
+| HC259 | Global and routing-lane selection includes future signed inputs | `proposer_clock_selection_retains_future_signed_inputs_until_the_exact_time`; `lane_proposer_clock_selection_preserves_future_inputs_and_resumes_after_advance` | A valid queued input one millisecond ahead of the injected proposer clock remains resident and unselected; advancing to its exact time selects its unchanged identity, and rewinding withholds it again. |
+| HC260 | Publish an original canonical payload before its proposer clock boundary | `proposer_clock_retains_final_input_and_canonical_output_until_due`; `proposer_clock_retains_certified_lane_floor_and_completed_original` | Genuine signed Queue inputs and certified lane ranges wait through canonical assembly and completed output reuse. Advancing the injected clock releases the same original backing; rewinding withholds it again. `clock_ahead_payload_retries_without_another_queue_notification` separately checks the actual scheduler's timed retry with no new input. |
 
 The finite Core full-proof interval is request-owned. Its Torii/SDK callers retain actual query, worker and response owners separately under the existing route and SDK absolute deadlines. Nested signed-genesis/result/authority graph funding remains open. These controls do not attribute the observed H3 timeout to prefix work or qualify the paid transition.
 

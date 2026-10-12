@@ -7176,7 +7176,7 @@ def test_proposer_clock_publication_mutation_preserves_original_payload_controls
         "sumeragi::executor::payload_owner::tests::"
         "proposer_clock_retains_certified_lane_floor_and_completed_original",
     )
-    assert tuple(cause.message for cause in rule.causes) == (
+    assert tuple(cause.cause for cause in rule.causes) == (
         "canonical payload clock must wait after its signed input becomes due",
         "canonical lane merge floor must wait without empty or unrelated work",
     )
