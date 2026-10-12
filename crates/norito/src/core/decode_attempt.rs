@@ -283,12 +283,15 @@ impl std::error::Error for DecodeAttemptError {
 ///
 /// Construction is private to the budget owner. Reconstructing [`Error`] from
 /// [`DecodeResourceError`] does not reconstruct this original scope identity.
+/// Every observer in one root inherits the same protocol boundary. After checking
+/// this original root and family, classification reads that boundary from the
+/// current observer; it is not duplicated in each retained error. The exact
+/// emitting layer remains part of the error, including for protocol refusals.
 #[derive(Clone, Debug)]
 pub struct ScopedDecodeResourceError {
     resource: DecodeResourceError,
     family: BudgetFamily,
     layer: usize,
-    protocol_start: usize,
     identity: BoundaryIdentity,
 }
 
@@ -297,7 +300,6 @@ impl PartialEq for ScopedDecodeResourceError {
         self.resource == other.resource
             && self.family.same(&other.family)
             && self.layer == other.layer
-            && self.protocol_start == other.protocol_start
             && self.identity == other.identity
     }
 }
@@ -310,19 +312,19 @@ impl ScopedDecodeResourceError {
     }
 
     pub(super) fn matches_enclosing_scope(&self) -> bool {
-        self.layer < self.protocol_start
-            && OBSERVER.with(|slot| {
-                slot.borrow().as_ref().is_some_and(|observer| {
-                    observer
-                        .identity
-                        .is_some_and(|identity| identity.contains(self.identity))
-                        && observer
-                            .family
-                            .as_ref()
-                            .is_some_and(|family| family.same(&self.family))
-                        && self.layer < observer.boundary
-                })
+        OBSERVER.with(|slot| {
+            slot.borrow().as_ref().is_some_and(|observer| {
+                observer
+                    .identity
+                    .is_some_and(|identity| identity.contains(self.identity))
+                    && observer
+                        .family
+                        .as_ref()
+                        .is_some_and(|family| family.same(&self.family))
+                    && self.layer < observer.boundary
+                    && self.layer < observer.protocol_start
             })
+        })
     }
 }
 
@@ -388,7 +390,6 @@ pub(super) fn budget_error(layer: usize, counters: &CounterOwner, error: Error) 
             resource,
             family: family.clone(),
             layer,
-            protocol_start: observer.protocol_start,
             identity,
         })
     })
@@ -431,7 +432,7 @@ pub(super) fn capture(error: Error) -> DecodeAttemptError {
                     .as_ref()
                     .is_some_and(|family| family.same(&origin.family))
                 && origin.layer < observer.boundary
-                && origin.layer < origin.protocol_start
+                && origin.layer < observer.protocol_start
             {
                 DecodeAttemptErrorKind::EnclosingLimit
             } else {

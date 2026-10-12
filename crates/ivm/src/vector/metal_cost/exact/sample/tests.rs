@@ -60,10 +60,10 @@ fn exact_samples_keep_all_four_original_owners_through_patterns_refusal_and_unwi
     crate::set_acceleration_config(config);
     let owner = ProcessResources::get().unwrap();
     for (work, blocks) in [
-        (MetalBatchWork::AesEnc, 33),
-        (MetalBatchWork::AesDec, 129),
-        (MetalBatchWork::AesEncRounds(9), 513),
-        (MetalBatchWork::AesDecRounds(64), 2_048),
+        (MetalBatchWork::Encrypt, 33),
+        (MetalBatchWork::Decrypt, 129),
+        (MetalBatchWork::EncryptRounds(9), 513),
+        (MetalBatchWork::DecryptRounds(64), 2_048),
     ] {
         let geometry = Geometry::new(work, blocks).unwrap();
         let keys = 16 * work.rounds();
@@ -164,13 +164,13 @@ fn exact_samples_keep_all_four_original_owners_through_patterns_refusal_and_unwi
 
 #[test]
 fn deadline_and_cpu_identity_refuse_before_any_sample_allocation() {
-    let geometry = Geometry::new(MetalBatchWork::AesEnc, 33).unwrap();
+    let geometry = Geometry::new(MetalBatchWork::Encrypt, 33).unwrap();
     let expired = Instant::now() - MAX_CALIBRATION;
     assert!(matches!(
         Inputs::prepare(geometry, expired),
         Err(CalibrationFailure::Deadline)
     ));
-    let baseline = AesCpuBaseline::capture(MetalBatchWork::AesDec);
+    let baseline = AesCpuBaseline::capture(MetalBatchWork::Decrypt);
     assert!(matches!(
         calibrate(geometry, baseline, expired),
         Err(CalibrationFailure::Deadline)

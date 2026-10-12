@@ -1,7 +1,7 @@
 //! Test-only retention of a current completed Bootstrap Omega, without generating proofs.
 
 #[path = "omega_hard_fixture.rs"]
-pub(crate) mod codec;
+pub mod codec;
 use codec::{
     CAPS, FilePin, FixtureManifest, NAMES, bounded, decode_manifest, encode_manifest, hex, pin,
     retain, sha, words_bytes,
@@ -23,7 +23,7 @@ use std::{
 };
 
 /// Borrow only values from the already completed genuine current owner.
-pub(crate) struct NativeBundle<'a> {
+pub struct NativeBundle<'a> {
     pub(crate) descriptor: &'a [u8],
     pub(crate) key: &'a [u8],
     pub(crate) proof: &'a [u8],
@@ -33,7 +33,7 @@ pub(crate) struct NativeBundle<'a> {
     pub(crate) instances: &'a [Vec<Fq>],
 }
 /// Preflight before the existing proof producer runs; publication stays create-new.
-pub(crate) struct ExportRequest {
+pub struct ExportRequest {
     output: PathBuf,
     provenance_path: PathBuf,
     provenance: Vec<u8>,
@@ -84,21 +84,24 @@ impl ExportRequest {
     }
     /// Verify and retain exactly one already generated proof and its original claims.
     /// This calls no prover or key generator and never supplies historical defaults.
-    pub(crate) fn export(self, input: NativeBundle<'_>) {
+    pub(crate) fn export(self, input: &NativeBundle<'_>) {
         assert!(!input.descriptor.is_empty() && input.descriptor.len() <= CAPS[0]);
         assert!(!input.key.is_empty() && input.key.len() <= CAPS[1]);
         assert!(!input.proof.is_empty() && input.proof.len() <= CAPS[2]);
         let binding = DescriptorBinding::decode_v2(input.descriptor).unwrap();
         assert_eq!(binding.encoded(), input.descriptor);
-        let d = binding.descriptor();
-        assert_eq!(d.curve, CurveV1::Pallas);
-        assert_eq!(d.k, 16);
-        assert_eq!(d.transcript, TranscriptV2::KagemushaPoseidonRp57Base);
-        assert_eq!(d.instance_mode, InstanceModeV1::Direct);
-        assert_eq!(d.proof_suffix, ProofSuffixV1::FoldedGenerator);
-        assert_eq!(d.instance_lengths, [1, 2, 16]);
+        let descriptor = binding.descriptor();
+        assert_eq!(descriptor.curve, CurveV1::Pallas);
+        assert_eq!(descriptor.k, 16);
         assert_eq!(
-            d.instance_types.as_deref(),
+            descriptor.transcript,
+            TranscriptV2::KagemushaPoseidonRp57Base
+        );
+        assert_eq!(descriptor.instance_mode, InstanceModeV1::Direct);
+        assert_eq!(descriptor.proof_suffix, ProofSuffixV1::FoldedGenerator);
+        assert_eq!(descriptor.instance_lengths, [1, 2, 16]);
+        assert_eq!(
+            descriptor.instance_types.as_deref(),
             Some(OmegaPlan::instance_types().as_slice())
         );
         let key = VerifyingKey::<Ep>::read(input.key, &binding).unwrap();
@@ -120,28 +123,28 @@ impl ExportRequest {
             *input.vesta
         );
         let mut words = input.public.to_vec();
-        let (x, y) = Option::<(Fp, Fp)>::from(input.pallas.g().coordinates()).unwrap();
-        words.extend([x, y]);
+        let pallas_coordinates = Option::<(Fp, Fp)>::from(input.pallas.g().coordinates()).unwrap();
+        words.extend([pallas_coordinates.0, pallas_coordinates.1]);
         for u in input.pallas.challenges() {
             words.extend(foreign_limbs(u).map(Fp::from_u128));
         }
         assert_eq!(words.len(), 52);
         let digest = hash_with_domain(LINEAGE_DOMAIN, &words);
-        let (x, y) = Option::<(Fq, Fq)>::from(input.vesta.g().coordinates()).unwrap();
+        let vesta_coordinates = Option::<(Fq, Fq)>::from(input.vesta.g().coordinates()).unwrap();
         let fq = |value: Fp| Option::<Fq>::from(Fq::from_repr(value.to_repr())).unwrap();
         let instances = vec![
             vec![fq(digest)],
-            vec![x, y],
+            vec![vesta_coordinates.0, vesta_coordinates.1],
             input.vesta.challenges().iter().copied().map(fq).collect(),
         ];
         assert_eq!(
             instances, input.instances,
             "public18/original P/V must bind exact producer instances"
         );
-        let p = PinnedParams::<Ep>::derive(16).unwrap();
-        let v = PinnedParams::<Eq>::derive(16).unwrap();
+        let pallas_parameters = PinnedParams::<Ep>::derive(16).unwrap();
+        let vesta_parameters = PinnedParams::<Eq>::derive(16).unwrap();
         verify_full(
-            &p,
+            &pallas_parameters,
             &binding,
             &key,
             &instances,
@@ -149,10 +152,16 @@ impl ExportRequest {
             MemoryBudget::DEFAULT,
         )
         .unwrap();
-        input.pallas.decide(&p, MemoryBudget::DEFAULT).unwrap();
-        input.vesta.decide(&v, MemoryBudget::DEFAULT).unwrap();
+        input
+            .pallas
+            .decide(&pallas_parameters, MemoryBudget::DEFAULT)
+            .unwrap();
+        input
+            .vesta
+            .decide(&vesta_parameters, MemoryBudget::DEFAULT)
+            .unwrap();
         let claim = accumulate_generator(
-            &p,
+            &pallas_parameters,
             &binding,
             &key,
             &instances,
@@ -161,7 +170,9 @@ impl ExportRequest {
         )
         .unwrap();
         let opening = FoldInput::from_opening(*claim.g(), claim.challenges()).unwrap();
-        opening.decide(&p, MemoryBudget::DEFAULT).unwrap();
+        opening
+            .decide(&pallas_parameters, MemoryBudget::DEFAULT)
+            .unwrap();
         let public = words_bytes(input.public);
         let originals = [
             input.descriptor,
@@ -198,7 +209,7 @@ impl ExportRequest {
         let instance_bytes = instances
             .iter()
             .flatten()
-            .flat_map(|w| w.to_repr())
+            .flat_map(PrimeField::to_repr)
             .collect::<Vec<_>>();
         retain(&self.output, "native-omega-instances.bin", &instance_bytes);
         let mut opening_bytes = Vec::from(iroha_plonk::transcript::encode_point::<Ep>(opening.g()));

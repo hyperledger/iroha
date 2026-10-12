@@ -1503,6 +1503,7 @@ fn validate_prepared_mutation_envelope(
 }
 
 /// Validate a private stage envelope through the same canonical protocol validator.
+#[cfg(any(target_os = "linux", all(test, unix)))]
 pub(super) fn validate_core_prepared_envelope(
     identity: &CoreWriteIdentity,
     bytes: &[u8],
@@ -14660,22 +14661,6 @@ impl<R: ProcessRunner> OpenSshTransport<'_, R> {
         })
     }
 
-    fn prepare_write_canary_child_until(
-        &mut self,
-        deadline: Instant,
-        timeout_secs: u64,
-        phase: &str,
-        kind: &str,
-    ) -> Result<RetainedPreparedMutation> {
-        CoreWriteTransport::prepare_write_canary_child_until(
-            self,
-            deadline,
-            timeout_secs,
-            phase,
-            kind,
-        )
-    }
-
     fn fetch_shared_prepared_mutation(
         &mut self,
         phase: &str,
@@ -14705,44 +14690,7 @@ impl<R: ProcessRunner> OpenSshTransport<'_, R> {
         )
     }
 
-    fn run_write_canary_prepare_until(
-        &mut self,
-        deadline: Instant,
-        timeout_secs: u64,
-        phase: &str,
-        kind: &str,
-        idempotency_key: &str,
-        prerequisite: Option<&RetainedPreparedMutation>,
-    ) -> Result<(Vec<u8>, Vec<u8>)> {
-        CoreWriteTransport::run_write_canary_prepare_until(
-            self,
-            deadline,
-            timeout_secs,
-            phase,
-            kind,
-            idempotency_key,
-            prerequisite,
-        )
-    }
-
-    fn run_write_canary_prepared_until(
-        &mut self,
-        deadline: Instant,
-        phase: &str,
-        kind: &str,
-        prepared: &RetainedPreparedMutation,
-        recover_only: bool,
-    ) -> Result<PreparedMutationOutcome> {
-        CoreWriteTransport::run_write_canary_prepared_until(
-            self,
-            deadline,
-            phase,
-            kind,
-            prepared,
-            recover_only,
-        )
-    }
-
+    #[cfg(test)]
     fn write_canary_base_args(
         &self,
         phase: &str,
@@ -15581,18 +15529,6 @@ impl<R: ProcessRunner> OpenSshTransport<'_, R> {
         )
     }
 
-    fn validate_existing_local_receipt(
-        &self,
-        name: &str,
-        validator: fn(&norito::json::Value, &AdmittedReset) -> Result<()>,
-    ) -> Result<bool> {
-        let Some(bytes) = self.read_local_receipt(name)? else {
-            return Ok(false);
-        };
-        validator(&bytes, self.admitted)?;
-        Ok(true)
-    }
-
     fn publish_local_receipt(&self, name: &str, report: &norito::json::Value) -> Result<()> {
         validate_receipt_name(name)?;
         let report = canonical_local_report(report)?;
@@ -15906,6 +15842,7 @@ impl<R: ProcessRunner> CoreWriteTransport for OpenSshTransport<'_, R> {
 }
 
 /// Execute the held native candidate CLI without accepting an executable path.
+#[cfg(target_os = "linux")]
 pub(super) fn run_native_core_cli<R: ProcessRunner>(
     executable: &File,
     mut args: Vec<OsString>,
@@ -16728,6 +16665,7 @@ fn validate_prepared_report_envelope_bytes(
     Ok(())
 }
 
+#[cfg(test)]
 fn validate_prepared_write_report(
     value: &norito::json::Value,
     admitted: &AdmittedReset,
@@ -17588,6 +17526,7 @@ fn validate_common_report(
     Ok(())
 }
 
+#[cfg(test)]
 fn require_fresh_liveness_report<C>(
     context: &mut C,
     had_prior_receipt: bool,
@@ -17668,6 +17607,7 @@ const RETAINED_INROU_CHECK_REPORT_FIELDS: &[&str] = &[
     "replica_identities",
 ];
 
+#[cfg(test)]
 fn validate_fresh_inrou_check_report(
     value: &norito::json::Value,
     admitted: &AdmittedReset,
@@ -17705,6 +17645,7 @@ fn validate_fresh_inrou_observation_window(
     Ok(())
 }
 
+#[cfg(test)]
 fn validate_retained_inrou_check_report(
     value: &norito::json::Value,
     admitted: &AdmittedReset,

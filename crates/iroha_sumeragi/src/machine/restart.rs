@@ -366,19 +366,20 @@ impl Core {
         if cfg!(sumeragi_mutation = "ME2") {
             return true;
         }
-        let parent_matches = match &record.parent_commit_qc {
-            None => self.tip.height == self.genesis,
-            Some(qc) => {
-                self.tip.height != self.genesis
-                    && qc.kind == VoteKind::Commit
-                    && qc.height == self.tip.height
-                    && qc.value() == (self.tip.block_hash, self.tip.result)
-                    && self.config(qc.height).is_some_and(|config| {
-                        config.epoch.contains(qc.height)
-                            && self.verifier(config).verify_qc(qc).is_ok()
-                    })
-            }
-        };
+        let parent_matches =
+            record
+                .parent_commit_qc
+                .as_ref()
+                .map_or(self.tip.height == self.genesis, |qc| {
+                    self.tip.height != self.genesis
+                        && qc.kind == VoteKind::Commit
+                        && qc.height == self.tip.height
+                        && qc.value() == (self.tip.block_hash, self.tip.result)
+                        && self.config(qc.height).is_some_and(|config| {
+                            config.epoch.contains(qc.height)
+                                && self.verifier(config).verify_qc(qc).is_ok()
+                        })
+                });
         parent_matches && self.record_round_certificates_verify(record)
     }
 

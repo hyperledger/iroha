@@ -129,16 +129,20 @@ impl State {
             raw.resume_under(&lease)
                 .map_err(LaneLifecycleError::GeometryStorage)?;
         }
-        original
-            .tiered
-            .as_mut()
-            .ok_or_else(|| {
-                LaneLifecycleError::Storage("missing retained tiered geometry owner".to_owned())
-            })?
-            .resume(&mut self.tiered_backend.lock())
-            .map_err(|error| {
-                LaneLifecycleError::Storage(format!("retained tiered geometry: {error:#}"))
-            })?;
+        let tiered = original.tiered.as_mut().ok_or_else(|| {
+            LaneLifecycleError::Storage("missing retained tiered geometry owner".to_owned())
+        })?;
+        // A completed plan only reauthenticates its original paths. A local
+        // identity refusal cannot reopen progress after catalog publication.
+        let tiered_result =
+            if tiered.is_applied() && !cfg!(all(test, sumeragi_core_mutation = "HC255")) {
+                tiered.authenticate_applied(&self.tiered_backend.lock())
+            } else {
+                tiered.resume(&mut self.tiered_backend.lock())
+            };
+        tiered_result.map_err(|error| {
+            LaneLifecycleError::Storage(format!("retained tiered geometry: {error:#}"))
+        })?;
         if !original.cursors_updated {
             if let Some(releases) = releases.as_mut() {
                 releases.shard_cursors.write().sync_mapping(request.updated);
@@ -195,9 +199,37 @@ impl State {
                 .kura
                 .try_publication_lease()
                 .map_err(geometry_lease_error)?;
+            let tiered = original.tiered.as_ref().ok_or_else(|| {
+                LaneLifecycleError::Storage(
+                    "catalog publication has no original tiered geometry owner".to_owned(),
+                )
+            })?;
+            if !cfg!(all(test, sumeragi_core_mutation = "HC254")) {
+                // Refuse changed paths before choosing a durable publication direction.
+                tiered
+                    .authenticate_applied(&self.tiered_backend.lock())
+                    .map_err(|error| {
+                        LaneLifecycleError::Storage(format!(
+                            "tiered publication identity: {error:#}"
+                        ))
+                    })?;
+            }
             if raw.phase() != crate::kura::RawGeometryPhase::CatalogPublished {
                 raw.publish_catalog_under(&lease, configured_baseline)
                     .map_err(LaneLifecycleError::GeometryStorage)?;
+            }
+            if !cfg!(all(test, sumeragi_core_mutation = "HC254")) {
+                // A completed phase is not physical identity evidence. Rejoin both
+                // retained owners before releasing them, including after a retry.
+                raw.reauthenticate_catalog_under(&lease, configured_baseline)
+                    .map_err(LaneLifecycleError::GeometryStorage)?;
+                tiered
+                    .authenticate_applied(&self.tiered_backend.lock())
+                    .map_err(|error| {
+                        LaneLifecycleError::Storage(format!(
+                            "tiered completion identity: {error:#}"
+                        ))
+                    })?;
             }
             *slot = None;
             Ok(())

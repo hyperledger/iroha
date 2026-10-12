@@ -186,7 +186,8 @@ fn sample_world() -> (World, KeyPair, AccountId, AccountId, AccountId) {
         block
             .parameters
             .get_mut()
-            .set_parameter(Parameter::Custom(npos.into_custom_parameter()));
+            .set_parameter(Parameter::Custom(npos.into_custom_parameter()))
+            .expect("install valid committed NPoS fixture parameters");
         block.commit();
     }
     (

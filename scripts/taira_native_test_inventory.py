@@ -140,6 +140,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'original_wake_is_funded_before_startup_and_retained_by_its_waker',
         'inputs_and_original_release_keep_the_last_drain_to_park_edge',
         'original_release_wakes_actual_park_after_final_pending_check',
+        'original_thread_capacity_release_unparks_after_final_latch_check_with_writer_retained',
     )),
 
     ('native complete State reader custody', 'state/view_acquisition.rs', 'state/view_acquisition_tests.rs', 'tests', 'state::view_acquisition::tests', (
@@ -270,6 +271,14 @@ NATIVE_CORE_TEST_OWNERS = (
         'validation_wrappers_keep_real_capacity_and_terminal_custody_distinct',
         'original_local_custody_invariant_halts_worker_without_fee_result_or_quarantine',
         'native_source_publication_change_retries_without_recovery_or_quarantine',
+        'immutable_result_foreign_budget_requires_recovery_with_original_diagnostic',
+        'immutable_result_excessive_preimage_requires_recovery_with_original_extent',
+        'immutable_result_encoding_failure_requires_recovery_with_original_cause',
+        'immutable_certificate_foreign_budget_requires_recovery_with_original_diagnostic',
+        'immutable_preparation_capacity_preserves_the_exact_original_release',
+        'immutable_preparation_allocator_refusal_never_invents_a_release',
+        'immutable_preparation_short_prepaid_parent_requires_recovery_without_losing_custody',
+        'producer_payload_errors_keep_original_release_and_terminal_classification',
     )),
     ('native publication refusal identity', 'sumeragi/executor/publication.rs', 'sumeragi/executor/publication/tests.rs', 'tests', 'sumeragi::executor::publication::tests', (
         'state_publication_lock_refusals_reach_scheduler_with_original_execution_and_release',
@@ -299,6 +308,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'restore_preserves_original_pool_refusal_release_and_same_source_retry',
         'restore_preserves_cumulative_prefix_decode_refusal_and_same_source_retry',
         'restore_keeps_corrupt_native_history_a_completed_schema_rejection',
+        'native_tip_snapshot_scope_is_mandatory_and_objects_are_closed',
     )),
     ('native certified history', 'sumeragi/certified_chain.rs', 'sumeragi/certified_chain/tests.rs', 'tests', 'sumeragi::certified_chain::tests', (
         'committed_and_certified_reads_of_a_real_chain',
@@ -319,6 +329,10 @@ NATIVE_CORE_TEST_OWNERS = (
         'certified_reader_rejects_missing_foreign_and_corrupt_signed_availability',
         'durable_certificate_read_rejects_checksum_valid_corruption_after_cache_warm',
         'signed_genesis_initialization_does_not_repeat_completed_scope_decode',
+        'current_result_frame_preserves_original_x_and_rejects_scope_time_and_retired_body',
+        'native_frame_requires_fixed_header_and_exact_block_binding',
+        'authenticated_scope_rejects_active_non_global_without_redecoding_result',
+        'original_signed_dataspace_scope_refuses_active_genesis_in_both_prefix_owners',
     )),
     ('native certified history boundaries', 'sumeragi/certified_chain/tests.rs', 'sumeragi/certified_chain/boundary_tests.rs', 'boundaries', 'sumeragi::certified_chain::tests::boundaries', (
         'rotated_away_committee_verifies_from_authenticated_boundaries_with_bounded_authority',
@@ -454,6 +468,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'scheduled_slot_json_requires_its_canonical_variant_tag',
         'restored_schedule_keeps_original_generation_and_full_epoch_graph',
         'genesis_outcome_cannot_supply_an_arbitrary_epoch_or_boundary',
+        'sccp_epoch_floor_applies_even_when_disabled_and_after_genesis_initialization',
     )),
     ('native executed genesis registration', 'sumeragi/schedule/execution.rs', 'sumeragi/schedule/execution_tests.rs', 'tests', 'sumeragi::schedule::execution::tests', (
         'executed_genesis_must_retain_every_exact_signed_registration',

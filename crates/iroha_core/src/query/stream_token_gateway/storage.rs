@@ -979,6 +979,8 @@ impl PreparedGatewayDelta {
     }
 }
 
+/// Apply one delta directly in storage fixtures; production prepares all owners first.
+#[cfg(test)]
 pub(crate) fn apply_delta(
     tx: &mut StateTransaction<'_, '_>,
     current: &GatewayCurrentV1,

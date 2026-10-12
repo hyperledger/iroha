@@ -75,8 +75,8 @@ mod configuration_tests {
         assert!(metal_tree_from_bytes_auto(&[1], 33).is_none());
         assert!(metal_tree_from_bytes_auto(&[1], 32).is_none());
         for (work, items) in [
-            (metal_cost::MetalBatchWork::AesEnc, 2_049),
-            (metal_cost::MetalBatchWork::AesDecRounds(65), 128),
+            (metal_cost::MetalBatchWork::Encrypt, 2_049),
+            (metal_cost::MetalBatchWork::DecryptRounds(65), 128),
         ] {
             assert!(select_batch(work, items).is_none());
         }

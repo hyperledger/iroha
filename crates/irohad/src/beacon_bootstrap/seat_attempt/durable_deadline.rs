@@ -146,7 +146,6 @@ fn uuid_hash(bytes: &[u8]) -> std::io::Result<[u8; 32]> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::result::Result;
     #[test]
     fn original_native_expiry_rejects_changed_boot_regression_and_exhaustion() {
         let record = DurableDeadline {

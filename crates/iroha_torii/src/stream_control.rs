@@ -662,7 +662,8 @@ mod tests {
             .set_parameter(Parameter::Custom(CustomParameter::new(
                 NexusRuntimeCatalogV1::parameter_id(),
                 iroha_primitives::json::Json::new(norito::json!({"version": 255})),
-            )));
+            )))
+            .expect("store the malformed catalog fixture for native decoder rejection");
         world.commit();
         let auth =
             crate::history_producer::HistoryProducerOwner::authentication_read(&app).unwrap();

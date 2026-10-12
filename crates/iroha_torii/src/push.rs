@@ -2872,7 +2872,7 @@ mod tests {
     impl RestartedPushGenesis {
         fn new(source: &iroha_core::sumeragi::test_chain::CertifiedTestChain) -> Self {
             use iroha_core::{
-                state::{StateReadOnly as _, WorldReadOnly as _},
+                state::WorldReadOnly as _,
                 sumeragi::{
                     block_store::{KuraBlockStore, Staging},
                     crypto::BlsCrypto,

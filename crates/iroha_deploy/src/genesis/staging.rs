@@ -261,7 +261,7 @@ pub fn bind_and_sign_staged_sumeragi_context_with_preimage(
         creation_time_ms,
     )?;
     let StagedGenesisExecution {
-        executed_block: mut executed_block,
+        mut executed_block,
         nexus_amx_context_preimage,
         ..
     } = verify_final_signed_sumeragi_context(

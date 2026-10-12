@@ -30712,3 +30712,7 @@ fn frozen_plain_minimum_bond_is_enforced_by_validator_tally_and_restore() {
 
 #[path = "lifecycle_index_release_tests.rs"]
 mod lifecycle_index_release_tests;
+
+#[cfg(unix)]
+#[path = "geometry_completion_tests.rs"]
+mod geometry_completion_tests;

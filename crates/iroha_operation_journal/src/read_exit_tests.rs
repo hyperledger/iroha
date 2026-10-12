@@ -44,7 +44,7 @@ fn optional_read_preserves_absence_exact_allocation_refusal_bounds_and_retry() {
             .with(|| journal.read_optional("evidence.json"))
             .unwrap_err();
         assert!(matches!(
-            actual.downcast_ref::<norito::Error>().and_then(|error| error.decode_resource_error()),
+            actual.downcast_ref::<norito::Error>().and_then(norito::Error::decode_resource_error),
             Some(norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit })
                 if attempted == original.len() as u64 && limit == allocation as u64
         ));
@@ -143,7 +143,7 @@ fn real_optional_results_refuse_changed_ancestor_or_lock_at_exit_then_retry() {
                                 "journal evidence exceeds its byte bound"
                             ),
                             "allocation" => assert!(matches!(
-                                body.as_ref().unwrap_err().downcast_ref::<norito::Error>().and_then(|error| error.decode_resource_error()),
+                                body.as_ref().unwrap_err().downcast_ref::<norito::Error>().and_then(norito::Error::decode_resource_error),
                                 Some(norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit: 0 })
                                     if attempted == original.len() as u64
                             )),

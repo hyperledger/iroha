@@ -1550,9 +1550,9 @@ fn single_verifier_matches_vectors_and_rejects_malformed_points_without_allocati
         let key = bytes::<48>(PUBLIC_KEYS[key_index]);
         let wrong_key = bytes::<48>(PUBLIC_KEYS[(key_index + 1) % 3]);
         let admitted = admitted_key(key_index);
-        for message in 0..3 {
+        for (message, encoded_signature) in SIGNATURES[key_index].iter().enumerate() {
             let digest = standard_digest(message);
-            let signature = bytes::<96>(SIGNATURES[key_index][message]);
+            let signature = bytes::<96>(encoded_signature);
             assert!(without_allocations(|| verify_public_key(
                 &key, &digest, &signature
             )));

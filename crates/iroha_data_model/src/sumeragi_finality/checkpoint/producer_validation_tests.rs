@@ -288,7 +288,6 @@ fn under_caller<T, E: Into<FinalityReadError>>(
 fn assert_original_admission<T: std::fmt::Debug + PartialEq, E: Into<FinalityReadError>>(
     original: impl Fn() -> Result<T, E>,
     candidate: impl Fn() -> Result<T, E>,
-    positive_limit_refuses: bool,
 ) {
     let expected = under_caller(TEST_ALLOCATION_CEILING, &original);
     assert!(expected.0.is_ok());
@@ -300,11 +299,7 @@ fn assert_original_admission<T: std::fmt::Debug + PartialEq, E: Into<FinalityRea
     for cap in [1, charge / 2, charge - 1, charge] {
         let expected = under_caller(cap, &original);
         if cap == 1 {
-            assert_eq!(
-                expected.0.is_err(),
-                positive_limit_refuses,
-                "mandatory decoding refuses; optional memo insertion may decline"
-            );
+            assert!(expected.0.is_err(), "mandatory decoding must refuse");
         }
         assert_eq!(under_caller(cap, &candidate), expected, "cap {cap}");
     }
@@ -320,15 +315,20 @@ fn active_producers_preserve_original_results_charges_and_positive_refusals() {
     assert_original_admission(
         || independent_export(&verifier, &fixture.second),
         || verifier.export_checkpoint(&fixture.second),
-        true,
     );
-    // Encoding validates an already decoded DTO. A tiny decode budget can decline the
-    // optional epoch memo while validation and ordinary canonical encoding still succeed.
-    assert_original_admission(
-        || independent_encoding(&checkpoint),
-        || checkpoint.encode_canonical(),
-        false,
-    );
+    // Encoding validates an already decoded DTO using inline epoch entries. It must
+    // retain all validation and bytes without charging the unrelated decoder counter.
+    for cap in [0, 1, TEST_ALLOCATION_CEILING] {
+        let expected = under_caller(cap, || independent_encoding(&checkpoint));
+        assert_eq!(expected.0.as_ref().unwrap(), &original);
+        assert_eq!(expected.1, 0);
+        assert!(expected.2 > 1);
+        assert_eq!(
+            under_caller(cap, || checkpoint.encode_canonical()),
+            expected,
+            "encoding cap {cap}"
+        );
+    }
     assert!(!norito::core::decode_limits_active());
     assert_eq!(
         verifier.export_checkpoint(&fixture.second).unwrap(),

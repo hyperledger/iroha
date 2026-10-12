@@ -282,12 +282,10 @@ fn four_a_three_w_original_sources_qualify_at_k16() {
         let key_seal = imported.import_a(stage, &a[stage].p, config).unwrap();
         let key = imported.bind_a(stage, &key_seal, None).unwrap();
         assert_eq!(key.verifying_key().to_bytes(), a[stage].v);
-        drop(key_seal);
         if stage < A_STAGE_COUNT - 1 {
             let key_seal = imported.import_w(stage, &w[stage].p, config).unwrap();
             let key = imported.bind_w(stage, &key_seal, None).unwrap();
             assert_eq!(key.verifying_key().to_bytes(), w[stage].v);
-            drop(key_seal);
         }
     }
     assert!(imported.import_a(A_STAGE_COUNT, &a[0].p, config).is_err());

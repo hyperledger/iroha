@@ -116,9 +116,9 @@ fn original_pool_refusal_precedes_preparation_and_same_artifact_retries() {
     let bytes = artifact();
     let original = bytes.clone();
     let budget = AllocationBudget::new(0);
-    let error = prepare_contract_with_memory_budget(&bytes, &budget)
-        .err()
-        .expect("original instruction funding refuses");
+    let Err(error) = prepare_contract_with_memory_budget(&bytes, &budget) else {
+        panic!("original instruction funding refuses");
+    };
     assert!(matches!(
         error.into_vm_error(),
         VMError::AllocationDeferred(_)

@@ -2732,7 +2732,8 @@ fn install_two_peer_npos_roster(
         .get_mut()
         .set_parameter(Parameter::Custom(
             SumeragiNposParameters::default().into_custom_parameter(),
-        ));
+        ))
+        .expect("install the committed NPoS fixture parameters");
     let mut peers = block.world.peers_mut_for_testing().transaction();
     peers.clear();
     peers.push(local_peer_id.clone());
@@ -2830,7 +2831,8 @@ async fn authoritative_lane_peers_do_not_fall_back_to_online_peers_when_state_is
             .get_mut()
             .set_parameter(Parameter::Custom(
                 SumeragiNposParameters::default().into_custom_parameter(),
-            ));
+            ))
+            .expect("install the committed NPoS fixture parameters");
         let mut peers = block.world.peers_mut_for_testing().transaction();
         peers.clear();
         peers.apply();

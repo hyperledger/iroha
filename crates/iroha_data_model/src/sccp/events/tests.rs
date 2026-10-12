@@ -453,7 +453,13 @@ fn finality_degraded_reasons_are_closed_and_have_explicit_tags() {
     ];
     for (index, (reason, tag)) in reasons.into_iter().enumerate() {
         roundtrip(&reason);
-        assert!(reason.encode().starts_with(&(index as u32).encode()));
+        assert!(
+            reason.encode().starts_with(
+                &u32::try_from(index)
+                    .expect("closed reason discriminant")
+                    .encode()
+            )
+        );
         let event = SccpEvent::FinalityDegraded(SccpFinalityDegradedV1 {
             height: u64::MAX,
             reason,

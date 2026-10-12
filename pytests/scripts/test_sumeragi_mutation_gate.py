@@ -7021,7 +7021,7 @@ def causal_rule(mid):
     return gate.index_mutations(gate.MODEL_MUTATIONS if mid == 'DM34' else gate.CORE_MUTATIONS)[mid]
 
 
-@pytest.mark.parametrize('mid', ['HC246', 'HC247', 'HC248', 'HC252', 'DM34'])
+@pytest.mark.parametrize('mid', ['HC246', 'HC247', 'HC248', 'HC252', 'HC254', 'HC255', 'HC256', 'DM34'])
 @pytest.mark.parametrize('corruption', ['none', 'unrelated', 'incidental', 'source', 'owner', 'missing_panic', 'extra_panic', 'outside_section', 'duplicate_section', 'one_passes', 'all_pass'])
 def test_declared_causal_mutation_requires_every_owned_cause(monkeypatch, tmp_path, mid, corruption):
     rule = causal_rule(mid)
@@ -7262,3 +7262,165 @@ def test_retained_execution_wakeup_requires_its_exact_native_control(monkeypatch
     result = gate.evaluate(SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
     assert result["verdict"] == verdict, result
     assert result["named_tests"] == list(rule.tests)
+
+
+def assert_original_journal_static_causal_literal(source, name, expected):
+    """Bind the gate cause to the exact executed Retryable assertion's literal."""
+    body = source.split("fn " + name.rsplit("::", 1)[-1] + "() {", 1)[1].split("#[test]", 1)[0]
+    literals = re.findall(
+        r'assert!\(\s*matches!\(result, Err\(PublicationError::Retryable\(_\)\)\),'
+        r'\s*("(?:[^"\\]|\\.)*")\s*\);', body
+    )
+    assert literals == [json.dumps(expected.cause)], "HC253 requires the exact static native causal message"
+
+
+@pytest.mark.parametrize("index", [0, 1])
+def test_original_journal_causal_messages_match_actual_rust_assertions(index):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC253"]
+    expected = rule.causes[index]
+    source = (ROOT / expected.source).read_text()
+    assert_original_journal_static_causal_literal(source, rule.tests[index], expected)
+
+
+@pytest.mark.parametrize("index", [0, 1])
+@pytest.mark.parametrize("replacement", [
+    '"original parent journal unavailability remains retryable: {result:?}"',
+    '"original parent journal unavailability remains retryable: {:?}", result',
+    '"original parent journal unavailability remains retryable {}", ""',
+    '"original parent journal unavailability remains retryable "',
+])
+def test_original_journal_causal_literal_rejects_dynamic_or_extra_message_text(index, replacement):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC253"]
+    expected = rule.causes[index]
+    source = (ROOT / expected.source).read_text()
+    original = json.dumps(expected.cause)
+    assert source.count(original) == 2
+    source = source.replace(original, replacement)
+    with pytest.raises(AssertionError, match="exact static native causal message"):
+        assert_original_journal_static_causal_literal(source, rule.tests[index], expected)
+
+
+LANE_GEOMETRY_CAUSAL_CONTROLS = (
+    ("HC254", 0, "completed_publication_refuses_substituted_journal_namespace_and_retries_original_owner", "result.is_err()"),
+    ("HC254", 1, "substituted_tiered_path", "result.is_err()"),
+    ("HC254", 2, "substituted_tiered_path", "result.is_err()"),
+    ("HC255", 0, "assert_retained", "original.tiered.as_ref().unwrap().is_applied()"),
+    ("HC256", 0, "completed_publication_refuses_changed_baseline_and_retries_original_owner", "result.is_err()"),
+)
+
+
+def assert_lane_geometry_static_cause(source, function, condition, expected):
+    """Require the exact executed assertion condition and static owner message."""
+    body = source.split("fn " + function + "(", 1)[1].split("\nfn ", 1)[0]
+    literals = re.findall(
+        r'assert!\(\s*' + re.escape(condition) + r',\s*("(?:[^"\\]|\\.)*")\s*\);', body
+    )
+    assert literals == [json.dumps(expected.cause)], "geometry mutation requires its exact static native cause"
+
+
+@pytest.mark.parametrize("mid,owner,tests", [
+    ("HC254", "state/geometry_publication.rs", (
+        "completed_publication_refuses_substituted_journal_namespace_and_retries_original_owner",
+        "prepublication_refuses_substituted_tiered_directory_and_retries_original_owner",
+        "completed_publication_refuses_substituted_tiered_directory_and_retries_original_owner",
+    )),
+    ("HC255", "state/geometry_publication.rs", (
+        "completed_retry_preserves_original_applied_progress_on_tiered_identity_refusal",
+    )),
+    ("HC256", "kura/lane_geometry/raw_attempt.rs", (
+        "completed_publication_refuses_changed_baseline_and_retries_original_owner",
+    )),
+])
+def test_lane_geometry_mutations_keep_separate_original_production_owners(mid, owner, tests):
+    registry = gate.index_mutations(gate.CORE_MUTATIONS)
+    assert len(registry) == len(gate.CORE_MUTATIONS)
+    rule = registry[mid]
+    assert rule.tests == tuple("state::tests::geometry_completion_tests::" + name for name in tests)
+    assert not rule.scenarios
+    assert len(rule.causes) == len(rule.tests)
+    assert all(expected.source == "crates/iroha_core/src/state/geometry_completion_tests.rs"
+               and expected.worker_thread == "" and expected.join_source == ""
+               and expected.join_message == ""
+               for expected in rule.causes)
+    core = ROOT / "crates/iroha_core/src"
+    owners = {path.relative_to(core).as_posix() for path in core.rglob("*.rs")
+              if re.search(r'sumeragi_core_mutation\s*=\s*"' + mid + '"', path.read_text())}
+    assert owners == {owner}
+    assert gate.has_switch(mid, core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True},
+                   {"deploy": True}, {"torii": True}, {"norito": True}):
+        assert not gate.has_switch(mid, **family)
+    rows = re.findall(r"^\| " + mid + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(rows) == 1 and all(name in rows[0] for name in rule.tests)
+
+
+@pytest.mark.parametrize("mid,index,function,condition", LANE_GEOMETRY_CAUSAL_CONTROLS)
+def test_lane_geometry_causal_messages_match_actual_rust_assertions(mid, index, function, condition):
+    expected = gate.index_mutations(gate.CORE_MUTATIONS)[mid].causes[index]
+    assert_lane_geometry_static_cause((ROOT / expected.source).read_text(), function, condition, expected)
+
+
+@pytest.mark.parametrize("mid,index,function,condition", LANE_GEOMETRY_CAUSAL_CONTROLS)
+@pytest.mark.parametrize("suffix", [': {result:?}', ' ', ' {}'])
+def test_lane_geometry_causal_message_rejects_dynamic_or_extra_text(mid, index, function, condition, suffix):
+    expected = gate.index_mutations(gate.CORE_MUTATIONS)[mid].causes[index]
+    source = (ROOT / expected.source).read_text()
+    original = json.dumps(expected.cause)
+    assert source.count(original) == 1
+    with pytest.raises(AssertionError, match="exact static native cause"):
+        assert_lane_geometry_static_cause(source.replace(original, json.dumps(expected.cause + suffix)), function, condition, expected)
+
+
+@pytest.mark.parametrize("mid", ["HC254", "HC255", "HC256"])
+@pytest.mark.parametrize("status,verdict", [
+    ("ok", "survived"), ("FAILED", "killed_by_test"), ("ignored", "error"),
+    ("missing", "error"), ("incidental", "error"),
+])
+def test_lane_geometry_requires_every_exact_declared_terminal(monkeypatch, tmp_path, mid, status, verdict):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[mid]
+    monkeypatch.setattr(gate, "has_switch", lambda *args, **kwargs: True)
+    monkeypatch.setattr(gate, "build", lambda *args: gate.Step(status="pass"))
+    rows = [] if status == "missing" else [
+        (name + "_incidental", "FAILED") if status == "incidental" else (name, status)
+        for name in rule.tests
+    ]
+    code, output = causal_control_output(rule, rows)
+    selected_cargo_results(monkeypatch, code, output, names=tuple(name for name, _ in rows))
+    result = gate.evaluate(SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
+    assert result["verdict"] == verdict, result
+    assert result["named_tests"] == list(rule.tests)
+
+
+def test_lane_geometry_regressions_keep_original_source_and_prepublication_boundaries():
+    source = (ROOT / "crates/iroha_core/src/state/geometry_completion_tests.rs").read_text()
+    for required in [
+        "raw.publish_catalog_under(&lease, Some(baseline))", "original_owners(state),",
+        "RawGeometryPhase::FilesApplied", "RawGeometryPhase::CatalogPublished",
+        "!failure.rollback_safe", "original.cursors_updated", "original_metadata.ctime()",
+        "original_metadata.ctime_nsec()", "fs::rename(&displaced, store_root)",
+        "fs::rename(&displaced, &lane)", "for changed in [None, Some(foreign)]",
+        "substituted_tiered_path(false, false)", "substituted_tiered_path(true, false)",
+        "substituted_tiered_path(true, true)", "retry_original(state, configured, kura, baseline)",
+    ]:
+        assert required in source
+    assert "stack_size" not in source and "#[ignore" not in source
+
+
+@pytest.mark.parametrize("mid,index,function,condition", LANE_GEOMETRY_CAUSAL_CONTROLS)
+@pytest.mark.parametrize("corruption", ["unrelated", "wrong_source", "missing_panic"])
+def test_lane_geometry_other_controls_cannot_mask_one_wrong_cause(monkeypatch, tmp_path, mid, index, function, condition, corruption):
+    del function, condition
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[mid]
+    code, output = causal_control_output(rule, [(name, "FAILED") for name in rule.tests])
+    name, expected = rule.tests[index], rule.causes[index]
+    panic = f"thread '{name}' (12) panicked at {expected.source}:123:7:\n{expected.cause}\n"
+    assert output.count(panic) == 1
+    wrong = (panic.replace(expected.cause, "unrelated fixture failure") if corruption == "unrelated"
+             else panic.replace(expected.source, "wrong_source.rs") if corruption == "wrong_source"
+             else "")
+    output = output.replace(panic, wrong, 1)
+    monkeypatch.setattr(gate, "has_switch", lambda *args, **kwargs: True)
+    monkeypatch.setattr(gate, "build", lambda *args: gate.Step(status="pass"))
+    selected_cargo_results(monkeypatch, code, output, names=rule.tests)
+    result = gate.evaluate(SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
+    assert result["verdict"] == "error", result

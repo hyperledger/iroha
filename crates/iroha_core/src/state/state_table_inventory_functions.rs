@@ -681,7 +681,7 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
     function(
         "crates/iroha_core/src/state.rs",
         "refresh_axt_policies_from_directory",
-        3,
+        2,
         UseOwner::Roots(&["axt_policy_snapshot"]),
     ),
     function(
@@ -1287,12 +1287,6 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
     function(
         "crates/iroha_core/src/tx.rs",
         "authenticated_signed_replay_alias",
-        1,
-        UseOwner::Other(Use::Record, RECORD_IDENTITY),
-    ),
-    function(
-        "crates/iroha_core/src/tx.rs",
-        "canonical_carrier_membership_hashes",
         1,
         UseOwner::Other(Use::Record, RECORD_IDENTITY),
     ),

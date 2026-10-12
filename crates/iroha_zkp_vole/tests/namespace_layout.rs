@@ -25,7 +25,9 @@ const LEVEL: SecurityLevel = SecurityLevel::L256;
 fn shake256(parts: &[&[u8]], len: usize) -> Vec<u8> {
     let mut out = vec![0u8; len];
     let mut sponge = Shake256::default();
-    parts.iter().for_each(|part| sponge.update(part));
+    for part in parts {
+        sponge.update(part);
+    }
     sponge.finalize_xof().read(&mut out);
     out
 }

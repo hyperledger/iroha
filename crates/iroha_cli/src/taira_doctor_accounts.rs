@@ -24,6 +24,7 @@ pub(super) const CANONICAL_BOND_FAUCET_REACH_DETAIL: &str = "live faucet amount 
 pub(super) const CANONICAL_PROFILE_SEATING_DETAIL: &str = "compiled canonical configs/soranexus/taira/config.toml [gov] and [torii.faucet] profile; the live profile is not verified";
 
 /// The wallet-discovery and Parliament seating checks every doctor report carries, in order.
+#[cfg(test)]
 pub(super) fn expected() -> [(&'static str, u64, Option<String>); 4] {
     [
         (ACCOUNT_CAPABILITIES, 200, None),

@@ -31,7 +31,7 @@ use iroha_config::{
 };
 #[cfg(test)]
 use iroha_crypto::Algorithm;
-#[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
+#[cfg(test)]
 use iroha_crypto::KeyPair;
 use iroha_crypto::{Hash, HashOf};
 use iroha_data_model::{
@@ -182,7 +182,7 @@ fn recovery_control_decode_limits_v1(wire_limit: u64) -> Result<norito::DecodeLi
             .min(RECOVERY_CONTROL_DECODE_DEPTH_V1),
     ))
 }
-#[cfg(any(test, feature = "bench", feature = "iroha-core-tests"))]
+#[cfg(test)]
 fn checked_keypair() -> KeyPair {
     KeyPair::try_random().expect("kura fixture key generation should succeed")
 }

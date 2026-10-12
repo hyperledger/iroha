@@ -155,7 +155,7 @@ fn verify_two(
         if is_axt {
             verify_quantity_axt_artifact(changed, fixture.expected, fixture.context(), limits)
         } else {
-            effect.verify(changed, limits)
+            effect.verify(changed, &limits)
         }
     };
     // Valid canonical envelopes containing genuine children must retain exact
@@ -350,7 +350,7 @@ pub fn produce_fixture(
             limits,
         )
     } else {
-        effect.prove(proving, limits)
+        effect.prove(proving, &limits)
     }
     .unwrap();
     let elapsed = started.elapsed();

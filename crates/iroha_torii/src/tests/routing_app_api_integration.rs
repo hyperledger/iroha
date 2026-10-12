@@ -17,26 +17,6 @@ mod app_api_integration_tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
-    struct AppQueryLimitsOverride {
-        _guard: MutexGuard<'static, ()>,
-        previous: AppQueryLimits,
-    }
-    impl AppQueryLimitsOverride {
-        fn new(limits: AppQueryLimits) -> Self {
-            let guard = app_query_limits_guard();
-            let previous = app_query_limits();
-            set_app_query_limits(limits);
-            Self {
-                _guard: guard,
-                previous,
-            }
-        }
-    }
-    impl Drop for AppQueryLimitsOverride {
-        fn drop(&mut self) {
-            set_app_query_limits(self.previous);
-        }
-    }
     fn checked_app_api_keypair(
         seed: u8,
         algorithm: iroha_crypto::Algorithm,

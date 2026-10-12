@@ -13514,64 +13514,6 @@ impl<'state> StateBlock<'state> {
         #[cfg(feature = "telemetry")]
         self.telemetry.set_axt_policy_snapshot_version(snapshot);
     }
-    fn refresh_axt_policies_from_directory(&mut self) -> Option<AxtPolicySnapshot> {
-        let valid_lanes = axt_cached_policy_retain_lane_ids_at_height(
-            &self.nexus,
-            self._curr_block.height().get(),
-        );
-        let mut snapshot =
-            crate::smartcontracts::ivm::host::CoreHost::derive_axt_policy_snapshot_from_directory(
-                self,
-            );
-        let Some(snap) = snapshot.as_mut() else {
-            let has_directory_data = self.world.space_directory_manifests.iter().next().is_some()
-                || self.world.uaid_dataspaces.iter().next().is_some();
-            let has_active_manifest = self
-                .world
-                .space_directory_manifests
-                .iter()
-                .any(|(_, set)| set.iter().any(|(_, record)| record.is_active()));
-            if !has_directory_data || has_active_manifest {
-                let stale: Vec<_> = self
-                    .world
-                    .axt_policies
-                    .iter()
-                    .filter(|(_, policy)| !valid_lanes.contains(&policy.target_lane))
-                    .map(|(dsid, _)| *dsid)
-                    .collect();
-                for dsid in stale {
-                    self.world.axt_policies.remove(dsid);
-                }
-                return None;
-            }
-            let stale: Vec<_> = self
-                .world
-                .axt_policies
-                .iter()
-                .map(|(dsid, _)| *dsid)
-                .collect();
-            for dsid in stale {
-                self.world.axt_policies.remove(dsid);
-            }
-            return None;
-        };
-        for binding in &mut snap.entries {
-            if let Some(record) = self.world.axt_handle_counters.get(&binding.dsid) {
-                binding.policy.next_handle_counter = record.next();
-                binding.policy.active_handle_era = record.authorization_generation();
-            } else if binding.policy.manifest_root != [0; 32] {
-                let initial = AxtHandleCounterRecord::initial(binding.policy.active_handle_era);
-                binding.policy.next_handle_counter = initial.next();
-                binding.policy.active_handle_era = initial.authorization_generation();
-                self.world.axt_handle_counters.insert(binding.dsid, initial);
-            }
-        }
-        snap.version = AxtPolicySnapshot::compute_version(&snap.entries);
-        snap.validate()
-            .expect("directory-derived AXT policy snapshot must be canonical");
-        self.replace_axt_policy_projection(snap);
-        snapshot
-    }
     /// Provides read-only access to the current commit topology for this block.
     #[inline]
     pub fn commit_topology(&self) -> &CellBlock<'state, Vec<PeerId>> {
@@ -25758,14 +25700,6 @@ impl State {
     pub fn emergency_fast_startup_enabled(&self) -> bool {
         self.kura.emergency_fast_startup_enabled()
     }
-    /// Return whether this State owns the exact supplied live Kura handle.
-    ///
-    /// The comparison does not clone or expose State's retained storage
-    /// handle. Recovered lifecycle startup uses it to prevent deterministic
-    /// marker replay and live application from crossing Kura instances.
-    pub(crate) fn matches_kura_instance(&self, kura: &Arc<Kura>) -> bool {
-        Arc::ptr_eq(&self.kura, kura)
-    }
     /// Retain this State's exact block-storage owner for consensus custody.
     /// The shared handle does not create another Kura instance or publication authority.
     pub(crate) fn kura_handle(&self) -> Arc<Kura> {
@@ -25909,11 +25843,6 @@ impl State {
         self.query_index_journal
             .write()
             .set_latest(indexed_height, indexed_block_hash);
-    }
-    #[cfg(test)]
-    fn persist_query_index_status_snapshot(&self, path: &Path) {
-        let _persistence_guard = self.query_index_journal_persistence_lock.lock();
-        self.persist_query_index_status_snapshot_locked(path);
     }
     fn persist_query_index_status_snapshot_locked(&self, path: &Path) {
         let tmp_path = path.with_extension("norito.tmp");
@@ -26949,25 +26878,6 @@ impl State {
             }
         }
         Ok(())
-    }
-
-    fn validate_kaigi_account_dependencies_at_authenticated_time(
-        &self,
-    ) -> core::result::Result<(), ExecutionAttemptError<String>> {
-        let kaigi_retained_timestamp_ceiling = self.latest_block_creation_time_ms_fast();
-        let nexus = self.nexus_snapshot();
-        let world = self.world_view_with_nexus(&nexus);
-        crate::smartcontracts::isi::kaigi::validate_rebuilt_kaigi_account_dependencies_at(
-            &world,
-            kaigi_retained_timestamp_ceiling,
-        )
-        .map_err(|error| {
-            error.map_rejection(|error| {
-                format!(
-                    "failed to validate authenticated snapshot Kaigi account dependencies: {error}"
-                )
-            })
-        })
     }
 
     fn rebuild_snapshot_root_indexes(&mut self) -> core::result::Result<(), String> {
@@ -30369,18 +30279,6 @@ impl State {
     #[track_caller]
     pub fn latest_block_hash_fast(&self) -> Option<HashOf<BlockHeader>> {
         self.block_hashes.view().last().copied()
-    }
-    /// Canonical committed WSV identity used to bind merge pre-execution.
-    ///
-    /// Merge validation must bind its base to the complete committed world-state
-    /// surface, not only to the canonical block-journal tip.
-    #[track_caller]
-    #[cfg(test)]
-    pub(crate) fn lane_execution_state_hash(
-        &self,
-    ) -> Result<HashOf<BlockHeader>, crate::snapshot::SnapshotCaptureError> {
-        crate::snapshot::canonical_state_snapshot_hash(self)
-            .map(HashOf::<BlockHeader>::from_untyped_unchecked)
     }
     #[cfg(test)]
     /// Previous committed block hash (if any) derived from the block hash journal.

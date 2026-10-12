@@ -1355,11 +1355,15 @@ mod tests {
         let mut out = vec![0u8; len];
         if level == SecurityLevel::L128 {
             let mut sponge = sha3::Shake128::default();
-            parts.iter().for_each(|part| sponge.update(part));
+            for part in parts {
+                sponge.update(part);
+            }
             sponge.finalize_xof().read(&mut out);
         } else {
             let mut sponge = sha3::Shake256::default();
-            parts.iter().for_each(|part| sponge.update(part));
+            for part in parts {
+                sponge.update(part);
+            }
             sponge.finalize_xof().read(&mut out);
         }
         out
@@ -1406,7 +1410,7 @@ mod tests {
         let prefixes: [&[u8]; 3] = [b"", &first, b"a second namespace"];
         for params in rows() {
             let seed = root(&params);
-            let mut seen = Vec::new();
+            let mut observed_commitments = Vec::new();
             for prefix in prefixes {
                 let namespace = Namespace::new(prefix).expect("bounded");
                 let commitment = commit_in(namespace, &params, &seed, &IV).expect("valid call");
@@ -1453,11 +1457,11 @@ mod tests {
                         prefix.is_empty()
                     );
                 }
-                seen.push(commitment.commitment().to_vec());
+                observed_commitments.push(commitment.commitment().to_vec());
             }
-            seen.sort();
-            seen.dedup();
-            assert_eq!(seen.len(), prefixes.len());
+            observed_commitments.sort();
+            observed_commitments.dedup();
+            assert_eq!(observed_commitments.len(), prefixes.len());
         }
     }
 

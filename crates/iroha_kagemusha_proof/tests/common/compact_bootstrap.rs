@@ -25,9 +25,9 @@ fn compact_bootstrap_exports_native_hard_fixture() {
     use omega_hard_fixture_export::{ExportRequest, NativeBundle};
     let request = ExportRequest::from_env();
     let artifact = rooted_compact_bootstrap();
-    request.export(NativeBundle {
+    request.export(&NativeBundle {
         descriptor: artifact.binding.encoded(),
-        key: &artifact.key.to_bytes(),
+        key: artifact.key.to_bytes(),
         proof: &artifact.proof,
         public: &artifact.source.state.lineage,
         pallas: &artifact.source.pallas,

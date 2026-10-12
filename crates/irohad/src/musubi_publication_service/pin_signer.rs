@@ -23,6 +23,8 @@ use iroha_core::{
     state::{State, StateReadOnly as _, WorldReadOnly as _, WorldStateSnapshot as _},
 };
 use iroha_crypto::KeyPair;
+#[cfg(test)]
+use iroha_data_model::transaction::SignedTransaction;
 use iroha_data_model::{
     NetworkId,
     account::AccountId,
@@ -34,8 +36,7 @@ use iroha_data_model::{
         ManifestDigest, SORAFS_AUTO_REPLICATION_ORDER_INGEST_DEADLINE_SECS_V1, StorageClass,
     },
     transaction::{
-        DEFAULT_TRANSACTION_TIME_TO_LIVE, FeePaymentIntent, SignedTransaction, TransactionBuilder,
-        TransactionPayload,
+        DEFAULT_TRANSACTION_TIME_TO_LIVE, FeePaymentIntent, TransactionBuilder, TransactionPayload,
     },
 };
 use iroha_musubi_service::MusubiPublicationServiceClockV1;

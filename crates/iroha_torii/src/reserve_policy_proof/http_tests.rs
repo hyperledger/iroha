@@ -8,7 +8,7 @@ use axum::{
     http::{HeaderValue, Method, Request, StatusCode, Uri, header},
 };
 use iroha_core::{
-    state::{State as CoreState, StateReadOnly as _, World, WorldReadOnly as _},
+    state::{State as CoreState, World, WorldReadOnly as _},
     sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
 };
 use iroha_crypto::{Algorithm, KeyPair};

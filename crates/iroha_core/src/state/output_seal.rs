@@ -535,6 +535,7 @@ impl StateBlock<'_> {
 
     /// Borrow the fixed finality header retained by the original completed output owner.
     /// No new World view or reconstructed metadata can substitute for this value.
+    #[cfg(test)]
     pub(crate) fn sccp_finality_header(
         &self,
     ) -> Result<iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1, String> {

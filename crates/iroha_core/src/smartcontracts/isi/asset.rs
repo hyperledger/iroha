@@ -63,6 +63,7 @@ pub mod isi {
     impl WorldTransaction<'_, '_> {
         /// Decrease a numeric asset balance; removes the asset entry if it reaches zero.
         /// Does not emit events; callers remain responsible for event emission.
+        #[cfg(test)]
         fn withdraw_numeric_asset(
             &mut self,
             network_id: &iroha_data_model::NetworkId,
@@ -464,6 +465,7 @@ pub mod isi {
         /// The balance id is canonicalized for the current scope before applying the exact
         /// checked credit. This does not emit an `Added` event; callers remain responsible for
         /// balance-change event emission.
+        #[cfg(test)]
         fn deposit_numeric_asset(&mut self, id: &AssetId, amount: &Quantity) -> Result<(), Error> {
             let (resolved_id, candidate) = self.precheck_numeric_asset_credit(id, amount)?;
             self.apply_prechecked_numeric_asset_credit_exact(&resolved_id, candidate)

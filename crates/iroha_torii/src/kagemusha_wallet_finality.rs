@@ -267,7 +267,7 @@ pub(super) fn evidence(
 mod tests {
     use super::*;
     use iroha_core::{
-        state::{StateReadOnly as _, World},
+        state::World,
         sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
     };
     use iroha_crypto::{Algorithm, KeyPair};

@@ -1726,7 +1726,8 @@ pub(crate) fn bind_fixture_root(
         .set_parameter(Parameter::Custom(CustomParameter::new(
             consensus_metadata::handshake_meta_id(),
             iroha_primitives::json::Json::new(metadata),
-        )));
+        )))
+        .expect("install the routing fixture root authority");
     block.commit();
 }
 

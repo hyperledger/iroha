@@ -20,12 +20,12 @@ fn proof_crypto_uses_consensus_suite_and_preserves_pop_admission() {
     assert!(crypto.verify_aggregate(
         &[key],
         &preimage,
-        &crypto.aggregate(&[native.clone()]).unwrap()
+        &crypto.aggregate(std::slice::from_ref(&native)).unwrap()
     ));
     assert!(
-        !iroha_crypto::Signature::from_bytes(&native.0)
+        iroha_crypto::Signature::from_bytes(&native.0)
             .verify(pair.public_key(), &preimage)
-            .is_ok(),
+            .is_err(),
         "a consensus signature is not a generic w3f signature"
     );
 

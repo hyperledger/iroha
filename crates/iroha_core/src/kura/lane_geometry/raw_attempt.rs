@@ -848,10 +848,13 @@ impl RawGeometryAttempt {
     pub(crate) fn reauthenticate_catalog_under(
         &self,
         lease: &KuraPublicationLease<'_>,
+        configured_baseline: Option<Hash>,
     ) -> Result<()> {
         let kura = lease.original_kura();
         if !self.kura.matches(kura)
             || self.phase != RawGeometryPhase::CatalogPublished
+            || (!cfg!(all(test, sumeragi_core_mutation = "HC256"))
+                && self.catalog_baseline != Some(configured_baseline))
             || !self.claim.complete
             || self.has_pending_journal_write()
         {

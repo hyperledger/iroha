@@ -678,10 +678,11 @@ fn bridge_finality_attestation_reader_rejects_malformed_or_unbound_tip_progress(
 
 #[test]
 fn bridge_finality_attestation_reader_rejects_untyped_or_noncanonical_progress_http() {
-    let root_scope = current_finality_fixture().1.root_scope();
     use iroha_torii_shared::bridge_attestation::{
         FINALITY_ATTESTATION_FAILURE_MAX_BYTES, FinalityAttestationFailureReason as Reason,
     };
+
+    let root_scope = current_finality_fixture().1.root_scope();
     let progress = client_tip_progress_fixture();
     let envelope = client_tip_progress_envelope(progress.clone());
     let wire = norito::to_bytes(&envelope).expect("wire");

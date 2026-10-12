@@ -11,7 +11,7 @@ use super::{
     slot::{self, Slot, SlotKind, SlotRequest},
 };
 use eyre::{Result, ensure};
-use iroha_data_model::{NetworkId, account::AccountId, transaction::TransactionPayload};
+use iroha_data_model::transaction::TransactionPayload;
 use iroha_fs::{FileSnapshot, PrivateDirectory};
 use iroha_musubi_service::NativeMusubiPinSessionV1;
 use iroha_operation_journal::{Journal, NativeRecord};

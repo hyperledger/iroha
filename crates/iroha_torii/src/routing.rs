@@ -31369,7 +31369,6 @@ struct ContractActivityProjection {
     authority: Option<String>,
     timestamp_ms: Option<u64>,
     entrypoint_hash: String,
-    block_height: u64,
     result_ok: bool,
     contract_address: String,
     contract_alias: Option<String>,
@@ -31459,25 +31458,21 @@ trait HistoryTransaction {
     fn entrypoint(&self) -> &TransactionEntrypoint;
     fn entrypoint_hash(&self) -> &HashOf<TransactionEntrypoint>;
     fn result(&self) -> &TransactionResult;
-    fn block_hash(&self) -> HashOf<BlockHeader>;
 }
 impl HistoryTransaction for iroha_data_model::query::CommittedTransaction {
     fn entrypoint(&self) -> &TransactionEntrypoint { &self.entrypoint }
     fn entrypoint_hash(&self) -> &HashOf<TransactionEntrypoint> { &self.entrypoint_hash }
     fn result(&self) -> &TransactionResult { self.result() }
-    fn block_hash(&self) -> HashOf<BlockHeader> { self.block_hash }
 }
 struct BorrowedNetworkTransaction<'a> {
     entrypoint: &'a TransactionEntrypoint,
     entrypoint_hash: HashOf<TransactionEntrypoint>,
     result: &'a TransactionResult,
-    block_hash: HashOf<BlockHeader>,
 }
 impl HistoryTransaction for BorrowedNetworkTransaction<'_> {
     fn entrypoint(&self) -> &TransactionEntrypoint { self.entrypoint }
     fn entrypoint_hash(&self) -> &HashOf<TransactionEntrypoint> { &self.entrypoint_hash }
     fn result(&self) -> &TransactionResult { self.result }
-    fn block_hash(&self) -> HashOf<BlockHeader> { self.block_hash }
 }
 fn history_cache_anchor(height: usize, hash: &Option<String>) -> Result<Option<HashOf<BlockHeader>>> {
     if height == 0 {
@@ -31555,7 +31550,7 @@ fn project_finalized_network_range<T>(
             let (_, output) = block.network_output_at(index)
                 .ok_or_else(|| conversion_error("validated Network output disappeared".into()))?;
             let transaction = BorrowedNetworkTransaction {
-                entrypoint, entrypoint_hash: entrypoint.hash(), result: &output.result, block_hash: block.hash(),
+                entrypoint, entrypoint_hash: entrypoint.hash(), result: &output.result,
             };
             let rows = project(height, &transaction);
             let count = projections.len().checked_add(rows.len()).ok_or_else(history_capacity_error)?;
@@ -32159,7 +32154,7 @@ fn contract_event_projections_for_height_range(
                 iroha_data_model::block::execution_output::ExecutionOutputV1::Network(network) => {
                     let entrypoint = block.network_entrypoint_at(network.input_index as usize)
                         .ok_or_else(|| conversion_error("emission output lost its Network input".into()))?;
-                    let transaction = BorrowedNetworkTransaction { entrypoint, entrypoint_hash: entrypoint.hash(), result: &network.result, block_hash: block.hash() };
+                    let transaction = BorrowedNetworkTransaction { entrypoint, entrypoint_hash: entrypoint.hash(), result: &network.result };
                     tx_fee_projection(&transaction)
                 }
                 _ => None,
@@ -32877,7 +32872,6 @@ fn project_tx(tx: &impl HistoryTransaction) -> TxProjection {
 /// Project one committed contract call into a contract-activity row; see
 /// [`bound_contract_call`] for which fields are trusted.
 fn contract_activity_projection_from_tx(
-    height: usize,
     tx: &impl HistoryTransaction,
 ) -> Option<ContractActivityProjection> {
     let call = bound_contract_call(tx)?;
@@ -32886,7 +32880,6 @@ fn contract_activity_projection_from_tx(
         authority: base.authority,
         timestamp_ms: base.timestamp_ms,
         entrypoint_hash: base.entrypoint_hash,
-        block_height: height as u64,
         result_ok: base.result_ok,
         contract_address: call.contract_address,
         contract_alias: call.contract_alias,
@@ -33549,16 +33542,6 @@ impl HistoryVisibilityReads {
             native_contract_emission_is_visible_in_block(visibility, projection, block)
         })();
         match result { Ok(allowed) => allowed, Err(error) => { reads.error = Some(error); false } }
-    }
-    fn refuse(&self, message: &str) -> bool {
-        let mut reads = self
-            .reads
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if reads.error.is_none() {
-            reads.error = Some(conversion_error(message.into()));
-        }
-        false
     }
     // Consuming finish is mandatory on every successful or early-return response;
     // bool filter callbacks cannot turn a read refusal into a partial successful page.
@@ -34420,18 +34403,16 @@ mod tx_query_filter_tests {
         };
         let filters = ExplorerTransactionFilters {
             authority: None,
-            status: None,
             block: None,
             asset_id: Some(asset_id.clone()),
         };
-        assert!(filters.matches(signed, 1, tx.result()));
+        assert!(filters.matches(signed, 1));
         let filters = ExplorerTransactionFilters {
             authority: None,
-            status: None,
             block: None,
             asset_id: Some(other_asset_id),
         };
-        assert!(!filters.matches(signed, 1, tx.result()));
+        assert!(!filters.matches(signed, 1));
     }
     routing_test! { sync instruction_matches_asset_id_handles_mint_assets
         let (authority, _) = account_with_key();
@@ -36248,12 +36229,13 @@ mod explorer_lookup_tests {
         let height = state.committed_height();
         let height_u64 = u64::try_from(height).expect("test height fits u64");
         let height = NonZeroUsize::new(height).expect("test state has a committed block");
+        let block = state
+            .block_by_height(height)
+            .expect("funded canonical history read")
+            .expect("test committed block remains available");
+        assert_eq!(block.header().height().get(), height_u64);
         ExplorerPendingBlock {
-            block: state
-                .block_by_height(height)
-                .expect("funded canonical history read")
-                .expect("test committed block remains available"),
-            height: height_u64,
+            block,
             entrypoint_index: 0,
             current_entrypoint: None,
             instruction_index: 0,
@@ -37221,7 +37203,6 @@ mod explorer_lookup_tests {
             DataspaceReadVisibility::new(BTreeSet::from([visible_dataspace]), false);
         let filters = ExplorerTransactionFilters {
             authority: None,
-            status: None,
             block: None,
             asset_id: None,
         };
@@ -37312,7 +37293,6 @@ mod explorer_lookup_tests {
             DataspaceReadVisibility::new(BTreeSet::from([visible_dataspace]), false);
         let filters = ExplorerTransactionFilters {
             authority: None,
-            status: None,
             block: None,
             asset_id: None,
         };
@@ -37414,7 +37394,6 @@ mod explorer_lookup_tests {
             account: None,
             authority: None,
             transaction_hash: None,
-            status: None,
             block: None,
             kind: None,
             asset_id: None,
@@ -37474,7 +37453,6 @@ mod explorer_lookup_tests {
             account: None,
             authority: None,
             transaction_hash: None,
-            status: None,
             block: None,
             kind: None,
             asset_id: None,
@@ -37532,7 +37510,6 @@ mod explorer_lookup_tests {
             account: None,
             authority: None,
             transaction_hash: None,
-            status: None,
             block: None,
             kind: None,
             asset_id: None,
@@ -37585,7 +37562,6 @@ mod explorer_lookup_tests {
             account: None,
             authority: None,
             transaction_hash: Some(target_hash),
-            status: None,
             block: None,
             kind: None,
             asset_id: None,
@@ -37614,7 +37590,6 @@ mod explorer_lookup_tests {
         ]);
         let filters = ExplorerTransactionFilters {
             authority: None,
-            status: None,
             block: None,
             asset_id: None,
         };
@@ -37650,7 +37625,6 @@ mod explorer_lookup_tests {
             account: None,
             authority: None,
             transaction_hash: None,
-            status: None,
             block: None,
             kind: None,
             asset_id: None,
@@ -37683,7 +37657,6 @@ mod explorer_lookup_tests {
             account: None,
             authority: None,
             transaction_hash: Some(target_hash),
-            status: None,
             block: None,
             kind: None,
             asset_id: None,
@@ -37747,7 +37720,6 @@ mod explorer_lookup_tests {
                                 account,
                                 authority: None,
                                 transaction_hash: None,
-                                status: None,
                                 block: None,
                                 kind: None,
                                 asset_id: None,
@@ -37830,7 +37802,6 @@ mod explorer_lookup_tests {
                                 account,
                                 authority: None,
                                 transaction_hash: None,
-                                status: None,
                                 block: None,
                                 kind: None,
                                 asset_id: None,
@@ -38163,7 +38134,6 @@ mod explorer_endpoint_telemetry_tests {
                 cursor: None,
                 limit: 1,
             },
-            None,
             None,
             None,
             None,
@@ -38827,14 +38797,6 @@ pub fn handle_v1_contracts_events_sse(
     ))
 }
 
-fn committed_entrypoint_is_visible(
-    reads: &HistoryVisibilityReads, visibility: &DataspaceReadVisibility,
-    block_height: u64, entrypoint_hash: &str,
-) -> bool {
-    if visibility.can_read_all() { return true; }
-    let Ok(hash) = entrypoint_hash.parse() else { return reads.refuse("projected source hash is malformed"); };
-    reads.allows(visibility, block_height, None, hash)
-}
 fn contract_event_projection_is_visible(
     reads: &HistoryVisibilityReads,
     visibility: &DataspaceReadVisibility,
@@ -39269,7 +39231,6 @@ fn next_explorer_timer_deadline(previous: tokio::time::Instant, interval: Durati
 }
 struct ExplorerPendingBlock {
     block: SharedSignedBlock,
-    height: u64,
     entrypoint_index: usize,
     current_entrypoint: Option<(usize, HashOf<TransactionEntrypoint>)>,
     instruction_index: usize,
@@ -39290,7 +39251,7 @@ fn explorer_pending_block(
         &owner.canonical_history_budget(),
     ).map_err(crate::canonical_history::query_attempt_error)?;
     Ok(ExplorerPendingBlock {
-        block: carrier.into_block(), height, entrypoint_index: 0,
+        block: carrier.into_block(), entrypoint_index: 0,
         current_entrypoint: None, instruction_index: 0, block_emitted: false, owner,
     })
 }
@@ -42545,7 +42506,8 @@ mod validation_fee_torii_ingress_tests {
             .set_parameter(Parameter::Custom(
                 iroha_data_model::parameter::system::SumeragiNposParameters::default()
                     .into_custom_parameter(),
-            ));
+            ))
+            .expect("install the committed NPoS fixture parameters");
         initial.commit();
         world
     }
@@ -46308,7 +46270,6 @@ mod contract_feed_binding_tests {
             entrypoint,
             entrypoint_hash: entrypoint.hash(),
             result,
-            block_hash: HashOf::from_untyped_unchecked(Hash::new(b"contract feed block")),
         }
     }
     routing_test! { sync non_contract_transactions_never_reach_contract_feeds
@@ -46324,7 +46285,7 @@ mod contract_feed_binding_tests {
                 "metadata alone must not create a contract event"
             );
             assert!(
-                contract_activity_projection_from_tx(4, &tx).is_none(),
+                contract_activity_projection_from_tx(&tx).is_none(),
                 "metadata alone must not create contract activity"
             );
         }
@@ -46337,7 +46298,7 @@ mod contract_feed_binding_tests {
         let ok = committed(true);
         let tx = history(&entrypoint, &ok);
         assert!(tx.result().contract_events().is_empty(), "calls do not synthesize emissions");
-        let activity = contract_activity_projection_from_tx(4, &tx).expect("committed call");
+        let activity = contract_activity_projection_from_tx(&tx).expect("committed call");
         assert_eq!(activity.contract_address, router_address().to_string());
         assert_eq!(activity.contract_alias.as_deref(), Some(ROUTER_ALIAS));
         assert_eq!(activity.contract_entrypoint, "route_swap");
@@ -46355,7 +46316,7 @@ mod contract_feed_binding_tests {
         let tx = history(&entrypoint, &rejected);
         assert!(tx.result().contract_events().is_empty(), "rejected calls emit nothing");
         let address = router_address().to_string();
-        let activity = contract_activity_projection_from_tx(4, &tx).expect("rejected call");
+        let activity = contract_activity_projection_from_tx(&tx).expect("rejected call");
         assert_eq!(activity.contract_address, address);
         assert_eq!(activity.contract_entrypoint, "route_swap");
         assert_eq!(activity.contract_alias, None);
@@ -46380,7 +46341,7 @@ mod contract_feed_binding_tests {
             let entrypoint = signed(metadata, Executable::ContractCall(router_call()));
             let tx = history(&entrypoint, &ok);
             assert!(tx.result().contract_events().is_empty(), "metadata never creates an emission");
-            let activity = contract_activity_projection_from_tx(4, &tx).expect("committed call");
+            let activity = contract_activity_projection_from_tx(&tx).expect("committed call");
             assert_eq!(activity.contract_entrypoint, "route_swap", "{key}");
             assert_eq!(activity.contract_alias, None, "{key}");
             assert_eq!(activity.contract_payload, None, "{key}");
@@ -46446,7 +46407,6 @@ mod tx_projection_display_tests {
             authority: Some(account.to_string()),
             timestamp_ms: Some(456),
             entrypoint_hash: "feedface".into(),
-            block_height: 9,
             result_ok: true,
             contract_address: "irohac1router".into(),
             contract_alias: Some("dlmm_router".into()),
@@ -53482,14 +53442,11 @@ pub async fn handle_v1_explorer_health(
     record_explorer_endpoint_result(&telemetry, ENDPOINT_EXPLORER_HEALTH, started, &response);
     response
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExplorerTransactionStatusFilter {
-    Committed,
-    Rejected,
-}
+// Ordinary DTO fields, including status, are filtered by explorer_query's
+// complete shared predicate after each bounded scan. Only native scan selectors
+// belong here; the public cursor binds the complete predicate separately.
 struct ExplorerTransactionFilters {
     authority: Option<AccountId>,
-    status: Option<ExplorerTransactionStatusFilter>,
     block: Option<u64>,
     asset_id: Option<iroha_data_model::asset::AssetId>,
 }
@@ -53498,7 +53455,6 @@ impl ExplorerTransactionFilters {
         &self,
         tx: &SignedTransaction,
         block_height: u64,
-        result: &TransactionResult,
     ) -> bool {
         if let Some(expected_block) = self.block {
             if block_height != expected_block {
@@ -53508,14 +53464,6 @@ impl ExplorerTransactionFilters {
         if let Some(authority) = &self.authority {
             if tx.authority() != authority {
                 return false;
-            }
-        }
-        if let Some(status) = &self.status {
-            let committed = result.as_ref().is_ok();
-            match status {
-                ExplorerTransactionStatusFilter::Committed if !committed => return false,
-                ExplorerTransactionStatusFilter::Rejected if committed => return false,
-                _ => {}
             }
         }
         if let Some(expected) = &self.asset_id {
@@ -53530,7 +53478,6 @@ struct ExplorerInstructionFilters {
     account: Option<AccountId>,
     authority: Option<AccountId>,
     transaction_hash: Option<HashOf<TransactionEntrypoint>>,
-    status: Option<ExplorerTransactionStatusFilter>,
     block: Option<u64>,
     kind: Option<ExplorerInstructionKind>,
     asset_id: Option<iroha_data_model::asset::AssetId>,
@@ -53541,7 +53488,6 @@ impl ExplorerInstructionFilters {
         entrypoint_hash: HashOf<TransactionEntrypoint>,
         tx: &SignedTransaction,
         block_height: u64,
-        result: &TransactionResult,
     ) -> bool {
         if let Some(expected_block) = self.block {
             if block_height != expected_block {
@@ -53556,14 +53502,6 @@ impl ExplorerInstructionFilters {
         if let Some(authority) = &self.authority {
             if tx.authority() != authority {
                 return false;
-            }
-        }
-        if let Some(status) = &self.status {
-            let committed = result.as_ref().is_ok();
-            match status {
-                ExplorerTransactionStatusFilter::Committed if !committed => return false,
-                ExplorerTransactionStatusFilter::Rejected if committed => return false,
-                _ => {}
             }
         }
         true
@@ -53830,10 +53768,6 @@ fn transaction_history_filter_digest(
         &[
             filters.authority.as_ref().map(crate::explorer::explorer_history_key_text).transpose().map_err(explorer_history_cursor_error)?,
             filters.block.map(crate::explorer::explorer_history_scalar_text).transpose().map_err(explorer_history_cursor_error)?,
-            filters.status.map(|status| match status {
-                ExplorerTransactionStatusFilter::Committed => crate::explorer::explorer_history_literal_text("committed"),
-                ExplorerTransactionStatusFilter::Rejected => crate::explorer::explorer_history_literal_text("rejected"),
-            }).transpose().map_err(explorer_history_cursor_error)?,
             filters.asset_id.as_ref().map(crate::explorer::explorer_history_key_text).transpose().map_err(explorer_history_cursor_error)?,
         ],
     ))
@@ -53849,10 +53783,6 @@ fn instruction_history_filter_digest(
             filters.account.as_ref().map(crate::explorer::explorer_history_key_text).transpose().map_err(explorer_history_cursor_error)?,
             filters.authority.as_ref().map(crate::explorer::explorer_history_key_text).transpose().map_err(explorer_history_cursor_error)?,
             filters.transaction_hash.as_ref().map(crate::explorer::explorer_history_key_text).transpose().map_err(explorer_history_cursor_error)?,
-            filters.status.map(|status| match status {
-                ExplorerTransactionStatusFilter::Committed => crate::explorer::explorer_history_literal_text("committed"),
-                ExplorerTransactionStatusFilter::Rejected => crate::explorer::explorer_history_literal_text("rejected"),
-            }).transpose().map_err(explorer_history_cursor_error)?,
             filters.block.map(crate::explorer::explorer_history_scalar_text).transpose().map_err(explorer_history_cursor_error)?,
             filters.kind.map(|kind| crate::explorer::explorer_history_literal_text(kind.as_str())).transpose().map_err(explorer_history_cursor_error)?,
             filters.asset_id.as_ref().map(crate::explorer::explorer_history_key_text).transpose().map_err(explorer_history_cursor_error)?,
@@ -53869,12 +53799,11 @@ pub async fn handle_v1_explorer_transactions(
     pagination: crate::explorer::ExplorerCursorQuery,
     authority: Option<AccountId>,
     block: Option<u64>,
-    status: Option<ExplorerTransactionStatusFilter>,
     asset_id: Option<iroha_data_model::asset::AssetId>,
 ) -> Result<AxResponse, Error> {
     crate::history_producer::HistoryProducerOwner::for_test().scope(|| {
 handle_v1_explorer_transactions_sync(
-        state, telemetry, visibility, pagination, authority, block, status, asset_id,
+        state, telemetry, visibility, pagination, authority, block, asset_id,
     )
     })
 }
@@ -53885,7 +53814,6 @@ pub(crate) async fn handle_v1_explorer_transactions_admitted(
     pagination: crate::explorer::ExplorerCursorQuery,
     authority: Option<AccountId>,
     block: Option<u64>,
-    status: Option<ExplorerTransactionStatusFilter>,
     asset_id: Option<iroha_data_model::asset::AssetId>,
     admission: crate::QueryAdmissionPermit,
 ) -> Result<AxResponse, Error> {
@@ -53894,7 +53822,7 @@ pub(crate) async fn handle_v1_explorer_transactions_admitted(
         "Explorer transaction history worker failed",
         move || {
             handle_v1_explorer_transactions_sync(
-                state, telemetry, visibility, pagination, authority, block, status, asset_id,
+                state, telemetry, visibility, pagination, authority, block, asset_id,
             )
         },
     )
@@ -53907,7 +53835,6 @@ fn handle_v1_explorer_transactions_sync(
     pagination: crate::explorer::ExplorerCursorQuery,
     authority: Option<AccountId>,
     block: Option<u64>,
-    status: Option<ExplorerTransactionStatusFilter>,
     asset_id: Option<iroha_data_model::asset::AssetId>,
 ) -> Result<AxResponse, Error> {
     let started = std::time::Instant::now();
@@ -53920,7 +53847,6 @@ fn handle_v1_explorer_transactions_sync(
         record_account_literal_selection(&telemetry, ENDPOINT_EXPLORER_TRANSACTIONS);
         let filters = ExplorerTransactionFilters {
             authority,
-            status,
             block,
             asset_id,
         };
@@ -53952,7 +53878,6 @@ pub(crate) async fn handle_v1_explorer_transactions_latest_admitted(
     pagination: crate::explorer::ExplorerCursorQuery,
     authority: Option<AccountId>,
     block: Option<u64>,
-    status: Option<ExplorerTransactionStatusFilter>,
     asset_id: Option<iroha_data_model::asset::AssetId>,
     admission: crate::QueryAdmissionPermit,
 ) -> Result<AxResponse, Error> {
@@ -53961,7 +53886,7 @@ pub(crate) async fn handle_v1_explorer_transactions_latest_admitted(
         "Explorer latest-transaction history worker failed",
         move || {
             handle_v1_explorer_transactions_latest_sync(
-                state, telemetry, visibility, pagination, authority, block, status, asset_id,
+                state, telemetry, visibility, pagination, authority, block, asset_id,
             )
         },
     )
@@ -53974,7 +53899,6 @@ fn handle_v1_explorer_transactions_latest_sync(
     pagination: crate::explorer::ExplorerCursorQuery,
     authority: Option<AccountId>,
     block: Option<u64>,
-    status: Option<ExplorerTransactionStatusFilter>,
     asset_id: Option<iroha_data_model::asset::AssetId>,
 ) -> Result<AxResponse, Error> {
     let started = std::time::Instant::now();
@@ -53987,7 +53911,6 @@ fn handle_v1_explorer_transactions_latest_sync(
         record_account_literal_selection(&telemetry, ENDPOINT_EXPLORER_TRANSACTIONS_LATEST);
         let filters = ExplorerTransactionFilters {
             authority,
-            status,
             block,
             asset_id,
         };
@@ -54018,7 +53941,6 @@ pub struct ExplorerInstructionQuery {
     pub account: Option<AccountId>,
     pub authority: Option<AccountId>,
     pub transaction_hash: Option<HashOf<TransactionEntrypoint>>,
-    pub status: Option<ExplorerTransactionStatusFilter>,
     pub block: Option<u64>,
     pub kind: Option<ExplorerInstructionKind>,
     pub asset_id: Option<iroha_data_model::asset::AssetId>,
@@ -54073,7 +53995,6 @@ fn handle_v1_explorer_instructions_sync(
             account,
             authority,
             transaction_hash,
-            status,
             block,
             kind,
             asset_id,
@@ -54082,7 +54003,6 @@ fn handle_v1_explorer_instructions_sync(
             account,
             authority,
             transaction_hash,
-            status,
             block,
             kind,
             asset_id,
@@ -54146,7 +54066,6 @@ fn handle_v1_explorer_instructions_latest_sync(
             account,
             authority,
             transaction_hash,
-            status,
             block,
             kind,
             asset_id,
@@ -54155,7 +54074,6 @@ fn handle_v1_explorer_instructions_latest_sync(
             account,
             authority,
             transaction_hash,
-            status,
             block,
             kind,
             asset_id,
@@ -54217,15 +54135,6 @@ fn handle_v1_explorer_transaction_detail_sync(
         &response,
     );
     response
-}
-#[cfg(test)]
-pub async fn handle_v1_explorer_instruction_detail(
-    state: Arc<CoreState>, telemetry: MaybeTelemetry, visibility: DataspaceReadVisibility,
-    hash: String,
-    index: u64,
-) -> Result<AxResponse, Error> {
-    crate::history_producer::HistoryProducerOwner::for_test().scope(||
-        handle_v1_explorer_instruction_detail_sync(state, telemetry, visibility, hash, index))
 }
 pub(crate) async fn handle_v1_explorer_instruction_detail_admitted(
     state: Arc<CoreState>, telemetry: MaybeTelemetry, visibility: DataspaceReadVisibility,
@@ -54442,9 +54351,9 @@ fn collect_transaction_summaries(
                 break 'history;
             }
             scanned_candidates = scanned_candidates.saturating_add(1);
-            if let Some((entrypoint_hash, tx, result)) =
+            if let Some((entrypoint_hash, tx, _)) =
                 external_signed_transaction_result_at(block_ref, entrypoint_index)
-                && filters.matches(tx, height, result)
+                && filters.matches(tx, height)
             {
                 out.push(crate::explorer_history::HistoryTransactionRow {
                     block: block.clone(), entrypoint_index, entrypoint_hash,
@@ -54574,7 +54483,7 @@ fn collect_instruction_history(
                 entrypoint_hash,
                 0,
             );
-            let Some((entrypoint_hash, tx, result)) =
+            let Some((entrypoint_hash, tx, _)) =
                 external_signed_transaction_result_at(block_ref, entrypoint_index)
             else {
                 if start_instruction != 0 {
@@ -54593,7 +54502,7 @@ fn collect_instruction_history(
             };
             let instruction_count = tx.instructions().explicit_instructions().count();
             let transaction_matches =
-                filters.matches_transaction(entrypoint_hash, tx, height, result);
+                filters.matches_transaction(entrypoint_hash, tx, height);
             if instruction_count == 0 || !transaction_matches {
                 if start_instruction != 0 {
                     return Err(explorer_history_cursor_error(
@@ -57222,14 +57131,6 @@ where
 // ---------------------- NFTs listing ----------------------
 fn nft_filter_candidate_ids(expr: Option<&crate::filter::FilterExpr>) -> Option<BTreeSet<NftId>> {
     exact_field_filter_candidates(expr, "id", &|value| value.as_str()?.parse().ok())
-}
-fn nft_from_key_value(id: &NftId, value: &iroha_data_model::nft::NftValue) -> Nft {
-    let details = value.clone().into_inner();
-    Nft {
-        id: id.clone(),
-        content: details.content,
-        owned_by: details.owned_by,
-    }
 }
 }
 #[cfg(all(test, feature = "app_api"))]

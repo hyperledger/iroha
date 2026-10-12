@@ -211,7 +211,6 @@ pub fn authenticated_load(
     let mut a = session
         .first(&active, Fp::from(201), &fold, common::recovery(201), config)
         .unwrap();
-    drop(active_seal);
     a = session
         .restore_first(a.proof().to_vec(), &a.pallas_bytes(), MemoryBudget::DEFAULT)
         .unwrap();
@@ -235,7 +234,6 @@ pub fn authenticated_load(
                 config,
             )
             .unwrap();
-        drop(active_seal);
         let w = session
             .restore_wrapper(
                 &a,
@@ -262,7 +260,6 @@ pub fn authenticated_load(
                 config,
             )
             .unwrap();
-        drop(active_seal);
         let mut changed = a.proof().to_vec();
         changed[0] ^= 1;
         assert!(

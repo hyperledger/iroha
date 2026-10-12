@@ -16,7 +16,6 @@ use std::{
     },
     task::Poll,
 };
-use tower::ServiceExt as _;
 fn pending_body(polls: &Arc<AtomicUsize>) -> Body {
     let polls = Arc::clone(polls);
     Body::from_stream(futures::stream::poll_fn(move |_| {

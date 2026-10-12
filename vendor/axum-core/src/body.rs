@@ -51,6 +51,7 @@ impl Body {
 
     /// The exact allocation layout of the body used by
     /// [`Self::try_new_with_reclaim`]. A zero-sized body requires no allocation.
+    #[must_use]
     pub fn body_layout<B>() -> Layout {
         BoxBody::body_layout::<B>()
     }
@@ -58,6 +59,7 @@ impl Body {
     /// The exact allocation layout of the separately retained reclamation
     /// token used by [`Self::try_new_with_reclaim`]. A zero-sized token requires
     /// no allocation.
+    #[must_use]
     pub fn reclaim_layout<R>() -> Layout {
         BoxBody::reclaim_layout::<R>()
     }

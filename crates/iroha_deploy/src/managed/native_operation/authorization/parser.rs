@@ -88,14 +88,17 @@ impl EpochReader {
         result
     }
 
-    pub(super) fn validate_parser_references<'a>(
+    pub(super) fn validate_parser_references<'a, Origins>(
         &self,
         directory: &PrivateDirectory,
         original_digest: [u8; 32],
         fees: &Fees,
         scope: Scope,
-        origins: impl Iterator<Item = &'a Origin>,
-    ) -> Result<()> {
+        origins: Origins,
+    ) -> Result<()>
+    where
+        Origins: Iterator<Item = &'a Origin>,
+    {
         let source = self
             .parser_source
             .as_ref()

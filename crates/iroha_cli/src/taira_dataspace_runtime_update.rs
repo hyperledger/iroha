@@ -453,9 +453,11 @@ fn checkpoint_tips(record: &json::Value) -> Result<Vec<(u64, Hash)>> {
 
 impl RetainedTips {
     /// Collect bounded chronological checkpoint claims without granting authority.
-    pub(super) fn from_checkpoint_records<'a>(
-        records: impl IntoIterator<Item = &'a json::Value>,
-    ) -> Result<Self> {
+    #[cfg(any(target_os = "linux", test))]
+    pub(super) fn from_checkpoint_records<'a, Records>(records: Records) -> Result<Self>
+    where
+        Records: IntoIterator<Item = &'a json::Value>,
+    {
         let mut value = Self::default();
         for record in records {
             value.append_checkpoint(record)?;
@@ -952,6 +954,7 @@ fn validate_records(
     Ok(())
 }
 
+#[cfg(any(target_os = "linux", test))]
 fn verify_artifact(artifact: &json::Value, actual_sha256: &str, actual_size: u64) -> Result<()> {
     require(
         text(artifact, "sha256")? == actual_sha256 && number(artifact, "size")? == actual_size,
@@ -959,6 +962,7 @@ fn verify_artifact(artifact: &json::Value, actual_sha256: &str, actual_size: u64
     )
 }
 
+#[cfg(any(target_os = "linux", test))]
 fn verify_process(
     observed: &BTreeMap<String, String>,
     expected: &json::Value,
@@ -1038,7 +1042,7 @@ fn root_path(path: &Path, directory: bool) -> Result<fs::Metadata> {
     Ok(meta)
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", all(test, unix)))]
 fn metadata_value(meta: &fs::Metadata) -> Result<json::Value> {
     use std::os::unix::fs::MetadataExt as _;
     let timestamp = |seconds: i64, nanos: i64| -> Result<u64> {

@@ -165,7 +165,7 @@ fn assert_profile_rejected_before_child_decode(
         verify_effect(
             &norito::encode_canonical(&ordinary).unwrap(),
             &effect_fixture(fixture),
-            policy(),
+            &policy(),
         ),
         Err(ArtifactError::Transport(
             FastpqCompactArtifactDecodeError::ProfileMismatch
@@ -369,7 +369,7 @@ fn advertised_profiles_and_structural_route_cannot_select_quantity_verifiers() {
         verify_effect(
             &norito::encode_canonical(&retired).unwrap(),
             &expected,
-            policy()
+            &policy()
         ),
         Err(ArtifactError::Transport(
             FastpqCompactArtifactDecodeError::ProfileMismatch
@@ -385,18 +385,18 @@ fn advertised_profiles_and_structural_route_cannot_select_quantity_verifiers() {
     changed.profile_id = diagnostic_profile_id();
     let bytes = norito::encode_canonical(&changed).unwrap();
     assert!(matches!(
-        verify_effect(&bytes, &expected, policy()),
+        verify_effect(&bytes, &expected, &policy()),
         Err(ArtifactError::Transport(
             FastpqCompactArtifactDecodeError::ProfileMismatch
         ))
     ));
     // The retired u64 profile is negative data, no selectable ordinary implementation.
     assert!(matches!(
-        verify_effect(&ordinary_bytes, &expected, policy()),
+        verify_effect(&ordinary_bytes, &expected, &policy()),
         Err(ArtifactError::Verify(_))
     ));
     assert!(matches!(
-        verify_effect(&axt_bytes, &expected, policy()),
+        verify_effect(&axt_bytes, &expected, &policy()),
         Err(ArtifactError::Transport(
             FastpqCompactArtifactDecodeError::Norito(_)
         ))
@@ -448,7 +448,7 @@ fn quantity_artifact_compares_every_expected_input_before_child_decode() {
             assert!(matches!(super::effect_test_support::verify_expected(
                 &ordinary, &independent, crate::offline_compact::ExpectedExecutionEffects {
                     source: &independent.source, statement: facts,
-                }, policy()), Err(ArtifactError::Verify(Error::TransferInvariant { details }))
+                }, &policy()), Err(ArtifactError::Verify(Error::TransferInvariant { details }))
                     if details == "execution effect independent statement expectation mismatch"));
         } else {
             let mut offered = independent.artifact(vec![0]);
@@ -457,7 +457,7 @@ fn quantity_artifact_compares_every_expected_input_before_child_decode() {
                 verify_effect(
                     &norito::encode_canonical(&offered).unwrap(),
                     &independent,
-                    policy()
+                    &policy()
                 ),
                 Err(ArtifactError::Verify(Error::PublicIoMismatch {
                     field: "compact_artifact_public_statement_digest"
@@ -505,7 +505,7 @@ fn quantity_artifact_raw_and_inherited_caps_precede_untrusted_allocations() {
     let mut limits = policy();
     limits.transport.max_wire_bytes = 0;
     assert!(matches!(
-        verify_effect(&[0], &independent, limits),
+        verify_effect(&[0], &independent, &limits),
         Err(ArtifactError::Transport(
             FastpqCompactArtifactDecodeError::WireBytes { .. }
         ))
@@ -520,14 +520,14 @@ fn quantity_artifact_raw_and_inherited_caps_precede_untrusted_allocations() {
     assert!(
         norito::core::with_decode_limits_scope(
             DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 32),
-            || verify_effect(&bytes, &independent, policy())
+            || verify_effect(&bytes, &independent, &policy())
         )
         .is_err()
     );
     let mut limits = policy();
     limits.transport.max_bundle_frame_bytes = 0;
     assert!(matches!(
-        verify_effect(&bytes, &independent, limits),
+        verify_effect(&bytes, &independent, &limits),
         Err(ArtifactError::Transport(
             FastpqCompactArtifactDecodeError::BundleBytes { .. }
         ))
@@ -541,7 +541,7 @@ fn quantity_artifact_false_rows_do_not_reach_the_proof_decoder() {
     artifact.statement.transitions[0].pre_value = 1_u64.to_le_bytes().to_vec();
     let bytes = norito::encode_canonical(&artifact).unwrap();
     assert!(matches!(
-        verify_effect(&bytes, &effect_fixture(&f), policy()),
+        verify_effect(&bytes, &effect_fixture(&f), &policy()),
         Err(ArtifactError::Verify(_))
     ));
     let limits = PublicTransferLimits {
@@ -552,7 +552,7 @@ fn quantity_artifact_false_rows_do_not_reach_the_proof_decoder() {
         verify_effect(
             &norito::encode_canonical(&ordinary(&f, vec![0])).unwrap(),
             &effect_fixture(&f),
-            ArtifactLimits {
+            &ArtifactLimits {
                 public_statement: limits,
                 ..policy()
             }

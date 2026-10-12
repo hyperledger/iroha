@@ -2366,7 +2366,7 @@ impl NativeCheckpoints {
             .unwrap();
         // Validate the actual known source against the metadata-only unknown
         // factory before any subsequent one-stage native proving call.
-        drop(import_native_a(&prover, 0, &first_circuit, &parity_keys[0]));
+        import_native_a(&prover, 0, &first_circuit, &parity_keys[0]);
         drop((prepared, first_circuit));
         let session = prover
             .prepare(inputs.clone(), MemoryBudget::DEFAULT)
@@ -2548,7 +2548,6 @@ impl NativeCheckpoints {
                     "metadata-rebuilt native stage key preserves exact deterministic proof bytes"
                 );
             }
-            drop(native_seal);
             let native_tables = synthesize(
                 &native_circuit,
                 16,

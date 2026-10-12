@@ -1139,6 +1139,26 @@ CORE_MUTATIONS = [
           join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs",
           join_message="publication worker fixture: Any { .. }") for _ in range(2))),
 
+
+    m("HC254", "Lane geometry completion: retire original physical owners without final authentication",
+      ["state::tests::geometry_completion_tests::completed_publication_refuses_substituted_journal_namespace_and_retries_original_owner",
+       "state::tests::geometry_completion_tests::prepublication_refuses_substituted_tiered_directory_and_retries_original_owner",
+       "state::tests::geometry_completion_tests::completed_publication_refuses_substituted_tiered_directory_and_retries_original_owner"],
+      causes=tuple(ExpectedFailure(cause, "crates/iroha_core/src/state/geometry_completion_tests.rs")
+          for cause in ("completed publication refuses a substituted original journal namespace",
+                        "publication refuses a substituted original tiered directory",
+                        "publication refuses a substituted original tiered directory"))),
+
+    m("HC255", "Lane geometry retry: reopen completed tiered progress before an identity refusal",
+      ["state::tests::geometry_completion_tests::completed_retry_preserves_original_applied_progress_on_tiered_identity_refusal"],
+      causes=(ExpectedFailure("completed tiered refusal preserves original forward progress",
+          "crates/iroha_core/src/state/geometry_completion_tests.rs"),)),
+
+    m("HC256", "Lane geometry completion: accept a different original configured baseline",
+      ["state::tests::geometry_completion_tests::completed_publication_refuses_changed_baseline_and_retries_original_owner"],
+      causes=(ExpectedFailure("completed publication refuses a changed original configured baseline",
+          "crates/iroha_core/src/state/geometry_completion_tests.rs"),)),
+
 ]
 
 
