@@ -173,7 +173,7 @@ fn scoped_wallet_inherited_zero_allocation_refuses_first_native_read_then_retrie
         .with(|| service.inspect_transfer_preparation(&path, &request()))
         .unwrap_err();
     assert!(
-        matches!(error.downcast_ref::<norito::Error>().and_then(|error| error.decode_resource_error()),
+        matches!(error.downcast_ref::<norito::Error>().and_then(norito::Error::decode_resource_error),
         Some(norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit: 0 })
             if attempted == u64::try_from(original.len()).unwrap())
     );

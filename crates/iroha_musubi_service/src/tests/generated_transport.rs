@@ -143,7 +143,7 @@ fn selection(client: &Client, port: u16) -> GeneratedLocalPublicationTransportV1
     let provider_port = if port == 8443 { 8444 } else { 8443 };
     GeneratedLocalPublicationTransportV1::select(
         *client.network_id(),
-        &client.chain().to_string(),
+        client.chain().as_ref(),
         provider(),
         &owner,
         &material(&Identity::new(), provider_port),
@@ -266,6 +266,12 @@ fn generated_constructor_binds_original_network_chain_and_independent_publisher(
 }
 #[test]
 fn generated_routes_refuse_changed_origin_before_signing_reading_or_sending() {
+    struct NoRead;
+    impl Read for NoRead {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            panic!("foreign origin reached CAR read")
+        }
+    }
     let (client, _) = client();
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
     listener.set_nonblocking(true).unwrap();
@@ -282,12 +288,6 @@ fn generated_routes_refuse_changed_origin_before_signing_reading_or_sending() {
         .unwrap();
     let fixture = private_service_fixture(false);
     let control = control_service_fixture(false, false);
-    struct NoRead;
-    impl Read for NoRead {
-        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
-            panic!("foreign origin reached CAR read")
-        }
-    }
     for raw in [
         "https://other.localhost/".to_owned(),
         format!("https://{}:8443/", host()),

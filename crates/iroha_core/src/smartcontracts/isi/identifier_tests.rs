@@ -1341,6 +1341,42 @@ fn current_identifier_guardrails() -> crate::zk::ZkVerifyGuardrails {
     }
 }
 #[test]
+fn current_identifier_receipt_refuses_proof_mode_before_metadata_or_proof_decode() {
+    let (policy, mut program, mut receipt, network, _) = current_owner_prf_receipt_fixture();
+    validate_program_receipt(
+        &receipt,
+        &policy,
+        &program,
+        &network,
+        1_001,
+        current_identifier_guardrails(),
+    )
+    .expect("control is a valid signed owner-PRF receipt");
+    program.verification_mode = RamLfeVerificationMode::Proof;
+    program.commitment.public_parameters = vec![0xff];
+    receipt.payload.execution.verification_mode = RamLfeVerificationMode::Proof;
+    receipt.attestation = RamLfeReceiptAttestation::Proof(iroha_data_model::proof::ProofBox::new(
+        String::new(),
+        vec![0xff],
+    ));
+    let error = validate_program_receipt(
+        &receipt,
+        &policy,
+        &program,
+        &network,
+        1_001,
+        current_identifier_guardrails(),
+    )
+    .expect_err("identifier admission must refuse proof mode before decoding metadata or proof");
+    assert!(
+        error
+            .to_string()
+            .contains("no compiled program-execution proof relation"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
 fn current_hkdf_identifier_receipt_binds_network_and_independent_beneficiary() {
     let (policy, program, receipt, network, _) = current_owner_prf_receipt_fixture();
     assert_ne!(policy.owner, receipt.payload.account_id);

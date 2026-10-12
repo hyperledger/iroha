@@ -304,11 +304,10 @@ fn cancellation_during_real_submit_preflight_preserves_signed_bytes_and_allows_e
                 }),
                 OperationV1::Onboarding(_) => None,
             };
-            let result = if let Some(request) = &faucet_request {
-                service.submit_faucet_with_request(&path, request, 5)
-            } else {
-                service.submit_onboarding(&path, ONBOARDING_TOKEN, 5)
-            };
+            let result = faucet_request.as_ref().map_or_else(
+                || service.submit_onboarding(&path, ONBOARDING_TOKEN, 5),
+                |request| service.submit_faucet_with_request(&path, request, 5),
+            );
             if attempted {
                 assert_eq!(result.unwrap().status, OperationStatus::Pending);
             } else {
@@ -320,12 +319,13 @@ fn cancellation_during_real_submit_preflight_preserves_signed_bytes_and_allows_e
             );
             assert_eq!(std::fs::read(path.join("submission.json")).ok(), marker);
             applied.store(true, Ordering::Release);
-            let recovered = if let Some(request) = &faucet_request {
-                service.verify_faucet_journal(&path, request).unwrap();
-                service.resume_faucet_with_request(&path, request, 5)
-            } else {
-                service.resume_onboarding(&path, 5)
-            };
+            let recovered = faucet_request.as_ref().map_or_else(
+                || service.resume_onboarding(&path, 5),
+                |request| {
+                    service.verify_faucet_journal(&path, request).unwrap();
+                    service.resume_faucet_with_request(&path, request, 5)
+                },
+            );
             assert_eq!(recovered.unwrap().status, OperationStatus::Applied);
             assert_eq!(
                 std::fs::read(path.join("operation.json")).unwrap(),

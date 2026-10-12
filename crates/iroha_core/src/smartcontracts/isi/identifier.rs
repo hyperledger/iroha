@@ -835,20 +835,10 @@ pub mod isi {
                 )
             })
     }
-    fn verify_execution_proof(
-        proof: &iroha_data_model::proof::ProofBox,
-        execution: &RamLfeExecutionReceiptPayload,
-        verifier: &iroha_crypto::RamLfeProofVerifierMetadata,
-        guardrails: crate::zk::ZkVerifyGuardrails,
-    ) -> Result<(), Error> {
-        crate::smartcontracts::isi::ram_lfe::verify_execution_proof(
-            proof, execution, verifier, guardrails,
-        )
-        .map_err(|err| Error::InvariantViolation(err.into()))
-    }
     #[cfg(test)]
     mod proof_tests {
         use super::*;
+        use crate::smartcontracts::isi::ram_lfe::proof_test_support::validate_proof_receipt;
         use iroha_crypto::RamLfeProofVerifierMetadata;
         use iroha_data_model::{
             proof::{ProofBox, VerifyingKeyBox},
@@ -903,7 +893,7 @@ pub mod isi {
                 public_inputs_schema_hash: Hash::new(&fixture.public_inputs),
                 verifying_key_bytes: key.bytes,
             };
-            let error = verify_execution_proof(
+            let error = validate_proof_receipt(
                 &proof,
                 &sample_proof_payload(),
                 &verifier,
@@ -958,7 +948,7 @@ pub mod isi {
                 envelope.backend = BackendTag::Stark;
             });
             let err =
-                verify_execution_proof(&bad_backend, &execution, &verifier, test_guardrails())
+                validate_proof_receipt(&bad_backend, &execution, &verifier, test_guardrails())
                     .expect_err("wrong envelope backend tag must reject before proof parsing");
             let message = err.to_string();
             assert!(
@@ -978,7 +968,7 @@ pub mod isi {
                 let mut backend_verifier = verifier.clone();
                 backend_verifier.proof_backend = backend.to_owned();
                 let backend_proof = sample_proof_box(&backend_verifier, |_| {});
-                let err = verify_execution_proof(
+                let err = validate_proof_receipt(
                     &backend_proof,
                     &execution,
                     &backend_verifier,
@@ -994,7 +984,7 @@ pub mod isi {
             let aux = sample_proof_box(&verifier, |envelope| {
                 envelope.aux = b"unbound-identifier-proof-metadata".to_vec();
             });
-            let err = verify_execution_proof(&aux, &execution, &verifier, test_guardrails())
+            let err = validate_proof_receipt(&aux, &execution, &verifier, test_guardrails())
                 .expect_err("non-empty auxiliary bytes must reject before proof parsing");
             let message = err.to_string();
             assert!(
@@ -1005,7 +995,7 @@ pub mod isi {
                 envelope.vk_hash = [0u8; Hash::LENGTH];
             });
             let err =
-                verify_execution_proof(&zero_vk_hash, &execution, &verifier, test_guardrails())
+                validate_proof_receipt(&zero_vk_hash, &execution, &verifier, test_guardrails())
                     .expect_err("zero verifier-key hash must reject before proof parsing");
             let message = err.to_string();
             assert!(
@@ -1016,7 +1006,7 @@ pub mod isi {
                 envelope.public_inputs.extend_from_slice(b":schema-drift");
             });
             let err =
-                verify_execution_proof(&schema_drift, &execution, &verifier, test_guardrails())
+                validate_proof_receipt(&schema_drift, &execution, &verifier, test_guardrails())
                     .expect_err("public-input schema drift must reject before proof parsing");
             let message = err.to_string();
             assert!(
@@ -1027,7 +1017,7 @@ pub mod isi {
                 envelope.vk_hash = [0xA5; Hash::LENGTH];
             });
             let err =
-                verify_execution_proof(&wrong_vk_hash, &execution, &verifier, test_guardrails())
+                validate_proof_receipt(&wrong_vk_hash, &execution, &verifier, test_guardrails())
                     .expect_err("wrong verifier-key hash must reject before proof parsing");
             let message = err.to_string();
             assert!(
@@ -1051,7 +1041,7 @@ pub mod isi {
             };
             assert_ne!(alternate_bytes, canonical.bytes);
             let alternate = ProofBox::new(canonical.backend, alternate_bytes);
-            let err = verify_execution_proof(&alternate, &execution, &verifier, test_guardrails())
+            let err = validate_proof_receipt(&alternate, &execution, &verifier, test_guardrails())
                 .expect_err("alternate-layout identifier proof envelope must reject");
             assert!(
                 err.to_string()
@@ -1066,7 +1056,7 @@ pub mod isi {
             let proof = sample_proof_box(&verifier, |_| {});
             let mut guardrails = test_guardrails();
             guardrails.pipa_r_enabled = false;
-            let err = verify_execution_proof(&proof, &execution, &verifier, guardrails)
+            let err = validate_proof_receipt(&proof, &execution, &verifier, guardrails)
                 .expect_err("identifier claim verification must honor disabled native PIPA-R");
             assert!(
                 err.to_string()

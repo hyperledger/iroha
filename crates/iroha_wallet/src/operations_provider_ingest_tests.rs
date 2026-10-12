@@ -88,7 +88,7 @@ fn invalid_network_owner_initial_policy_and_finite_deadline_refuse_before_http()
     let (service, transport) = service();
     let original = request(&service.config, current_unix_ms().unwrap());
     let root = tempfile::tempdir().unwrap();
-    let changes: [fn(&mut InitialProviderIngestAuthorityRequest); 9] = [
+    let mutations: [fn(&mut InitialProviderIngestAuthorityRequest); 9] = [
         |r| r.chain_id.push('x'),
         |r| {
             r.network_id =
@@ -107,7 +107,7 @@ fn invalid_network_owner_initial_policy_and_finite_deadline_refuse_before_http()
         |r| r.deadline_unix_ms = 1,
         |r| r.deadline_unix_ms = u64::MAX,
     ];
-    for (i, change) in changes.into_iter().enumerate() {
+    for (i, change) in mutations.into_iter().enumerate() {
         let mut selected = original.clone();
         change(&mut selected);
         let path = root.path().join(i.to_string());
@@ -144,7 +144,7 @@ fn immutable_fields_fees_and_wire_survive_503_once_only_and_reopened_journal() {
         .encode_versioned();
     let original = std::fs::read(path.join("operation.json")).unwrap();
     let calls = transport.requests.load(Ordering::SeqCst);
-    let changes: [fn(&mut InitialProviderIngestAuthorityRequest); 8] = [
+    let mutations: [fn(&mut InitialProviderIngestAuthorityRequest); 8] = [
         |r| r.provider_id = ProviderId::new([0x31; 32]),
         |r| r.authority.completion_signer = account(32),
         |r| r.authority.provider_owner = account(33),
@@ -161,7 +161,7 @@ fn immutable_fields_fees_and_wire_survive_503_once_only_and_reopened_journal() {
                 .insert(XOR_ASSET_DEFINITION.parse().unwrap(), Quantity::from(1u32));
         },
     ];
-    for change in changes {
+    for change in mutations {
         let mut changed = request.clone();
         change(&mut changed);
         assert!(

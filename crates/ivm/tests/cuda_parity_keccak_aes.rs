@@ -2,7 +2,12 @@
 //!
 //! - Keccak: if CUDA is available, compares `keccak_f1600_cuda` vs scalar `keccak_f1600`.
 //! - AES: compares `aesenc_cuda`/`aesdec_cuda` vs CPU round implementations.
+/// Exact completion increases required by these native parity tests.
+#[cfg(feature = "cuda")]
+#[path = "support/cuda_completion_increase.rs"]
+mod cuda_completion_increase;
 /// Shared exact-owner CUDA completion controls.
+#[cfg(feature = "cuda")]
 #[path = "support/cuda_completions.rs"]
 pub mod cuda_completions;
 
@@ -45,8 +50,8 @@ fn aes_parity_cuda_vs_cpu_round() {
     let cuda_dec = ivm::aesdec_cuda(cuda_enc, rk).expect("aesdec_cuda should return Some");
     assert_eq!(cpu_dec, cuda_dec, "AESDEC parity");
     assert!(
-        cuda_completions::increased(&before, ivm::CudaKernel::AesEnc)
-            && cuda_completions::increased(&before, ivm::CudaKernel::AesDec),
+        cuda_completion_increase::increased(&before, ivm::CudaKernel::AesEnc)
+            && cuda_completion_increase::increased(&before, ivm::CudaKernel::AesDec),
         "native parity requires a completed CUDA dispatch"
     );
 }

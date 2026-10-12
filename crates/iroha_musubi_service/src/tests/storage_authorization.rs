@@ -100,7 +100,9 @@ fn elapsed_authenticated_storage_call_never_reaches_effectful_backend() {
         &body,
         2_000,
     );
-    let started = Instant::now() - Duration::from_millis(MAX_AUTHORIZATION_LIFETIME_MS + 1);
+    let started = Instant::now()
+        .checked_sub(Duration::from_millis(MAX_AUTHORIZATION_LIFETIME_MS + 1))
+        .expect("fixture clock supports expired authorization");
     let error = fixture
         .service
         .handle_storage_coordination(

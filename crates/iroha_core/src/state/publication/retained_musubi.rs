@@ -120,10 +120,6 @@ impl StateBlock<'_> {
     /// Start on the original frozen publisher after a real publication refusal.
     /// Return the same scope on every start failure, never acquire substitute credit.
     /// This request does not validate Musubi or authorize a State root/publication.
-    #[expect(
-        clippy::result_large_err,
-        reason = "start refusal returns the actual move-only scope without allocating an error wrapper"
-    )]
     pub(crate) fn start_original_package_read(
         &mut self,
         scope: OwnedAllocationScope,

@@ -638,7 +638,7 @@ fn extend_past_lower_limit_of_size_hint() {
     }
 
     let mut bytes = BytesMut::with_capacity(5);
-    bytes.extend(Iter(std::iter::repeat(0).take(10)));
+    bytes.extend(Iter(std::iter::repeat_n(0, 10)));
     assert_eq!(bytes.len(), 10);
 }
 

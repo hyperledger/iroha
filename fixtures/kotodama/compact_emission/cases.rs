@@ -34,7 +34,7 @@ pub struct Case {
     pub(crate) source: &'static str,
     /// Actual observable outcome.
     pub(crate) outcome: Outcome,
-    /// Actual CoreHost trace, including the final write before a failure.
+    /// Actual `CoreHost` trace, including the final write before a failure.
     pub(crate) trace: Option<i64>,
 }
 /// Complete inventory; missing or extra rows are rejected.
