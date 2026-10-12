@@ -577,7 +577,7 @@ fn runtime_private_dataspace_executes_concrete_work_after_certified_activation()
                     .expect("lane member"),
                 sig: Signature([0; SIGNATURE_LEN]),
             };
-            vote.sig = signer.sign(&vote.preimage());
+            vote.sig = signer.sign(&vote.preimage()).unwrap();
             vote
         })
         .collect::<Vec<_>>();

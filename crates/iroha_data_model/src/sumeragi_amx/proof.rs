@@ -246,7 +246,8 @@ pub struct AmxCertifiedBlockV1 {
         bounded_with = "crate::json_helpers::base64_vec::serialize_bounded"
     )]
     pub commit_qc: Vec<u8>,
-    /// Canonical preimage of `R` (`CertifiedResultV1`).
+    /// Canonical preimage of `R`: the fixed native header `X` followed by the
+    /// canonical `ExecutionResultCommitment` body (`CertifiedResultV1`).
     #[norito(
         with = "crate::json_helpers::base64_vec",
         bounded_with = "crate::json_helpers::base64_vec::serialize_bounded"
@@ -311,7 +312,7 @@ impl AmxRecordProofV1 {
         scope: crate::sumeragi_finality::CertifiedResultScope,
     ) -> Result<Self, AmxError> {
         let commitment = CertifiedResultV1::decode(&block.result_preimage, scope)
-            .map_err(|error| super::commitment_error(&error))?;
+            .map_err(super::certified_result_error)?;
         let key = record.witness_key();
         let (write, value) = AmxWriteProofV1::from_writes(writes, &key)?;
         if value != record.witness_value()? {

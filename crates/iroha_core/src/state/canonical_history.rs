@@ -268,6 +268,11 @@ impl<'a> CanonicalHistorySource<'a> {
             return Err(missing());
         }
         let storage_error = |error| {
+            if !cfg!(all(test, sumeragi_core_mutation = "HC253"))
+                && matches!(&error, crate::kura::Error::NativeJournalUnavailable(_, _))
+            {
+                return missing();
+            }
             kura_read_attempt_error(error, |error| {
                 // Preserve the existing deterministic diagnostics after classification.
                 let reason = match error {

@@ -112,7 +112,7 @@ impl Drop for Scope {
 /// Error origin established by one completed canonical decode attempt.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DecodeAttemptErrorKind {
-    /// An actual native allocation failed; no allocation-pool release owner exists here.
+    /// The decoder reported `AllocationFailed`; no allocation-pool release owner exists here.
     Allocator,
     /// The original attempt's enclosing admission budget refused the operation.
     EnclosingLimit,
@@ -134,10 +134,136 @@ impl DecodeAttemptError {
         self.kind
     }
 
+    /// Borrow the original decoder error without replacing its opaque scope provenance.
+    #[must_use]
+    pub const fn error(&self) -> &Error {
+        &self.error
+    }
+
     /// Return the original error, retaining any opaque scope provenance for an outer attempt.
     #[must_use]
     pub fn into_error(self) -> Error {
         self.error
+    }
+
+    /// Retain an original local refusal without allocating or reclassifying its scope.
+    ///
+    /// A clone shares the captured counter owner, attempt and observer identity. It
+    /// remains the same refusal after scope retirement; it does not grant a later
+    /// attempt authority to replay the error as a fresh local resource refusal.
+    #[must_use]
+    pub fn local_refusal(&self) -> Option<DecodeLocalRefusal> {
+        let original = match (self.kind, &self.error) {
+            (DecodeAttemptErrorKind::Allocator, Error::AllocationFailed { bytes }) => {
+                LocalRefusal::Allocator { bytes: *bytes }
+            }
+            (DecodeAttemptErrorKind::EnclosingLimit, Error::ScopedDecodeResource(original)) => {
+                LocalRefusal::Enclosing(original.clone())
+            }
+            _ => return None,
+        };
+        Some(DecodeLocalRefusal { original })
+    }
+
+    /// Move the captured local refusal into an opaque, allocation-free owner.
+    ///
+    /// # Errors
+    /// Returns this unchanged attempt error for invalid bytes, protocol limits or
+    /// resource errors without the original current-attempt scope provenance.
+    pub fn into_local_refusal(self) -> Result<DecodeLocalRefusal, Self> {
+        let original = match (self.kind, self.error) {
+            (DecodeAttemptErrorKind::Allocator, Error::AllocationFailed { bytes }) => {
+                LocalRefusal::Allocator { bytes }
+            }
+            (DecodeAttemptErrorKind::EnclosingLimit, Error::ScopedDecodeResource(original)) => {
+                LocalRefusal::Enclosing(original)
+            }
+            (kind, error) => return Err(Self { error, kind }),
+        };
+        Ok(DecodeLocalRefusal { original })
+    }
+}
+
+/// Diagnostic category of a retained canonical decoder refusal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DecodeLocalRefusalKind {
+    /// The decoder reported an allocator failure with the original byte demand.
+    Allocator,
+    /// The captured original enclosing admission budget refused the operation.
+    EnclosingLimit,
+}
+
+/// Original non-wire decoder refusal, retained without a new heap allocation.
+///
+/// Only a captured [`DecodeAttemptError`] can produce this owner. Cloning shares
+/// the existing counter control and preserves its original attempt and scope;
+/// it creates neither an allocation pool nor a release notification. Diagnostic
+/// fields cannot reconstruct this owner. `AllocationFailed` remains a public
+/// decoder report trusted by [`classify_decode_attempt`], so the allocator case
+/// retains that report's bytes without proving physical allocator provenance.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DecodeLocalRefusal {
+    original: LocalRefusal,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum LocalRefusal {
+    Allocator { bytes: u64 },
+    Enclosing(ScopedDecodeResourceError),
+}
+
+impl DecodeLocalRefusal {
+    /// Return a diagnostic category without replacing the original refusal.
+    #[must_use]
+    pub const fn kind(&self) -> DecodeLocalRefusalKind {
+        match &self.original {
+            LocalRefusal::Allocator { .. } => DecodeLocalRefusalKind::Allocator,
+            LocalRefusal::Enclosing(_) => DecodeLocalRefusalKind::EnclosingLimit,
+        }
+    }
+
+    /// Original reported allocator demand, absent for an enclosing budget refusal.
+    #[must_use]
+    pub const fn allocation_bytes(&self) -> Option<u64> {
+        match &self.original {
+            LocalRefusal::Allocator { bytes } => Some(*bytes),
+            LocalRefusal::Enclosing(_) => None,
+        }
+    }
+
+    /// Copy the diagnostic resource fields; these do not convey scope ownership.
+    #[must_use]
+    pub const fn resource_error(&self) -> DecodeResourceError {
+        match &self.original {
+            LocalRefusal::Allocator { bytes } => {
+                DecodeResourceError::AllocationFailed { bytes: *bytes }
+            }
+            LocalRefusal::Enclosing(original) => original.resource(),
+        }
+    }
+
+    /// Move out the original error, retaining its opaque scope identity when present.
+    #[must_use]
+    pub fn into_error(self) -> Error {
+        match self.original {
+            LocalRefusal::Allocator { bytes } => Error::AllocationFailed { bytes },
+            LocalRefusal::Enclosing(original) => Error::ScopedDecodeResource(original),
+        }
+    }
+}
+
+impl std::fmt::Display for DecodeLocalRefusal {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.resource_error(), formatter)
+    }
+}
+
+impl std::error::Error for DecodeLocalRefusal {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match &self.original {
+            LocalRefusal::Enclosing(original) => Some(original),
+            LocalRefusal::Allocator { .. } => None,
+        }
     }
 }
 
@@ -272,7 +398,9 @@ pub(super) fn budget_error(layer: usize, counters: &CounterOwner, error: Error) 
 ///
 /// Protocol-owned decode limits belong inside `decode`; caller-owned limits enclose this
 /// call. The original decoder resource identity is captured before those scopes unwind.
-/// This does not invent an allocation-pool wake source or classify reconstructed errors.
+/// This does not invent an allocation-pool wake source or classify reconstructed
+/// budget-limit errors. A public [`Error::AllocationFailed`] is trusted as the
+/// decoder's allocator report; this boundary does not authenticate its origin.
 /// Direct parsers and checked writers preserve the same enclosing provenance as framed
 /// decoders. If the process exhausts its non-repeating observer identities, subsequent
 /// budget-layer errors fail classification closed as [`DecodeAttemptErrorKind::Invalid`].
@@ -315,5 +443,7 @@ pub(super) fn capture(error: Error) -> DecodeAttemptError {
     DecodeAttemptError { error, kind }
 }
 
+#[cfg(test)]
+mod local_refusal_tests;
 #[cfg(test)]
 mod tests;

@@ -231,14 +231,30 @@ fn payload_decode_refusal_retains_available_owner_without_negative_cache() {
                 error.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit,
                 "{error:?}"
             );
+            let payload::PayloadError::DecodeResource(refusal) =
+                norito::with_decode_limits_scope(limits, || {
+                    payload::decode(block.payload().as_slice())
+                })
+                .unwrap_err()
+            else {
+                panic!("an enclosing decoder limit retains its local refusal");
+            };
             assert_eq!(
-                norito::with_decode_limits_scope(limits, || payload::decode(
-                    block.payload().as_slice()
-                ))
-                .unwrap_err(),
-                payload::PayloadError::DecodeResource(
-                    ivm::error::ExecutionDeferral::ActiveMemoryCapacity.into()
-                )
+                refusal.reason(),
+                ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+            );
+            let original = refusal
+                .decode_refusal()
+                .expect("payload decoding retains the original opaque refusal");
+            assert_eq!(
+                original.kind(),
+                norito::core::DecodeLocalRefusalKind::EnclosingLimit
+            );
+            // Separate decoding attempts have distinct opaque identities, but
+            // the same input and limits must refuse at the same resource bound.
+            assert_eq!(
+                original.resource_error(),
+                error.local_refusal().unwrap().resource_error()
             );
             let outcome = norito::with_decode_limits_scope(limits, || worker.execute(&block, hash));
             assert!(
@@ -3667,6 +3683,7 @@ fn beacon_startup_retains_original_capacity_through_worker_channel_and_node() {
         let applied = worker.applied;
         let budget = worker.state.ivm_execution_budget();
         let mut registration = crate::unit_test_support::release_registration(&budget);
+        registration.bind_thread(std::thread::current());
         let executor = StateExecutor::spawn(worker.context.clone()).unwrap();
         let _epoch = crossbeam_epoch::pin();
         let pressure = budget
@@ -3917,8 +3934,12 @@ fn global_build_carries_a_transaction_of_the_payload_limit_less_the_reserve() {
         isi::{InstructionBox, Log},
         parameter::{
             Parameter,
-            system::{BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES, SumeragiParameter},
+            system::{
+                BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES, SumeragiParameter,
+                TransactionParameter,
+            },
         },
+        privacy::PrivacyConsensusLimitsV1,
     };
     const INCLUDABLE: u32 = 16 * 1024;
     const MAX_BLOCK_BYTES: u32 = BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES + INCLUDABLE;
@@ -3929,12 +3950,33 @@ fn global_build_carries_a_transaction_of_the_payload_limit_less_the_reserve() {
     let (send_clock, receive_clock) = std::sync::mpsc::channel();
     with_worker_from(
         move || {
-            let mut config = TestChainConfig::new(World::new(), 1_000);
-            config
-                .genesis_parameters
-                .push(Parameter::Sumeragi(SumeragiParameter::MaxBlockBytes(
+            let world = World::new();
+            // The fixture keeps its original 16-KiB boundary. Its initial
+            // privacy profile and signed transaction cap must fit that bound,
+            // so actual genesis execution can certify a coherent policy.
+            let limits = PrivacyConsensusLimitsV1 {
+                max_proof_bytes_per_action: INCLUDABLE,
+                max_action_bytes: INCLUDABLE,
+                max_privacy_bytes_per_transaction: INCLUDABLE,
+                max_privacy_bytes_per_block: INCLUDABLE,
+                max_statement_and_encrypted_output_bytes_per_transaction: INCLUDABLE,
+                ..PrivacyConsensusLimitsV1::taira_default()
+            };
+            limits
+                .validate()
+                .expect("coherent small-cap privacy profile");
+            let mut privacy = world.privacy_consensus_policy.block();
+            privacy.get_mut().current_limits = limits;
+            privacy.commit();
+            let mut config = TestChainConfig::new(world, 1_000);
+            config.genesis_parameters.extend([
+                Parameter::Transaction(TransactionParameter::MaxTxBytes(
+                    std::num::NonZeroU64::new(u64::from(INCLUDABLE)).unwrap(),
+                )),
+                Parameter::Sumeragi(SumeragiParameter::MaxBlockBytes(
                     std::num::NonZeroU32::new(MAX_BLOCK_BYTES).unwrap(),
-                )));
+                )),
+            ]);
             let prepared = CertifiedTestChain::prepare(config).expect("prepared signed genesis");
             send_clock
                 .send(prepared.clock.clone())
@@ -3964,6 +4006,27 @@ fn global_build_carries_a_transaction_of_the_payload_limit_less_the_reserve() {
                 )
                 .expect("within the transaction cap")
             };
+            assert_eq!(
+                chain
+                    .state()
+                    .view()
+                    .world()
+                    .parameters()
+                    .transaction()
+                    .max_tx_bytes()
+                    .get(),
+                u64::from(INCLUDABLE)
+            );
+            assert_eq!(
+                chain
+                    .state()
+                    .view()
+                    .world()
+                    .privacy_consensus_policy()
+                    .current_limits
+                    .max_privacy_bytes_per_block,
+                INCLUDABLE
+            );
             // A transaction whose framed length is exactly the includable bound.
             let target = usize::try_from(INCLUDABLE).unwrap();
             let slack = 1_024;

@@ -1,6 +1,7 @@
 //! Original certified source rows retained across paid staking observations.
 
 use super::*;
+use iroha::data_model::block::consensus::SumeragiRootScope;
 use iroha_model_base::chain::ChainId;
 use std::sync::Mutex;
 
@@ -18,15 +19,17 @@ pub(super) struct RetainedHistory {
     chain_id: ChainId,
     network_id: NetworkId,
     signed_genesis_hash: iroha::crypto::HashOf<iroha::data_model::block::BlockHeader>,
+    root_scope: SumeragiRootScope,
     state: Mutex<HistoryState>,
 }
 
 impl RetainedHistory {
-    /// Bind the independent signed genesis and immutable chain before any query.
+    /// Bind the independent signed genesis, its root scope, and immutable chain before any query.
     pub(super) fn new(
         chain_id: ChainId,
         network_id: NetworkId,
         signed_genesis_hash: iroha::crypto::HashOf<iroha::data_model::block::BlockHeader>,
+        root_scope: SumeragiRootScope,
     ) -> Result<Self> {
         ensure!(
             network_id.into_genesis_hash() == signed_genesis_hash,
@@ -36,6 +39,7 @@ impl RetainedHistory {
             chain_id,
             network_id,
             signed_genesis_hash,
+            root_scope,
             state: Mutex::new(HistoryState::Fresh),
         })
     }
@@ -53,7 +57,7 @@ impl RetainedHistory {
             *client.client().network_id(),
             end,
             deadline,
-            interval_finality_fetch(&source, end),
+            interval_finality_fetch(&source, end, self.root_scope),
         )
     }
 
@@ -93,6 +97,7 @@ impl RetainedHistory {
                 end,
                 deadline,
                 fetch,
+                self.root_scope,
             )?,
             HistoryState::Ready(journal) => extend_finality_chain_from_proofs(
                 &self.chain_id,
@@ -102,6 +107,7 @@ impl RetainedHistory {
                 end,
                 deadline,
                 fetch,
+                self.root_scope,
             )?,
             HistoryState::Failed => unreachable!("terminal state refused above"),
         };
@@ -154,6 +160,7 @@ mod tests {
             5,
             Instant::now() + WAIT,
             &mut fetch,
+            chain.root_scope(),
         )?;
         drop(fetch);
         assert_eq!(
@@ -194,8 +201,12 @@ mod tests {
         );
         let chain_id = ChainId::from("original-staking-context");
         for case in 0..3 {
-            let history =
-                RetainedHistory::new(chain_id.clone(), network_id, network_id.into_genesis_hash())?;
+            let history = RetainedHistory::new(
+                chain_id.clone(),
+                network_id,
+                network_id.into_genesis_hash(),
+                SumeragiRootScope::Global,
+            )?;
             let config = iroha::config::Config {
                 chain: if case == 0 {
                     "another-chain".into()
@@ -252,11 +263,62 @@ mod tests {
     }
 
     #[test]
+    fn staking_history_rejects_a_root_scope_different_from_authenticated_genesis() -> Result<()> {
+        let (chain, proofs) = fixture()?;
+        let chain_id = chain.state().view().chain_id().clone();
+        let wrong_scope = SumeragiRootScope::Dataspace {
+            parent_network_id: chain.network_id(),
+            dataspace_id: iroha_model_base::topology::DataSpaceId::new(1),
+        };
+        assert_ne!(wrong_scope, chain.root_scope());
+        let history = RetainedHistory::new(
+            chain_id.clone(),
+            chain.network_id(),
+            chain.genesis().hash(),
+            wrong_scope,
+        )?;
+        let mut requested = Vec::new();
+        let error = history
+            .read_from_proofs(
+                &chain_id,
+                chain.network_id(),
+                2,
+                Instant::now() + WAIT,
+                |height| {
+                    requested.push(height.get());
+                    Ok(proofs[usize::try_from(height.get() - 1)?].clone())
+                },
+            )
+            .expect_err("genuine finality cannot replace the independently selected root scope");
+        assert!(error.to_string().contains("root scope"), "{error}");
+        assert_eq!(requested, [1, 2]);
+        assert!(matches!(
+            *history.state.lock().unwrap(),
+            HistoryState::Failed
+        ));
+        let error = history
+            .read_from_proofs(
+                &chain_id,
+                chain.network_id(),
+                2,
+                Instant::now() + WAIT,
+                |_| panic!("a refused original root cannot be reacquired"),
+            )
+            .expect_err("scope mismatch remains terminal");
+        assert!(error.to_string().contains("already failed"));
+        Ok(())
+    }
+
+    #[test]
     fn staking_history_retains_original_frames_and_queries_only_successors() -> Result<()> {
         let (chain, proofs) = fixture()?;
         let chain_id = chain.state().view().chain_id().clone();
-        let history =
-            RetainedHistory::new(chain_id.clone(), chain.network_id(), chain.genesis().hash())?;
+        let history = RetainedHistory::new(
+            chain_id.clone(),
+            chain.network_id(),
+            chain.genesis().hash(),
+            chain.root_scope(),
+        )?;
         let deadline = Instant::now() + WAIT;
         let mut requested = Vec::new();
         let mut original = Vec::new();
@@ -278,6 +340,7 @@ mod tests {
                 end,
                 deadline,
                 |height| Ok(proofs[usize::try_from(height.get() - 1)?].clone()),
+                chain.root_scope(),
             )?;
             assert_eq!(
                 blocks
@@ -319,8 +382,12 @@ mod tests {
     fn staking_history_reauthenticates_same_tip_and_keeps_failure_terminal() -> Result<()> {
         let (chain, proofs) = fixture()?;
         let chain_id = chain.state().view().chain_id().clone();
-        let history =
-            RetainedHistory::new(chain_id.clone(), chain.network_id(), chain.genesis().hash())?;
+        let history = RetainedHistory::new(
+            chain_id.clone(),
+            chain.network_id(),
+            chain.genesis().hash(),
+            chain.root_scope(),
+        )?;
         let deadline = Instant::now() + WAIT;
         history.read_from_proofs(&chain_id, chain.network_id(), 2, deadline, |height| {
             Ok(proofs[usize::try_from(height.get() - 1)?].clone())
@@ -361,11 +428,21 @@ mod tests {
         let foreign_genesis =
             iroha::crypto::HashOf::from_untyped_unchecked(Hash::new(b"foreign staking history"));
         assert!(
-            RetainedHistory::new(chain_id.clone(), chain.network_id(), foreign_genesis).is_err()
+            RetainedHistory::new(
+                chain_id.clone(),
+                chain.network_id(),
+                foreign_genesis,
+                chain.root_scope(),
+            )
+            .is_err()
         );
         for case in 0..6 {
-            let history =
-                RetainedHistory::new(chain_id.clone(), chain.network_id(), chain.genesis().hash())?;
+            let history = RetainedHistory::new(
+                chain_id.clone(),
+                chain.network_id(),
+                chain.genesis().hash(),
+                chain.root_scope(),
+            )?;
             let deadline = Instant::now() + WAIT;
             history.read_from_proofs(&chain_id, chain.network_id(), 3, deadline, |height| {
                 Ok(proofs[usize::try_from(height.get() - 1)?].clone())

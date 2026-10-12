@@ -731,13 +731,16 @@ fn network_xor_resolver_requires_exact_committed_identity() {
             .is_none()
     );
     let mut parameters = world.parameters.block();
-    parameters.get_mut().set_parameter(Parameter::Custom(
-        SumeragiNposParameters {
-            xor_asset_definition_id: other.clone(),
-            ..Default::default()
-        }
-        .into_custom_parameter(),
-    ));
+    parameters
+        .get_mut()
+        .set_parameter(Parameter::Custom(
+            SumeragiNposParameters {
+                xor_asset_definition_id: other.clone(),
+                ..Default::default()
+            }
+            .into_custom_parameter(),
+        ))
+        .expect("valid fixture parameters");
     parameters.commit();
     assert_eq!(
         resolve_network_xor_asset_definition(&world.view(), &other.to_string(), 0)
@@ -5478,15 +5481,13 @@ pub(crate) mod valid {
         fn amx_deadline_error(
             error: iroha_data_model::sumeragi_amx::AmxError,
         ) -> BlockValidationError {
-            match error {
-                iroha_data_model::sumeragi_amx::AmxError::Resource(original)
-                    if !cfg!(all(test, sumeragi_core_mutation = "HC162")) =>
-                {
+            match crate::sumeragi::amx::classified_decode_refusal(&error) {
+                Some(original) if !cfg!(all(test, sumeragi_core_mutation = "HC162")) => {
                     BlockValidationError::StateStorageAdmission(
                         crate::state::StateStorageAdmissionError::AmxDecode(original),
                     )
                 }
-                other => Self::execution_context_error(other.to_string()),
+                _ => Self::execution_context_error(error.to_string()),
             }
         }
         fn execution_context_error(message: impl Into<String>) -> BlockValidationError {
@@ -6993,21 +6994,29 @@ pub(crate) mod valid {
         #[test]
         fn amx_deadline_finalizer_preserves_exact_local_refusal_without_rejection() {
             use iroha_data_model::sumeragi_amx::AmxError;
-            use norito::core::DecodeResourceError;
 
             for original in [
-                DecodeResourceError::AllocationFailed { bytes: 57 },
-                DecodeResourceError::TotalAllocationExceeded {
-                    attempted: 99,
-                    limit: 73,
-                },
+                norito::core::classify_decode_attempt(|| {
+                    Err::<(), _>(norito::Error::AllocationFailed { bytes: 57 })
+                })
+                .unwrap_err(),
+                norito::with_decode_limits_scope(
+                    norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 73, 64),
+                    || {
+                        norito::core::classify_decode_attempt(|| {
+                            norito::core::reserve_decode_allocation(99)
+                        })
+                    },
+                )
+                .unwrap_err(),
             ] {
+                let expected = original.local_refusal().unwrap();
                 let mapped = ValidBlock::amx_deadline_error(AmxError::Resource(original));
                 assert!(matches!(
                     &mapped,
                     BlockValidationError::StateStorageAdmission(
                         crate::state::StateStorageAdmissionError::AmxDecode(retained)
-                    ) if *retained == original
+                    ) if *retained == expected
                 ));
                 assert_eq!(
                     map_block_err_to_reason(&mapped),
@@ -8014,7 +8023,9 @@ pub(crate) mod valid {
             params.sumeragi.key_overlap_grace_blocks = 2;
             params.sumeragi.key_expiry_grace_blocks = 1;
             let mut world = World::new();
-            world.parameters = mv::cell::Cell::new(params);
+            world.parameters = mv::cell::Cell::new(
+                crate::state::StateParameters::try_from(params).expect("valid fixture parameters"),
+            );
             insert_consensus_key(
                 &mut world,
                 "leader",
@@ -9000,6 +9011,7 @@ mod event {
             BlockValidationError::MerkleRootMismatch => Reason::MerkleRootMismatch,
             BlockValidationError::TransactionAccept(fail) => match fail {
                 AcceptTransactionFail::TransactionLimit(_)
+                | AcceptTransactionFail::SignedAttachments(_)
                 | AcceptTransactionFail::SignatureVerification(_)
                 | AcceptTransactionFail::UnexpectedGenesisAccountSignature
                 | AcceptTransactionFail::TransactionDomainMismatch(_)
@@ -9508,7 +9520,7 @@ pub(crate) mod tests {
         component_chain_with_genesis_parameters(state, Vec::new())
     }
 
-    fn component_chain_with_genesis_parameters(
+    pub(crate) fn component_chain_with_genesis_parameters(
         state: State,
         genesis_parameters: Vec<iroha_data_model::parameter::Parameter>,
     ) -> crate::sumeragi::test_chain::CertifiedTestChain {
@@ -9526,7 +9538,7 @@ pub(crate) mod tests {
         let crypto = state.crypto();
         let zk = state.zk_snapshot();
         let chain_id = state.chain_id_ref().clone();
-        let pipeline = state.pipeline.clone();
+        let pipeline = state.installed_pipeline().clone();
         let fraud = state.fraud_monitoring.clone();
         let governance = state.gov.clone();
         #[cfg(feature = "telemetry")]
@@ -9565,7 +9577,9 @@ pub(crate) mod tests {
         params.transaction = params
             .transaction
             .with_ingress_enforcement(require_height_ttl, require_sequence);
-        world.parameters = mv::cell::Cell::new(params);
+        world.parameters = mv::cell::Cell::new(
+            crate::state::StateParameters::try_from(params).expect("valid fixture parameters"),
+        );
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::start_test();
         let state = State::new_with_chain_and_network_id_for_testing(
@@ -9593,11 +9607,11 @@ pub(crate) mod tests {
         .expect("load proof-verification executor policy");
         state.world.executor =
             mv::cell::Cell::new(crate::executor::Executor::UserProvided(executor));
-        let mut pipeline = state.pipeline.clone();
+        let mut pipeline = state.installed_pipeline().clone();
         pipeline.parallel_overlay = true;
         pipeline.workers = 2;
         state.set_pipeline(pipeline);
-        let mut zk = state.zk.clone();
+        let mut zk = state.installed_zk().clone();
         zk.max_confidential_ops_per_block = 1;
         zk.max_verify_calls_per_block = 1;
         zk.max_verify_calls_per_tx = 2;
@@ -9623,7 +9637,8 @@ pub(crate) mod tests {
             ),
         )
         .into();
-        let expected_confidential_gas = crate::gas::confidential_gas_cost(&instruction);
+        let expected_confidential_gas =
+            crate::gas::confidential_gas_cost(&instruction, &crate::gas::DEFAULT_ZK_GAS);
         let transaction = TransactionBuilder::new(
             state.network_id,
             authority,
@@ -9706,7 +9721,7 @@ pub(crate) mod tests {
                     .expect("canonical test chain id");
             let (authority, keypair) = gen_account_in("wonderland");
             let mut state = state_with_transaction_policy(&chain_id, &authority, false, false);
-            let mut pipeline = state.pipeline.clone();
+            let mut pipeline = state.installed_pipeline().clone();
             pipeline.parallel_apply = parallel_apply;
             pipeline.parallel_overlay = true;
             pipeline.workers = 2;
@@ -9715,7 +9730,10 @@ pub(crate) mod tests {
             let state = native_chain.state();
             let instruction =
                 InstructionBox::from(Log::new(Level::INFO, "meter ordinary overlay".into()));
-            let expected_gas = crate::gas::meter_instructions(core::slice::from_ref(&instruction));
+            let expected_gas = crate::gas::meter_instructions(
+                core::slice::from_ref(&instruction),
+                &crate::gas::DEFAULT_ZK_GAS,
+            );
             assert!(expected_gas > 0, "the fixture must consume gas");
             let accepted = [0_u64, 1_u64, 2_u64]
                 .into_iter()
@@ -9800,7 +9818,7 @@ pub(crate) mod tests {
         let (authority, keypair) = gen_account_in("wonderland");
         let (missing_account, _) = gen_account_in("missing");
         let mut state = state_with_transaction_policy(&chain_id, &authority, false, false);
-        let mut pipeline = state.pipeline.clone();
+        let mut pipeline = state.installed_pipeline().clone();
         pipeline.parallel_overlay = true;
         pipeline.workers = 2;
         state.set_pipeline(pipeline);
@@ -9811,7 +9829,10 @@ pub(crate) mod tests {
             "rejected_overlay_marker".parse().expect("metadata key"),
             Json::new("must roll back"),
         ));
-        let expected_gas = crate::gas::meter_instructions(core::slice::from_ref(&instruction));
+        let expected_gas = crate::gas::meter_instructions(
+            core::slice::from_ref(&instruction),
+            &crate::gas::DEFAULT_ZK_GAS,
+        );
         assert!(expected_gas > 0, "the fixture must consume gas");
         let transaction = TransactionBuilder::new(
             state.network_id,
@@ -10388,7 +10409,7 @@ seiyaku DynamicAccessCounter { permission CanWriteCounters;
         let kura = Kura::blank_kura_for_testing();
         let query = LiveQueryStore::start_test();
         let mut state = State::new_with_chain_for_testing(world, kura, query, chain_id.clone());
-        let mut pipeline = state.pipeline.clone();
+        let mut pipeline = state.installed_pipeline().clone();
         pipeline.dynamic_prepass = true;
         pipeline.parallel_overlay = true;
         pipeline.parallel_apply = true;
@@ -10604,7 +10625,7 @@ seiyaku DynamicTarget { permission CanWriteCounters;
         let kura = Kura::blank_kura_for_testing();
         let query = LiveQueryStore::start_test();
         let mut state = State::new_with_chain_for_testing(world, kura, query, chain_id.clone());
-        let mut pipeline = state.pipeline.clone();
+        let mut pipeline = state.installed_pipeline().clone();
         pipeline.dynamic_prepass = true;
         pipeline.parallel_overlay = true;
         pipeline.parallel_apply = true;

@@ -6,22 +6,26 @@
     {
       "type": "SignedBlock",
       "path": "crates/iroha_data_model/src/block/mod.rs",
-      "version": 1
+      "version": 1,
+      "kind": "canonical-frame"
     },
     {
       "type": "SignedTransaction",
       "path": "crates/iroha_data_model/src/transaction/signed.rs",
-      "version": 1
+      "version": 1,
+      "kind": "versioned-payload"
     },
     {
       "type": "TransactionEntrypoint",
       "path": "crates/iroha_data_model/src/transaction/signed.rs",
-      "version": 1
+      "version": 1,
+      "kind": "versioned-payload"
     },
     {
       "type": "SignedQuery",
       "path": "crates/iroha_data_model/src/query/mod.rs",
-      "version": 1
+      "version": 1,
+      "kind": "versioned-payload"
     }
   ],
   "test_only_version_impls": [
@@ -36,6 +40,14 @@
     {
       "type": "TextPayload",
       "path": "crates/iroha_version/src/lib.rs"
+    },
+    {
+      "type": "IntrinsicallyBoundedText",
+      "path": "crates/iroha_version/src/lib.rs"
+    },
+    {
+      "type": "TextPayload",
+      "path": "crates/iroha_torii/src/utils.rs"
     },
     {
       "type": "Dummy",
@@ -152,6 +164,12 @@
   ],
   "obsolete_layout_rejection_tests": [
     {
+      "path": "crates/norito/src/core/borrowed_field_framing_tests.rs",
+      "test": "generic_byte_arrays_reject_length_n_truncation_inside_and_outside_options",
+      "package": "norito",
+      "target": "lib"
+    },
+    {
       "path": "crates/iroha_data_model/src/block/header.rs",
       "test": "header_rejects_pre_release_payload_without_execution_context_hash_field",
       "package": "iroha_data_model",
@@ -166,6 +184,12 @@
     {
       "path": "crates/iroha_data_model/src/block/tests.rs",
       "test": "block_payload_rejects_pre_release_layout_with_retired_roster_slot",
+      "package": "iroha_data_model",
+      "target": "lib"
+    },
+    {
+      "path": "crates/iroha_data_model/src/block/tests.rs",
+      "test": "framed_block_rejects_packed_confidential_digest_hash_arrays",
       "package": "iroha_data_model",
       "target": "lib"
     },
@@ -204,7 +228,7 @@
   "pinned_history": {
     "manifest": "fixtures/core/first_release_history/manifest.json",
     "format": "iroha.first_release_history.pinned.v1",
-    "history_sha256": "0a5f43cc000eec85bf1cd47cb3b2428f2654198909b161300c6f199350ee6e65",
+    "history_sha256": "117051b9495811b8cb7cf2cd4bc8336458cd6a9cf791212730f7476aab5cf4e2",
     "generator": {
       "path": "crates/iroha_core/src/sumeragi/node/tests/history_cutover_tests.rs",
       "test": "capture_pinned_first_release_history"
@@ -275,28 +299,7 @@
       "classification": "checks an append or prepend intent against the sidecar index it is about to replace; same current layout, no version dispatch"
     }
   ],
-  "test_only_references": [
-    {
-      "needle": "frame_versioned_signed_block_bytes",
-      "finding": "T1-A15",
-      "reason": "frames a headerless block payload; storage, distribution and genesis loading take only framed blocks"
-    },
-    {
-      "needle": "SignedBlock::decode_all_versioned",
-      "finding": "T1-A15",
-      "reason": "the headerless DecodeVersioned of SignedBlock"
-    },
-    {
-      "needle": "SignedBlock as iroha_version::codec::DecodeVersioned",
-      "finding": "T1-A15",
-      "reason": "the headerless DecodeVersioned of SignedBlock, qualified form"
-    },
-    {
-      "needle": "SignedBlock as DecodeVersioned",
-      "finding": "T1-A15",
-      "reason": "the headerless DecodeVersioned of SignedBlock, qualified form"
-    }
-  ],
+  "test_only_references": [],
   "retired_identifier_roots": [
     "crates",
     "integration_tests"
@@ -381,6 +384,39 @@
     {
       "identifier": "legacy_snapshot_missing_space_directory_section",
       "retired": "tests asserting that a snapshot missing a State section loads by default or from Kura"
+    },
+    {
+      "identifier": "frame_versioned_signed_block_bytes",
+      "retired": "public helper that framed a headerless block payload; a block frame comes only from `SignedBlock::canonical_wire`"
+    },
+    {
+      "identifier": "decode_bare_versioned_signed_block_inner",
+      "retired": "headerless block decoder behind the retired `DecodeVersioned` implementation of `SignedBlock`"
+    },
+    {
+      "identifier": "deframe_versioned_signed_block_bytes",
+      "retired": "helper that copied a canonical frame into a second headerless versioned form; tests construct invalid fixtures directly"
+    },
+    {
+      "identifier": "DeframedSignedBlockBytes",
+      "retired": "parallel headerless block carrier; canonical SignedBlockWire is the only standalone wire representation"
+    }
+  ],
+  "retired_impls": [
+    {
+      "trait": "DecodeVersioned",
+      "type": "SignedBlock",
+      "retired": "headerless versioned decode of a block; storage, distribution, genesis loading and tests decode only the framed wire (`decode_framed_signed_block`)"
+    },
+    {
+      "trait": "EncodeVersioned",
+      "type": "SignedBlock",
+      "retired": "headerless versioned block emission; use canonical_wire or encode_wire"
+    },
+    {
+      "trait": "Version",
+      "type": "SignedBlock",
+      "retired": "generic inferred-type decode_exact_versioned must not accept a SignedBlock; WIRE_VERSION belongs to the canonical framed codec"
     }
   ],
   "retired_store_artifacts": [
@@ -715,6 +751,10 @@
         {
           "path": "crates/iroha_data_model/src/query/mod.rs",
           "contains": "impl iroha_version::Version for SignedQuery"
+        },
+        {
+          "path": "crates/iroha_data_model/src/transaction/signed.rs",
+          "contains": "The payload has one decoder."
         }
       ],
       "regenerate": [
@@ -742,6 +782,13 @@
           "artifact": "fixtures/prepared_transactions/prepared_transaction_signature_v1.json",
           "generator": "crates/iroha_torii/src/routing.rs",
           "mention": "print_prepared_transaction_signature_fixture"
+        },
+        {
+          "artifact": "fixtures/zk/signed_attachments_v1/vectors.json",
+          "generator": "crates/iroha_data_model/src/transaction/signed/ordered_intent_tests.rs",
+          "mention": "capture_signed_attachment_vectors",
+          "checked_by": "crates/iroha_data_model/src/transaction/signed/ordered_intent_tests.rs",
+          "check_mention": "tracked_signed_attachment_vectors_are_the_current_generator_output"
         },
         {
           "artifact": "norito.md",
@@ -805,7 +852,10 @@
         {
           "artifact": "fixtures/sumeragi/native-finality",
           "generator": "crates/iroha_data_model/src/sumeragi_finality/test_fixtures.rs",
-          "mention": "capture_native_checkpoint_fixtures"
+          "mention": "capture_native_checkpoint_fixtures",
+          "checked_by": "crates/iroha_data_model/src/sumeragi_finality/test_fixtures.rs",
+          "check_mention": "tracked_native_checkpoint_fixtures_are_the_current_exporter_output",
+          "note": "The check compares the two tracked frames with the exporter's output of the current tree and with the sizes and digests `capture.json` lists for them. The `generator` block of `capture.json` describes the 2026-10-12 capture of the sole CertifiedResultV1 X || body envelope and SHA-256 allowlisted-preimage/DST_SIG consensus suite: its source and executable digests identify that capture, not subsequent source edits. Two explicit exporter invocations produced identical fixture bytes; this execution-root and consensus-suite change requires fresh genesis."
         },
         {
           "artifact": "specs/sumeragi.md",
@@ -886,8 +936,10 @@
           "document": true
         },
         {
-          "artifact": "crates/ivm/tests/abi_hash_versions.rs",
-          "document": true
+          "artifact": "crates/iroha_data_model/tests/fixtures/abi_v1_hash.rs",
+          "generator": "crates/ivm/src/bin/gen_abi_hash_doc.rs",
+          "mention": "crates/iroha_data_model/tests/fixtures/abi_v1_hash.rs",
+          "carries": "hex"
         },
         {
           "artifact": "crates/ivm/tests/pointer_type_ids_golden.rs",
@@ -902,14 +954,110 @@
           "document": true
         },
         {
+          "artifact": "specs/ivm_header.md",
+          "generator": "crates/ivm/src/bin/gen_abi_hash_doc.rs",
+          "mention": "ivm_header.md",
+          "carries": "hex"
+        },
+        {
+          "artifact": "specs/samples/runtime_abi_hash.md",
+          "generator": "crates/ivm/src/bin/gen_abi_hash_doc.rs",
+          "mention": "samples/runtime_abi_hash.md",
+          "carries": "hex"
+        },
+        {
           "artifact": "scripts/ivm_artifacts.tsv",
           "generator": "scripts/regenerate_kotodama_goldens.py",
-          "mention": "ivm_artifacts.tsv"
+          "mention": "ivm_artifacts.tsv",
+          "carries": "artifact_map"
+        },
+        {
+          "artifact": "demo/authority_probe.manifest.json",
+          "generator": "scripts/regenerate_kotodama_goldens.py",
+          "mention": "demo/authority_probe.manifest.json",
+          "carries": "HEX"
+        },
+        {
+          "artifact": "demo/irohaswap.manifest.json",
+          "generator": "scripts/regenerate_kotodama_goldens.py",
+          "mention": "demo/irohaswap.manifest.json",
+          "carries": "HEX"
+        },
+        {
+          "artifact": "demo/ivm_smoke.manifest.json",
+          "generator": "scripts/regenerate_kotodama_goldens.py",
+          "mention": "demo/ivm_smoke.manifest.json",
+          "carries": "HEX"
+        },
+        {
+          "artifact": "demo/prediction_market.manifest.json",
+          "generator": "scripts/regenerate_kotodama_goldens.py",
+          "mention": "demo/prediction_market.manifest.json",
+          "carries": "HEX"
+        },
+        {
+          "artifact": "defaults/executor.to",
+          "generator": "crates/ivm/src/bin/ivm_fixture_export.rs",
+          "mention": "defaults/executor.to",
+          "carries": "ivm_header"
+        },
+        {
+          "artifact": "specs/sdk/android/generated/fixtures/smart_contract_code_executor_hashes.json",
+          "generator": "crates/ivm/src/bin/ivm_fixture_export.rs",
+          "mention": "smart_contract_code_executor_hashes.json",
+          "carries": "hex"
         },
         {
           "artifact": "javascript/iroha_js/test/fixtures/current_rust_contract_artifact.json",
           "generator": "scripts/regenerate_current_rust_contract_artifact.py",
-          "mention": "current_rust_contract_artifact.json"
+          "mention": "current_rust_contract_artifact.json",
+          "carries": [
+            "hex",
+            "HEX",
+            "ivm_base64"
+          ]
+        },
+        {
+          "artifact": "fixtures/kotodama/compact_emission/native_v1.tsv",
+          "generator": "crates/kotodama_lang/src/compiler/compact_emission/native_pairs.rs",
+          "mention": "capture_actual_compact_emission_native_pairs",
+          "carries": "ivm_hex_rows"
+        },
+        {
+          "artifact": "fixtures/kotodama/frame_emission/native_v1.tsv",
+          "generator": "crates/kotodama_lang/src/compiler/frame_emission/native_pairs.rs",
+          "mention": "capture_actual_frame_emission_native_pairs",
+          "carries": "ivm_hex_rows"
+        },
+        {
+          "artifact": "fixtures/kotodama/local_emission/native_v1.tsv",
+          "generator": "crates/kotodama_lang/src/compiler/local_emission/native_pairs.rs",
+          "mention": "capture_actual_local_emission_native_pairs",
+          "carries": "ivm_hex_rows"
+        },
+        {
+          "artifact": "fixtures/kotodama/numeric_zero/native_v1.tsv",
+          "generator": "crates/kotodama_lang/src/compiler/numeric_zero/native_pairs.rs",
+          "mention": "capture_actual_numeric_zero_native_pairs",
+          "carries": "ivm_hex_rows"
+        },
+        {
+          "artifact": "fixtures/kotodama/private_single_use/native_v1.tsv",
+          "generator": "crates/kotodama_lang/src/compiler/single_use_fixtures.rs",
+          "mention": "capture_private_single_use_native_pairs",
+          "carries": "ivm_hex_rows"
+        },
+        {
+          "artifact": "crates/ivm_abi/tests/fixtures/axt_golden.rs",
+          "generator": "crates/ivm_abi/tests/axt_policy_vectors.rs",
+          "mention": "print_golden_vectors",
+          "carries": "hex_wrapped"
+        },
+        {
+          "artifact": "crates/iroha/tests/fixtures/contract_code_readback/code_readback.manifest.json",
+          "generator": "scripts/regenerate_kotodama_goldens.py",
+          "mention": "crates/iroha/tests/fixtures/contract_code_readback/code_readback.manifest.json",
+          "carries": "HEX"
         }
       ]
     },
@@ -925,9 +1073,53 @@
         {
           "path": "crates/iroha_data_model/src/fastpq/public_artifact.rs",
           "contains": "pub enum FastpqProofKindV1"
+        },
+        {
+          "path": "crates/fastpq_prover/src/backend/transcript_profile.rs",
+          "contains": "pub(super) fn profile() -> &'static SemanticProfileV1 {"
+        },
+        {
+          "path": "crates/fastpq_prover/src/backend/compact_sha3.rs",
+          "contains": "profile: super::transcript_profile::profile().as_bytes().to_vec(),"
         }
       ],
       "regenerate": [
+        {
+          "artifact": "fixtures/fastpq/q77-transcript-profile.json",
+          "generator": "scripts/zk_semantic_profile_reference.py",
+          "mention": "--write-fixture",
+          "checked_by": "crates/fastpq_prover/src/backend/deep_binding/frozen_tests.rs",
+          "check_mention": "frozen_transcript_matches_the_independent_known_answers"
+        },
+        {
+          "artifact": "fixtures/fastpq/q77-frozen-transcript-proof.json",
+          "generator": "crates/fastpq_prover/src/backend/deep_fixture/frozen_tests.rs",
+          "mention": "q77-frozen-transcript-proof.json"
+        },
+        {
+          "artifact": "fixtures/fastpq/q77-quantity-profile.json",
+          "generator": "crates/fastpq_prover/src/backend/compact_quantity_artifact_tests.rs",
+          "mention": "q77-quantity-profile.json"
+        },
+        {
+          "artifact": "fixtures/fastpq/q77-quantity-ordinary-single.json",
+          "generator": "crates/fastpq_prover/src/backend/compact_quantity_diagnostic.rs",
+          "mention": "fixtures/fastpq/q77-quantity-"
+        },
+        {
+          "artifact": "fixtures/fastpq/q77-quantity-axt-single.json",
+          "generator": "crates/fastpq_prover/src/backend/compact_quantity_diagnostic.rs",
+          "mention": "fixtures/fastpq/q77-quantity-"
+        },
+        {
+          "artifact": "specs/zk_primitive_workloads.json",
+          "checked_by": "scripts/check_zk_primitive_workloads.py",
+          "mention": "semantic_profiles"
+        },
+        {
+          "artifact": "specs/fastpq_deep_protocol_contract.md",
+          "document": true
+        },
         {
           "artifact": "fixtures/privacy/exact12_typed_fixture_bundle_v1.norito.b64",
           "generator": "crates/iroha_data_model/src/bin/privacy_exact12_fixtures.rs",
@@ -946,6 +1138,39 @@
       ]
     }
   ],
+  "declared_proof_cutovers": [
+    {
+      "surface": "proof",
+      "cutover": "fresh_genesis_when_stored",
+      "task": "H.2",
+      "change": "The FASTPQ q77 transcript now absorbs the name of the frozen construction (`fips202-atomic-whole-tape-transcript-v1`) and the complete typed profile descriptor (`fastpq.transcript.q77.v1`) in place of the legacy parameter-set name and a hand-written identity string, and the artifact descriptor embeds the same descriptor bytes. Every commitment, challenge and proof byte of the engine changed, and so did both `FastpqCompactProfileIdV1` values.",
+      "semantic_profile_identity": "b1b3be0bc1b548e32fa6f949500c0de43c8f7412a5586623c4d3f1ca705f945b",
+      "artifact_profile_ids": {
+        "quantity_axt": "4f0ece59b3f42d1c318f597b0df2f5af8b8db41bc95dfbb11974ddb285f20b0b",
+        "execution_effect": "e4b83c36dca6915f908d6509ef43511ae6da1b8254cb2724b2b6fe00918779b8"
+      },
+      "replacement": "Direct: no verifier branch, alias or decoder for the previous transcript or profile ids exists. A proof or artifact built before the change is refused: the artifact profile id differs before the child is decoded, and a child proof fails its first challenge.",
+      "fresh_genesis": false,
+      "fresh_genesis_reason": "The pinned history holds no FASTPQ proof and no State derived from one. A history that stored an ordinary-transfer or AXT artifact under the previous profile needs a fresh genesis with this cutover; no claim is made that such a history replays.",
+      "golden": {
+        "path": "crates/fastpq_prover/src/backend/transcript_profile/tests.rs",
+        "test": "frozen_identity_frame_and_artifact_profile_ids_are_pinned"
+      }
+    }
+  ],
+  "declared_abi_cutover": {
+    "surface": "abi",
+    "cutover": "contract_redeployment",
+    "abi_hash": "d87449f2ec45628b835c736c9915eaa85bfcb87e544da269fdb7c4889d3db82f",
+    "golden": {
+      "path": "crates/iroha_data_model/tests/fixtures/abi_v1_hash.rs",
+      "prefix": "pub const ABI_V1_HASH_GOLDEN: &str =\n    \""
+    },
+    "change": "ABI V1 uses the compact CS1 callable schema, declared permission identities, authenticated native event schemas and typed contract-call argument/result tables. The hashed syscall surface describes the current registers, including generation-bound alias operations, and 0xA0 accepts only SubmitBallot. Retired opaque contract calls and the duplicate DEX call surface are removed. The ABI version remains 1; the current complete descriptor determines this hash.",
+    "redeployment": "Contracts compiled before this surface change carry an obsolete interface or abi_hash and are refused by decoding or admission. Recompile .ko to .to with the current compiler and deploy its manifest. There is no alias for former hashes or compatibility decoder.",
+    "fresh_genesis": false,
+    "fresh_genesis_reason": "The pinned history holds no contract and no runtime-ABI record: none of its frames contains the ABI hash, which the guard re-checks on every run. A history that holds either needs a fresh genesis with this cutover."
+  },
   "obsolete_history_evidence": {
     "tool": "scripts/first_release_history_evidence.py",
     "tool_test": "pytests/scripts/first_release_history_evidence_test.py",
@@ -989,6 +1214,43 @@
       }
     ]
   },
+  "future_checkpoint_rule": {
+    "section": "Snapshots and checkpoints",
+    "statements": [
+      "Authenticated snapshot restore is separate unfinished work",
+      "A future authenticated checkpoint must state its height, block hash and certified result, how they are authenticated against the genesis-bound committee schedule, and the suffix it verifies: the blocks after the checkpoint, replayed and compared with their certificates.",
+      "It verifies nothing below its height and cannot retroactively validate discarded history."
+    ],
+    "section_sha256": "3530d66e98773f17cdbbe6f7c6765a56d55f45a60f6f678969b6605de638a03c",
+    "anchors": [
+      {
+        "path": "crates/iroha_core/src/sumeragi/node.rs",
+        "contains": "is not implemented (TODO(S9)); Strict startup therefore rebuilds original State from the"
+      }
+    ],
+    "owner": "outside-zk-plan:consensus",
+    "summary": "No authenticated checkpoint exists: restore against the certified World root is open under Sumeragi goal S9, and startup replays from the signed genesis. The guard preserves the rule the contract states for that future work; it is not evidence that a checkpoint exists or verifies."
+  },
+  "test_prerequisites": [
+    {
+      "package": "integration_tests",
+      "build": "cargo build -p irohad --bin iroha3d",
+      "environment": {
+        "TEST_NETWORK_BIN_IROHAD": "${CARGO_TARGET_DIR:-$PWD/target}/debug/iroha3d"
+      },
+      "reason": "The real-peer tests start `iroha3d` processes of the tree under test. The command builds that daemon and the variable names it by absolute path when run from the repository root; `CARGO_TARGET_DIR`, when set, must be absolute.",
+      "anchors": [
+        {
+          "path": "crates/iroha_test_network/src/lib.rs",
+          "contains": "const PROGRAM_IROHAD_ENV: &str = \"TEST_NETWORK_BIN_IROHAD\";"
+        },
+        {
+          "path": "crates/irohad/bins/Cargo.toml",
+          "contains": "name = \"iroha3d\""
+        }
+      ]
+    }
+  ],
   "open_findings": [
     {
       "id": "T1-A02",
@@ -1059,13 +1321,6 @@
       "path": "crates/iroha_zkp_halo2/src/vega/zk_ams/mkhe/rns_native_public_polynomial_reader.rs",
       "anchor": "const LEGACY_RNS_LIMBS_V1: usize = 38;",
       "summary": "ZK-AMS MKHE public-polynomial reader still handles the 38-limb release layout"
-    },
-    {
-      "id": "T1-A15",
-      "owner": "T.1",
-      "path": "crates/iroha_data_model/src/block/mod.rs",
-      "anchor": "pub fn frame_versioned_signed_block_bytes(",
-      "summary": "SignedBlock keeps a public headerless DecodeVersioned and frame_versioned_signed_block_bytes frames a headerless payload; tests, one bench and one integration test call them, the guard (test_only_references) refuses any other caller, and storage, distribution and genesis loading decode only framed blocks"
     },
     {
       "id": "T1-A12",

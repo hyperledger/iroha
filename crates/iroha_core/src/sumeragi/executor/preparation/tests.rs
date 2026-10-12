@@ -26,6 +26,8 @@ fn certificate_capacity_refusal_reaches_scheduler_with_original_release_and_exec
             let mut registration = crate::unit_test_support::release_registration(
                 &chain.state().ivm_execution_budget(),
             );
+            let original_thread = std::thread::current();
+            registration.bind_thread(original_thread.clone());
             let scheduler_registration =
                 crate::sumeragi::driver::exec::ExecutionRegistrations::admit(
                     &chain.state().ivm_execution_budget(),
@@ -49,6 +51,7 @@ fn certificate_capacity_refusal_reaches_scheduler_with_original_release_and_exec
                 _ => panic!("retain original executed phase"),
             };
             let mut scheduler = ExecSched::new(1, Backoff::default(), scheduler_registration);
+            scheduler.bind_release_thread(original_thread);
             scheduler.commit(body.clone(), qc.clone());
             let Some(ExecOp::Prepare(original)) = scheduler.next(0) else {
                 panic!("prepare same original commit");
@@ -230,14 +233,6 @@ fn preparation_classification_preserves_real_limit_and_does_not_invent_release_f
         panic!("retain original shared control admission source");
     };
     assert_eq!(source.allocation_refusal(), Some(&original));
-    assert!(matches!(
-        encoding_failure(&ResultPreimageError::ForeignBudget),
-        PublicationError::Retryable(_)
-    ));
-    assert!(matches!(
-        certificate_failure(&CertificateAdmissionError::ForeignBudget),
-        PublicationError::Retryable(_)
-    ));
     use iroha_sumeragi::message::ByteAdmissionError;
     for error in [
         ByteAdmissionError::Buffer(ChargedBufferError::Admission(original.clone())),
@@ -272,6 +267,152 @@ fn preparation_classification_preserves_real_limit_and_does_not_invent_release_f
 }
 
 #[test]
+fn immutable_result_foreign_budget_requires_recovery_with_original_diagnostic() {
+    let error = ResultPreimageError::ForeignBudget;
+    let PublicationError::RecoveryRequired(reason) = encoding_failure(&error) else {
+        panic!("an unchanged foreign source cannot be retried or blamed on the peer");
+    };
+    assert_eq!(reason, error.to_string());
+}
+
+#[test]
+fn immutable_result_excessive_preimage_requires_recovery_with_original_extent() {
+    let error = ResultPreimageError::PreimageLength(MAX_RESULT_PREIMAGE_BYTES + 1);
+    let PublicationError::RecoveryRequired(reason) = encoding_failure(&error) else {
+        panic!("the same immutable result cannot shrink on retry");
+    };
+    assert_eq!(reason, error.to_string());
+    assert!(reason.contains(&(MAX_RESULT_PREIMAGE_BYTES + 1).to_string()));
+}
+
+#[test]
+fn immutable_result_encoding_failure_requires_recovery_with_original_cause() {
+    let error = ResultPreimageError::Encoding(norito::Error::LengthMismatch);
+    let PublicationError::RecoveryRequired(reason) = encoding_failure(&error) else {
+        panic!("the same canonical encoding failure needs local correction");
+    };
+    assert_eq!(reason, error.to_string());
+}
+
+#[test]
+fn immutable_certificate_foreign_budget_requires_recovery_with_original_diagnostic() {
+    let error = CertificateAdmissionError::ForeignBudget;
+    let PublicationError::RecoveryRequired(reason) = certificate_failure(&error) else {
+        panic!("certificate custody cannot move to a foreign pool on retry");
+    };
+    assert_eq!(reason, error.to_string());
+}
+
+#[test]
+fn immutable_preparation_capacity_preserves_the_exact_original_release() {
+    let budget = AllocationBudget::new(8);
+    let occupied = budget.try_reserve_bytes(8).unwrap();
+    let original = budget.try_reserve_bytes(1).unwrap_err();
+    let AllocationRefusal::Capacity { release, .. } = &original else {
+        panic!("the original pool is temporarily occupied");
+    };
+    for refusal in [
+        encoding_failure(&ResultPreimageError::Allocation(
+            ChargedBufferError::Admission(original.clone()),
+        )),
+        certificate_failure(&CertificateAdmissionError::Buffer(
+            ChargedBufferError::Admission(original.clone()),
+        )),
+        certificate_failure(&CertificateAdmissionError::ControlAdmission(
+            original.clone(),
+        )),
+        block_failure(&SharedBlockAdmissionError::Admission(original.clone())),
+        witness_failure(
+            &iroha_sumeragi::message::ByteAdmissionError::ControlAdmission(original.clone()),
+        ),
+    ] {
+        let PublicationError::Deferred(source) = refusal else {
+            panic!("actual capacity refusal remains locally deferred");
+        };
+        assert_eq!(source.allocation_refusal(), Some(&original));
+        assert_eq!(source.release_wait(), Some(release));
+    }
+    drop(occupied);
+    assert!(budget.try_reserve_bytes(1).is_ok());
+}
+
+#[test]
+fn immutable_preparation_allocator_refusal_never_invents_a_release() {
+    for refusal in [
+        encoding_failure(&ResultPreimageError::Allocation(
+            ChargedBufferError::Allocator { requested_bytes: 4 },
+        )),
+        certificate_failure(&CertificateAdmissionError::Buffer(
+            ChargedBufferError::Allocator { requested_bytes: 4 },
+        )),
+        certificate_failure(&CertificateAdmissionError::ControlAllocation(
+            PrepaidSharedError::Allocator { requested_bytes: 4 },
+        )),
+        block_failure(&SharedBlockAdmissionError::Allocation(
+            PrepaidSharedError::Allocator { requested_bytes: 4 },
+        )),
+        witness_failure(
+            &iroha_sumeragi::message::ByteAdmissionError::ControlAllocation(
+                PrepaidSharedError::Allocator { requested_bytes: 4 },
+            ),
+        ),
+    ] {
+        let PublicationError::Deferred(source) = refusal else {
+            panic!("physical allocator recovery can retry the original owner");
+        };
+        assert_eq!(
+            source.execution().unwrap().reason(),
+            ExecutionDeferral::AllocationUnavailable
+        );
+        assert!(source.allocation_refusal().is_none());
+        assert!(source.release_wait().is_none());
+    }
+}
+
+#[test]
+fn immutable_preparation_short_prepaid_parent_requires_recovery_without_losing_custody() {
+    use iroha_allocation::ChargedShared;
+    use iroha_sumeragi::message::ByteAdmissionError;
+
+    let original = Arc::new([0x5au8; 4]);
+    let pointer = Arc::as_ptr(&original);
+    let layout = ChargedShared::<Arc<[u8; 4]>>::allocation_layout();
+    let budget = AllocationBudget::new(layout.size() * 2);
+    let original_remainder = layout.size() - 1;
+    let mut reservation = budget.try_reserve_bytes(original_remainder).unwrap();
+    let (returned, refusal) = ChargedShared::from_reservation(original, &mut reservation)
+        .expect_err("the original prepaid parent cannot fund the required control");
+    assert_eq!(Arc::as_ptr(&returned), pointer);
+    assert_eq!(budget.reserved_bytes(), original_remainder);
+    assert_eq!(reservation.remaining_bytes(), original_remainder);
+    let PrepaidSharedError::Reservation(shortage) = refusal else {
+        panic!("an undersized original parent preserves its exact reservation error");
+    };
+    assert_eq!(shortage.requested_bytes, layout.size());
+    assert_eq!(shortage.remaining_bytes, original_remainder);
+    // Spare capacity in the same pool cannot enlarge an immutable prepaid parent.
+    assert!(budget.try_reserve_bytes(layout.size()).is_ok());
+    let block = SharedBlockAdmissionError::Allocation(refusal);
+    let certificate = CertificateAdmissionError::ControlAllocation(refusal);
+    let witness = ByteAdmissionError::ControlAllocation(refusal);
+    for (classified, expected) in [
+        (block_failure(&block), block.to_string()),
+        (certificate_failure(&certificate), certificate.to_string()),
+        (witness_failure(&witness), witness.to_string()),
+    ] {
+        let PublicationError::RecoveryRequired(reason) = classified else {
+            panic!("retry cannot repair the same undersized original parent");
+        };
+        assert_eq!(reason, expected);
+        assert!(reason.contains(&shortage.to_string()));
+    }
+    assert_eq!(Arc::as_ptr(&returned), pointer);
+    assert_eq!(reservation.remaining_bytes(), original_remainder);
+    drop(reservation);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
 fn cold_prepare_refusal_retains_original_finishing_owner_and_exact_release() {
     use super::super::{
         FinishingPhase, NativeContextArchiveError, NativeLaneStateProofError, PublicationDeferral,
@@ -286,6 +427,8 @@ fn cold_prepare_refusal_retains_original_finishing_owner_and_exact_release() {
             let mut registration = crate::unit_test_support::release_registration(
                 &chain.state().ivm_execution_budget(),
             );
+            let original_thread = std::thread::current();
+            registration.bind_thread(original_thread.clone());
             let scheduler_registration =
                 crate::sumeragi::driver::exec::ExecutionRegistrations::admit(
                     &chain.state().ivm_execution_budget(),
@@ -326,6 +469,7 @@ fn cold_prepare_refusal_retains_original_finishing_owner_and_exact_release() {
             }));
             let retained = budget.reserved_bytes();
             let mut scheduler = ExecSched::new(1, Backoff::default(), scheduler_registration);
+            scheduler.bind_release_thread(original_thread);
             scheduler.commit(body.clone(), qc.clone());
             let Some(ExecOp::Prepare(original)) = scheduler.next(0) else {
                 panic!("cold prepare retains the original queued decision");
@@ -660,6 +804,8 @@ fn validation_wrappers_keep_real_capacity_and_terminal_custody_distinct() {
             BlockValidationError::StateStorageAdmission(StateStorageAdmissionError::NativeAmx(
                 crate::sumeragi::amx::NativeAmxAdmissionError::Admission(original.clone()),
             )),
+            BlockValidationError::ExecutionDeferred(original.clone().into()),
+            BlockValidationError::ExecutionDeferred(original.clone().into()),
             BlockValidationError::EvidencePreparation(EvidencePreparationError::Admission(
                 original.clone(),
             )),
@@ -730,6 +876,8 @@ fn validation_wrappers_keep_real_capacity_and_terminal_custody_distinct() {
         BlockValidationError::StateStorageAdmission(StateStorageAdmissionError::NativeAmx(
             crate::sumeragi::amx::NativeAmxAdmissionError::Allocator { bytes: 8 },
         )),
+        BlockValidationError::ExecutionDeferred(ExecutionDeferral::AllocationUnavailable.into()),
+        BlockValidationError::ExecutionDeferred(ExecutionDeferral::AllocationUnavailable.into()),
         BlockValidationError::EvidencePreparation(EvidencePreparationError::Allocator {
             requested_bytes: 8,
         }),
@@ -765,6 +913,10 @@ fn validation_wrappers_keep_real_capacity_and_terminal_custody_distinct() {
                 AllocationRefusal::DemandOverflow,
             ),
         )),
+        BlockValidationError::ExecutionDeferred(ExecutionDeferral::LocalInvariantViolation.into()),
+        BlockValidationError::ExecutionDeferred(AllocationRefusal::DemandOverflow.into()),
+        BlockValidationError::ExecutionDeferred(ExecutionDeferral::LocalInvariantViolation.into()),
+        BlockValidationError::ExecutionDeferred(AllocationRefusal::DemandOverflow.into()),
         BlockValidationError::EvidencePreparation(EvidencePreparationError::Invariant),
         BlockValidationError::BlockHashAdmission(BlockHashAdmissionError::Poisoned),
         BlockValidationError::BlockHashAdmission(BlockHashAdmissionError::ReadOnly),

@@ -270,6 +270,8 @@ impl PrefixVerifierContext {
         current: &CommittedBlock,
         budget: &iroha_allocation::AllocationBudget,
     ) -> Result<CertificateVerdict, VerificationReadError> {
+        check_result_scope(parent, self.root_scope)?;
+        check_result_scope(current, self.root_scope)?;
         let authority = executed_successor_authority(parent, current, budget)?;
         let certificate = self.prepare_certificate_with_scratch_admission(
             current,

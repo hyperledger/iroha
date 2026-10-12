@@ -27,6 +27,14 @@ import org.hyperledger.iroha.sdk.core.model.InstructionBox
 import org.hyperledger.iroha.sdk.core.model.JsonValue
 import org.hyperledger.iroha.sdk.core.model.NetworkId
 import org.hyperledger.iroha.sdk.core.model.TransactionPayload
+import org.hyperledger.iroha.sdk.core.model.SignedAttachmentsV1
+import org.hyperledger.iroha.sdk.core.model.ActionIntentV1
+import org.hyperledger.iroha.sdk.core.model.ActionOperationV1
+import org.hyperledger.iroha.sdk.core.model.ActionInvocationBindingV1
+import org.hyperledger.iroha.sdk.core.model.ActionPublicInputsDigestV1
+import org.hyperledger.iroha.sdk.core.model.OrderedIntentDigestV1
+import org.hyperledger.iroha.sdk.core.model.AttachmentRoleV1
+import org.hyperledger.iroha.sdk.core.model.SignedAttachmentLimitsV1
 import org.hyperledger.iroha.sdk.core.model.WirePayload
 import org.hyperledger.iroha.sdk.core.model.instructions.LanePrivacyMerkleWitness
 import org.hyperledger.iroha.sdk.core.model.instructions.LanePrivacyProof
@@ -45,9 +53,12 @@ internal class TransactionPayloadAdapter private constructor(
     private val chainDiscriminant: Int,
 ) : TypeAdapter<TransactionPayload> {
 
-    override fun encode(encoder: NoritoEncoder, value: TransactionPayload) {
+    override fun encode(encoder: NoritoEncoder, value: TransactionPayload) = encodePayload(encoder, value, false)
+
+    private fun encodePayload(encoder: NoritoEncoder, value: TransactionPayload, normalized: Boolean) {
         withChainContext(chainDiscriminant) {
-            when (val executable = value.executable) {
+            if (!normalized) validateSignedAttachments(value)
+            if (!normalized) when (val executable = value.executable) {
                 is Executable.Instructions -> executable.instructions.forEach {
                     it.requirePrivacyExact12Network(value.networkId)
                 }
@@ -56,6 +67,7 @@ internal class TransactionPayloadAdapter private constructor(
                         it.instruction.requirePrivacyExact12Network(value.networkId)
                     }
                 }
+                is Executable.IvmProved -> executable.overlay.forEach { it.requirePrivacyExact12Network(value.networkId) }
                 is Executable.Ivm, is Executable.ContractCall -> Unit
             }
             require(!value.executable.requiresTransactionGasLimit() || value.feePayment.gasLimit != null) {
@@ -64,7 +76,7 @@ internal class TransactionPayloadAdapter private constructor(
             encodeSizedField(encoder, TRANSACTION_DOMAIN_ADAPTER, value.networkId)
             encodeSizedField(encoder, ACCOUNT_ID_ADAPTER, value.authority)
             encodeSizedField(encoder, UINT64_ADAPTER, value.creationTimeMs)
-            encodeSizedField(encoder, EXECUTABLE_ADAPTER, value.executable)
+            encodeSizedField(encoder, if (normalized) IntentExecutableAdapter() else EXECUTABLE_ADAPTER, value.executable)
             encodeSizedField(encoder, TTL_ADAPTER, Optional.ofNullable(value.timeToLiveMs))
             encodeSizedField(encoder, NONCE_ADAPTER, Optional.ofNullable(value.nonce))
             encodeSizedField(encoder, FEE_PAYMENT_ADAPTER, value.feePayment)
@@ -72,7 +84,7 @@ internal class TransactionPayloadAdapter private constructor(
             encodeSizedField(encoder, METADATA_ADAPTER, value.metadata)
             encodeSizedField(
                 encoder,
-                ATTACHMENTS_OPTION_ADAPTER,
+                if (normalized) NORMALIZED_ATTACHMENTS_OPTION_ADAPTER else ATTACHMENTS_OPTION_ADAPTER,
                 Optional.ofNullable(value.attachments),
             )
         }
@@ -92,8 +104,9 @@ internal class TransactionPayloadAdapter private constructor(
             val feePayment = decodeSizedField(decoder, FEE_PAYMENT_ADAPTER)
 
             val metadata = LinkedHashMap(decodeSizedField(decoder, METADATA_ADAPTER))
-            val attachments: Optional<List<ProofAttachment>> =
-                decodeSizedField(decoder, ATTACHMENTS_OPTION_ADAPTER)
+            val attachments: Optional<SignedAttachmentsV1> =
+                decodeBoundedSizedField(decoder, ATTACHMENTS_OPTION_ADAPTER,
+                    SignedAttachmentLimitsV1.MAX_FRAME_BYTES.toLong(), "signed attachments")
 
             TransactionPayload(
                 networkId = networkId,
@@ -106,8 +119,236 @@ internal class TransactionPayloadAdapter private constructor(
 
                 metadata = metadata,
                 attachments = attachments.orElse(null),
-            )
+            ).also(::validateSignedAttachments)
         }
+
+    /** Decode one canonical standalone attachment frame with the transaction's account codec. */
+    internal fun decodeAttachmentsFrame(bytes: ByteArray): SignedAttachmentsV1 = withChainContext(chainDiscriminant) {
+        require(bytes.size <= SignedAttachmentLimitsV1.MAX_FRAME_BYTES) { "signed attachment frame exceeds its bound" }
+        val frame = NoritoHeader.decode(bytes, org.hyperledger.iroha.sdk.norito.SchemaHash.hash16(SignedAttachmentsAdapter.SCHEMA))
+        require(frame.header.flags == NoritoCodec.DEFAULT_FLAGS && frame.header.compression == NoritoHeader.COMPRESSION_NONE) {
+            "signed attachments require canonical framing"
+        }
+        val value = NoritoCodec.decode(bytes, SIGNED_ATTACHMENTS_ADAPTER, SignedAttachmentsAdapter.SCHEMA)
+        require(SIGNED_ATTACHMENTS_ADAPTER.canonicalFrame(value).contentEquals(bytes)) { "noncanonical signed attachments" }
+        value.actions.filter { it.operation == ActionOperationV1.TransactionProof || it.operation == ActionOperationV1.IvmProvedExecution }.forEach { validateCarrier(it, value) }
+        value
+    }
+
+    internal fun actionStatementDigest(action: ActionIntentV1, intent: OrderedIntentDigestV1) =
+        withChainContext(chainDiscriminant) { SIGNED_ATTACHMENTS_ADAPTER.statementDigest(action, intent) }
+
+    /** Exact canonical frame hashed by Rust's ordered intent digest. */
+    internal fun orderedIntentProjection(value: TransactionPayload): ByteArray = withChainContext(chainDiscriminant) {
+        NoritoCodec.encode(value, CANONICAL_PAYLOAD_SCHEMA, object : TypeAdapter<TransactionPayload> {
+            override fun encode(encoder: NoritoEncoder, value: TransactionPayload) = encodePayload(encoder, value, true)
+            override fun decode(decoder: NoritoDecoder): TransactionPayload =
+                throw UnsupportedOperationException("an ordered intent projection is not a decodable transaction")
+        })
+    }
+
+    /** Encode-only adapters keep proof-free bytes outside admitted instruction models. */
+    private inner class IntentExecutableAdapter : TypeAdapter<Executable> {
+        override fun encode(encoder: NoritoEncoder, value: Executable) {
+            when (value) {
+                is Executable.Instructions -> {
+                    ENUM_TAG_ADAPTER.encode(encoder, EXECUTABLE_INSTRUCTIONS_TAG)
+                    encodeSizedField(encoder, NoritoAdapters.sequence(IntentInstructionAdapter()), value.instructions)
+                }
+                is Executable.Batch -> {
+                    ENUM_TAG_ADAPTER.encode(encoder, EXECUTABLE_BATCH_TAG)
+                    encodeSizedField(encoder, NoritoAdapters.sequence(IntentBatchItemAdapter()), value.entries)
+                }
+                else -> encodeExecutable(encoder, normalizeExecutable(value))
+            }
+        }
+        override fun decode(decoder: NoritoDecoder): Executable =
+            throw UnsupportedOperationException("an ordered intent projection is not executable")
+    }
+
+    private inner class IntentBatchItemAdapter : TypeAdapter<ExecutableBatchItem> {
+        override fun encode(encoder: NoritoEncoder, value: ExecutableBatchItem) {
+            when (value) {
+                is ExecutableBatchItem.Instruction -> {
+                    ENUM_TAG_ADAPTER.encode(encoder, BATCH_ITEM_INSTRUCTION_TAG)
+                    encodeSizedField(encoder, IntentInstructionAdapter(), value.instruction)
+                }
+                is ExecutableBatchItem.ContractCall -> {
+                    ENUM_TAG_ADAPTER.encode(encoder, BATCH_ITEM_CONTRACT_CALL_TAG)
+                    encodeSizedField(encoder, CONTRACT_INVOCATION_ADAPTER, value.invocation)
+                }
+            }
+        }
+        override fun decode(decoder: NoritoDecoder): ExecutableBatchItem =
+            throw UnsupportedOperationException("an ordered intent projection is not executable")
+    }
+
+    private class IntentInstructionAdapter : TypeAdapter<InstructionBox> {
+        override fun encode(encoder: NoritoEncoder, value: InstructionBox) {
+            val wire = value.payload as? WirePayload
+            if (wire?.wireName != "iroha.privacy.submit_proof.v1") {
+                INSTRUCTION_ADAPTER.encode(encoder, value)
+                return
+            }
+            val projection = org.hyperledger.iroha.sdk.privacy.PrivacyNativeBridge
+                .submitProofIntentProjectionV1(wire.payloadBytes)
+            encodeSizedField(encoder, STRING_ADAPTER, wire.wireName)
+            encodeSizedField(encoder, RAW_BYTE_VEC_ADAPTER, projection.bytes())
+        }
+        override fun decode(decoder: NoritoDecoder): InstructionBox =
+            throw UnsupportedOperationException("an ordered intent projection is not an admitted instruction")
+    }
+
+    private fun normalizeExecutable(executable: Executable): Executable = when (executable) {
+        is Executable.IvmProved -> {
+            // Hash::prehashed([0; 32]) retains the mandatory Iroha hash marker.
+            val clearedHash = ByteArray(32).also { it[31] = 1 }
+            Executable.IvmProved(executable.ivmBytes, emptyList(), clearedHash, clearedHash)
+        }
+        else -> executable
+    }
+
+    internal fun orderedIntentDigest(value: TransactionPayload): OrderedIntentDigestV1 =
+        OrderedIntentDigestV1(SignedAttachmentsAdapter.domainDigest(ORDERED_INTENT_DOMAIN, orderedIntentProjection(value)))
+
+    /** Rebind the descriptor after independent payload fields change; proofs must then be regenerated. */
+    internal fun bindAttachmentStatements(value: TransactionPayload): TransactionPayload = withChainContext(chainDiscriminant) {
+        val attachments = value.attachments ?: return@withChainContext value
+        val intent = orderedIntentDigest(value)
+        value.copy(attachments = SignedAttachmentsV1(
+            attachments.actions.map { it.withStatementDigest(SIGNED_ATTACHMENTS_ADAPTER.statementDigest(it, intent)) },
+            attachments.occurrences,
+        )).also(::validateSignedAttachments)
+    }
+
+    internal fun withProofAttachments(value: TransactionPayload, proofs: List<ProofAttachment>): TransactionPayload =
+        withChainContext(chainDiscriminant) {
+            val count = proofs.size
+            require(count in 1..SignedAttachmentLimitsV1.MAX_OCCURRENCES) { "proof carrier count exceeds its bound" }
+            val carriers = List(count) { proofs[it] }
+            preflightProofAttachments(carriers)
+            val occurrences = carriers.mapIndexed { index, proof ->
+                org.hyperledger.iroha.sdk.core.model.SignedAttachmentOccurrenceV1.of(
+                    index.toLong(), org.hyperledger.iroha.sdk.core.model.AttachmentKindV1.Proof,
+                    NoritoCodec.encode(proof, PROOF_ATTACHMENT_SCHEMA, PROOF_ATTACHMENT_ADAPTER),
+                )
+            }
+            val actions = carriers.mapIndexed { index, proof ->
+                val occurrence = occurrences[index]
+                ActionIntentV1(
+                    index.toLong(), ActionOperationV1.TransactionProof,
+                    org.hyperledger.iroha.sdk.core.model.ActionRoleV1.ProofVerification,
+                    org.hyperledger.iroha.sdk.core.model.ActionAuthorityBindingV1.TransactionAuthority,
+                    ActionInvocationBindingV1.Transaction,
+                    ActionPublicInputsDigestV1(SignedAttachmentsAdapter.domainDigest(PROOF_CARRIER_DOMAIN,
+                        NoritoCodec.encode(proof, PROOF_ATTACHMENT_SCHEMA, PROOF_FREE_ATTACHMENT_ADAPTER))),
+                    org.hyperledger.iroha.sdk.core.model.ActionStatementDigestV1(ByteArray(32)),
+                    listOf(org.hyperledger.iroha.sdk.core.model.AttachmentReferenceV1(
+                        index.toLong(), occurrence.kind,
+                        if (proof.lanePrivacy == null) AttachmentRoleV1.ActionProof else AttachmentRoleV1.LanePrivacyProof,
+                        occurrence.length, occurrence.contentHash,
+                    )),
+                )
+            }
+            bindAttachmentStatements(value.copy(attachments = SignedAttachmentsV1(actions, occurrences)))
+        }
+
+    internal fun withIvmExecutionProof(value: TransactionPayload, proof: ProofAttachment): TransactionPayload =
+        withChainContext(chainDiscriminant) {
+            require(value.executable is Executable.IvmProved) { "execution proof requires a proved executable" }
+            require(proof.lanePrivacy == null) { "execution proof cannot carry a lane privacy witness" }
+            val carrier = withProofAttachments(value, listOf(proof)).attachments!!
+            val action = carrier.actions.single()
+            val reference = action.attachments.single()
+            val execution = ActionIntentV1(action.actionIndex, ActionOperationV1.IvmProvedExecution,
+                org.hyperledger.iroha.sdk.core.model.ActionRoleV1.ProofEffect, action.authority,
+                action.invocation, action.publicInputsDigest, action.statementDigest,
+                listOf(org.hyperledger.iroha.sdk.core.model.AttachmentReferenceV1(reference.index,
+                    reference.kind, AttachmentRoleV1.ExecutionProof, reference.length, reference.contentHash)))
+            bindAttachmentStatements(value.copy(attachments = SignedAttachmentsV1(listOf(execution), carrier.occurrences)))
+        }
+
+    internal fun preflightProofAttachments(proofs: List<ProofAttachment>) {
+        require(proofs.size in 1..SignedAttachmentLimitsV1.MAX_OCCURRENCES) { "proof carrier count exceeds its bound" }
+        // Plan all sizes before any proofBytes() copy or canonical frame construction.
+        preflightCarrierSizes(proofs.map { canonicalCarrierSize(it) })
+    }
+
+    internal fun preflightCarrierSizes(sizes: List<Long>) = SIGNED_ATTACHMENTS_ADAPTER.requireTransactionCarrierSizes(sizes)
+
+    private fun canonicalCarrierSize(proof: ProofAttachment): Long {
+        require(proof.proofByteCount <= SignedAttachmentLimitsV1.MAX_OCCURRENCE_BYTES) {
+            "proof carrier exceeds the signed occurrence bound before encoding"
+        }
+        val empty = NoritoEncoder(NoritoCodec.DEFAULT_FLAGS)
+        ProofAttachmentAdapter(omitProofBytes = true).encode(empty, proof)
+        val backendSize = proof.backend.toByteArray(Charsets.UTF_8).size.toLong()
+        fun field(size: Long): Long {
+            var remaining = size
+            var prefix = 1L
+            while (remaining >= 128) { remaining = remaining ushr 7; prefix++ }
+            return size + prefix
+        }
+        val zeroBox = ProofAttachment.canonicalProofBoxEncodedLength(backendSize, 0)
+        val realBox = ProofAttachment.canonicalProofBoxEncodedLength(backendSize, proof.proofByteCount.toLong())
+        return NoritoHeader.HEADER_LENGTH + empty.toByteArray().size - field(zeroBox) + field(realBox)
+    }
+
+    private fun validateSignedAttachments(value: TransactionPayload) {
+        val attachments = value.attachments ?: return
+        SIGNED_ATTACHMENTS_ADAPTER.canonicalFrame(attachments)
+        val intent = orderedIntentDigest(value)
+        val direct = HashSet<Long>()
+        var executionCarrierSeen = false
+        for (action in attachments.actions) {
+            when (val operation = action.operation) {
+                ActionOperationV1.TransactionProof -> validateCarrier(action, attachments)
+                ActionOperationV1.IvmProvedExecution -> {
+                    require(!executionCarrierSeen && value.executable is Executable.IvmProved) {
+                        "execution carrier requires a proved executable and must be unique"
+                    }
+                    executionCarrierSeen = true
+                    validateCarrier(action, attachments)
+                }
+                is ActionOperationV1.NativeInstruction -> {
+                    require(operation.wireId in InstructionWireIdsV1.values) { "unregistered native action wire ID" }
+                    when (val invocation = action.invocation) {
+                    is ActionInvocationBindingV1.Direct -> {
+                        val instruction = when (val executable = value.executable) {
+                            is Executable.Instructions -> executable.instructions.getOrNull(invocation.instructionIndex.toInt())
+                            is Executable.Batch -> (executable.entries.getOrNull(invocation.instructionIndex.toInt()) as? ExecutableBatchItem.Instruction)?.instruction
+                            else -> null
+                        }
+                        require((instruction?.payload as? WirePayload)?.wireName == operation.wireId) { "action invocation target mismatch" }
+                        require(direct.add(invocation.instructionIndex)) { "duplicate direct action invocation" }
+                    }
+                    is ActionInvocationBindingV1.Contract -> {
+                        val validRoot = when (val executable = value.executable) {
+                            is Executable.Ivm, is Executable.IvmProved, is Executable.ContractCall -> invocation.rootIndex == 0L
+                            is Executable.Batch -> executable.entries.getOrNull(invocation.rootIndex.toInt()) is ExecutableBatchItem.ContractCall
+                            else -> false
+                        }
+                        require(validRoot) { "action contract root mismatch" }
+                    }
+                    ActionInvocationBindingV1.Transaction -> throw IllegalArgumentException("native action requires an instruction or contract invocation")
+                    }
+                }
+            }
+            require(action.statementDigest == SIGNED_ATTACHMENTS_ADAPTER.statementDigest(action, intent)) { "action statement binding mismatch" }
+        }
+    }
+
+    private fun validateCarrier(action: ActionIntentV1, attachments: SignedAttachmentsV1) {
+        val reference = action.attachments.single()
+        val encoded = attachments.occurrences[reference.index.toInt()].bytes
+        val decoded = NoritoHeader.decode(encoded, org.hyperledger.iroha.sdk.norito.SchemaHash.hash16(PROOF_ATTACHMENT_SCHEMA))
+        require(decoded.header.flags == NoritoCodec.DEFAULT_FLAGS && decoded.header.compression == NoritoHeader.COMPRESSION_NONE) { "proof carrier must use canonical Norito framing" }
+        val proof = NoritoCodec.decode(encoded, PROOF_ATTACHMENT_ADAPTER, PROOF_ATTACHMENT_SCHEMA)
+        require(encoded.contentEquals(NoritoCodec.encode(proof, PROOF_ATTACHMENT_SCHEMA, PROOF_ATTACHMENT_ADAPTER))) { "proof carrier is not canonically encoded" }
+        require((reference.role == AttachmentRoleV1.LanePrivacyProof) == (proof.lanePrivacy != null)) { "proof carrier role mismatch" }
+        val normalized = NoritoCodec.encode(proof, PROOF_ATTACHMENT_SCHEMA, PROOF_FREE_ATTACHMENT_ADAPTER)
+        require(action.publicInputsDigest == ActionPublicInputsDigestV1(SignedAttachmentsAdapter.domainDigest(PROOF_CARRIER_DOMAIN, normalized))) { "proof carrier public-input digest mismatch" }
+    }
 
     private class ProofBoxValue(
         val backend: String,
@@ -237,7 +478,7 @@ internal class TransactionPayloadAdapter private constructor(
 
     private class LanePrivacyMerkleWitnessAdapter : TypeAdapter<LanePrivacyMerkleWitness> {
         override fun encode(encoder: NoritoEncoder, value: LanePrivacyMerkleWitness) {
-            encodeSizedField(encoder, HASH_ARRAY_ADAPTER, value.leafBytes())
+            encodeSizedField(encoder, HASH_ADAPTER, value.leafBytes())
             encodeSizedField(
                 encoder,
                 LANE_PRIVACY_MERKLE_PROOF_ADAPTER,
@@ -246,7 +487,7 @@ internal class TransactionPayloadAdapter private constructor(
         }
 
         override fun decode(decoder: NoritoDecoder): LanePrivacyMerkleWitness {
-            val leaf = decodeSizedField(decoder, HASH_ARRAY_ADAPTER)
+            val leaf = decodeSizedField(decoder, HASH_ADAPTER)
             val proof = decodeSizedField(decoder, LANE_PRIVACY_MERKLE_PROOF_ADAPTER)
             return LanePrivacyMerkleWitness(leaf, proof.leafIndex, proof.auditPath)
         }
@@ -271,31 +512,36 @@ internal class TransactionPayloadAdapter private constructor(
             }
     }
 
+    private object LaneCommitmentIdAdapter : TypeAdapter<Long> {
+        override fun encode(encoder: NoritoEncoder, value: Long) = encodeSizedField(encoder, UINT16_ADAPTER, value)
+        override fun decode(decoder: NoritoDecoder): Long = decodeSizedField(decoder, UINT16_ADAPTER)
+    }
+
     private class LanePrivacyProofAdapter : TypeAdapter<LanePrivacyProof> {
         override fun encode(encoder: NoritoEncoder, value: LanePrivacyProof) {
-            encodeSizedField(encoder, UINT16_ADAPTER, value.commitmentId.toLong())
+            encodeSizedField(encoder, LANE_COMMITMENT_ID_ADAPTER, value.commitmentId.toLong())
             encodeSizedField(encoder, LANE_PRIVACY_WITNESS_ADAPTER, value.witness)
         }
 
         override fun decode(decoder: NoritoDecoder): LanePrivacyProof =
             LanePrivacyProof(
-                decodeSizedField(decoder, UINT16_ADAPTER).toInt(),
+                decodeSizedField(decoder, LANE_COMMITMENT_ID_ADAPTER).toInt(),
                 decodeSizedField(decoder, LANE_PRIVACY_WITNESS_ADAPTER),
             )
     }
 
-    private class ProofAttachmentAdapter : TypeAdapter<ProofAttachment> {
+    private class ProofAttachmentAdapter(private val normalized: Boolean = false, private val omitProofBytes: Boolean = false) : TypeAdapter<ProofAttachment> {
         override fun encode(encoder: NoritoEncoder, value: ProofAttachment) {
             encodeSizedField(encoder, STRING_ADAPTER, value.backend)
             encodeSizedField(
                 encoder,
                 PROOF_BOX_ADAPTER,
-                ProofBoxValue(value.backend, value.proofBytes()),
+                ProofBoxValue(value.backend, if (normalized || omitProofBytes) ByteArray(0) else value.proofBytes()),
             )
             encodeSizedField(encoder, PROOF_VERIFIER_KEY_REF_ADAPTER, value.verifyingKeyRef)
 
             val commitment = value.verifyingKeyCommitmentBytes()
-            val envelopeHash = value.envelopeHashBytes()
+            val envelopeHash = if (normalized) null else value.envelopeHashBytes()
             val lanePrivacy = value.lanePrivacy
             if (commitment != null || envelopeHash != null || lanePrivacy != null) {
                 encodeSizedField(
@@ -387,15 +633,6 @@ internal class TransactionPayloadAdapter private constructor(
                 lanePrivacy,
             )
         }
-    }
-
-    private class ProofAttachmentListAdapter : TypeAdapter<List<ProofAttachment>> {
-        override fun encode(encoder: NoritoEncoder, value: List<ProofAttachment>) {
-            encodeSizedField(encoder, PROOF_ATTACHMENT_SEQUENCE_ADAPTER, value)
-        }
-
-        override fun decode(decoder: NoritoDecoder): List<ProofAttachment> =
-            decodeSizedField(decoder, PROOF_ATTACHMENT_SEQUENCE_ADAPTER)
     }
 
     private object FixedHashArrayAdapter : TypeAdapter<ByteArray> {
@@ -888,6 +1125,34 @@ internal class TransactionPayloadAdapter private constructor(
         }
     }
 
+    /** Every instruction has a field prefix; reject impossible counts before allocating its list. */
+    private class InstructionListAdapter : TypeAdapter<List<InstructionBox>> {
+        override fun encode(encoder: NoritoEncoder, value: List<InstructionBox>) =
+            NoritoAdapters.sequence(INSTRUCTION_ADAPTER).encode(encoder, value)
+
+        override fun decode(decoder: NoritoDecoder): List<InstructionBox> {
+            val count = decoder.readLength(false)
+            require(count in 0..decoder.remaining().toLong()) { "instruction count exceeds the encoded field" }
+            return List(count.toInt()) { decodeSizedField(decoder, INSTRUCTION_ADAPTER) }
+        }
+    }
+
+    private class IvmProvedAdapter : TypeAdapter<Executable.IvmProved> {
+        override fun encode(encoder: NoritoEncoder, value: Executable.IvmProved) {
+            encodeSizedField(encoder, IVM_BYTECODE_ADAPTER, value.ivmBytes)
+            encodeSizedField(encoder, INSTRUCTION_LIST_ADAPTER, value.overlay)
+            encodeSizedField(encoder, HASH_ADAPTER, value.eventsCommitment)
+            encodeSizedField(encoder, HASH_ADAPTER, value.gasPolicyCommitment)
+        }
+
+        override fun decode(decoder: NoritoDecoder): Executable.IvmProved = Executable.IvmProved(
+            decodeSizedField(decoder, IVM_BYTECODE_ADAPTER),
+            decodeSizedField(decoder, INSTRUCTION_LIST_ADAPTER),
+            decodeSizedField(decoder, HASH_ADAPTER),
+            decodeSizedField(decoder, HASH_ADAPTER),
+        )
+    }
+
     private class IvmBytecodeAdapter : TypeAdapter<ByteArray> {
         override fun encode(encoder: NoritoEncoder, value: ByteArray) {
             encodeSizedField(encoder, RAW_BYTE_VEC_ADAPTER, value)
@@ -1036,14 +1301,16 @@ internal class TransactionPayloadAdapter private constructor(
             LanePrivacyMerkleWitnessAdapter()
         private val LANE_PRIVACY_WITNESS_ADAPTER: TypeAdapter<LanePrivacyWitness> =
             LanePrivacyWitnessAdapter()
+        private val LANE_COMMITMENT_ID_ADAPTER = LaneCommitmentIdAdapter
         private val LANE_PRIVACY_PROOF_ADAPTER: TypeAdapter<LanePrivacyProof> =
             LanePrivacyProofAdapter()
         private val OPTIONAL_LANE_PRIVACY_ADAPTER: TypeAdapter<Optional<LanePrivacyProof>> =
             NoritoAdapters.option(LANE_PRIVACY_PROOF_ADAPTER)
+        private val IVM_PROVED_ADAPTER: TypeAdapter<Executable.IvmProved> = IvmProvedAdapter()
         private val IVM_BYTECODE_ADAPTER: TypeAdapter<ByteArray> = IvmBytecodeAdapter()
         private val INSTRUCTION_ADAPTER: TypeAdapter<InstructionBox> = InstructionAdapter()
         private val INSTRUCTION_LIST_ADAPTER: TypeAdapter<List<InstructionBox>> =
-            NoritoAdapters.sequence(INSTRUCTION_ADAPTER)
+            InstructionListAdapter()
         private val ENCODED_INSTRUCTION_LIST_ADAPTER: TypeAdapter<List<ByteArray>> =
             NoritoAdapters.sequence(EncodedInstructionAdapter())
         private val CUSTOM_INSTRUCTION_ADAPTER: TypeAdapter<String> = CustomInstructionAdapter()
@@ -1091,14 +1358,21 @@ internal class TransactionPayloadAdapter private constructor(
         private val PROOF_BOX_ADAPTER: TypeAdapter<ProofBoxValue> = ProofBoxAdapter()
         private val PROOF_VERIFIER_KEY_REF_ADAPTER: TypeAdapter<ProofVerifierKeyRef> =
             ProofVerifierKeyRefAdapter()
-        private val PROOF_ATTACHMENT_ADAPTER: TypeAdapter<ProofAttachment> =
-            ProofAttachmentAdapter()
-        private val PROOF_ATTACHMENT_SEQUENCE_ADAPTER: TypeAdapter<List<ProofAttachment>> =
-            NoritoAdapters.sequence(PROOF_ATTACHMENT_ADAPTER)
-        private val PROOF_ATTACHMENT_LIST_ADAPTER: TypeAdapter<List<ProofAttachment>> =
-            ProofAttachmentListAdapter()
-        private val ATTACHMENTS_OPTION_ADAPTER: TypeAdapter<Optional<List<ProofAttachment>>> =
-            NoritoAdapters.option(PROOF_ATTACHMENT_LIST_ADAPTER)
+        private val PROOF_ATTACHMENT_ADAPTER: TypeAdapter<ProofAttachment> = ProofAttachmentAdapter()
+        private val PROOF_FREE_ATTACHMENT_ADAPTER: TypeAdapter<ProofAttachment> = ProofAttachmentAdapter(normalized = true)
+        private const val CANONICAL_PAYLOAD_SCHEMA = "iroha_data_model::transaction::signed::model::TransactionPayload"
+        private const val PROOF_ATTACHMENT_SCHEMA = "iroha_data_model::proof::ProofAttachment"
+        private const val ORDERED_INTENT_DOMAIN = "iroha.transaction.ordered-intent-digest.v1"
+        private const val PROOF_CARRIER_DOMAIN = "iroha.transaction.proof-carrier-public-inputs-digest.v1"
+        private val SIGNED_ATTACHMENTS_ADAPTER = SignedAttachmentsAdapter(ACCOUNT_ID_ADAPTER)
+        private val ATTACHMENTS_OPTION_ADAPTER: TypeAdapter<Optional<SignedAttachmentsV1>> =
+            NoritoAdapters.option(SIGNED_ATTACHMENTS_ADAPTER)
+        private val NORMALIZED_ATTACHMENTS_OPTION_ADAPTER: TypeAdapter<Optional<SignedAttachmentsV1>> =
+            NoritoAdapters.option(object : TypeAdapter<SignedAttachmentsV1> {
+                override fun encode(encoder: NoritoEncoder, value: SignedAttachmentsV1) = SIGNED_ATTACHMENTS_ADAPTER.encodeValue(encoder, value, true)
+                override fun decode(decoder: NoritoDecoder): SignedAttachmentsV1 =
+                    throw UnsupportedOperationException("a proof-free projection is not a signed attachment payload")
+            })
         private const val INSTRUCTION_BOX_SCHEMA =
             "(alloc::string::String, alloc::vec::Vec<u8>)"
         private const val CUSTOM_INSTRUCTION_SCHEMA =
@@ -1323,6 +1597,10 @@ internal class TransactionPayloadAdapter private constructor(
 
         private fun encodeExecutable(encoder: NoritoEncoder, executable: Executable) {
             when (executable) {
+                is Executable.IvmProved -> {
+                    ENUM_TAG_ADAPTER.encode(encoder, EXECUTABLE_IVM_PROVED_TAG)
+                    encodeSizedField(encoder, IVM_PROVED_ADAPTER, executable)
+                }
                 is Executable.Ivm -> {
                     ENUM_TAG_ADAPTER.encode(encoder, EXECUTABLE_IVM_TAG)
                     encodeSizedField(encoder, IVM_BYTECODE_ADAPTER, executable.ivmBytes)
@@ -1359,8 +1637,7 @@ internal class TransactionPayloadAdapter private constructor(
                 EXECUTABLE_BATCH_TAG -> Executable.batch(
                     decodeSizedField(decoder, BATCH_ADAPTER),
                 )
-                EXECUTABLE_IVM_PROVED_TAG ->
-                    throw IllegalArgumentException("Unsupported Executable discriminant: $tag")
+                EXECUTABLE_IVM_PROVED_TAG -> decodeSizedField(decoder, IVM_PROVED_ADAPTER)
                 else -> throw IllegalArgumentException("Unknown Executable discriminant: $tag")
             }
         }

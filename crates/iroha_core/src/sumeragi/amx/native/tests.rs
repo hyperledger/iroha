@@ -105,15 +105,19 @@ fn private_config(global: &CertifiedTestChain, id: DataSpaceId) -> TestChainConf
             .into_custom_parameter()
             .unwrap(),
         ));
-    config.pipeline.gas.tech_account_id = account(&config.genesis_key).to_string();
-    config.pipeline.gas.accepted_assets = vec![fee_asset().canonical_address()];
-    config.pipeline.gas.units_per_gas = vec![iroha_config::parameters::actual::GasRate {
+    let mut gas = iroha_config::parameters::actual::Gas::default();
+    gas.tech_account_id = account(&config.genesis_key).to_string();
+    gas.accepted_assets = vec![fee_asset().canonical_address()];
+    gas.units_per_gas = vec![iroha_config::parameters::actual::GasRate {
         asset: fee_asset().canonical_address(),
         units_per_gas: 1,
         twap_local_per_xor: Numeric::one(),
         liquidity: iroha_config::parameters::actual::GasLiquidity::Tier2,
         volatility: iroha_config::parameters::actual::GasVolatility::Stable,
     }];
+    config
+        .genesis_parameters
+        .extend(crate::pipeline_gas_policy::parameters_for_testing(gas));
     let domain = DomainId::try_new("amx", "private-amx").unwrap();
     config.genesis_instructions = vec![
         Register::account(Account::new(account(&payer()))).into(),
@@ -1149,7 +1153,9 @@ fn native_amx_new_state_cannot_inherit_live_authority_without_certified_replay()
     let source = chain.state().world.sumeragi_amx_participant.view().clone();
     assert!(source.is_authenticated());
     let budget = chain.state().ivm_execution_budget();
-    let world = World::new();
+    // The constructor must strip execution authority even when every retained
+    // graph and the new World use the exact original physical allocation pool.
+    let world = World::try_with_execution_budget([], [], [], &budget).unwrap();
     {
         let mut block = world.try_block(&budget).unwrap();
         *block.sumeragi_amx_participant.get_mut() = source.clone();

@@ -138,9 +138,22 @@ fn control_chain(branch: bool) -> (Box<CertifiedTestChain>, GovernanceCertificat
     let state = Arc::get_mut(&mut prepared.state).expect("pristine fixture is uniquely owned");
     let budget = state.ivm_execution_budget();
     let retained = RetainedSccpGeneration::admit(&generation, &budget).unwrap();
-    state.world.sccp_committee_generations.insert(1, retained);
-    state.world.sccp_committee_current = mv::cell::Cell::new(1);
-    state.world.sccp_liability_clock = mv::cell::Cell::new(time);
+    state
+        .world
+        .sccp_committee_generations
+        .try_with_admitted_block(|block| {
+            block
+                .try_insert_admitted(1, retained)
+                .map(|_| ())
+                .map_err(|(_, error)| error)
+        })
+        .unwrap();
+    state.world.sccp_committee_current = mv::cell::CellInitialization::try_reserve(&budget)
+        .unwrap()
+        .initialize(1, None);
+    state.world.sccp_liability_clock = mv::cell::CellInitialization::try_reserve(&budget)
+        .unwrap()
+        .initialize(time, None);
     for network in [ETH, BSC] {
         let escrow_id = escrow::escrow_account(&epoch.network_id, network).unwrap();
         let (id, account) = Account::new(escrow_id.clone())
@@ -297,6 +310,7 @@ fn paid(
         view.world(),
         view.nexus(),
         view.pipeline(),
+        &view.zk().gas,
         draft.payload(),
         created_ms,
         crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)

@@ -36,6 +36,8 @@ use crate::{
     sccp::params::SCCP_MESSAGES_MAX_PER_BLOCK_V1, sumeragi::epoch::ValidatorEpochContextV1,
 };
 
+pub mod wire_identity;
+
 /// Exact byte length of the finality header `X`.
 pub const X_LEN: usize = 221;
 /// Byte length of `XHead = X[0..109)`, the first of the two TON cells that carry `X`.
@@ -517,7 +519,21 @@ pub fn context_committee_root(context: &ValidatorEpochContextV1) -> Option<[u8; 
 }
 
 /// Which root a stored result preimage belongs to.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    norito::Encode,
+    norito::Decode,
+    norito::derive::JsonSerialize,
+    norito::derive::JsonDeserialize,
+    norito::NoritoSchema,
+    iroha_schema::IntoSchema,
+)]
+#[norito(tag = "kind", content = "value", deny_unknown_fields)]
+#[norito_schema(name = "iroha_data_model::sumeragi_finality::CertifiedResultScope")]
 pub enum CertifiedResultScope {
     /// The global chain (Taira; instance kind 0, index 0). Its `X` may be active.
     TairaGlobal,
@@ -539,7 +555,7 @@ impl From<crate::block::consensus::SumeragiRootScope> for CertifiedResultScope {
 ///
 /// Every variant is a deterministic verdict about the input except a
 /// [`CommitmentError::Resource`] inside [`Self::Body`], which is a local decoder refusal.
-#[derive(Clone, Debug, PartialEq, Eq, Error)]
+#[derive(Debug, Error)]
 pub enum CertifiedResultError {
     /// The preimage is shorter than `X` plus one body byte, or above
     /// [`MAX_RESULT_PREIMAGE_BYTES`].

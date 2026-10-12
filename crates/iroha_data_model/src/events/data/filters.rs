@@ -2960,6 +2960,51 @@ mod sccp_filter_tests {
     }
 
     #[test]
+    fn native_generation_events_are_global_and_keep_exact_event_filters() {
+        use crate::sccp::{events::*, generation::SccpGenerationCauseV1};
+
+        let events = [
+            SccpEvent::FinalityDegraded(SccpFinalityDegradedV1 {
+                height: 9,
+                reason: SccpFinalityDegradedReasonV1::MissingInputs,
+            }),
+            SccpEvent::CommitteeGenerationCreated(SccpCommitteeGenerationCreatedV1 {
+                generation: 2,
+                cause: SccpGenerationCauseV1::Heartbeat,
+                committee_root: [3; 32],
+                start_height: 10,
+                deadline_ms: 1_758_604_800_000,
+            }),
+            SccpEvent::CommitteeResync(SccpCommitteeResyncV1 {
+                generation: 3,
+                committee_root: [4; 32],
+                start_height: 11,
+            }),
+            SccpEvent::GenerationMemberUnslashable(SccpGenerationMemberUnslashableV1 {
+                generation: 3,
+                index: 30,
+            }),
+            SccpEvent::GenerationDestinationCleared(SccpGenerationDestinationClearedV1 {
+                generation: 2,
+                lc: 1_758_604_800_001,
+            }),
+        ];
+        let selected = SccpEventFilter::new().for_events(SccpEventSet::CommitteeResync);
+        for (index, event) in events.into_iter().enumerate() {
+            assert!(SccpEventFilter::new().matches(&event));
+            assert_eq!(selected.matches(&event), index == 2);
+            for network in [
+                SccpNetworkV1::EthereumMainnet,
+                SccpNetworkV1::BscMainnet,
+                SccpNetworkV1::TonMainnet,
+            ] {
+                assert!(!SccpEventFilter::new().for_network(network).matches(&event));
+            }
+            assert!(DataEventFilter::Sccp(SccpEventFilter::new()).matches(&DataEvent::Sccp(event)));
+        }
+    }
+
+    #[test]
     fn data_event_filter_routes_sccp_events_to_the_sccp_filter() {
         let event = DataEvent::Sccp(recorded(SccpNetworkV1::BscMainnet));
         assert!(DataEventFilter::Any.matches(&event));

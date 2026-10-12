@@ -170,7 +170,7 @@ impl NativeContextArchive {
         original: &mut PreparedNativeContext,
         overlay: &StateBlock<'_>,
         executed: &SignedBlock,
-        result: &RetainedPayload<iroha_data_model::sumeragi_finality::CertifiedResultV1>,
+        result: &RetainedPayload<CertifiedResultV1>,
         witness: &CapturedExecWitness,
     ) -> Result<(), NativeContextArchiveError> {
         // Ordinary no-AMX blocks retain their original capture path unchanged.
@@ -599,6 +599,7 @@ impl IntentProjection {
 #[cfg(test)]
 pub(crate) mod test_helpers {
     use super::*;
+    use iroha_data_model::sumeragi_finality::ExecutionResultCommitment;
     // Rewrite only untrusted scalar claims through the sole canonical codec for adversarial
     // controls. No proof, signature, source selection or production authority is manufactured.
     pub(crate) fn one_row_subset(bytes: &[u8]) -> Vec<u8> {

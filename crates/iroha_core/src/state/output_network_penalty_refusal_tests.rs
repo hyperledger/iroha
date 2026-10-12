@@ -161,7 +161,7 @@ fn ballot_source(fixture: &PenaltyFixture) -> (SignedBlock, u64, u64) {
             }
             .into(),
         ];
-        gas[index] = crate::gas::meter_instructions(&body);
+        gas[index] = crate::gas::meter_instructions(&body, &state.zk_snapshot().gas);
         inputs.push(input(
             state,
             body,

@@ -5,8 +5,9 @@ fn complete_test_builder(builder: GenesisBuilder) -> GenesisBuilder {
 fn load_default_genesis_source_template_for_test() -> Result<RawGenesisTransaction> {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../defaults/genesis.template.json");
-    GenesisSourceTemplate::from_path(path)?
-        .materialize(Some(SumeragiNposParameters::default().xor_asset_definition_id))
+    GenesisSourceTemplate::from_path(path)?.materialize(Some(
+        SumeragiNposParameters::default().xor_asset_definition_id,
+    ))
 }
 
 #[test]
@@ -189,10 +190,14 @@ fn completed_default_genesis_source_template_proposal_roundtrips() -> Result<()>
         saw_npos_custom,
         "Default genesis must emit SetParameter for `sumeragi_npos_parameters`"
     );
-    let encoded = proposal.0.encode_versioned();
+    let wire = proposal.0.canonical_wire().map_err(|error| {
+        eyre!("default genesis block should encode its canonical wire: {error}")
+    })?;
     norito::core::reset_decode_state();
-    let decoded = SignedBlock::decode_all_versioned(&encoded)
-        .wrap_err("default genesis block should decode via canonical layout")?;
+    let decoded =
+        iroha_data_model::block::decode_framed_signed_block(wire.as_framed()).map_err(|error| {
+            eyre!("default genesis block should decode via canonical layout: {error}")
+        })?;
     assert_eq!(
         decoded, proposal.0,
         "encoded + decoded default genesis proposal must preserve all fields"
@@ -225,8 +230,10 @@ fn completed_default_genesis_source_template_uses_the_single_framed_block_wire()
             "block wire version {version} has no decoder"
         );
     }
+    let mut headerless = vec![frame[0]];
+    headerless.extend_from_slice(&frame[1 + norito::core::Header::SIZE..]);
     assert!(
-        decode_framed_signed_block(&proposal.0.encode_versioned()).is_err(),
+        decode_framed_signed_block(&headerless).is_err(),
         "a headerless genesis payload is not the stored wire"
     );
     Ok(())
@@ -542,11 +549,14 @@ fn prepared_bundle_verifier_rejects_manifest_semantics_and_validator_pops() {
     .expect("complete bad-PoP verifier fixture genesis")
     .with_consensus_meta()
     .expect("valid fixture consensus parameters");
-    let bad_proposal = bad_manifest
+    let signing_error = bad_manifest
         .clone()
         .build_and_sign(&key_pair)
-        .expect("sign bad-PoP fixture")
-        .0;
+        .expect_err("ordinary signing must reject the invalid validator PoP");
+    assert!(signing_error.to_string().contains("invalid PoP"));
+    // Exercise the independent reader with correctly signed hostile instructions;
+    // normal construction now rejects them before producing a bundle.
+    let bad_proposal = sign_modified_batches(&bad_manifest, &key_pair, |_| {});
     assert!(bad_proposal.is_resultless_proposal());
     let bad_wire = bad_proposal.encode_wire().expect("encode bad-PoP fixture");
     let error = validate_prepared_genesis_bundle(

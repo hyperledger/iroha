@@ -212,7 +212,7 @@ pub const VM_ERROR_PRODUCER_EXCLUSIONS: &[&str] = &["crates/ivm/src/proof_covera
 pub const VM_ERROR_PRODUCERS: &[ProducerFile] = &[
     producer!(
         "crates/iroha_core/src/execution_attempt.rs",
-        LocalDeferral: [AllocationDeferred, ExecutionDeferred],
+        LocalDeferral: [AllocationDeferred, DecodeDeferred, ExecutionDeferred],
     ),
     // The Upgrade-executor instruction: the authority check precedes the migration run,
     // and its failed outcome is relabelled for the instruction. Neither is the terminal
@@ -308,7 +308,7 @@ pub const VM_ERROR_PRODUCERS: &[ProducerFile] = &[
         InitializationTrap: [DecodeError, NoritoInvalid, OutOfGas],
         InterpreterTrap: [DecodeError],
         SyscallTrap: [DecodeError, NoritoInvalid],
-        LocalDeferral: [ExecutionDeferred],
+        LocalDeferral: [DecodeDeferred],
     ),
     producer!(
         "crates/ivm/src/byte_merkle_tree.rs",
@@ -750,7 +750,7 @@ pub const VM_ERROR_PRODUCERS: &[ProducerFile] = &[
     producer!(
         "crates/ivm_abi/src/metadata/section_decode.rs",
         PrepareRejection: [InvalidMetadata],
-        LocalDeferral: [ExecutionDeferred],
+        LocalDeferral: [DecodeDeferred],
     ),
     producer!(
         "crates/ivm_abi/src/numeric_tlv.rs",
@@ -772,6 +772,9 @@ pub const VM_ERROR_PRODUCERS: &[ProducerFile] = &[
         InitializationTrap: [NoritoInvalid],
         SyscallTrap: [NoritoInvalid],
     ),
+    // The admitted executable range is borrowed again from the artifact bytes before
+    // static analysis; a summary or image that no longer matches the admission seal is
+    // refused before any run.
     producer!(
         "crates/ivm_artifact_admission/src/admitted_program.rs",
         PrepareRejection: [InvalidMetadata],
@@ -783,12 +786,12 @@ pub const VM_ERROR_PRODUCERS: &[ProducerFile] = &[
     producer!(
         "crates/ivm_artifact_admission/src/error.rs",
         PrepareRejection: [ArtifactAbiHashMismatch, InvalidMetadata],
-        LocalDeferral: [AllocationDeferred, ExecutionDeferred],
+        LocalDeferral: [AllocationDeferred, DecodeDeferred, ExecutionDeferred],
     ),
     producer!(
         "crates/ivm_artifact_admission/src/literal.rs",
         PrepareRejection: [InvalidMetadata],
-        LocalDeferral: [ExecutionDeferred],
+        LocalDeferral: [DecodeDeferred],
     ),
 ];
 
@@ -837,12 +840,13 @@ const fn error(variant: &'static str, trap_kind: Option<VmTrapKind>) -> VmErrorE
 }
 
 /// Number of [`VMError`] variants.
-pub const VM_ERROR_COUNT: usize = 43;
+pub const VM_ERROR_COUNT: usize = 44;
 
 /// Every [`VMError`] variant in declaration order.
 pub const VM_ERRORS: &[VmErrorEntry; VM_ERROR_COUNT] = &[
     error("ExecutionDeferred", Some(VmTrapKind::Other)),
     error("AllocationDeferred", Some(VmTrapKind::Other)),
+    error("DecodeDeferred", Some(VmTrapKind::Other)),
     // The wrapper is classified by the error it carries.
     error("Metered", None),
     error("OutOfGas", Some(VmTrapKind::OutOfGas)),
@@ -928,6 +932,7 @@ pub const fn vm_error_variant_name(error: &VMError) -> &'static str {
     match error {
         VMError::ExecutionDeferred(_) => "ExecutionDeferred",
         VMError::AllocationDeferred(_) => "AllocationDeferred",
+        VMError::DecodeDeferred(_) => "DecodeDeferred",
         VMError::Metered { .. } => "Metered",
         VMError::OutOfGas => "OutOfGas",
         VMError::OutOfMemory => "OutOfMemory",

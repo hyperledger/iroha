@@ -101,6 +101,9 @@ sccp_event_payload! {
     }
 }
 /// Closed allocation-free reasons for SCCP failing closed at one native height.
+///
+/// Node-local allocation, storage and resource refusals defer execution; they must never
+/// be converted to these deterministic replicated input or bookkeeping reasons.
 #[derive(
     Debug,
     Clone,

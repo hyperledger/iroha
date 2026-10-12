@@ -28,6 +28,7 @@ use iroha_data_model::{
         epoch::{ValidatorEpochBoundaryV1, ValidatorEpochContextV1},
         finality::NativeFinalityArtifact,
     },
+    sumeragi_finality::{CertifiedResultScope, CertifiedResultV1},
     transaction::signed::TransactionResult,
 };
 use iroha_model_base::peer::PeerId;
@@ -194,7 +195,8 @@ fn certify(keys: &[KeyPair], header: &BlockHeader, bytes: &[u8]) -> iroha_sumera
             };
             vote.sig = KeyPairSigner::new(&keys[index as usize])
                 .unwrap()
-                .sign(&vote.preimage());
+                .sign(&vote.preimage())
+                .unwrap();
             vote
         })
         .collect::<Vec<_>>();
@@ -566,9 +568,9 @@ fn committee_boundary_requires_exact_native_quorum() {
     let block = selecting.decode_block(limits()).unwrap();
     let certificate = block.commit_certificate().unwrap();
     let header: BlockHeader = norito::decode_canonical(certificate.consensus_header()).unwrap();
-    let result = iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+    let result = CertifiedResultV1::decode(
         certificate.result_preimage(),
-        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        CertifiedResultScope::TairaGlobal,
     )
     .unwrap();
     let result = result.commitment();
@@ -618,22 +620,12 @@ fn committee_boundary_requires_exact_native_quorum() {
             .iter()
             .take(count)
             .map(|key| {
-                Signature::from_bytes(
-                    &iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &qc.preimage())
-                        .unwrap(),
-                )
+                iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &qc.preimage())
+                    .expect("canonical native quorum share")
             })
             .collect::<Vec<_>>();
         qc.agg_sig = iroha_sumeragi::types::AggregateSignature(
-            iroha_crypto::bls_normal_aggregate_signatures(
-                &signatures
-                    .iter()
-                    .map(Signature::payload)
-                    .collect::<Vec<_>>(),
-            )
-            .unwrap()
-            .try_into()
-            .unwrap(),
+            iroha_crypto::bls::consensus::aggregate(&signatures).unwrap(),
         );
     };
     let mut insufficient = qc.clone();

@@ -163,14 +163,16 @@ mod tests {
         );
         {
             let mut parameters = world.parameters.block();
-            parameters.set_parameter(iroha_data_model::parameter::Parameter::Custom(
-                SumeragiNposParameters {
-                    evidence_horizon_blocks: 1,
-                    slashing_delay_blocks: 1,
-                    ..SumeragiNposParameters::default()
-                }
-                .into_custom_parameter(),
-            ));
+            parameters
+                .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                    SumeragiNposParameters {
+                        evidence_horizon_blocks: 1,
+                        slashing_delay_blocks: 1,
+                        ..SumeragiNposParameters::default()
+                    }
+                    .into_custom_parameter(),
+                ))
+                .expect("valid fixture parameters");
             parameters.commit();
         }
         let key = (LaneId::SINGLE, ALICE_ID.clone());

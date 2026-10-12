@@ -36,26 +36,9 @@ fn resign(qc: &mut Qc, signers: &[usize]) {
     .unwrap();
     let shares: Vec<_> = signers
         .iter()
-        .map(|i| {
-            iroha_crypto::Signature::from_bytes(
-                &iroha_crypto::bls::consensus::sign_preimage(
-                    keys[*i].private_key(),
-                    &qc.preimage(),
-                )
-                .unwrap(),
-            )
-        })
+        .map(|i| consensus::sign_preimage(keys[*i].private_key(), &qc.preimage()).unwrap())
         .collect();
-    let refs: Vec<_> = shares
-        .iter()
-        .map(iroha_crypto::Signature::payload)
-        .collect();
-    qc.agg_sig = AggregateSignature(
-        iroha_crypto::bls_normal_aggregate_signatures(&refs)
-            .unwrap()
-            .try_into()
-            .unwrap(),
-    );
+    qc.agg_sig = AggregateSignature(consensus::aggregate(&shares).unwrap());
 }
 
 #[test]

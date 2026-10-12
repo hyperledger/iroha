@@ -1127,6 +1127,11 @@ class MapTest(TreeCase):
         document["test_only_references"][-1]["scheme"] = "shared_arithmetic"
         self.assertEqual(self.errors(document), [])
         self.assertIn("shared_arithmetic", CHECKER.PROTOCOL_SCHEMES)
+        # The shared RNS-BGV scheme of the owner crate is a scheme of its own.
+        document = valid_map()
+        document["protocol_logic"][0]["scheme"] = "rns_bgv"
+        self.assertEqual(self.errors(document), [])
+        self.assertIn("rns_bgv", CHECKER.PROTOCOL_SCHEMES)
 
     def test_protocol_logic_declares_what_it_executes(self) -> None:
         document = valid_map()

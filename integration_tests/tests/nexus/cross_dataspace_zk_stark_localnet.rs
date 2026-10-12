@@ -381,8 +381,7 @@ fn localnet_builder() -> NetworkBuilder {
                     ["nexus", "staking", "slash_sink_account_id"],
                     gas_account_str.clone(),
                 )
-                .write(["nexus", "staking", "max_validators"], TOTAL_PEERS as i64)
-                .write(["zk", "stark", "enabled"], true);
+                .write(["nexus", "staking", "max_validators"], TOTAL_PEERS as i64);
         })
 }
 fn npos_multilane_genesis_post_topology_transactions(

@@ -38,14 +38,18 @@ use iroha_data_model::{
             sccp_taira_xor_asset_definition_id, sccp_xor_route_escrow_account_id_v1,
         },
         events::{
-            SccpBlockCommittedV1, SccpBounceReasonV1, SccpControlRecordedV1, SccpEvent,
-            SccpEventSet, SccpGovernanceEnactedV1, SccpInboundBouncedV1,
-            SccpInboundLiabilityShortfallV1, SccpInboundProvenV1, SccpInboundReleasedV1,
-            SccpLightClientAdvancedV1, SccpLightClientFrozenV1, SccpLightClientInitializedV1,
-            SccpMessageRecordedV1, SccpOutboundRefundedV1, SccpOutboundStrandedV1,
-            SccpOutboundVoidedV1, SccpRecipientRegisteredV1, SccpRevisionActivationChangedV1,
-            SccpStrandedReleasedV1, SccpTrustedCheckpointInstalledV1,
+            SccpBlockCommittedV1, SccpBounceReasonV1, SccpCommitteeGenerationCreatedV1,
+            SccpCommitteeResyncV1, SccpControlRecordedV1, SccpEvent, SccpEventSet,
+            SccpFastPauseLapsedV1, SccpFinalityDegradedReasonV1, SccpFinalityDegradedV1,
+            SccpGenerationDestinationClearedV1, SccpGenerationMemberUnslashableV1,
+            SccpGovernanceEnactedV1, SccpInboundBouncedV1, SccpInboundLiabilityShortfallV1,
+            SccpInboundProvenV1, SccpInboundReleasedV1, SccpLightClientAdvancedV1,
+            SccpLightClientFrozenV1, SccpLightClientInitializedV1, SccpMessageRecordedV1,
+            SccpOutboundRefundedV1, SccpOutboundStrandedV1, SccpOutboundVoidedV1,
+            SccpRecipientRegisteredV1, SccpRevisionActivationChangedV1, SccpStrandedReleasedV1,
+            SccpTrustedCheckpointInstalledV1,
         },
+        generation::SccpGenerationCauseV1,
         governance::SccpGovernanceSubjectV1,
         inbound::{
             SCCP_SOURCE_PROOF_MAX_BYTES_V1, SccpBounceStatusV1, SccpInboundRecordV1,
@@ -254,8 +258,8 @@ fn evidence(len: usize) -> SccpLcEvidenceBytesV1 {
 
 /// Codec index of every event variant, in declaration order. Indices 2 to 9 belonged to the
 /// events of the attestation transport and stay unassigned.
-const EVENT_CODEC_INDICES: [u32; 18] = [
-    0, 1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+const EVENT_CODEC_INDICES: [u32; 24] = [
+    0, 1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
 ];
 
 /// JSON tags of the events deleted with the attestation transport (§4.17).
@@ -437,7 +441,10 @@ fn every_event() -> Vec<(SccpEvent, &'static str)> {
                 network: ETH,
                 revision: 1,
                 control_nonce: 1,
-                paused: true,
+                track: 1,
+                parliament_paused: true,
+                fast_pause_until_ms: 0,
+                certificate_id: [0x5a; 32],
                 height: 30,
                 commitment_index: 0,
             }),
@@ -453,6 +460,53 @@ fn every_event() -> Vec<(SccpEvent, &'static str)> {
                 ],
             }),
             "governance_enacted",
+        ),
+        (
+            SccpEvent::CommitteeGenerationCreated(SccpCommitteeGenerationCreatedV1 {
+                generation: 1,
+                cause: SccpGenerationCauseV1::Genesis,
+                committee_root: [23; 32],
+                start_height: 1,
+                deadline_ms: 1_758_604_800_000,
+            }),
+            "committee_generation_created",
+        ),
+        (
+            SccpEvent::GenerationMemberUnslashable(SccpGenerationMemberUnslashableV1 {
+                generation: 1,
+                index: 3,
+            }),
+            "generation_member_unslashable",
+        ),
+        (
+            SccpEvent::CommitteeResync(SccpCommitteeResyncV1 {
+                generation: 2,
+                committee_root: [24; 32],
+                start_height: 10,
+            }),
+            "committee_resync",
+        ),
+        (
+            SccpEvent::GenerationDestinationCleared(SccpGenerationDestinationClearedV1 {
+                generation: 1,
+                lc: 1_759_000_000_000,
+            }),
+            "generation_destination_cleared",
+        ),
+        (
+            SccpEvent::FinalityDegraded(SccpFinalityDegradedV1 {
+                height: 11,
+                reason: SccpFinalityDegradedReasonV1::MissingInputs,
+            }),
+            "finality_degraded",
+        ),
+        (
+            SccpEvent::FastPauseLapsed(SccpFastPauseLapsedV1 {
+                network: ETH,
+                certificate_id: [29; 32],
+                until_ms: 1_758_604_800_000,
+            }),
+            "fast_pause_lapsed",
         ),
     ]
 }
@@ -650,7 +704,7 @@ fn base64_standard(bytes: &[u8]) -> String {
 fn constants_match_the_spec() {
     assert_eq!(SCCP_HISTORY_MAX_SIZE_V1, 1_u64 << 32);
     assert_eq!(SCCP_FIRST_CONTROL_NONCE_V1, 1);
-    // The proof bound equals the `[zk.sccp]` default per-proof byte limit (8 MiB).
+    // The proof bound equals the protocol-default per-proof byte limit of the committed ZK validity policy (8 MiB).
     assert_eq!(SCCP_SOURCE_PROOF_MAX_BYTES_V1, 8 * 1024 * 1024);
     assert_eq!(SCCP_LC_ADVANCE_MAX_BYTES_V1, 1024 * 1024);
     assert_eq!(SCCP_LC_EVIDENCE_MAX_BYTES_V1, 1024 * 1024);
@@ -882,6 +936,30 @@ fn event_schema_names_are_stable() {
         (
             SccpGovernanceEnactedV1::nominal_name(),
             "iroha_data_model::sccp::events::SccpGovernanceEnactedV1",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::nominal_name(),
+            "iroha_data_model::sccp::events::SccpFinalityDegradedReasonV1",
+        ),
+        (
+            SccpFinalityDegradedV1::nominal_name(),
+            "iroha_data_model::sccp::events::SccpFinalityDegradedV1",
+        ),
+        (
+            SccpCommitteeGenerationCreatedV1::nominal_name(),
+            "iroha_data_model::sccp::events::SccpCommitteeGenerationCreatedV1",
+        ),
+        (
+            SccpCommitteeResyncV1::nominal_name(),
+            "iroha_data_model::sccp::events::SccpCommitteeResyncV1",
+        ),
+        (
+            SccpGenerationMemberUnslashableV1::nominal_name(),
+            "iroha_data_model::sccp::events::SccpGenerationMemberUnslashableV1",
+        ),
+        (
+            SccpGenerationDestinationClearedV1::nominal_name(),
+            "iroha_data_model::sccp::events::SccpGenerationDestinationClearedV1",
         ),
     ];
     let mut seen = BTreeSet::new();
@@ -1117,6 +1195,53 @@ fn every_event_roundtrips_with_its_snake_case_tag() {
     for retired in RETIRED_EVENT_TAGS {
         assert!(!tags.contains(retired), "{retired}");
     }
+}
+
+#[test]
+fn native_generation_event_payloads_cover_every_decoder() {
+    for reason in [
+        SccpFinalityDegradedReasonV1::MissingInputs,
+        SccpFinalityDegradedReasonV1::InvalidInputs,
+        SccpFinalityDegradedReasonV1::MissingGeneration,
+        SccpFinalityDegradedReasonV1::InvalidGeneration,
+        SccpFinalityDegradedReasonV1::MissingParent,
+        SccpFinalityDegradedReasonV1::CounterExhausted,
+    ] {
+        roundtrip_with_slice(&reason);
+        roundtrip_with_slice(&SccpFinalityDegradedV1 {
+            height: u64::MAX,
+            reason,
+        });
+    }
+    for cause in [
+        SccpGenerationCauseV1::Genesis,
+        SccpGenerationCauseV1::KeyChange,
+        SccpGenerationCauseV1::Heartbeat,
+        SccpGenerationCauseV1::Resync,
+    ] {
+        roundtrip_with_slice(&SccpCommitteeGenerationCreatedV1 {
+            generation: u64::MAX,
+            cause,
+            committee_root: [0xff; 32],
+            start_height: u64::MAX,
+            deadline_ms: u64::MAX,
+        });
+    }
+    roundtrip_with_slice(&SccpCommitteeResyncV1 {
+        generation: u64::MAX,
+        committee_root: [0x80; 32],
+        start_height: u64::MAX,
+    });
+    for index in [0, 30] {
+        roundtrip_with_slice(&SccpGenerationMemberUnslashableV1 {
+            generation: u64::MAX,
+            index,
+        });
+    }
+    roundtrip_with_slice(&SccpGenerationDestinationClearedV1 {
+        generation: u64::MAX,
+        lc: u64::MAX,
+    });
 }
 
 #[test]

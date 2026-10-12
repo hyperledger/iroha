@@ -333,7 +333,7 @@ mod tests {
             Some(iroha_core::da::proof_policy_bundle(
                 &config.nexus.lane_config,
             )),
-            iroha_core::state::compute_genesis_confidential_policy_hash(&config.zk),
+            iroha_core::state::default_genesis_confidential_policy_hash(),
             Some(1_700_000_000_000),
         )
         .expect("the original participant must execute in normal private genesis staging");

@@ -3,7 +3,7 @@
 // Required values are computed at entry from the current price config with
 // `GETGASFEE`, `GETFORWARDFEE` and `GETSTORAGEFEE`; there is no fixed TON
 // amount anywhere, so price-config changes cannot break a flow. The gas
-// limits are the per-step maxima (n = 31, q = 21, maximal paths and
+// limits are the per-step maxima (n = 31, q = 21, the largest paths and
 // payloads) with headroom, and the size constants cover the largest message
 // and state of each kind. `tests/unit/sccp-fees.test.tolk` pins every
 // constant against measured gas and actual cell sizes.
@@ -33,20 +33,20 @@ const SCCP_WALLET_MIN_STORAGE_SECONDS = 157680000
 /// send, which accrued over the minter's idle time before the quote.
 const SCCP_STORAGE_GRACE_SECONDS = 604800
 
-// Per-step gas limits: maxima (Acton 1.2.0 emulator, n = 31, q = 21, block
-// path 9, history path 32, 1024-byte sender or recipient) plus headroom.
-// `tests/unit/sccp-fees.test.tolk` prints the measured values and fails when
-// one exceeds its limit.
+// Per-step gas limits: the measured maxima (Acton 1.2.0 emulator) plus
+// headroom. `tests/unit/sccp-fees.test.tolk` runs every step at its largest
+// inputs and fails when one exceeds its limit; the measured values are
+// recorded in `gas-baseline.json` (specs/sccp.md §5.4).
 //
-// The four steps that verify a certificate are estimates. Its full-path
-// check costs about 81k gas at n = 4, 89k at n = 7 and 149k at n = 31, of
-// which `BLS_FASTAGGREGATEVERIFY` is 58 000 + 3 000·q, and a key-changing
-// rotation adds about 47k at n = 31 for the check of `next_keys`. The proof,
-// payload, storage and send work of each step is taken from the retired
-// attestation minter.
-// TODO: WP-TON (map step T7k): measure these four steps on the rewritten
-// minter (n = 4, 7 and 31, worst-case proofs) and pin the limits to the
-// measured maxima.
+// The four steps that verify a certificate are measured at n = 31 with the
+// 21 highest signers, full checkpoint slots, the last leaf of a 512-leaf
+// block under a history of 2^32 blocks, a 1024-byte sender and four bucket
+// activations: `sccp_checkpoint` (a key-changing rotation to another
+// committee of 31) 208 942, `sccp_finalize` 251 280, `sccp_void_expired`
+// 250 412 and `sccp_apply_control` 224 746. One plain certificate through
+// `sccp_checkpoint` costs 97 564 gas at n = 4, 104 668 at n = 7 and 161 644
+// at n = 31, of which `BLS_FASTAGGREGATEVERIFY` is 58 000 + 3 000·q; a
+// heartbeat adds 3 665 and a key change 10 598, 14 988 and 44 828.
 const SCCP_GAS_MINTER_CHECKPOINT = 250000
 const SCCP_GAS_MINTER_FINALIZE = 300000
 const SCCP_GAS_MINTER_VOID = 285000
@@ -68,21 +68,22 @@ const SCCP_GAS_WALLET_RECEIVE = 8000
 const SCCP_GAS_WALLET_TRANSFER = 8000
 const SCCP_GAS_WALLET_BURN = 7000
 
-// Account state sizes (code + data), upper bounds of the compiled contracts
-// and of the maximal minter data (the 16 `KeyChunk`s of n = 31, three
-// checkpoints, the wallet and bucket code, with room for a few `retries`
-// entries, which only bounced steps create).
-// TODO: WP-TON (map step T7k): `SCCP_MINTER_STATE_BITS` and
-// `SCCP_MINTER_STATE_CELLS` still bound the retired roster minter. Measure
-// the rewritten minter and move them together with their Rust mirror
-// (`TON_MINTER_STATE_BITS`, `TON_MINTER_STATE_CELLS` in
-// `crates/iroha_sccp/src/v1/ton_cell.rs`, WP-TON-RUST).
+// Account state sizes, upper bounds of the storage statistics of each
+// account (code, data and the account's own cell). The minter bound is the
+// measured largest state: the compiled code, the 16 `KeyChunk`s of n = 31,
+// three checkpoints, the largest supplies and counters, the wallet and bucket
+// code, and eight `retries` records, which only bounced steps create: 257
+// cells and 120 032 bits.
+// TODO: WP-TON-RUST: `TON_MINTER_STATE_BITS` and `TON_MINTER_STATE_CELLS` of
+// `crates/iroha_sccp/src/v1/ton_cell.rs` mirror the two minter constants and
+// still hold the bound of the retired roster minter (102 000 bits, 205
+// cells); move them to the values below.
 const SCCP_BUCKET_STATE_BITS = 9000
 const SCCP_BUCKET_STATE_CELLS = 27
 const SCCP_WALLET_STATE_BITS = 7500
 const SCCP_WALLET_STATE_CELLS = 16
-const SCCP_MINTER_STATE_BITS = 102000
-const SCCP_MINTER_STATE_CELLS = 205
+const SCCP_MINTER_STATE_BITS = 122000
+const SCCP_MINTER_STATE_CELLS = 260
 
 // StateInit sizes attached to deployments (code + data + root), upper bounds.
 const SCCP_BUCKET_STATE_INIT_BITS = 9000

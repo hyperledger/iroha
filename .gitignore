@@ -121,6 +121,24 @@ specs/da/_generated/threat_model_report.json
 /.codex-*/
 /.codex-target/
 /crates/irohad/.tmp*/
+# irohad_lib unit tests create owner-only custody roots in the crate directory:
+# the code under test checks every ancestor of the root, so the shared system
+# temporary directory cannot hold them. A test process that is killed leaves
+# them behind; they are never source.
+/crates/irohad/.retained-attempt-*/
+/crates/irohad/.beacon-attempt-*/
+/crates/irohad/.beacon-phase-*/
+/crates/irohad/.beacon-export-*/
+/crates/irohad/.beacon-config-test-*/
+/crates/irohad/.final-promotion-account-key-*/
+/crates/irohad/.irohad-profile-node-*/
+/crates/irohad/.native-sorafs-credential-*/
+/crates/irohad/.node-secrets-test-*/
+/crates/irohad/.portable-signer-journal-*/
+/crates/irohad/.runtime-credential-test-*/
+/crates/irohad/.soracloud-relative-state-*/
+/crates/irohad/.sorafs-repair-credential-*/
+/crates/irohad/.stock-publication-*/
 /.codex/*
 !/.codex/.gitkeep
 .venv-*/

@@ -250,6 +250,17 @@ mod tests {
 
     #[test]
     fn current_control_requires_every_field_and_rejects_retired_layout() {
+        // Exact old five-field wire shape exists only as adversarial bytes in this test.
+        #[derive(Encode, norito::NoritoSchema)]
+        #[norito_schema(name = "test::RetiredControlShape")]
+        struct RetiredControlShape {
+            paused: bool,
+            height: u64,
+            commitment_index: u32,
+            leaf: [u8; 32],
+            proposal_id: [u8; 32],
+        }
+
         let row = record();
         roundtrip(&row);
         assert_rejects_unknown_field(&row, &[]);
@@ -291,16 +302,6 @@ mod tests {
             norito::json::from_json::<SccpControlRecordV1>(&norito::json::to_json(&raw).unwrap())
                 .is_err()
         );
-        // Exact old five-field wire shape exists only as adversarial bytes in this test.
-        #[derive(Encode, norito::NoritoSchema)]
-        #[norito_schema(name = "test::RetiredControlShape")]
-        struct RetiredControlShape {
-            paused: bool,
-            height: u64,
-            commitment_index: u32,
-            leaf: [u8; 32],
-            proposal_id: [u8; 32],
-        }
         let bytes = norito::to_bytes(&RetiredControlShape {
             paused: true,
             height: 7,

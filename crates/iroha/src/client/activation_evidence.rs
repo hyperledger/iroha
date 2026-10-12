@@ -197,7 +197,12 @@ impl Client {
                 details: error.to_string(),
             })?;
         norito::decode_canonical_for_admission(body, norito::canonical_decode_limits(body.len()))
-            .map_err(|source| crate::Error::CanonicalDecode { operation, source })
+            .map_err(|source| {
+                crate::Error::CanonicalDecode(Box::new(crate::CanonicalDecodeFailure {
+                    operation,
+                    source,
+                }))
+            })
     }
 
     fn canonical_norito_get_request(

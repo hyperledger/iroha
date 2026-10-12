@@ -26,7 +26,6 @@ std::thread_local! {
     static FAIL_AFTER_NEXT_BOUND_EVIDENCE_TEMP_PREFIX: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
     static FAIL_AFTER_NEXT_NATIVE_AMX_PUBLICATION_TEMP_PREFIX_AT_PATH: std::cell::RefCell<Option<(PathBuf, usize)>> = const { std::cell::RefCell::new(None) };
     static FAIL_AFTER_NEXT_NATIVE_AMX_EVIDENCE_TEMP_SYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-    static FAIL_NEXT_NATIVE_AMX_LATEST_INDEX_RECOVERY_TEMP_SYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static FAIL_BOUND_PROGRESS_INTENT_DIRECTORY_SYNC: std::cell::Cell<Option<ProgressIntentDirectorySyncFault>> = const { std::cell::Cell::new(None) };
     static FAIL_PROGRESS_SIDECAR_ANCESTOR_SYNC_AT: std::cell::Cell<Option<ProgressAncestorSyncFault>> = const { std::cell::Cell::new(None) };
     static CERTIFIED_ARTIFACT_VALIDATION_COUNT: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };

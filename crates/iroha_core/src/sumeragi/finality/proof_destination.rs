@@ -11,7 +11,6 @@ use iroha_data_model::{
     block::SharedSignedBlock,
     sumeragi_finality::{FinalityValidator, MAX_FINALITY_BLOCK_BYTES, SumeragiFinalityProof},
 };
-use iroha_version::Version as _;
 use std::{alloc::Layout, io::Write as _, time::Instant};
 
 /// Failure to construct a portable destination from the original finite owner.
@@ -170,7 +169,7 @@ impl Construction {
                 maximum: *wire_len,
             };
             writer
-                .write_all(&[block.version()])
+                .write_all(&[iroha_data_model::block::SignedBlock::WIRE_VERSION])
                 .map_err(|_| ProofDestinationError::Source)?;
             norito::core::write_canonical_to_writer(block.as_ref(), &mut writer)
                 .map_err(|_| ProofDestinationError::Source)?;

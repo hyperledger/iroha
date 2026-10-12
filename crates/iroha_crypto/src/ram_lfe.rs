@@ -18,8 +18,9 @@
 //! The canonical V1 contract lives beside them: the three program classes and
 //! exact plaintext semantics (`class`), the function identity with its query
 //! limit, the policy and the commitment owners (`canonical`), the cleartext
-//! reference interpreter (`reference`) and the heap owner of their fixed-size
-//! secrets (`clearing`). `specs/ram_lfe_execution_proof.md` is its specification.
+//! reference interpreter (`reference`), the cleartext oracle of the normalizing
+//! lowering (`normal_form`) and the heap owner of their fixed-size secrets
+//! (`clearing`). `specs/ram_lfe_execution_proof.md` is its specification.
 //! The backends above keep their own superseded policy and receipt bindings
 //! until the tasks named at each `TODO` retire them.
 use crate::{
@@ -54,6 +55,8 @@ mod canonical;
 mod class;
 mod clearing;
 mod initialization;
+mod normal_form;
+mod phone_control;
 mod reference;
 #[cfg(test)]
 mod specification_tests;
@@ -79,6 +82,20 @@ pub use class::{
 pub use initialization::{
     BFV_PROGRAM_INITIALIZER_DESCRIPTOR, RAM_LFE_PROGRAM_ASSOCIATED_DATA_MAX_BYTES,
     bfv_program_initializer_descriptor_hash,
+};
+pub use normal_form::{
+    RAM_LFE_V1_NORMAL_BASE_COLUMNS, RAM_LFE_V1_NORMAL_COEFFICIENT_MAGNITUDE,
+    RAM_LFE_V1_NORMAL_CONSTANT_COLUMN, RAM_LFE_V1_NORMAL_INPUT_COLUMN,
+    RAM_LFE_V1_NORMAL_LANE_COLUMN, RamLfeNormalFormV1, RamLfeNormalGateKindV1, RamLfeNormalRoleV1,
+    RamLfeNormalShapeV1, ram_lfe_reference_normalize_v1, ram_lfe_v1_centered_scalar,
+};
+pub use phone_control::{
+    PHONE_CONTROL_V1_BLINDING_BYTES, PHONE_CONTROL_V1_CRYPTO_DOMAINS,
+    PHONE_CONTROL_V1_NUMBER_BYTES, PHONE_CONTROL_V1_NUMBER_COMMITMENT_PROTOCOL,
+    PHONE_CONTROL_V1_NUMBER_COMMITMENT_ROLE, PhoneControlError, PhoneControlProviderKeyIdV1,
+    PhoneNumberBlindingV1, PhoneNumberCommitmentDigestV1, PhoneNumberCommitmentV1,
+    PhoneNumberCommitmentValueV1, PhoneNumberV1, phone_control_provider_sign,
+    phone_control_provider_verify,
 };
 pub use reference::{
     RAM_LFE_V1_TRACE_ROW_SCALARS, RamLfeInitialMemoryV1, RamLfeOrderedOutputV1,

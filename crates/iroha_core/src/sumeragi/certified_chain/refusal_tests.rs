@@ -100,6 +100,49 @@ fn original_result_frame_refusal_is_local_and_same_bytes_retry() {
 }
 
 #[test]
+fn original_result_scope_retirement_preserves_refusal_against_foreign_equal_budget() {
+    let chain = original_chain();
+    let frame = chain.committed(1);
+    let bytes = frame
+        .block()
+        .commit_certificate()
+        .unwrap()
+        .result_preimage();
+    let original = bytes.to_vec();
+    let error = no_decode_allocation(|| {
+        CertifiedResultV1::decode(bytes, CertifiedResultScope::TairaGlobal)
+    })
+    .unwrap_err();
+    let CertifiedResultError::Body(super::super::commitment::CommitmentError::Resource(attempt)) =
+        &error
+    else {
+        panic!("actual result decoder must retain its original refusal: {error:?}");
+    };
+    assert_eq!(
+        attempt.kind(),
+        norito::core::DecodeAttemptErrorKind::EnclosingLimit
+    );
+    no_decode_allocation(|| {
+        assert!(!norito::core::decode_error_matches_active_limits(
+            attempt.error()
+        ));
+    });
+    let mapped = no_decode_allocation(|| frame_result_error(1, error));
+    let ExecutionAttemptError::Deferred(local) = mapped else {
+        panic!("the original refusal remains local after its scope retires: {mapped:?}");
+    };
+    assert_eq!(
+        local.reason(),
+        ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+    );
+    assert!(local.allocation_refusal().is_none());
+    assert_eq!(bytes, original);
+    let retry = CertifiedResultV1::decode(bytes, CertifiedResultScope::TairaGlobal)
+        .expect("same original result retries");
+    assert_eq!(retry.result().unwrap(), frame.result());
+}
+
+#[test]
 fn malformed_original_result_frame_is_a_completed_rejection() {
     let chain = original_chain();
     let original = Clone::clone(

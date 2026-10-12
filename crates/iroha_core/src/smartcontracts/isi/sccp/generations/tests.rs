@@ -58,16 +58,17 @@ fn seed(stx: &mut StateTransaction<'_, '_>, peers: &[PeerId]) {
     )
     .unwrap();
     store::parameters::set(stx, Some(parameters));
-    install_genesis(stx, generation);
+    install_genesis(stx, generation).unwrap();
 }
 
 #[test]
 fn epoch_guard_checks_zero_exact_floor_and_overflow_without_wrapping() {
-    assert!(!epoch_duration_is_valid(0, u64::MAX));
-    assert!(!epoch_duration_is_valid(u64::MAX, 0));
-    assert!(!epoch_duration_is_valid(3_599, 1_000));
-    assert!(epoch_duration_is_valid(3_600, 1_000));
-    assert!(epoch_duration_is_valid(u64::MAX, u64::MAX));
+    use crate::smartcontracts::isi::sccp::params::validate_epoch;
+    assert!(validate_epoch(0, u64::MAX).is_err());
+    assert!(validate_epoch(u64::MAX, 0).is_err());
+    assert!(validate_epoch(3_599, 1_000).is_err());
+    assert!(validate_epoch(3_600, 1_000).is_ok());
+    assert!(validate_epoch(u64::MAX, u64::MAX).is_err());
 }
 
 #[test]
@@ -89,7 +90,7 @@ fn key_change_beats_heartbeat_and_keeps_outgoing_certificate_generation() {
     );
     assert_eq!(prepared.rotation.as_ref().unwrap().keys.len(), 7);
     let next_root = prepared.next_committee_root;
-    prepared.publish(&mut stx);
+    prepared.publish(&mut stx).unwrap();
     assert_eq!(*store::committee_current::get(&*stx.world), 2);
     assert_eq!(
         store::committee_generations::get(&*stx.world, &1)
@@ -203,7 +204,7 @@ fn resync_uses_real_native_parent_time_then_boundary_rotates_again() {
         parent.creation_time_ms()
     );
     assert_eq!(prepared.rotation.as_ref().unwrap().generation, 3);
-    prepared.publish(&mut stx);
+    prepared.publish(&mut stx).unwrap();
     assert_eq!(*store::committee_current::get(&*stx.world), 3);
     let restored = store::committee_generations::get(&*stx.world, &2).unwrap();
     assert_eq!(restored.keys.len(), 7);
@@ -306,7 +307,7 @@ fn pruning_requires_explicit_pending_set_preserves_inclusive_liability_and_eight
                 successor_validity_ms: params.committee_validity_ms,
             });
         }
-        stx.world.sccp_committee_generations.insert(id, record);
+        publish_record(&mut stx, record).expect("fixture generation admission");
     }
     let boundary = store::committee_generations::get(&*stx.world, &1)
         .unwrap()
@@ -377,12 +378,12 @@ fn destination_progress_is_strict_and_bounded_and_never_rewrites_clearance() {
             next_committee_root: committee.root,
             successor_validity_ms: parameters.committee_validity_ms,
         });
-        stx.world.sccp_committee_generations.insert(id, record);
+        publish_record(&mut stx, record).expect("fixture generation admission");
     }
     store::liability_clock::set(&mut stx, 2_000);
     let network = SccpNetworkV1::EthereumMainnet;
     store::routes::insert(&mut stx, network, sample_route(network)).unwrap();
-    clear_destinations(&mut stx);
+    clear_destinations(&mut stx).unwrap();
     assert!(
         store::committee_generations::get(&*stx.world, &1)
             .unwrap()
@@ -406,7 +407,7 @@ fn destination_progress_is_strict_and_bounded_and_never_rewrites_clearance() {
         state_hash: [2; 32],
     };
     store::light_clients::insert(&mut stx, network, client).unwrap();
-    clear_destinations(&mut stx);
+    clear_destinations(&mut stx).unwrap();
     assert!(
         store::committee_generations::get(&*stx.world, &1)
             .unwrap()
@@ -416,7 +417,7 @@ fn destination_progress_is_strict_and_bounded_and_never_rewrites_clearance() {
     );
     client.head.latest_finalized.source_time_ms += 1;
     store::light_clients::insert(&mut stx, network, client).unwrap();
-    clear_destinations(&mut stx);
+    clear_destinations(&mut stx).unwrap();
     assert_eq!(
         store::committee_generations::iter(&*stx.world)
             .filter(|(_, g)| g.dest_cleared_lc == Some(2_000))
@@ -430,7 +431,7 @@ fn destination_progress_is_strict_and_bounded_and_never_rewrites_clearance() {
             .is_none()
     );
     store::liability_clock::set(&mut stx, 3_000);
-    clear_destinations(&mut stx);
+    clear_destinations(&mut stx).unwrap();
     assert_eq!(
         store::committee_generations::get(&*stx.world, &1)
             .unwrap()
@@ -501,7 +502,11 @@ fn combined_resync_rotation_capacity_wait_stays_pending_until_external_release()
             .end
             .is_none()
     );
-    drop(external);
+    // This thread owns live admitted writers, so its refunds deliberately cannot wake
+    // work that would reacquire them. Model a genuinely external owner releasing credit.
+    std::thread::scope(|scope| {
+        scope.spawn(move || drop(external)).join().unwrap();
+    });
     assert_eq!(waiter.poll_wait(release, &mut cx), Poll::Ready(()));
     let complete = plan(&stx, &candidate, Some(&source)).unwrap();
     assert_eq!(complete.generation, 2);
@@ -562,11 +567,155 @@ fn handoff_resolves_original_registration_for_successor_tenure_and_freezes_it() 
     stx.world
         .public_lane_validators
         .insert((lane, replacement.validator.clone()), replacement);
-    prepared.publish(&mut stx);
+    prepared.publish(&mut stx).unwrap();
     let committed = store::committee_generations::get(&*stx.world, &2).unwrap();
     assert_eq!(
         committed.members[0].as_ref().unwrap().validator,
         elected.validator
     );
     assert_eq!(committed.members[0].as_ref().unwrap().activation_height, 3);
+}
+
+#[test]
+fn global_member_binding_ignores_participant_staking_registration() {
+    use iroha_data_model::nexus::{DataSpaceCatalog, DataSpaceMetadata, LaneCatalog, LaneConfig};
+    use iroha_model_base::topology::DataSpaceId;
+    use std::num::NonZeroU32;
+
+    let state = blank_state();
+    let candidate = at(2, 2_000);
+    let mut block = state.block(candidate);
+    let mut stx = block.transaction();
+    let participant = LaneId::new(1);
+    let dataspace = DataSpaceId::new(1);
+    stx.nexus.lane_catalog = LaneCatalog::new(
+        NonZeroU32::new(2).unwrap(),
+        vec![
+            LaneConfig::default(),
+            LaneConfig {
+                id: participant,
+                alias: "participant-root".into(),
+                dataspace_id: dataspace,
+                ..LaneConfig::default()
+            },
+        ],
+    )
+    .unwrap();
+    stx.nexus.lane_config =
+        iroha_config::parameters::actual::LaneConfig::from_catalog(&stx.nexus.lane_catalog);
+    stx.nexus.dataspace_catalog = DataSpaceCatalog::new(vec![
+        DataSpaceMetadata::default(),
+        DataSpaceMetadata {
+            id: dataspace,
+            alias: "participant".into(),
+            description: None,
+            fault_tolerance: 1,
+        },
+    ])
+    .unwrap();
+    assert!(stx.is_lane_active_for_authority(participant));
+    assert_eq!(stx.staking_authority_lane(participant), Some(participant));
+    let original = peers(1, 4);
+    let next = peers(10, 7);
+    seed(&mut stx, &original);
+    let mut global = registration(next[0].clone(), 1, LaneId::SINGLE);
+    global.activation_height = 3;
+    let participant_record = registration(next[0].clone(), 2, participant);
+    stx.world
+        .public_lane_validators
+        .insert((LaneId::SINGLE, global.validator.clone()), global.clone());
+    stx.world.public_lane_validators.insert(
+        (participant, participant_record.validator.clone()),
+        participant_record,
+    );
+    let source = inputs(2, &original, Some(&next));
+    let prepared = plan(&stx, &candidate, Some(&source)).unwrap();
+    let successor = prepared.rotation.as_ref().unwrap();
+    assert_eq!(successor.start_height, 3);
+    let member = successor.members[0]
+        .as_ref()
+        .expect("global elected signer remains slashable");
+    assert_eq!(member.lane_id, LaneId::SINGLE);
+    assert_eq!(member.validator, global.validator);
+    assert_eq!(member.activation_height, 3);
+    assert!(member_for_peer(&stx, &next[0], 2).is_none());
+    let duplicate = registration(next[0].clone(), 3, LaneId::SINGLE);
+    stx.world
+        .public_lane_validators
+        .insert((LaneId::SINGLE, duplicate.validator.clone()), duplicate);
+    assert!(
+        member_for_peer(&stx, &next[0], 3).is_none(),
+        "duplicate global registrations remain unresolved"
+    );
+}
+
+#[test]
+fn destination_clearance_visits_only_bounded_pending_index_after_cleared_history() {
+    for cleared_history in [0, 64, 512] {
+        let state = blank_state();
+        let mut block = state.block(header(2));
+        let mut stx = block.transaction();
+        let peers = peers(1, 4);
+        let committee = Committee::read(&peers).unwrap();
+        let parameters = SccpParametersV1::taira_default();
+        for id in 1..=cleared_history + 65 {
+            let mut record = prepare_record(
+                &stx,
+                &committee,
+                Creation {
+                    generation: id,
+                    cause: if id == 1 {
+                        SccpGenerationCauseV1::Genesis
+                    } else {
+                        SccpGenerationCauseV1::Heartbeat
+                    },
+                    start_height: id,
+                    timestamp_ms: 1_000,
+                    liability_clock: 1_000,
+                },
+                &parameters,
+            )
+            .unwrap();
+            record.end = Some(SccpGenerationEndV1 {
+                end_height: cleared_history + 65,
+                end_timestamp_ms: 1_000,
+                next_committee_root: committee.root,
+                successor_validity_ms: parameters.committee_validity_ms,
+            });
+            if id <= cleared_history {
+                record.dest_cleared_lc = Some(2_000);
+            }
+            publish_record(&mut stx, record).expect("fixture generation admission");
+        }
+        store::liability_clock::set(&mut stx, 3_000);
+        assert_eq!(stx.world.sccp_destination_pending_generations.len(), 65);
+        assert_eq!(
+            clear_destinations(&mut stx).unwrap(),
+            64,
+            "work is independent of {cleared_history} cleared records"
+        );
+        assert_eq!(
+            stx.world
+                .sccp_destination_pending_generations
+                .iter()
+                .map(|(id, ())| *id)
+                .collect::<Vec<_>>(),
+            vec![cleared_history + 65]
+        );
+        for id in cleared_history + 1..=cleared_history + 64 {
+            assert_eq!(
+                store::committee_generations::get(&*stx.world, &id)
+                    .unwrap()
+                    .dest_cleared_lc,
+                Some(3_000)
+            );
+        }
+        assert_eq!(clear_destinations(&mut stx).unwrap(), 1);
+        assert_eq!(
+            clear_destinations(&mut stx).unwrap(),
+            0,
+            "no historical scan once work is cleared"
+        );
+        assert!(stx.world.sccp_destination_pending_generations.is_empty());
+    }
 }

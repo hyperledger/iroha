@@ -42,6 +42,57 @@ fn certify(snapshot: &WorldStateSnapshotV1) -> VerifiedSumeragiBlock {
 }
 
 #[test]
+fn world_original_decoder_refusal_keeps_its_origin_after_scope_retirement() {
+    let (snapshot, _, _, _) = snapshot();
+    let original = norito::encode_canonical(&snapshot).unwrap();
+    let limits =
+        |allocation| norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, allocation, 64);
+    let (decoded, usage) = norito::core::with_decode_limits_measured(limits(usize::MAX), || {
+        WorldStateSnapshotV1::decode_bounded_canonical(&original)
+    });
+    assert_eq!(decoded.unwrap(), snapshot);
+    assert!(usage.total_allocated_bytes() > 0);
+    for allocation in [0, usage.total_allocated_bytes() - 1] {
+        let error = norito::with_decode_limits_scope(limits(allocation), || {
+            WorldStateSnapshotV1::decode_bounded_canonical(&original).unwrap_err()
+        });
+        let FinalityReadError::DecodeResource(cause) = error else {
+            panic!("unfinished original read must remain a resource refusal");
+        };
+        assert_eq!(
+            cause.kind(),
+            norito::core::DecodeAttemptErrorKind::EnclosingLimit
+        );
+        let fields = cause.error().decode_resource_error().unwrap();
+        norito::with_decode_limits_scope(limits(allocation), || {
+            assert_eq!(
+                cause.kind(),
+                norito::core::DecodeAttemptErrorKind::EnclosingLimit
+            );
+            assert_eq!(cause.error().decode_resource_error(), Some(fields));
+        });
+        assert_eq!(
+            WorldStateSnapshotV1::decode_bounded_canonical(&original).unwrap(),
+            snapshot
+        );
+    }
+    let mut invalid = snapshot.clone();
+    invalid.entries.push(invalid.entries[0].clone());
+    assert!(matches!(
+        WorldStateSnapshotV1::decode_bounded_canonical(
+            &norito::encode_canonical(&invalid).unwrap()
+        ),
+        Err(FinalityReadError::Invalid(_))
+    ));
+    let mut trailing = original;
+    trailing.push(0);
+    assert!(matches!(
+        WorldStateSnapshotV1::decode_bounded_canonical(&trailing),
+        Err(FinalityReadError::Invalid(_))
+    ));
+}
+
+#[test]
 fn canonical_trigger_owner_identities_roundtrip_and_bind_exact_hash_preimages() {
     let (mut snapshot, _, _, _) = snapshot();
     let trigger: crate::trigger::TriggerId = "snapshot_trigger".parse().unwrap();

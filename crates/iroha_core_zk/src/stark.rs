@@ -245,6 +245,11 @@ fn effective_max_transcript_label_len(limits: &StarkVerifierLimits) -> usize {
 fn effective_max_envelope_bytes(limits: &StarkVerifierLimits) -> usize {
     limits.max_envelope_bytes.min(MAX_ENVELOPE_BYTES)
 }
+/// Whether an encoded envelope of `len` bytes is above the effective envelope bound. The
+/// bound is inclusive: an envelope of exactly the bound is decoded.
+fn envelope_exceeds_limit(len: usize, limits: &StarkVerifierLimits) -> bool {
+    len > effective_max_envelope_bytes(limits)
+}
 /// Goldilocks field element with canonical modular reduction.
 ///
 /// This backend keeps values in the range `[0, MOD_P)` and implements the minimal arithmetic
@@ -3813,7 +3818,7 @@ fn verify_stark_fri_envelope_with_context(
     limits: &StarkVerifierLimits,
     context: StarkAirVerificationContext<'_>,
 ) -> bool {
-    if bytes.len() > effective_max_envelope_bytes(limits) {
+    if envelope_exceeds_limit(bytes.len(), limits) {
         return false;
     }
     // Decode the single canonical V1 representation.

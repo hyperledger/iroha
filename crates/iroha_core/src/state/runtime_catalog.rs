@@ -565,12 +565,20 @@ impl StateTransaction<'_, '_> {
             &lifecycle_update.updated_lane_incarnations,
         );
         self.world.dataspace_catalog = prospective_nexus.dataspace_catalog.clone();
-        self.world.parameters.get_mut().set_parameter(
-            iroha_data_model::parameter::Parameter::Custom(runtime_parameter),
-        );
-        self.world.parameters.get_mut().set_parameter(
-            iroha_data_model::parameter::Parameter::Custom(native_policy.into_custom_parameter()),
-        );
+        self.world
+            .parameters
+            .get_mut()
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                runtime_parameter,
+            ))
+            .expect("runtime catalog is not a pipeline fee parameter");
+        self.world
+            .parameters
+            .get_mut()
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                native_policy.into_custom_parameter(),
+            ))
+            .expect("native policy is not a pipeline fee parameter");
         self.nexus = prospective_nexus;
         self.lane_manifests = Arc::clone(&updated_lane_manifests);
         self.lane_privacy_registry = Arc::new(LanePrivacyRegistry::from_manifest_registry(

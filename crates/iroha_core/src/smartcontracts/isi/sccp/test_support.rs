@@ -317,11 +317,17 @@ pub(crate) fn populate_every_sccp_map(
     let height = u64::from(seed) + 10;
     *block.sccp_parameters.get_mut() = Some(SccpParametersV1::taira_default());
     *block.sccp_reset_nonce.get_mut() = Some(word(seed | 1));
-    block.sccp_committee_generations.insert(
-        u64::from(seed),
-        super::generation_record::RetainedSccpGeneration::admit(&sample_generation(seed), budget)
+    block
+        .sccp_committee_generations
+        .try_insert_admitted(
+            u64::from(seed),
+            super::generation_record::RetainedSccpGeneration::admit(
+                &sample_generation(seed),
+                budget,
+            )
             .unwrap(),
-    );
+        )
+        .unwrap();
     *block.sccp_committee_current.get_mut() = u64::from(seed);
     *block.sccp_liability_clock.get_mut() = u64::from(seed) * 1_000;
     *block.sccp_degraded_run.get_mut() = u32::from(seed);
@@ -333,7 +339,10 @@ pub(crate) fn populate_every_sccp_map(
         budget,
     )
     .unwrap();
-    block.sccp_anchor_chunks.insert(u64::from(seed), word(seed));
+    block
+        .sccp_anchor_chunks
+        .try_insert_admitted(u64::from(seed), word(seed))
+        .unwrap();
     block
         .sccp_block_leaves
         .insert((height, 0), SccpLeafRefV1::transfer(word(seed)));

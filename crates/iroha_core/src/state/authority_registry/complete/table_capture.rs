@@ -1563,14 +1563,35 @@ mod tests {
         use crate::smartcontracts::isi::sccp::{
             generation_record::RetainedSccpGeneration, test_support::sample_generation,
         };
-        let mut state = state();
+        let state = state();
         let budget = state.ivm_execution_budget();
         let generation = sample_generation(1);
-        state.world.sccp_committee_generations.insert(
-            1,
+        let publish = |generation, anchor| {
+            state
+                .world
+                .sccp_committee_generations
+                .try_with_admitted_block(|block| {
+                    block
+                        .try_insert_admitted(1, generation)
+                        .map(|_| ())
+                        .map_err(|(_, error)| error)
+                })
+                .unwrap();
+            state
+                .world
+                .sccp_anchor_chunks
+                .try_with_admitted_block(|block| {
+                    block
+                        .try_insert_admitted(0, anchor)
+                        .map(|_| ())
+                        .map_err(|(_, error)| error)
+                })
+                .unwrap();
+        };
+        publish(
             RetainedSccpGeneration::admit(&generation, &budget).unwrap(),
+            [1; 32],
         );
-        state.world.sccp_anchor_chunks.insert(0, [1; 32]);
         let before_generation = capture_sccp_committee_generations_once(&state, limits())
             .unwrap()
             .unwrap();
@@ -1579,11 +1600,10 @@ mod tests {
             .unwrap();
         let mut changed = generation;
         changed.progress_cap_ms -= 1;
-        state
-            .world
-            .sccp_committee_generations
-            .insert(1, RetainedSccpGeneration::admit(&changed, &budget).unwrap());
-        state.world.sccp_anchor_chunks.insert(0, [2; 32]);
+        publish(
+            RetainedSccpGeneration::admit(&changed, &budget).unwrap(),
+            [2; 32],
+        );
         let after_generation = capture_sccp_committee_generations_once(&state, limits())
             .unwrap()
             .unwrap();

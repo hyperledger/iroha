@@ -19,6 +19,18 @@
 //! selected function; [`h5`] is the one-shot gate-label hash. [`Xof`] is the bare
 //! sponge without domain separation.
 //!
+//! # Namespaces
+//!
+//! Every function can be evaluated inside a [`Namespace`]: a caller-chosen byte
+//! string of at most [`MAX_NAMESPACE_BYTES`] bytes absorbed **before** the message,
+//! so the sponge input is `prefix || message || domain byte`. The output lengths, the
+//! messages and the domain bytes are unchanged. The empty prefix,
+//! [`Namespace::REFERENCE`], is plain FAEST v3.0 and is what the constructors without
+//! a namespace argument ([`Hasher::new`], [`hash`], [`h5`]) use; [`Hasher::new_in`],
+//! [`hash_in`] and [`h5_in`] take the namespace explicitly. A namespace is a value
+//! handed down from the caller; nothing here keeps one in global state. The AES
+//! generator of [`crate::prg`] is not namespaced.
+//!
 //! The sponge is implemented here on the Keccak-f\[1600\] permutation of the `keccak`
 //! crate. Input is added (XOR) directly into the 200-byte state and output is read directly
 //! from it, so there is no separate block buffer: the state is the only copy of
@@ -64,6 +76,63 @@ pub enum HashError {
         /// Requested output length in bits.
         bits: usize,
     },
+    /// A namespace prefix is longer than [`MAX_NAMESPACE_BYTES`].
+    #[error("a namespace prefix of {actual} bytes is longer than {MAX_NAMESPACE_BYTES}")]
+    NamespaceTooLong {
+        /// Length supplied.
+        actual: usize,
+    },
+}
+
+/// Largest namespace prefix in bytes.
+pub const MAX_NAMESPACE_BYTES: usize = 255;
+
+/// The byte prefix every random-oracle call of one proof absorbs before its message.
+///
+/// The empty prefix is reference mode: the functions are then exactly those of the
+/// FAEST v3.0 specification. A non-empty prefix separates the oracles of one
+/// application (or role) from those of every other and from plain FAEST. The prefix
+/// is public.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Namespace<'a> {
+    prefix: &'a [u8],
+}
+
+impl Namespace<'static> {
+    /// Reference mode: the empty prefix.
+    pub const REFERENCE: Self = Self { prefix: &[] };
+}
+
+impl<'a> Namespace<'a> {
+    /// The namespace with the prefix `prefix`.
+    ///
+    /// # Errors
+    /// Returns [`HashError::NamespaceTooLong`] if `prefix` is longer than
+    /// [`MAX_NAMESPACE_BYTES`].
+    pub const fn new(prefix: &'a [u8]) -> Result<Self, HashError> {
+        if prefix.len() > MAX_NAMESPACE_BYTES {
+            return Err(HashError::NamespaceTooLong {
+                actual: prefix.len(),
+            });
+        }
+        Ok(Self { prefix })
+    }
+
+    /// The prefix bytes.
+    pub const fn as_bytes(&self) -> &'a [u8] {
+        self.prefix
+    }
+
+    /// Whether this is reference mode (the empty prefix).
+    pub const fn is_reference(&self) -> bool {
+        self.prefix.is_empty()
+    }
+}
+
+impl Default for Namespace<'static> {
+    fn default() -> Self {
+        Self::REFERENCE
+    }
 }
 
 /// The fixed-output-length random-oracle functions.
@@ -300,13 +369,17 @@ pub struct Hasher {
 }
 
 impl Hasher {
-    /// Start evaluating `oracle` at `level`.
+    /// Start evaluating `oracle` at `level` in reference mode.
     pub fn new(level: SecurityLevel, oracle: Oracle) -> Self {
-        Self {
-            xof: Xof::new(level),
-            oracle,
-            level,
-        }
+        Self::new_in(Namespace::REFERENCE, level, oracle)
+    }
+
+    /// Start evaluating `oracle` at `level` inside `namespace`: the prefix is
+    /// absorbed first, then the message, then the domain byte.
+    pub fn new_in(namespace: Namespace<'_>, level: SecurityLevel, oracle: Oracle) -> Self {
+        let mut xof = Xof::new(level);
+        xof.update(namespace.as_bytes());
+        Self { xof, oracle, level }
     }
 
     /// The function being evaluated.
@@ -355,7 +428,7 @@ impl Hasher {
     }
 }
 
-/// One-shot evaluation of `oracle` at `level` on `message`.
+/// One-shot evaluation of `oracle` at `level` on `message` in reference mode.
 ///
 /// # Errors
 /// As [`Hasher::finalize`].
@@ -365,14 +438,44 @@ pub fn hash(
     message: &[u8],
     out: &mut [u8],
 ) -> Result<(), HashError> {
-    let mut hasher = Hasher::new(level, oracle);
+    hash_in(Namespace::REFERENCE, level, oracle, message, out)
+}
+
+/// One-shot evaluation of `oracle` at `level` on `message` inside `namespace`.
+///
+/// # Errors
+/// As [`Hasher::finalize`].
+pub fn hash_in(
+    namespace: Namespace<'_>,
+    level: SecurityLevel,
+    oracle: Oracle,
+    message: &[u8],
+    out: &mut [u8],
+) -> Result<(), HashError> {
+    let mut hasher = Hasher::new_in(namespace, level, oracle);
     hasher.update(message);
     hasher.finalize(out)
 }
 
-/// `H_5(iv, e, L)`: the `bits`-bit hash of the label `L` of CRT gate `e`.
+/// `H_5(iv, e, L)` in reference mode; see [`h5_in`].
 ///
-/// The input is `iv || BitDec(e, 32) || L || 0x05` with `L` of `lambda / 8` bytes.
+/// # Errors
+/// As [`h5_in`].
+pub fn h5(
+    level: SecurityLevel,
+    iv: &[u8; IV_BYTES],
+    gate: u32,
+    label: &[u8],
+    bits: usize,
+) -> Result<u16, HashError> {
+    h5_in(Namespace::REFERENCE, level, iv, gate, label, bits)
+}
+
+/// `H_5(iv, e, L)`: the `bits`-bit hash of the label `L` of CRT gate `e`, inside
+/// `namespace`.
+///
+/// The input is `prefix || iv || BitDec(e, 32) || L || 0x05` with `L` of
+/// `lambda / 8` bytes.
 /// Two bytes are squeezed and read as a little-endian integer; output bit `m` (the
 /// bit used for mask `m`) is bit `m` of the result, and bits at or above `bits` are
 /// zero. The protocol uses `bits = n_mask`.
@@ -380,7 +483,8 @@ pub fn hash(
 /// # Errors
 /// Returns [`HashError::InvalidInputLength`] unless `label` is `lambda / 8` bytes
 /// and [`HashError::InvalidH5Bits`] unless `bits` is in `[1, MAX_H5_BITS]`.
-pub fn h5(
+pub fn h5_in(
+    namespace: Namespace<'_>,
     level: SecurityLevel,
     iv: &[u8; IV_BYTES],
     gate: u32,
@@ -397,6 +501,7 @@ pub fn h5(
         return Err(HashError::InvalidH5Bits { bits });
     }
     let mut xof = Xof::new(level);
+    xof.update(namespace.as_bytes());
     xof.update(iv);
     xof.update_u32_le(gate);
     xof.update(label);
@@ -657,6 +762,107 @@ mod tests {
                 h5(level, &iv, gate, &label, 16)
             );
         }
+    }
+
+    #[test]
+    fn namespaces_are_bounded_byte_prefixes() {
+        assert!(Namespace::REFERENCE.is_reference());
+        assert_eq!(Namespace::default(), Namespace::REFERENCE);
+        assert_eq!(Namespace::REFERENCE.as_bytes(), b"");
+        let longest = [7u8; MAX_NAMESPACE_BYTES];
+        let namespace = Namespace::new(&longest).expect("at the bound");
+        assert!(!namespace.is_reference());
+        assert_eq!(namespace.as_bytes(), &longest[..]);
+        assert_eq!(Namespace::new(b""), Ok(Namespace::REFERENCE));
+        assert_eq!(
+            Namespace::new(&[0u8; MAX_NAMESPACE_BYTES + 1]),
+            Err(HashError::NamespaceTooLong {
+                actual: MAX_NAMESPACE_BYTES + 1
+            })
+        );
+        assert_eq!(MAX_NAMESPACE_BYTES, 255);
+    }
+
+    #[test]
+    fn every_function_absorbs_the_prefix_then_the_message_then_the_domain_byte() {
+        let prefixes: [&[u8]; 4] = [b"", b"A", b"PARL/FAEST/v1", &[0x5a; MAX_NAMESPACE_BYTES]];
+        for level in SecurityLevel::ALL {
+            for oracle in Oracle::ALL {
+                let len = oracle.output_bytes(level);
+                let mut seen = Vec::new();
+                for prefix in prefixes {
+                    let namespace = Namespace::new(prefix).expect("bounded");
+                    let mut expected_input = prefix.to_vec();
+                    expected_input.extend_from_slice(b"message body");
+                    expected_input.push(oracle.domain_byte());
+                    let expected = reference(level, &expected_input, len);
+
+                    let mut out = vec![0u8; len];
+                    hash_in(namespace, level, oracle, b"message body", &mut out)
+                        .expect("exact length");
+                    assert_eq!(out, expected, "{level:?} {oracle:?}");
+
+                    let mut hasher = Hasher::new_in(namespace, level, oracle);
+                    hasher.update(b"message ");
+                    hasher.update(b"body");
+                    let mut pieces = vec![0u8; len];
+                    hasher.finalize(&mut pieces).expect("exact length");
+                    assert_eq!(pieces, expected);
+                    seen.push(out);
+                }
+                // The empty prefix is the reference function.
+                let mut plain = vec![0u8; len];
+                hash(level, oracle, b"message body", &mut plain).expect("exact length");
+                assert_eq!(plain, seen[0]);
+                seen.sort();
+                seen.dedup();
+                assert_eq!(seen.len(), prefixes.len(), "{level:?} {oracle:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn h5_absorbs_the_prefix_before_the_iv() {
+        let iv = [0x31u8; 16];
+        let prefixes: [&[u8]; 3] = [b"", b"one namespace", b"another namespace"];
+        for level in SecurityLevel::ALL {
+            let label = vec![0x47u8; level.bytes()];
+            let mut seen = Vec::new();
+            for prefix in prefixes {
+                let namespace = Namespace::new(prefix).expect("bounded");
+                let mut message = prefix.to_vec();
+                message.extend_from_slice(&iv);
+                message.extend_from_slice(&9u32.to_le_bytes());
+                message.extend_from_slice(&label);
+                message.push(H5_DOMAIN_BYTE);
+                let squeezed = reference(level, &message, 2);
+                let full = u16::from_le_bytes([squeezed[0], squeezed[1]]);
+                assert_eq!(h5_in(namespace, level, &iv, 9, &label, 16), Ok(full));
+                assert_eq!(
+                    h5_in(namespace, level, &iv, 9, &label, 10),
+                    Ok(full & 0x03ff)
+                );
+                seen.push(full);
+            }
+            assert_eq!(h5(level, &iv, 9, &label, 16), Ok(seen[0]));
+            seen.sort_unstable();
+            seen.dedup();
+            assert_eq!(seen.len(), prefixes.len(), "{level:?}");
+        }
+        assert_eq!(
+            h5_in(
+                Namespace::REFERENCE,
+                SecurityLevel::L128,
+                &iv,
+                0,
+                &[0; 3],
+                10
+            ),
+            Err(HashError::InvalidInputLength {
+                expected: 16,
+                actual: 3
+            })
+        );
     }
 
     #[test]

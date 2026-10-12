@@ -1290,7 +1290,8 @@ impl CertifiedTestChain {
                 vote.sig = self
                     .signer_for_member(&context.committee[signer as usize].validator)
                     .expect("provisioned exact scheduled BLS custody")
-                    .sign(&vote.preimage());
+                    .sign(&vote.preimage())
+                    .unwrap();
                 vote
             })
             .collect::<Vec<_>>();
@@ -1319,7 +1320,8 @@ impl CertifiedTestChain {
                     block_hash,
                     result,
                     signers: signers_bitmap,
-                    agg_sig: iroha_sumeragi::crypto::Crypto::aggregate(&*self.crypto, &sigs),
+                    agg_sig: iroha_sumeragi::crypto::Crypto::aggregate(&*self.crypto, &sigs)
+                        .expect("genuine fixture signatures aggregate"),
                 }
             }
         }
@@ -1381,6 +1383,7 @@ impl CertifiedTestChain {
                 view.world(),
                 view.nexus(),
                 view.pipeline(),
+                &view.zk().gas,
                 draft.payload(),
                 created_ms,
                 crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
@@ -2259,7 +2262,8 @@ mod tests {
             .get_mut()
             .set_parameter(Parameter::Custom(
                 SumeragiNposParameters::default().into_custom_parameter(),
-            ));
+            ))
+            .expect("valid fixture parameters");
         initial.commit();
         config.genesis_instructions.push(
             RegisterPublicLaneValidator {

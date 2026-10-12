@@ -22,6 +22,11 @@
 //! constants. They describe today's fixed profile; they are not a registry a
 //! caller can extend, and proof bytes never select an entry.
 //!
+//! [`transcript_profile`] is the frozen semantic profile of the engine's
+//! transcript: the typed descriptor every commitment and challenge absorbs in
+//! full, with the identity that records and measurements name. It contains no
+//! source or build digest and grants no authority.
+//!
 //! Process observers registered with [`set_observer`] receive the public
 //! progress of committed construction and verification. They cannot change a
 //! result.
@@ -122,6 +127,25 @@ pub const PROFILE: EngineProfile = EngineProfile {
     max_frame_bytes: deep_proof::MAX_FRAME_BYTES,
     public_column_layout: LAYOUT_ID,
 };
+
+/// Frozen semantic profile of the committed engine's transcript.
+///
+/// The returned descriptor is the complete typed description of what the
+/// transcript binds: construction, framing, hash and XOF, field and encodings,
+/// domains, masking bounds, out-of-domain claims, DEEP composition, FRI
+/// schedule, sampling rules, message schedule, grinding (zero bits, no nonce)
+/// and the profile's declared envelope. Its canonical bytes are absorbed by
+/// every commitment and challenge and embedded in the artifact descriptor.
+///
+/// [`SemanticProfileV1::id`](fastpq_isi::semantic_profile::SemanticProfileV1::id)
+/// is the identity a measurement names. A measurement that names another
+/// identity does not describe this profile. The identity is computed from the
+/// declared parameters only; it is not a source, build or binary hash, and
+/// freezing it establishes no soundness level.
+#[must_use]
+pub fn transcript_profile() -> &'static fastpq_isi::semantic_profile::SemanticProfileV1 {
+    super::super::transcript_profile::profile()
+}
 
 /// Role of one sealed relation in the engine's closed set.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -1,0 +1,231 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "oversized_and_misbound_payloads_are_rejected_before_signing",
+  "category": "bounds_and_bindings",
+  "rules": [
+    "persist_before_effect"
+  ],
+  "description": "A payload above the transaction bound, a payload for another intent and an empty payload are rejected before anything is signed, with actual and maximum for the bound. A signer that reports an identity its bytes do not hash to is a binding mismatch. A denied signature is reported as such. None of these sends anything.",
+  "plan": {
+    "kind": "issuer_bootstrap",
+    "instance": "oversized-and-misbound-payloads-are-rejected-before-signing",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "oversized"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "ResourceLimitExceeded",
+          "stage": "prove",
+          "step": 0,
+          "bounds": {
+            "actual": 10485761,
+            "maximum": 10485760
+          }
+        },
+        "effects": [
+          "build:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "prepared"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "wrong_intent"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "BindingMismatch",
+          "stage": "prove",
+          "step": 0
+        },
+        "effects": [
+          "build:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "prepared"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "empty"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "InvalidInput",
+          "stage": "prove",
+          "step": 0
+        },
+        "effects": [
+          "build:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "prepared"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "wrong_identity"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "BindingMismatch",
+          "stage": "sign",
+          "step": 0
+        },
+        "effects": [
+          "build:0#1",
+          "sign:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "ready_to_sign"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "signs": [
+          "fail:AuthorizationDenied"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "AuthorizationDenied",
+          "stage": "sign",
+          "step": 0
+        },
+        "effects": [
+          "sign:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "ready_to_sign"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "accepted"
+        ],
+        "statuses": [
+          "applied"
+        ]
+      },
+      "expect": {
+        "result": "completed",
+        "effects": [
+          "sign:0#1",
+          "dispatch:0#1",
+          "status:0#1"
+        ],
+        "status": "completed",
+        "steps": [
+          "finalized"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0
+          ],
+          "irreversible_steps": [
+            0
+          ],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        }
+      }
+    }
+  ]
+}

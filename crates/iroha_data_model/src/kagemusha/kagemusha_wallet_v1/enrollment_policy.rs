@@ -161,7 +161,7 @@ impl KagemushaWalletAppPolicyV1 {
                         .bytes(package_name.as_bytes())
                         .u64(*minimum_package_version)
                         .u8(u8::try_from(signer_set.len()).expect("validated count")),
-                    |transcript, signer| transcript.digest(signer),
+                    WalletTranscriptV1::digest,
                 )
                 .finish(),
             KagemushaWalletAppIdentityV1::Apple { app_id } => base

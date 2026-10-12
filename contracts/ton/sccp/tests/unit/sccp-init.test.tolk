@@ -648,6 +648,21 @@ get fun `test init rejects a key list that is not the canonical ordinary chain`(
             .storeSlice(k1)
             .storeMaybeRef(beginCell().storeSlice(k2).storeSlice(k3).storeUint(1, 1).endCell())
             .endCell(),
+        // the Maybe bit set on the first chunk without a next chunk
+        beginCell().storeSlice(k0).storeSlice(k1).storeUint(1, 1).endCell(),
+        // a stray reference on the last chunk
+        beginCell()
+            .storeSlice(k0)
+            .storeSlice(k1)
+            .storeMaybeRef(
+                beginCell()
+                    .storeSlice(k2)
+                    .storeSlice(k3)
+                    .storeUint(0, 1)
+                    .storeRef(lastTwo)
+                    .endCell(),
+            )
+            .endCell(),
     ];
     var i = 0;
     repeat (lists.size()) {
@@ -660,7 +675,7 @@ get fun `test init rejects a key list that is not the canonical ordinary chain`(
         expect(code).toEqual(SccpErrors.BadSnake as int);
         i += 1;
     }
-    expect(i).toEqual(5);
+    expect(i).toEqual(7);
 }
 
 get fun `test init rejects committee fields that differ from the pin`() {
@@ -711,13 +726,63 @@ get fun `test init rejects committee fields that differ from the pin`() {
 // ---------------------------------------------------------------------------
 // Before init.
 
+/// Sends every operation that requires an initialized minter from `user`,
+/// with well-formed bodies: the certificate `cert`, the transfer `d` and the
+/// control `c` are genuinely certified. Returns the eleven results.
+fun sendEveryOperation(
+    env: Env,
+    user: address,
+    cert: cell,
+    d: Delivery,
+    c: ControlDelivery,
+): array<SendResultList> {
+    val minter = env.minter;
+    val value: SendParams = { value: grams("2"), bounce: true };
+    return [
+        sendCheckpoint(env, user, cert, null, grams("2")),
+        sendFinalize(env, user, d, grams("2")),
+        sendFinalizeCheckpoint(env, user, d, grams("2")),
+        sendVoidExpired(env, user, 0, d, grams("2")),
+        sendVoidExpiredCheckpoint(env, user, 0, d, grams("2")),
+        sendApplyControl(env, c),
+        sendApplyControlCheckpoint(env, c),
+        sendVoidFrozen(env, 0, 1, grams("2")),
+        minter.sendSccpDeployBuckets(user, 0, user, 1, value),
+        minter.sendSccpRetry(user, 0, user, 0, value),
+        // a burn notification from the owner's canonical wallet (forged sender)
+        minter.sendBurnNotificationForMinter(
+            minter.getWalletAddress(user),
+            0,
+            10,
+            user,
+            user,
+            { recipient: snakeOfLength(8) },
+            value,
+        ),
+    ];
+}
+
+/// Expects every call to end with `NotInitialized` and without an event;
+/// returns their number.
+fun expectAllNotInitialized(calls: array<SendResultList>): int {
+    val notInitialized = SccpErrors.NotInitialized as int;
+    var i = 0;
+    repeat (calls.size()) {
+        if (outcomeOf(calls.get(i)) != notInitialized) {
+            println("call {} observed {}", i, outcomeOf(calls.get(i)));
+        }
+        expectOutcome(calls.get(i), notInitialized);
+        expectEvents(calls.get(i), []);
+        i += 1;
+    }
+    return i;
+}
+
 get fun `test operations throw before init`() {
     testing.setNow(T0);
     val committee = testCommittee(4, 0);
     val minter = deployUninitialized(canonicalFor(committee));
     val user = testing.treasury("user");
-    val value: SendParams = { value: grams("2"), bounce: true };
-    val notInitialized = SccpErrors.NotInitialized as int;
     val env: Env = {
         minter,
         deployer: user.address,
@@ -730,44 +795,15 @@ get fun `test operations throw before init`() {
     val d = deliverDefault(env, 0, 1000, user.address);
     val c = deliverControl(env, 1, true);
     val x = emptyX(env.networkId, env.generation, committee.root(), TEST_START_HEIGHT + 5);
-    var calls: array<SendResultList> = [
-        sendCheckpoint(env, user.address, certifyFor(env, committee, x), null, grams("2")),
-        sendFinalize(env, user.address, d, grams("2")),
-        sendFinalizeCheckpoint(env, user.address, d, grams("2")),
-        sendVoidExpired(env, user.address, 0, d, grams("2")),
-        sendVoidExpiredCheckpoint(env, user.address, 0, d, grams("2")),
-        sendApplyControl(env, c),
-        sendApplyControlCheckpoint(env, c),
-        sendVoidFrozen(env, 0, 1, grams("2")),
-        minter.sendSccpDeployBuckets(user.address, 0, user.address, 1, value),
-        minter.sendSccpRetry(user.address, 0, user.address, 0, value),
-        // a burn notification from the owner's canonical wallet (forged sender)
-        minter.sendBurnNotificationForMinter(
-            minter.getWalletAddress(user.address),
-            0,
-            10,
-            user.address,
-            user.address,
-            { recipient: snakeOfLength(8) },
-            value,
-        ),
-    ];
-    var i = 0;
-    repeat (calls.size()) {
-        if (outcomeOf(calls.get(i)) != notInitialized) {
-            println("call {} observed {}", i, outcomeOf(calls.get(i)));
-        }
-        expectOutcome(calls.get(i), notInitialized);
-        expectEvents(calls.get(i), []);
-        i += 1;
-    }
-    expect(i).toEqual(11);
-    // the same calls on another chain answer NotInitialized first
+    val cert = certifyFor(env, committee, x);
+    expect(
+        expectAllNotInitialized(sendEveryOperation(env, user.address, cert, d, c)),
+    ).toEqual(11);
+    // on another chain every one of them answers NotInitialized first
     setGlobalId(-3);
-    expectOutcome(
-        sendCheckpoint(env, user.address, certifyFor(env, committee, x), null, grams("2")),
-        notInitialized,
-    );
+    expect(
+        expectAllNotInitialized(sendEveryOperation(env, user.address, cert, d, c)),
+    ).toEqual(11);
     setGlobalId(SCCP_TON_GLOBAL_ID);
     val state = minter.getSccpState();
     expect(state.initialized).toBeFalse();

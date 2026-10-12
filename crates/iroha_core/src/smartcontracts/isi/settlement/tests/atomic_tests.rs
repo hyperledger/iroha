@@ -145,7 +145,8 @@ fn atomic_state_in_scope_with_source_delta_limit(
         .expect("finite atomic source profile");
         parameters
             .get_mut()
-            .set_parameter(Parameter::Block(BlockParameter::FastpqSource(profile)));
+            .set_parameter(Parameter::Block(BlockParameter::FastpqSource(profile)))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
     (
@@ -775,7 +776,8 @@ fn atomic_settlement_bootstrap_delta_limit_refuses_without_movement_or_receipt()
         .get_mut()
         .set_parameter(Parameter::Block(BlockParameter::FastpqSource(
             FastpqSourcePolicyV1::bootstrap(),
-        )));
+        )))
+        .expect("valid fixture parameters");
     parameters.commit();
     let mut block = state.block(BlockHeader::new(nonzero!(1_u64), None, None, 0, 0));
     let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"atomic-fixture-carrier"));

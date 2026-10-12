@@ -110,11 +110,12 @@ pub(super) fn instructions(
     );
     plan.instructions(config)
 }
+#[derive(Clone, Copy)]
 pub(super) struct ProviderIngestExpectation<'a>(
     pub(super) &'a InitialProviderIngestAuthorityRequest,
 );
 impl ProviderIngestExpectation<'_> {
-    pub(super) fn verify(&self, record: &preparation::Selection<'_>) -> Result<()> {
+    pub(super) fn verify(self, record: &preparation::Selection<'_>) -> Result<()> {
         let NativeOperation::InitialProviderIngestAuthority { plan, terms } = record.operation
         else {
             eyre::bail!("journal differs from selected initial ingest authority purpose");

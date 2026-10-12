@@ -36,9 +36,9 @@ pub(super) fn validate(
                     )
                     .into();
                     #[cfg(not(all(test, sumeragi_core_mutation = "HC24")))]
-                    return crate::execution_attempt::norito_decode_attempt_error(
-                        resource.into(),
-                        |_| {
+                    return crate::execution_attempt::canonical_decode_attempt_error(
+                        resource,
+                        |resource| {
                             io::Error::new(
                                 io::ErrorKind::InvalidData,
                                 CommitmentError::Resource(resource),

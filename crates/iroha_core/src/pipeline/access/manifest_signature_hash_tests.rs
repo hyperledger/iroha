@@ -146,7 +146,7 @@ fn manifest_signature_hash_frame_refusal_never_allocates_a_frame_or_partial_dige
 fn manifest_signature_hash_cached_state_hints_refuse_before_lookup_and_retry_conservatively() {
     let _retention = super::static_state_memory_tests::retention();
     let (mut state, bytes, manifest, artifact) = super::static_state_memory_tests::fixture();
-    state.pipeline.access_set_cache_enabled = true;
+    state.edit_pipeline_for_testing(|pipeline| pipeline.access_set_cache_enabled = true);
     let view = state.view();
     let cache = view.prepared_contract_cache();
     let prepared = cache

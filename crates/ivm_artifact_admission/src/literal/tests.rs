@@ -72,12 +72,19 @@ fn canonical_json_literals_preserve_each_actual_cumulative_refusal_and_retry() {
                     validate_literal_table(&program, &parsed, &[])
                 })
                 .unwrap_err();
+                let retained = outcome.local_vm_error().unwrap();
                 assert_eq!(
-                    outcome.local_vm_error(),
-                    Some(VMError::ExecutionDeferred(
-                        ExecutionDeferral::ActiveMemoryCapacity
-                    ))
+                    retained.execution_deferral(),
+                    Some(ExecutionDeferral::ActiveMemoryCapacity)
                 );
+                let VMError::DecodeDeferred(original) = &retained else {
+                    panic!("literal must retain the captured decoder owner");
+                };
+                assert_eq!(
+                    Some(original.resource_error()),
+                    error.error().decode_resource_error()
+                );
+                assert_eq!(outcome.into_vm_error(), retained);
                 let Some(DecodeResourceError::TotalAllocationExceeded { attempted, .. }) =
                     error.into_error().decode_resource_error()
                 else {
@@ -224,10 +231,13 @@ fn actual_artifact_admission_keeps_literal_refusal_after_metadata_succeeds() {
         refused.to_string().contains("literal index validation"),
         "{refused}"
     );
+    let retained = refused.local_vm_error().unwrap();
     assert_eq!(
-        refused.into_vm_error(),
-        VMError::ExecutionDeferred(ExecutionDeferral::ActiveMemoryCapacity)
+        retained.execution_deferral(),
+        Some(ExecutionDeferral::ActiveMemoryCapacity)
     );
+    assert!(matches!(retained, VMError::DecodeDeferred(_)));
+    assert_eq!(refused.into_vm_error(), retained);
     let retried = crate::verify_contract_artifact(&artifact).unwrap();
     assert_eq!(retried.code_hash, baseline.code_hash);
     assert_eq!(retried.manifest, baseline.manifest);

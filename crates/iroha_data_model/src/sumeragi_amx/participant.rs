@@ -61,14 +61,14 @@ pub trait AmxEscrow {
 
 /// A rejected AMX proof/transition or an unchanged escrow operation to retry at the host.
 /// This runtime error is not a wire value and does not change the AMX record layout.
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum AmxParticipantError<E> {
     /// The protocol input or participant state rejected the requested transition.
     #[error(transparent)]
     Protocol(AmxError),
     /// A local proof decoder refused before changing escrow or participant state.
     #[error("local AMX participant decoder resource refusal: {0}")]
-    Resource(norito::core::DecodeResourceError),
+    Resource(#[source] norito::core::DecodeAttemptError),
     /// The host refused without changing escrow or participant state.
     #[error("AMX escrow operation failed: {0}")]
     Escrow(E),
@@ -212,6 +212,9 @@ impl AmxParticipantStateV1 {
     /// The first violated invariant.
     pub fn validate(&self) -> Result<(), AmxError> {
         self.global.validate()?;
+        if self.global.result_scope != crate::sumeragi_finality::CertifiedResultScope::TairaGlobal {
+            return Err(rejected("coordinator tracker must name the global root"));
+        }
         if self.prepared.len() > MAX_AMX_PENDING || self.held.len() > MAX_AMX_PENDING {
             return Err(rejected("participant state exceeds its bounds"));
         }
@@ -255,10 +258,7 @@ impl AmxParticipantStateV1 {
         let leg = transaction
             .leg(self.dataspace)
             .ok_or_else(|| rejected("this dataspace is not a participant"))?;
-        let verified = self.global.verify_record(
-            begin,
-            crate::sumeragi_finality::CertifiedResultScope::TairaGlobal,
-        )?;
+        let verified = self.global.verify_record(begin)?;
         let Err(index) = self
             .prepared
             .binary_search_by(|entry| entry.tx.cmp(&record.tx))
@@ -319,10 +319,7 @@ impl AmxParticipantStateV1 {
         let AmxRecordV1::Decision(record) = &decision.record else {
             return Err(AmxError::Record("a settlement needs a Decision proof").into());
         };
-        let verified = self.global.verify_record(
-            decision,
-            crate::sumeragi_finality::CertifiedResultScope::TairaGlobal,
-        )?;
+        let verified = self.global.verify_record(decision)?;
         let outcome = match self
             .prepared
             .binary_search_by(|entry| entry.tx.cmp(&record.tx))
@@ -385,10 +382,7 @@ impl AmxParticipantStateV1 {
     /// # Errors
     /// The proof does not verify.
     pub fn handoff(&mut self, proof: &AmxHandoffProofV1) -> Result<AmxHandoffOutcome, AmxError> {
-        let outcome = self.global.apply_handoff(
-            proof,
-            crate::sumeragi_finality::CertifiedResultScope::TairaGlobal,
-        )?;
+        let outcome = self.global.apply_handoff(proof)?;
         if let Some(previous) = &self.global.previous {
             self.observe(previous.authorization.last_height);
         }

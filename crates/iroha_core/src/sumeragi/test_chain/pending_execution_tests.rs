@@ -357,8 +357,7 @@ fn changed_original_genesis_configuration_is_rejected_before_publication() {
         CertifiedTestChain::prepare(TestChainConfig::new(World::new(), 1000)).unwrap();
     Arc::get_mut(&mut prepared.state)
         .unwrap()
-        .pipeline
-        .amx_group_budget_ms += 1;
+        .edit_pipeline_for_testing(|pipeline| pipeline.amx_group_budget_ms += 1);
     let topology = super::super::super::network_topology::Topology::new(
         prepared
             .validator_keys

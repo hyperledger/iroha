@@ -2,19 +2,19 @@
   "format": "iroha.native-finality.checkpoint-fixture-capture",
   "version": 1,
   "chain_id": "portable-native-fixture",
-  "network_id": "hash:9B2807B326BBEB61CB9A2608E2F7F19F8B1722CE4ED937395F53F0253086B3B7#F3C8",
+  "network_id": "hash:F18844322E852BD2CCFCE728C86287893C9F5406C720E28DFF190CEDB99724ED#E236",
   "generator": {
     "path": "crates/iroha_data_model/src/sumeragi_finality/test_fixtures.rs",
-    "source_sha256": "10f24f9aac93da38615e04f621b6a75069b6993cc054cc5af7e948615546e78e",
+    "source_sha256": "4f69e2462190030f2b2626e054d01a7450adebd4f6368141d367652a8bdc588b",
     "test": "sumeragi_finality::test_fixtures::tests::capture_native_checkpoint_fixtures",
-    "command": "scripts/cargo_fast.sh --stable-local-metadata --target-slot kg-gadgets --jobs 2 -- test -p iroha_data_model --features test-fixtures,transparent_api --lib sumeragi_finality -- --test-threads=2",
-    "compiled_harness_path": "target/cargo-fast/kg-gadgets/debug/deps/iroha_data_model-5db0bbbc072c8009",
-    "compiled_harness_sha256": "0f91a9aa46097a8fc181070a668acfb46b32197b1a1b37c783ae7bbf92eb4b9e",
-    "source_commit": "538b5fe99730a0686e7de0677cbc2a2477471d09",
+    "command": "CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/zk-resume-i1 cargo test --offline --locked --jobs 1 -p iroha_data_model --features transparent_api --lib -- consensus_suite_tests sumeragi_finality::compact sumeragi_finality::tests sumeragi_amx",
+    "compiled_harness_path": "target/zk-resume-i1/debug/deps/iroha_data_model-f3399b5585896c49",
+    "compiled_harness_sha256": "1f97b3fe72cabecad24e7ae8cd9559467d5e2ee904ca4b2a5c6fc83eb8b5ad01",
+    "source_commit": "6043d97c4003da4bbb3fc772d9a0548b3f456b16",
     "result_codec_sources": [
       {
         "path": "crates/iroha_data_model/src/sumeragi_finality/commitment.rs",
-        "sha256": "610a0eaeb052623dfd151a4a2f6b4f2e61370c5b607f9a1efae99a7914b8505d"
+        "sha256": "7e844f5ccc037a4d788b24740e34376c1681c6ae51d99c9e6fcd464374251d66"
       },
       {
         "path": "crates/iroha_data_model/src/sumeragi_finality/commitment/wire.rs",
@@ -22,44 +22,52 @@
       },
       {
         "path": "crates/iroha_data_model/src/block/consensus.rs",
-        "sha256": "8517320e218bde582c4f12a9c1a407576f037d0202a5be73ab6e62e301784eea"
+        "sha256": "fcbf71e7e0caf4a004e5cfb76aa97a63d1c93384fb2935ec89ff7a2fd476ae54"
       },
       {
         "path": "crates/iroha_data_model/src/block/consensus/root_scope.rs",
         "sha256": "ad6be30e63e85fb95cf1970e7bd51abfb607348f71958a0853fa64d2057405e9"
+      },
+      {
+        "path": "crates/iroha_data_model/src/sumeragi_finality/certified_result.rs",
+        "sha256": "54492371fee376c6349a31e8706ecb9aaa6733c5411d6bd125a319e46e15c7e9"
       }
     ],
     "source_tree_clean": false,
     "checkpoint_codec_source": {
       "path": "crates/iroha_data_model/src/sumeragi_finality/checkpoint.rs",
-      "sha256": "56a51933c60a016a3a3267766b5b9d06212a602181be835af96483da336e5508"
+      "sha256": "9e31c624398d96de63e184960d993b1074c571168af8e77f0f07645456f0b6f1"
     },
     "consensus_codec_sources": [
       {
         "path": "crates/iroha_data_model/src/sumeragi_finality.rs",
-        "sha256": "5cb9fd086a7558fe335f3d92f0dde89752cd82d55ee11c40caef6738c5122fbd"
+        "sha256": "ed29e3312d3f4cc7ceefd6050ba6497c19ee0afc6ed63dc6602ca59003967d41"
       },
       {
         "path": "crates/iroha_sumeragi/src/types.rs",
-        "sha256": "0ca0c2e0588d78c95c1c2784c0a578ddae5db8841ef9c5446a86a8f3559d768f"
+        "sha256": "2c588588089eea08c7bef2f9e0e5a2dbc206862637d24ee926652a983501bfc1"
       },
       {
         "path": "crates/iroha_sumeragi/src/crypto.rs",
-        "sha256": "9395a34eab4c046f008039e6795354a10c1520044adb2af6faa5adb418e02493"
+        "sha256": "a39d142e3f7d34cd9c8380bf3bdda5abb9735679135a0a2a71e37122dcd4ead2"
+      },
+      {
+        "path": "crates/iroha_crypto/src/signature/bls/consensus.rs",
+        "sha256": "7c69c6aaf4e9a5454ac345afe523802fd14cc8ef9a74be20f37762a8707dcbde"
       }
     ]
   },
   "captures": [
     {
-      "log": "target/qualification/s22-datamodel-retirement/checkpoint-capture-1.log",
-      "sha256": "ed54dd3b7b190168ae61c7a0a66da9ab1c111153909b22c8cc16ebb3a9ee8926",
-      "command": "target/cargo-fast/kg-gadgets/debug/deps/iroha_data_model-5db0bbbc072c8009 sumeragi_finality::test_fixtures::tests::capture_native_checkpoint_fixtures --exact --ignored --nocapture",
+      "log": "dist/zk-delivery-handoff/reports/native-checkpoint-consensus-suite-capture-1-2026-10-12.log",
+      "sha256": "c2007f249d0643043b506917f140c3a09bfe887a7a65537f72c6a8c0f8ec62f2",
+      "command": "target/zk-resume-i1/debug/deps/iroha_data_model-f3399b5585896c49 sumeragi_finality::test_fixtures::tests::capture_native_checkpoint_fixtures --exact --ignored --nocapture",
       "result": "1 passed; 0 failed; explicit exporter invocation; complete capture log retained"
     },
     {
-      "log": "target/qualification/s22-datamodel-retirement/checkpoint-capture-2.log",
-      "sha256": "ed54dd3b7b190168ae61c7a0a66da9ab1c111153909b22c8cc16ebb3a9ee8926",
-      "command": "target/cargo-fast/kg-gadgets/debug/deps/iroha_data_model-5db0bbbc072c8009 sumeragi_finality::test_fixtures::tests::capture_native_checkpoint_fixtures --exact --ignored --nocapture",
+      "log": "dist/zk-delivery-handoff/reports/native-checkpoint-consensus-suite-capture-2-2026-10-12.log",
+      "sha256": "c2007f249d0643043b506917f140c3a09bfe887a7a65537f72c6a8c0f8ec62f2",
+      "command": "target/zk-resume-i1/debug/deps/iroha_data_model-f3399b5585896c49 sumeragi_finality::test_fixtures::tests::capture_native_checkpoint_fixtures --exact --ignored --nocapture",
       "result": "1 passed; 0 failed; explicit exporter invocation; complete capture log retained"
     }
   ],
@@ -68,16 +76,16 @@
     {
       "path": "fixtures/sumeragi/native-finality/genesis-checkpoint.nrt",
       "height": 1,
-      "bytes": 21494,
-      "sha256": "9b249ca758b856481bcf1cd19b2fcd546043865036a79e035ecd7ba76f644e22"
+      "bytes": 21724,
+      "sha256": "9c1fa98c2cf5a7e87f22b3456b1f67d8d01e6ce14933b509226cc86fb589b3df"
     },
     {
       "path": "fixtures/sumeragi/native-finality/height-2-checkpoint.nrt",
       "height": 2,
-      "bytes": 24929,
-      "sha256": "0f62325585493233cf88650c8cd49596677309a65fd83c9e1776f6026514da6c"
+      "bytes": 25159,
+      "sha256": "300cae5555cfdc123a7b213b0f677b5ac3564169201d38a0b6ded0554bcf7720"
     }
   ],
-  "scope": "Deterministic first-release protocol fixtures after generic consensus-attestation retirement: exact signed genesis and genuine native three-of-four BLS H2 CommitQC plus signed RS16 availability over synthetic outputs, using the sole compact ExecutionResultCommitment schedule projection. Canonical roundtrip and contiguous checkpoint page verified by the exporter. No World execution, monetary effect, production custody, network liveness or release qualification claim.",
-  "captured_at_utc": "2026-10-06T11:09:34.267880+00:00"
+  "scope": "Deterministic first-release protocol fixtures for the sole CertifiedResultV1 X || body result envelope: exact signed genesis and genuine native three-of-four BLS H2 CommitQC plus signed RS16 availability over synthetic outputs. Consensus QC and availability signatures use the sole SHA-256 allowlisted-preimage/DST_SIG suite; generic genesis signing and proofs of possession retain their distinct protocol roles. Inactive fixed headers bind the original block height and creation time. Canonical roundtrip and contiguous checkpoint page verified by the exporter. This incompatible execution-root layout and consensus suite require fresh genesis; no replay claim for previous history. No World execution, monetary effect, production custody, network liveness or release qualification claim.",
+  "captured_at_utc": "2026-10-11T19:55:32.563640+00:00"
 }

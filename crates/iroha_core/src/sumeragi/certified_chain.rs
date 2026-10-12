@@ -3,7 +3,7 @@
 //!
 //! Kura holds one frame per committed height: the result-bearing iroha block and its
 //! [`CommitCertificate`] — the canonical core [`BlockHeader`], the `CommitQC` and the preimage of
-//! the certified result `R` ([`ExecutionResultCommitment`]). Genesis carries a result-only
+//! the certified result `R` ([`CertifiedResultV1`], the fixed `X` and its execution body). Genesis carries a result-only
 //! certificate (no header, no `CommitQC`). Its signed body and registered authority are the
 //! network-pinned trust root. The result-only execution preimage is added after genesis executes;
 //! genesis signatures do not authenticate that preimage. An exact-quorum successor authenticates
@@ -65,13 +65,13 @@ use iroha_crypto::{Hash, HashOf, PublicKey as IrohaPublicKey};
 use iroha_data_model::{
     block::{
         BlockHeader as IrohaHeader, CommitCertificate, SignedBlock,
-        consensus::HeightContextId,
+        consensus::{HeightContextId, SumeragiRootScope},
         proofs::{
             TrustedBlockProofAnchor, TrustedBlockProofAnchorError, TrustedExecutionOutputAnchor,
         },
     },
     sumeragi::epoch::ValidatorEpochContextV1,
-    sumeragi_finality::EpochValidationScope,
+    sumeragi_finality::{CertifiedResultError, CertifiedResultV1, EpochValidationScope},
     transaction::TransactionEntrypoint,
 };
 use iroha_sumeragi::{
@@ -82,9 +82,7 @@ use iroha_sumeragi::{
 };
 
 use super::{
-    commitment::{
-        CertifiedResultError, CertifiedResultV1, ExecutionResultCommitment, result_of_preimage,
-    },
+    commitment::{ExecutionResultCommitment, result_of_preimage},
     crypto::{BlsCrypto, core_key},
     schedule,
     startup::{GENESIS_HEIGHT, core_hash_of},
@@ -272,7 +270,7 @@ impl CommittedBlock {
         self.result
     }
 
-    /// The decoded preimage of `R`.
+    /// The decoded execution body within the certified `X ‖ body` preimage.
     #[must_use]
     pub fn commitment(&self) -> &ExecutionResultCommitment {
         self.certified_result.commitment()
@@ -545,7 +543,18 @@ fn frame_result_error(
 ) -> ExecutionAttemptError<ChainReadError> {
     match error {
         CertifiedResultError::Body(super::commitment::CommitmentError::Resource(error)) => {
-            read_decode_error(height, error.into())
+            if cfg!(all(test, sumeragi_core_mutation = "HC43")) {
+                return ExecutionAttemptError::Rejected(ChainReadError::Malformed {
+                    height,
+                    reason: error.to_string(),
+                });
+            }
+            crate::execution_attempt::canonical_decode_attempt_error(error, |error| {
+                ChainReadError::Malformed {
+                    height,
+                    reason: error.to_string(),
+                }
+            })
         }
         completed => ExecutionAttemptError::Rejected(ChainReadError::Malformed {
             height,
@@ -1159,9 +1168,27 @@ struct PreparedAdvance {
     proof_source: Option<Hash>,
 }
 
+// Structural frame readers retain X and check C1–C5 without conferring scope authority.
+// Only the original signed genesis selects whether an active X is permitted. This check
+// borrows the same decoded owner and never repeats body decoding or epoch validation.
+fn check_result_scope(
+    committed: &CommittedBlock,
+    root_scope: SumeragiRootScope,
+) -> Result<(), ChainReadError> {
+    if root_scope != SumeragiRootScope::Global && committed.certified_result().header().is_active()
+    {
+        return Err(ChainReadError::Malformed {
+            height: committed.height,
+            reason: CertifiedResultError::ActiveOutsideGlobal.to_string(),
+        });
+    }
+    Ok(())
+}
+
 /// One crypto context for both random pinned reads and one-pass externally streamed evidence.
 struct PrefixVerifierContext {
     instance: Hash32,
+    root_scope: SumeragiRootScope,
 }
 impl PrefixVerifierContext {
     fn advance_prefix(
@@ -1297,6 +1324,7 @@ impl PrefixVerifierContext {
         authority: AuthorityRef<'_>,
         commit_qc: &Qc,
     ) -> Result<(), ChainReadError> {
+        check_result_scope(committed, self.root_scope)?;
         let height = committed.height;
         let header = committed
             .header
@@ -1360,6 +1388,7 @@ impl PrefixVerifierContext {
         artifacts: Option<PrefixArtifacts>,
         admit_scratch: &mut dyn FnMut(usize) -> Result<(), norito::core::DecodeResourceError>,
     ) -> Result<CertificateVerdict, VerificationReadError> {
+        check_result_scope(committed, self.root_scope)?;
         let height = committed.height;
         let malformed = |reason: String| ChainReadError::Malformed { height, reason };
         let certificate = committed
@@ -1703,6 +1732,7 @@ impl AdmittedPrefixPush {
             (prefix.prefix.tip.height == GENESIS_HEIGHT).then(|| prefix.prefix.tip.clone());
         let prepared = PrefixVerifierContext {
             instance: prefix.instance,
+            root_scope: prefix.root_scope,
         }
         .prepare_advance(&mut prefix.prefix, self.frame.committed(), None)?;
         Ok(Self::finish(
@@ -1949,6 +1979,7 @@ impl CertifiedPrefix {
         let genesis = (self.prefix.tip.height == GENESIS_HEIGHT).then(|| self.prefix.tip.clone());
         let current = PrefixVerifierContext {
             instance: self.instance,
+            root_scope: self.root_scope,
         }
         .advance_prefix(&mut self.prefix, committed, artifacts)?;
         let genesis = genesis.map(|committed| GenesisExecutionAnchor {
@@ -2322,6 +2353,7 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
     fn verification_context(&self) -> PrefixVerifierContext {
         PrefixVerifierContext {
             instance: self.instance,
+            root_scope: self.root_scope,
         }
     }
 
@@ -2851,7 +2883,7 @@ pub(crate) use state_certificate::{
 pub(crate) mod relation_counts;
 
 #[cfg(test)]
-use iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1;
+use iroha_data_model::sumeragi_finality::{CertifiedResultScope, SccpFinalityHeaderV1};
 
 #[cfg(test)]
 fn fixture_result_parts(preimage: &[u8]) -> (SccpFinalityHeaderV1, ExecutionResultCommitment) {

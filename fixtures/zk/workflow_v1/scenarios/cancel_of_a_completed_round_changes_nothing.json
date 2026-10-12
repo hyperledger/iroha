@@ -1,0 +1,84 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "cancel_of_a_completed_round_changes_nothing",
+  "category": "cancellation",
+  "rules": [
+    "cancellation_is_sticky_and_never_rolls_back"
+  ],
+  "description": "A workflow of one share-collection round completed. Cancelling it afterwards changes nothing: the round stays confirmed and irreversible.",
+  "plan": {
+    "kind": "threshold_opening",
+    "instance": "cancel-of-a-completed-round-changes-nothing",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "collect",
+        "kind": "offchain_round",
+        "irreversible": true,
+        "participants_required": 2,
+        "custody_handles_required": 0
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "round_starts": [
+          "completed:p1,p2"
+        ]
+      },
+      "expect": {
+        "result": "completed",
+        "effects": [
+          "round_start:0"
+        ],
+        "status": "completed",
+        "steps": [
+          "round_completed"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0
+          ],
+          "irreversible_steps": [
+            0
+          ],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        },
+        "sequence": 3
+      }
+    },
+    {
+      "op": "cancel",
+      "expect": {
+        "result": "ok",
+        "effects": [],
+        "status": "completed",
+        "steps": [
+          "round_completed"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0
+          ],
+          "irreversible_steps": [
+            0
+          ],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        },
+        "sequence": 3,
+        "cancel_requested": false
+      }
+    }
+  ]
+}

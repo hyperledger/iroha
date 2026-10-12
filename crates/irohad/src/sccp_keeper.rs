@@ -423,6 +423,7 @@ fn submit_transaction(
             quote_view.world(),
             quote_view.nexus(),
             quote_view.pipeline(),
+            &quote_view.zk().gas,
             &payload,
             observation_time_ms,
             sccp_committed_time_ms,

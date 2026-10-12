@@ -149,7 +149,7 @@ Verification rules:
 - `vk_ref` is resolved via the WSV verifying‑key registry. When a registry entry omits inline key bytes, Torii loads the key bytes from `torii.zk_prover_keys_dir` (see storage layout below).
 - `vk_commitment` is validated against the computed VK hash when present.
 - Backends and circuits are allowlisted via `torii.zk_prover_allowed_backends` and `torii.zk_prover_allowed_circuits` (prefix match).
-- Supported native operation proofs use the exact compiled `pipa-r/pasta/…` relation labels. The `stark/fri` family is supported when built with feature `zk-stark` and enabled via config (`zk.stark.enabled=true`). `groth16/…` remains unsupported.
+- Supported native operation proofs use the exact compiled `pipa-r/pasta/…` relation labels. The `stark/fri` family requires feature `zk-stark` and `stark.enabled` of the committed `zk_validity_policy_v1` parameter. `groth16/…` remains unsupported.
 
 Background reports are bounded node-local worker diagnostics. Torii does not
 mount a report HTTP API, and first-release clients do not expose report

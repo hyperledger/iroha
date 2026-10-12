@@ -97,9 +97,7 @@ fn genesis_preexecution_preserves_selected_profile_across_threads() {
                 Some(actual.clone()),
                 Some(handshake),
                 None,
-                Some(iroha_core::state::compute_genesis_confidential_policy_hash(
-                    &actual.zk,
-                )),
+                Some(iroha_core::state::default_genesis_confidential_policy_hash()),
             );
         assert!(
             generated

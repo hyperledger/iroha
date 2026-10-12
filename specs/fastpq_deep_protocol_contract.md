@@ -93,16 +93,128 @@ The [construction note](fastpq_deep_hiding_construction.md) distinguishes the
 finite-opening rank argument from the outstanding complete FRI/Fiat–Shamir
 privacy and soundness obligations.
 
+## Frozen transcript profile
+
+Task H.2 of the [ZK delivery plan](zk_delivery_plan.md) selected this engine's
+transcript as the shared backend transcript and froze its semantics: the
+**FIPS 202-based atomic whole-tape transcript, version 1**
+(`fips202-atomic-whole-tape-transcript-v1`). SHA3-256 produces every leaf,
+parent, out-of-domain and chain commitment. SHAKE256 produces one atomic tape
+of a fixed extent per verifier message. Freezing fixes what is bound and in
+what order. It is not cryptographic qualification and establishes no numerical
+soundness level.
+
+Every SHA3-256 and SHAKE256 input is one canonical prefix frame followed by one
+typed body frame. The prefix
+(`fastpq_prover::compact_sha3::ProfileContextV1`) holds, in order: the framing
+version, the catalog, the construction name, the **complete canonical bytes of
+the typed profile descriptor**, and the statement context. No digest replaces
+any of these bytes.
+
+The descriptor is one typed semantic profile
+([`transcript_profile`](../crates/fastpq_prover/src/backend/transcript_profile.rs),
+published as `fastpq_prover::air::q77::transcript_profile()`), named
+`fastpq.transcript.q77.v1`. Its canonical frame and its SHA3-256 identity are
+owned by
+[`fastpq_isi::semantic_profile`](../crates/fastpq_isi/src/semantic_profile.rs).
+Every number is read from the engine's constants. It binds:
+
+| Group | Parameters |
+| --- | --- |
+| Versions and framing | descriptor version, construction, framing version, the prefix, body and context frame names, body kinds (leaf 1, parent 2, chain 3, tape 4), oracle tags (row 1, quotient and mask 3, FRI 4 with rounds 0-4, terminal 4 with round 5, out-of-domain 5) |
+| Primitives | SHA3-256 with suffix `06` and 32-byte output; SHAKE256 with suffix `1f`; one atomic tape per verifier message over prefix and body |
+| Field and encodings | modulus, canonical little-endian `u64` base words, extension degree 4, nonresidue 7, polynomial basis `1, u, u^2, u^3`, four canonical coefficients with the constant first, 32 bytes |
+| Domains and geometry | trace and evaluation rows and roots, coset offset, 342 columns of which 301 are committed and 41 public, 923 constraints |
+| Masking | 162 trace, 78 quotient and 131,072 composition mask coefficients; the quotient split and its masked pair in one joined leaf |
+| Out-of-domain and DEEP | points `z` and `omega*z`; 604 answers in current-row, next-row, low and high quotient order; 606 components in the order `(h_j, X^2 h_j)` per committed column then `(t_0, X t_0, t_1, X t_1)`; the mask has weight one and component `k` has weight `lambda^k` |
+| FRI | arities, domain lengths and degree bounds; strided fibers; the fiber encoding that omits the smallest known incoming coordinate; 128 terminal values of degree below two in one leaf whose parent duplicates it; binary Merkle addressing by oracle, round, level and index |
+| Sampling | 77 queries from 87 candidates in 93 raw words; words at or above the modulus are rejected, never reduced, and nothing more is squeezed; a base-field out-of-domain point aborts; all candidates are drawn before the first distinct positions are kept in ascending order |
+| Schedule | the ten tape extents, the commitment that follows each message, the chain rule and the permanent-abort rule |
+| Grinding | zero bits and no nonce |
+| Declared envelope | maximum relation identity, statement, context and frame bytes; decoder allocation, sequence, total-element and nesting bounds; layer, path and fiber bounds; the structural work charge of 29,751 units under accounting version 1 |
+
+The descriptor holds semantic data only. It contains no source, build or binary
+digest, no measurement, no qualification status and no caller ceiling. The
+declared envelope is the profile's own fixed shape; `WorkLimits`,
+`VerifierLimits` and `ProducerLimits` values are admission policy and never
+change proof bytes. The structural work charge is a charge of a maximal frame
+under its stated accounting, not complete verification work; complete resource
+accounting stays open under B.2 and F.2.
+
+The identity is `b1b3be0bc1b548e32fa6f949500c0de43c8f7412a5586623c4d3f1ca705f945b`
+over a 3,871-byte frame. `specs/zk_primitive_workloads.json` records the
+parameter list and names this identity for every workload that depends on the
+transcript; a measurement that names another identity does not describe this
+profile. The identity grants no authority and selects no verifier.
+
+The statement context (`fastpq_prover::deep::StatementContextV1`, owned by
+[`deep_binding`](../crates/fastpq_prover/src/backend/deep_binding.rs)) holds what
+belongs to one statement: relation identity, public-column layout, the geometry
+again, and the complete statement bytes. Identity length is 1..=256 bytes;
+statement length is 1..=240 KiB. The relation's public IO, State anchors,
+execution context and replay domain are part of the statement; their
+completeness is the relation owner's obligation.
+
+Binding order, with the test that mutates each element:
+
+1. Descriptor, catalog and statement context precede every commitment: they
+   begin the first leaf and the first tape.
+2. The row root is chained before the 923 constraint coefficients.
+3. The joined quotient and composition-mask root is chained before the
+   out-of-domain point.
+4. All 604 out-of-domain answers are hashed and chained before the batching
+   scalar.
+5. Each FRI root is chained before its own folding challenge.
+6. The root of the complete terminal is chained before the query positions.
+   With zero grinding bits there is no nonce to bind.
+7. The verifier derives every opening index from the query tape and
+   authenticates every opened row, quotient leaf, fiber and the whole terminal
+   against the committed roots under the same prefix.
+
+A changed commitment changes every later tape and no earlier one. The tests in
+`deep_binding/frozen_tests.rs` change, reorder and omit each of the 73
+descriptor parameters, each statement-context field, each commitment and each
+out-of-domain answer. `deep_fixture/frozen_tests.rs` builds one complete seeded
+proof and retains it; `fixtures/fastpq/q77-frozen-transcript-proof.json` pins
+its length and SHA3-256 together with the profile identity it was built under.
+The binding test reads the retained bytes named by that pin, proves nothing,
+and requires the bounded verifier to reject the proof under every changed,
+reordered or omitted root, answer, opening, index and descriptor parameter. `fixtures/fastpq/q77-transcript-profile.json` holds known answers
+that `scripts/zk_semantic_profile_reference.py` computes without this crate.
+These tests show conformance with the frozen binding, not soundness.
+
+Security statement of the frozen profile:
+
+- Any claim is an absolute error at a stated query budget, stated separately
+  for the classical and the quantum random-oracle model. No work-normalized
+  128-bit claim is made.
+- SHA3-256 commitments: generic collision search costs about `2^128` classical
+  work and about `2^85` quantum queries; these are ideal-hash estimates.
+- Classical random-oracle model: conditional on a round-by-round soundness
+  bound for this exact geometry and on the mapping of this chained transcript
+  to the BCS compilation. Neither is in the tree; B.2 owns the reduction and
+  the checked accounting.
+- Quantum random-oracle model: open. Ordinary round-by-round soundness supports
+  the Chiesa-Manohar-Spooner chain that contains the verifier messages, but the
+  exact mapping of this transcript, with its query accounting, is not supplied.
+- Hiding: only the honest-verifier algebraic answer view is argued.
+- Grinding: none, and no work-security term is claimed. B.2 counts repeated
+  attempts in the adversary budget.
+- Algebraic and FRI error sums alone establish neither Fiat-Shamir soundness
+  nor hiding.
+
+A change of any descriptor parameter, including a query count or FRI schedule
+that B.2's accounting requires, is a new identity. It changes every proof byte
+and both artifact profile ids, is declared under the `proof` surface of
+[first-release history](first_release_history_cutover.md), and leaves every
+measurement that names the previous identity inapplicable. No old transcript
+path is kept and no reviewer token is involved. The hand-written identity
+string and the legacy parameter-set name that this prefix carried before H.2
+are removed.
+
 ## Commitment and challenge order
 
-[`deep_binding`](../crates/fastpq_prover/src/backend/deep_binding.rs) supplies the
-fixed profile identity and `fastpq_prover::deep::StatementContextV1`. Its context
-contains relation identity, public-column layout, complete geometry, field
-parameters and original statement bytes. Identity length is 1..=256 bytes;
-statement length is 1..=240 KiB. It uses the shared canonical
-[`compact_sha3`](../crates/fastpq_prover/src/backend/compact_sha3.rs) prefix/body framing
-with opaque SHA3-256 commitments and atomic SHAKE256 raw tapes. The complete framed context remains
-in every logical hash input; its reusable prefix is not a substituted digest.
+The ten messages and the commitment that follows each:
 
 | Message | Decoded whole tape | Bytes | Following commitment |
 | --- | --- | --- | --- |
@@ -231,12 +343,24 @@ The metadata ID is SHA-256 of the canonical
 `fastpq_prover::deep_compact::QuantityArtifactProfileV1` descriptor in
 [`compact_artifact`](../crates/fastpq_prover/src/backend/compact_artifact.rs).
 It binds the exact geometry, ten tapes, field/hash parameters, child-frame schema,
-quantity schemas and both ordinary/AXT relation identities. The profile identity
-also binds the joined mask oracle, affine masking batch,
-`fri-degree2n:terminal-degree2-128` and `omit-first-known-fiber:v1`.
+quantity schemas and both ordinary/AXT relation identities. Its
+`transcript_profile` field holds the same descriptor bytes the transcript
+absorbs, so one typed descriptor is shared by the transcript and the artifact
+identity. The AXT quantity id is
+`4f0ece59b3f42d1c318f597b0df2f5af8b8db41bc95dfbb11974ddb285f20b0b` and the
+ordinary execution-effect id is
+`e4b83c36dca6915f908d6509ef43511ae6da1b8254cb2724b2b6fe00918779b8`; both are
+pinned beside the semantic identity in `transcript_profile/tests.rs`.
 The previous profile ID and child layout are not accepted alternatives. Their
 proof, codec, replay and transcript implementations are removed. Immutable old
 identity bytes remain only as rejection fixtures. The conditional
 [375-query analysis](fastpq_compact_typed_profile.md) is historical and does not
-qualify this profile. Native generated profile/seeded/quantity proof pins remain
-unavailable until reviewed outputs of the current source and binaries exist.
+qualify this profile. The descriptor pin
+`fixtures/fastpq/q77-quantity-profile.json`, the seeded proof pins
+`fixtures/fastpq/q77-quantity-ordinary-single.json` and
+`fixtures/fastpq/q77-quantity-axt-single.json`, the seeded fixed-SMT proof
+golden in `deep_prover/tests.rs` and the frozen-transcript proof pin are
+regenerated for the frozen transcript. They are test goldens of the current
+source: they pin bytes, not a review, and they qualify nothing. The proofs
+themselves are retained outside the tracked tree; the tests that read them are
+ignored by default because building a proof takes minutes.

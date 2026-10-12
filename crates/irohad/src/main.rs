@@ -32,6 +32,7 @@ pub mod runtime_provider_registry;
 #[cfg(unix)]
 #[path = "sccp_keeper.rs"]
 mod sccp_keeper;
+mod sccp_staking_policy;
 /// Embedded Soracloud runtime-manager reconciliation.
 #[path = "soracloud_runtime.rs"]
 mod soracloud_runtime;
@@ -268,27 +269,30 @@ fn decode_confidential_registry_meta(
         norito::Error::Message("failed to decode confidential_registry_root payload".to_string())
     })
 }
-/// Project a confidential feature digest onto the height-independent policy the p2p handshake
-/// compares, so peers at different heights still connect.
+/// The confidential feature digest this node advertises in the P2P handshake.
 ///
-/// The registry fields are dropped, and the policy hash binds the ZK configuration with the
-/// version-1 SCCP light-client profiles
-/// ([`iroha_core::state::compute_genesis_confidential_policy_hash`]) instead of the digest's
-/// own policy hash: that one binds the light-client profile versions active at the digest's
-/// height, which change at a Parliament activation and are checked by every block's digest
-/// instead (`specs/sccp.md` §4.13.2).
+/// It binds the confidential rules version and the protocol-default ZK and SCCP
+/// policy hash of the release. It reads no State: the committed
+/// `zk_validity_policy_v1` of a chain is decided by its blocks, and a value
+/// that differs between peers at different heights cannot gate a connection.
+fn handshake_confidential_features() -> iroha_data_model::confidential::ConfidentialFeatureDigest {
+    iroha_data_model::confidential::ConfidentialFeatureDigest::new(
+        None,
+        None,
+        None,
+        Some(iroha_config::parameters::defaults::confidential::RULES_VERSION),
+        Some(iroha_core::state::default_genesis_confidential_policy_hash()),
+    )
+}
 fn confidential_handshake_policy_digest(
     digest: iroha_data_model::confidential::ConfidentialFeatureDigest,
-    zk_config: &iroha_config::parameters::actual::Zk,
 ) -> iroha_data_model::confidential::ConfidentialFeatureDigest {
     iroha_data_model::confidential::ConfidentialFeatureDigest::new(
         None,
         None,
         None,
         digest.conf_rules_version,
-        Some(iroha_core::state::compute_genesis_confidential_policy_hash(
-            zk_config,
-        )),
+        Some(iroha_core::state::default_genesis_confidential_policy_hash()),
     )
 }
 fn decode_consensus_handshake_meta(
@@ -590,6 +594,45 @@ mod handshake_payload_tests {
         assert_eq!(decoded, None);
     }
     #[test]
+    fn handshake_confidential_features_identify_the_release_not_committed_state() {
+        // The advertised digest is the protocol default whatever a chain commits:
+        // a node that restarts after an authorized policy change advertises the
+        // same value as its peers that did not restart.
+        let features = handshake_confidential_features();
+        assert_eq!(
+            features.zk_policy_hash,
+            Some(iroha_core::state::default_genesis_confidential_policy_hash())
+        );
+        assert_eq!(
+            features.conf_rules_version,
+            Some(iroha_config::parameters::defaults::confidential::RULES_VERSION)
+        );
+        assert_eq!(confidential_handshake_policy_digest(features), features);
+        // A State that holds a committed policy reports another policy hash to
+        // consensus, and the handshake value does not follow it.
+        let mut policy = iroha_core::zk_validity_policy::ZkValidityPolicyV1::protocol_default();
+        policy.confidential.max_nullifiers_per_tx += 1;
+        let world = iroha_core::state::World::default();
+        {
+            let mut block = world.block();
+            block.parameters.get_mut().set_parameter(
+                iroha_data_model::parameter::Parameter::Custom(policy.into_custom_parameter()),
+            );
+            block.commit();
+        }
+        let state = iroha_core::state::State::new_for_testing(
+            world,
+            iroha_core::kura::Kura::blank_kura_for_testing(),
+            iroha_core::query::store::LiveQueryStore::start_test(),
+        );
+        let committed = iroha_core::state::combine_zk_and_sccp_policy_hashes(
+            iroha_core::state::compute_zk_consensus_policy_hash(&state.zk_snapshot()),
+            iroha_core::state::sccp_genesis_policy_hash_v1(),
+        );
+        assert_ne!(Some(committed), features.zk_policy_hash);
+        assert_eq!(handshake_confidential_features(), features);
+    }
+    #[test]
     fn confidential_handshake_digest_excludes_height_dependent_registry_fields() {
         let digest = iroha_data_model::confidential::ConfidentialFeatureDigest::new(
             Some([1; 32]),
@@ -598,8 +641,7 @@ mod handshake_payload_tests {
             Some(1),
             Some([2; 32]),
         );
-        let zk = iroha_core::state::default_zk_config();
-        let handshake = confidential_handshake_policy_digest(digest, &zk);
+        let handshake = confidential_handshake_policy_digest(digest);
         assert_eq!(handshake.vk_set_hash, None);
         assert_eq!(handshake.poseidon_params_id, None);
         assert_eq!(handshake.pedersen_params_id, None);
@@ -609,16 +651,14 @@ mod handshake_payload_tests {
         // activation never splits peers at different heights.
         assert_eq!(
             handshake.zk_policy_hash,
-            Some(iroha_core::state::compute_genesis_confidential_policy_hash(
-                &zk
-            ))
+            Some(iroha_core::state::default_genesis_confidential_policy_hash())
         );
         let after_activation = iroha_data_model::confidential::ConfidentialFeatureDigest {
             zk_policy_hash: Some([3; 32]),
             ..digest
         };
         assert_eq!(
-            confidential_handshake_policy_digest(after_activation, &zk),
+            confidential_handshake_policy_digest(after_activation),
             handshake
         );
     }
@@ -1066,19 +1106,44 @@ fn refresh_block_count_after_snapshot_load(
     block_count.0 = durable_height;
     Ok(())
 }
-fn apply_state_runtime_config_before_snapshot_auth(state: &mut State, config: &Config) {
+fn apply_state_runtime_config_before_snapshot_auth(
+    state: &mut State,
+    config: &Config,
+) -> Result<(), iroha_core::pipeline_validity_policy::PipelineValidityPolicyError> {
     // These fields are process-local execution policy and do not touch Kura-owned geometry.
     // Settlement must be installed before replay because historical
     // transitions resolve their deterministic execution state through
     // `State::settlement`. This ordering is replay correctness, not a
     // node-readiness gate.
+    install_node_pipeline_config(state, config)?;
     state.set_crypto(config.crypto.clone());
-    state.set_pipeline(config.pipeline.clone());
     state.set_oracle(config.oracle.clone());
     state.set_fraud_monitoring(config.fraud_monitoring.clone());
     state.set_gov(config.gov.clone());
     state.content = config.content.clone();
     state.set_settlement(config.settlement);
+    Ok(())
+}
+/// Install the node's local pipeline resources; validity and fees are committed.
+///
+/// Execution limits are committed chain policy
+/// (`iroha_core::pipeline_validity_policy`). The node configuration schema holds
+/// no such key, so nothing is ignored when the settings come from a file.
+fn install_node_pipeline_config(
+    state: &mut State,
+    config: &Config,
+) -> Result<(), iroha_core::pipeline_validity_policy::PipelineValidityPolicyError> {
+    let ignored = state.install_node_pipeline(config.pipeline.clone())?;
+    if !ignored.is_empty() {
+        // Unreachable from a configuration file; a settings value built by hand
+        // (a tool or a test) may still hold such values.
+        iroha_logger::warn!(
+            fields = ?ignored,
+            "ignoring pipeline validity values of a hand-built settings value: the committed \
+             `pipeline_validity_policy_v1` chain parameter (or the protocol default) decides them"
+        );
+    }
+    Ok(())
 }
 fn apply_state_geometry_config_before_kura_replay(
     state: &mut State,
@@ -1115,6 +1180,13 @@ fn apply_state_geometry_config_before_kura_replay(
                 report.attach("failed to restore snapshot Nexus lane storage at startup")
             })?;
     }
+    sccp_staking_policy::validate(&state.world_view(), &policies.nexus.staking)
+        .map_err(|error| Report::new(error).change_context(StartError::InitKura))
+        .map_err(|report| {
+            report.attach(
+                "SCCP staking policy does not cover current and retained committee liability",
+            )
+        })?;
     state
         .set_nexus_from_config(policies.nexus.clone())
         .map_err(|err| Report::new(err).change_context(StartError::InitKura))
@@ -1127,9 +1199,22 @@ fn install_zk_config_before_kura_replay(
     state: &mut State,
     config: &Config,
 ) -> ReportResult<(), StartError> {
-    state
-        .set_zk(config.zk.clone())
-        .map_err(|error| Report::new(error).change_context(StartError::InitKura))
+    // Validity-affecting ZK values are committed chain policy
+    // (`iroha_core::zk_validity_policy`). The node configuration schema holds
+    // local resource settings only, so nothing is ignored here.
+    let ignored = state
+        .install_node_zk(config.zk.clone())
+        .map_err(|error| Report::new(error).change_context(StartError::InitKura))?;
+    if !ignored.is_empty() {
+        // Unreachable from a configuration file; a settings value built by hand
+        // (a tool or a test) may still hold such values.
+        iroha_logger::warn!(
+            fields = ?ignored,
+            "ignoring ZK validity values of a hand-built settings value: the committed \
+             `zk_validity_policy_v1` chain parameter (or the protocol default) decides them"
+        );
+    }
+    Ok(())
 }
 fn nexus_config_for_startup_replay(
     mut configured: iroha_config::parameters::actual::Nexus,
@@ -2695,7 +2780,8 @@ impl Iroha {
                     ))
                 })?;
         } else {
-            apply_state_runtime_config_before_snapshot_auth(&mut state, &config);
+            apply_state_runtime_config_before_snapshot_auth(&mut state, &config)
+                .map_err(|error| Report::new(error).change_context(StartError::InitKura))?;
         }
         let startup_lane_policies = if emergency_fast {
             None
@@ -2762,7 +2848,8 @@ impl Iroha {
                 .map_err(|report| {
                     report.attach("failed to restore effective Nexus tiered lane geometry")
                 })?;
-            state.set_pipeline(config.pipeline.clone());
+            install_node_pipeline_config(&mut state, &config)
+                .map_err(|error| Report::new(error).change_context(StartError::InitKura))?;
             state.set_oracle(config.oracle.clone());
             state.set_fraud_monitoring(config.fraud_monitoring.clone());
             state.set_gov(config.gov.clone());
@@ -2997,23 +3084,11 @@ impl Iroha {
             consensus_fingerprint: consensus_fingerprint.0,
             config: config_caps,
         };
-        let confidential_features = if emergency_fast {
-            let zk = state.zk_snapshot();
-            iroha_data_model::confidential::ConfidentialFeatureDigest::new(
-                None,
-                None,
-                None,
-                Some(iroha_config::parameters::defaults::confidential::RULES_VERSION),
-                Some(iroha_core::state::combine_zk_and_sccp_policy_hashes(
-                    iroha_core::state::compute_zk_consensus_policy_hash(&zk),
-                    iroha_core::state::sccp_genesis_policy_hash_v1(),
-                )),
-            )
-        } else {
-            let view = state.view();
-            let height = u64::try_from(view.block_hashes().len()).expect("height fits into u64");
-            iroha_core::state::compute_confidential_feature_digest(view.world(), &view.zk, height)
-        };
+        // The handshake identifies the release, not the chain's committed ZK
+        // policy: a policy an authorized `SetParameter` commits is State, and
+        // peers at different heights (a joining node, a node that restarted
+        // after the change) must still connect.
+        let confidential_features = handshake_confidential_features();
         iroha_logger::info!(
             mode=%consensus_caps.mode.tag(),
             proto=%consensus_caps.proto_version,
@@ -3041,14 +3116,14 @@ impl Iroha {
                 )));
             }
         }
+        // TODO(F.4): `confidential.enabled` and `confidential.assume_valid` are node-local
+        // switches advertised to peers (census entry `cfg.confidential.node_switches`).
+        // Remove them together with the handshake fields and the generators that write them.
         let confidential_caps = iroha_p2p::ConfidentialHandshakeCaps {
             enabled: config.confidential.enabled,
             assume_valid: config.confidential.assume_valid,
             verifier_backend: config.confidential.verifier_backend.clone(),
-            features: Some(confidential_handshake_policy_digest(
-                confidential_features,
-                &state.zk_snapshot(),
-            )),
+            features: Some(confidential_handshake_policy_digest(confidential_features)),
         };
         let crypto_caps = iroha_p2p::CryptoHandshakeCaps {
             sm_enabled: config.crypto.sm_helpers_enabled(),
@@ -4877,6 +4952,8 @@ impl Iroha {
         // Start proof lanes before Torii begins accepting submissions so one-time GPU setup happens
         // during node startup instead of the first hot-path transaction burst.
         if !emergency_fast {
+            // The diagnostic worker uses node-local trace resources, independently
+            // of the committed proof validity policy.
             if let Some((_h, child)) = iroha_core::pipeline::zk_lane::start(&config.zk.trace) {
                 supervisor.monitor(Child::new(child, OnShutdown::Wait(Duration::from_secs(1))));
             }
@@ -4954,16 +5031,9 @@ impl Iroha {
             // handle loss. Any pre-shutdown return means the supervised configuration
             // authority failed; restarting only this relay would preserve stale ACL or
             // handshake policy and is therefore deliberately not recoverable.
-            let confidential_gas = config.confidential.gas;
             supervisor.monitor(tokio::task::spawn(async move {
-                if let Err(err) = config_updates_relay(
-                    kiso,
-                    logger,
-                    net_for_relay,
-                    confidential_gas,
-                    config_update_receivers,
-                )
-                .await
+                if let Err(err) =
+                    config_updates_relay(kiso, logger, net_for_relay, config_update_receivers).await
                 {
                     iroha_logger::error!(?err, "Config updates relay exited");
                 }
@@ -5231,11 +5301,8 @@ async fn config_updates_relay(
     _kiso: KisoHandle,
     logger: LoggerHandle,
     network: iroha_core::IrohaNetwork,
-    confidential_gas: iroha_config::parameters::actual::ConfidentialGas,
     config_update_receivers: ConfigUpdateReceivers,
 ) -> EyreResult<()> {
-    #[cfg(not(feature = "telemetry"))]
-    let _ = confidential_gas;
     let mut log_level_update = config_update_receivers.log_level;
     let mut acl_update = config_update_receivers.acl;
     let mut handshake_update = config_update_receivers.handshake;
@@ -5243,7 +5310,8 @@ async fn config_updates_relay(
     let confidential_metrics_handle = iroha_telemetry::metrics::global().cloned();
     #[cfg(feature = "telemetry")]
     if let Some(metrics) = confidential_metrics_handle.as_ref() {
-        metrics.set_confidential_gas_schedule(&confidential_gas);
+        // The confidential verification gas gauges follow the schedule State
+        // charges; Core sets them whenever it installs a schedule.
         let digest = ivm::gas::schedule_hash();
         metrics.set_ivm_gas_schedule_hash(digest.as_ref());
     }
@@ -8745,7 +8813,8 @@ fn validate_genesis_execution_offline(
         ))
     })?;
     install_zk_config_before_kura_replay(&mut state, config).change_context(MainError::Config)?;
-    apply_state_runtime_config_before_snapshot_auth(&mut state, config);
+    apply_state_runtime_config_before_snapshot_auth(&mut state, config)
+        .map_err(|error| Report::new(error).change_context(MainError::Config))?;
     let baseline = freeze_lane_manifests_for_startup_replay(&config.nexus)
         .map_err(|error| Report::new(error).change_context(MainError::Config))?;
     let startup_policies =
@@ -9981,53 +10050,70 @@ mod tests {
     }
     #[test]
     fn emergency_fast_skips_tiered_state_directory_reconciliation() {
+        // The needles are assembled from parts so that this test cannot match
+        // its own source text.
         let startup = include_str!("main.rs")
-            .split_once("pub(crate) async fn start_with_runtime_deps")
+            .split_once(concat!("pub(crate) async fn ", "start_with_runtime_deps"))
             .expect("runtime-dependency startup entry")
             .1;
-        let tiered_setup = startup
-            .split_once("let tiered_state_cfg = config.tiered_state.clone();")
-            .expect("tiered-state runtime setup")
-            .1;
-        let fast_guard = tiered_setup
-            .find("if emergency_fast")
-            .expect("emergency Fast tiered-state guard");
-        let reconciliation = tiered_setup
-            .find(".set_tiered_backend(&tiered_state_cfg)")
+        let reconciliation = startup
+            .find(concat!(".set_tiered_backend(", "&config.tiered_state)"))
             .expect("Strict tiered-state reconciliation");
-        let pipeline_runtime = tiered_setup
-            .find("state.set_pipeline(pipeline_cfg)")
+        let fast_guard = startup[..reconciliation]
+            .rfind(concat!("if ", "emergency_fast {"))
+            .expect("emergency Fast tiered-state guard");
+        let pipeline_runtime = startup
+            .find(concat!(
+                "install_node_pipeline_config(",
+                "&mut state, &config)"
+            ))
             .expect("Strict pipeline runtime setup");
         assert!(
             fast_guard < reconciliation && reconciliation < pipeline_runtime,
             "emergency Fast must branch before tiered storage or the pipeline worker pool can be initialized"
         );
+        // Both Strict steps are in the `else` of that one guard.
+        let strict_branch = &startup[fast_guard..pipeline_runtime];
+        assert_eq!(strict_branch.matches(concat!("} ", "else {")).count(), 1);
+        assert_eq!(
+            strict_branch
+                .matches(concat!("if ", "emergency_fast"))
+                .count(),
+            1
+        );
+        // The pipeline is installed as node-local resources only: startup holds
+        // no installation of a complete pipeline settings value.
+        assert!(!startup[..pipeline_runtime].contains(concat!(".set_", "pipeline(")));
     }
     #[test]
-    fn emergency_fast_skips_confidential_registry_scans() {
-        let startup = include_str!("main.rs")
+    fn startup_handshake_digest_scans_no_confidential_registry() {
+        // Neither emergency Fast nor Strict startup scans the confidential registry or
+        // reads State for the handshake digest: it identifies the release.
+        let source = include_str!("main.rs");
+        let startup = source
             .split_once("pub(crate) async fn start_with_runtime_deps")
             .expect("runtime-dependency startup entry")
             .1;
         let confidential_setup = startup
-            .split_once("let confidential_features = if emergency_fast {")
-            .expect("emergency Fast confidential-feature branch")
+            .split_once("let confidential_features = handshake_confidential_features();")
+            .expect("release-bound confidential handshake digest")
             .1
-            .split_once("} else {")
-            .expect("Strict confidential-feature branch");
-        assert!(confidential_setup.0.contains("state.zk_snapshot()"));
-        assert!(
-            confidential_setup
-                .0
-                .contains("sccp_genesis_policy_hash_v1()")
-        );
-        assert!(!confidential_setup.0.contains("state.view()"));
-        assert!(confidential_setup.1.contains("let view = state.view()"));
-        assert!(
-            confidential_setup
-                .1
-                .contains("compute_confidential_feature_digest(")
-        );
+            .split_once("let confidential_caps = iroha_p2p::ConfidentialHandshakeCaps {")
+            .expect("confidential handshake caps")
+            .0;
+        assert!(!confidential_setup.contains("state.zk_snapshot()"));
+        assert!(!confidential_setup.contains("let view = state.view()"));
+        assert!(!confidential_setup.contains("compute_confidential_feature_digest("));
+        let digest = source
+            .split_once("fn handshake_confidential_features()")
+            .expect("handshake digest function")
+            .1
+            .split_once("fn confidential_handshake_policy_digest(")
+            .expect("end of the handshake digest function")
+            .0;
+        assert!(digest.contains("default_genesis_confidential_policy_hash()"));
+        assert!(!digest.contains("state."));
+        assert!(!digest.contains("config."));
     }
     #[test]
     fn emergency_fast_skips_strict_restart_audits_and_pipeline_diagnostics() {
@@ -10113,7 +10199,7 @@ mod tests {
                 .contains("ifemergency_fast{state.validate_restored_governance(&config.gov)")
         );
         assert!(compact_source.contains(
-            "}else{apply_state_runtime_config_before_snapshot_auth(&mutstate,&config);}"
+            "}else{apply_state_runtime_config_before_snapshot_auth(&mutstate,&config).map_err(|error|Report::new(error).change_context(StartError::InitKura))?;}"
         ));
         assert!(compact_source.contains(
             "letevents_buffer_capacity=ifemergency_fast{1}else{config.torii.events_buffer_capacity.get()};"
@@ -10753,20 +10839,37 @@ mod tests {
             config.zk.sccp.max_proof_bytes_per_proof =
                 std::num::NonZeroU64::new(11).expect("nonzero byte cap");
             config.settlement.router.epsilon_bps = 17;
+            config.pipeline.ivm_execution_max_bytes = 1024;
             let kura = Kura::blank_kura_for_testing();
             let query = LiveQueryStore::start_test();
             let mut state = State::new_for_testing(World::new(), kura, query);
+            let original_execution_budget = state.ivm_execution_budget();
             install_zk_config_before_kura_replay(&mut state, &config)
                 .expect("fresh state accepts actual ZK configuration");
-            apply_state_runtime_config_before_snapshot_auth(&mut state, &config);
+            apply_state_runtime_config_before_snapshot_auth(&mut state, &config)
+                .expect("fresh state accepts runtime configuration");
+            assert!(original_execution_budget.same_pool(&state.ivm_execution_budget()));
+            assert_eq!(original_execution_budget.limit_bytes(), 1024);
             let installed = state.zk_snapshot();
+            // The node configuration cannot change a validity value: the protocol
+            // default (or the committed `zk_validity_policy_v1`) decides it.
+            let protocol = iroha_core::state::default_zk_config();
+            assert_ne!(
+                config.zk.sccp.max_proofs_per_transaction,
+                protocol.sccp.max_proofs_per_transaction
+            );
             assert_eq!(
                 installed.sccp.max_proofs_per_transaction,
-                config.zk.sccp.max_proofs_per_transaction
+                protocol.sccp.max_proofs_per_transaction
             );
             assert_eq!(
                 installed.sccp.max_proof_bytes_per_proof,
-                config.zk.sccp.max_proof_bytes_per_proof
+                protocol.sccp.max_proof_bytes_per_proof
+            );
+            assert_eq!(
+                iroha_core::state::compute_zk_consensus_policy_hash(&installed),
+                iroha_core::state::compute_zk_consensus_policy_hash(&protocol),
+                "a node-local ZK setting must not move the consensus policy hash"
             );
             assert_eq!(
                 state.settlement().router.epsilon_bps,
@@ -11090,8 +11193,8 @@ mod tests {
             genesis_authority: &KeyPair,
             config: &Config,
         ) -> GenesisBlock {
-            // Match Kagami's config-bound signer: both provisional staging and
-            // the final proposal must commit to the policy installed in State.
+            // Match Kagami's signer: provisional staging and the final proposal
+            // commit to the protocol-default ZK policy the genesis block runs under.
             genesis
                 .with_consensus_meta()
                 .expect("valid fixture consensus parameters")
@@ -11100,9 +11203,7 @@ mod tests {
                     Some(iroha_core::da::proof_policy_bundle(
                         &config.nexus.lane_config,
                     )),
-                    Some(iroha_core::state::compute_genesis_confidential_policy_hash(
-                        &config.zk,
-                    )),
+                    Some(iroha_core::state::default_genesis_confidential_policy_hash()),
                 )
                 .expect("sign genesis fixture with configured DA and confidential policies")
         }
@@ -11143,7 +11244,8 @@ mod tests {
             )
             .expect("genesis state");
             install_zk_config_before_kura_replay(&mut state, config).expect("genesis ZK policy");
-            apply_state_runtime_config_before_snapshot_auth(&mut state, config);
+            apply_state_runtime_config_before_snapshot_auth(&mut state, config)
+                .expect("genesis runtime configuration");
             let baseline = freeze_lane_manifests_for_startup_replay(&config.nexus)
                 .expect("genesis lane manifests");
             let policies = install_lane_policies_for_startup_replay(

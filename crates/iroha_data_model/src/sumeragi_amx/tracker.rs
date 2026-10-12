@@ -57,6 +57,9 @@ pub struct AmxForeignInstanceV1 {
         bounded_with = "crate::json_helpers::fixed_bytes_hex::serialize_bounded"
     )]
     pub instance: [u8; 32],
+    /// Original registered root class; supplied with the independent epoch authority,
+    /// never inferred from an offered result header.
+    pub result_scope: CertifiedResultScope,
     /// Latest verified epoch context `C_{J,e}`.
     pub current: ValidatorEpochContextV1,
     /// Its verified predecessor `C_{J,e−1}`; absent until the first handoff.
@@ -117,9 +120,14 @@ impl AmxForeignInstanceV1 {
     ///
     /// # Errors
     /// The anchor context is invalid.
-    pub fn new(instance: [u8; 32], anchor: ValidatorEpochContextV1) -> Result<Self, AmxError> {
+    pub fn new(
+        instance: [u8; 32],
+        anchor: ValidatorEpochContextV1,
+        result_scope: CertifiedResultScope,
+    ) -> Result<Self, AmxError> {
         let tracker = Self {
             instance,
+            result_scope,
             current: anchor,
             previous: None,
         };
@@ -168,11 +176,7 @@ impl AmxForeignInstanceV1 {
     ///
     /// # Errors
     /// Oversized or malformed parts, an untracked epoch, or any failed binding or signature.
-    pub fn verify_block(
-        &self,
-        block: &AmxCertifiedBlockV1,
-        scope: CertifiedResultScope,
-    ) -> Result<AmxVerifiedBlock, AmxError> {
+    pub fn verify_block(&self, block: &AmxCertifiedBlockV1) -> Result<AmxVerifiedBlock, AmxError> {
         need(
             !block.consensus_header.is_empty()
                 && block.consensus_header.len() <= MAX_AMX_HEADER_BYTES
@@ -182,9 +186,10 @@ impl AmxForeignInstanceV1 {
                 && block.result_preimage.len() <= MAX_RESULT_PREIMAGE_BYTES,
             "certified block parts are empty or exceed their bounds",
         )?;
-        let outer_scope = norito::core::decode_limits_active();
-        let header: CoreHeader = norito::decode_canonical(&block.consensus_header)
-            .map_err(|error| super::proof_codec_error(&error, "core header", outer_scope))?;
+        let header: CoreHeader = norito::core::classify_decode_attempt(|| {
+            norito::decode_canonical(&block.consensus_header)
+        })
+        .map_err(|error| super::proof_codec_error(error, "core header"))?;
         let context = self.context(header.epoch.epoch)?;
         let epoch = core_epoch(context).map_err(|error| AmxError::Anchor(error.to_string()))?;
         need(
@@ -195,8 +200,9 @@ impl AmxForeignInstanceV1 {
             header.epoch == epoch.id && epoch.contains(header.height),
             "the block is outside its tracked epoch context",
         )?;
-        let qc: Qc = norito::decode_canonical(&block.commit_qc)
-            .map_err(|error| super::proof_codec_error(&error, "commit certificate", outer_scope))?;
+        let qc: Qc =
+            norito::core::classify_decode_attempt(|| norito::decode_canonical(&block.commit_qc))
+                .map_err(|error| super::proof_codec_error(error, "commit certificate"))?;
         let validators: Vec<FinalityValidator> = context
             .committee
             .iter()
@@ -223,8 +229,10 @@ impl AmxForeignInstanceV1 {
             result_of_preimage(&block.result_preimage) == Some(qc.result),
             "the result preimage does not hash to the certified result",
         )?;
-        let certified_result = CertifiedResultV1::decode(&block.result_preimage, scope)
-            .map_err(|error| super::commitment_error(&error))?;
+        // AMX tracks both the global coordinator and foreign roots. Preserve the original
+        // registered scope; the offered X cannot select or widen that authority.
+        let certified_result = CertifiedResultV1::decode(&block.result_preimage, self.result_scope)
+            .map_err(super::certified_result_error)?;
         let commitment = certified_result.commitment();
         need(
             commitment.height == header.height && commitment.schedule.current == *context,
@@ -245,13 +253,9 @@ impl AmxForeignInstanceV1 {
     ///
     /// # Errors
     /// A malformed record, a failed block verification or a path to another root.
-    pub fn verify_record(
-        &self,
-        proof: &AmxRecordProofV1,
-        scope: CertifiedResultScope,
-    ) -> Result<AmxVerifiedBlock, AmxError> {
+    pub fn verify_record(&self, proof: &AmxRecordProofV1) -> Result<AmxVerifiedBlock, AmxError> {
         let root = proof.claimed_root()?;
-        let verified = self.verify_block(&proof.block, scope)?;
+        let verified = self.verify_block(&proof.block)?;
         need(
             root == verified.commitment().execution.ordinary_writes_root,
             "the record is not in the block's write set",
@@ -268,9 +272,8 @@ impl AmxForeignInstanceV1 {
     pub fn apply_handoff(
         &mut self,
         proof: &AmxHandoffProofV1,
-        scope: CertifiedResultScope,
     ) -> Result<AmxHandoffOutcome, AmxError> {
-        let verified = self.verify_block(&proof.block, scope)?;
+        let verified = self.verify_block(&proof.block)?;
         if verified.epoch != self.epoch() {
             // Verified under `C_{e−1}`: the handoff into `e`, which the tracker already holds.
             return Ok(AmxHandoffOutcome::Stale);

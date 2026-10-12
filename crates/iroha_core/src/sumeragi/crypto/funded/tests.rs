@@ -75,11 +75,14 @@ fn complete_committee_graph_prepaid_once_and_verification_allocates_nothing() {
     let preimage = message(1);
     let shares: Vec<_> = signers
         .iter()
-        .map(|signer| signer.sign(&preimage))
+        .map(|signer| signer.sign(&preimage).unwrap())
         .collect();
-    let aggregate = BlsCrypto::new().aggregate(&shares);
+    let aggregate = BlsCrypto::new().aggregate(&shares).unwrap();
     // Source deletion cannot retire the privately retained credential graph.
     drop(members);
+    // Core enables parking_lot's thread-local deadlock tracker. Initialize that
+    // instrumentation with an unrelated lock, leaving the first crypto verification cold.
+    drop(parking_lot::Mutex::new(()).lock());
     let (verdict, verification_allocations) =
         observed(|| owned.verify_aggregate(&keys, &preimage, &aggregate));
     assert!(verdict);
@@ -289,8 +292,11 @@ fn shared_node_and_funded_kernels_preserve_grouped_and_invalid_verdicts() {
     let keys: Vec<_> = signers.iter().map(Signer::public_key).collect();
     let a = message(1);
     let b = message(2);
-    let shares: Vec<_> = signers.iter().map(|signer| signer.sign(&a)).collect();
-    let aggregate = node.aggregate(&shares);
+    let shares: Vec<_> = signers
+        .iter()
+        .map(|signer| signer.sign(&a).unwrap())
+        .collect();
+    let aggregate = node.aggregate(&shares).unwrap();
     let pair = KeyPair::from_seed(vec![93; 32], Algorithm::BlsNormal);
     let unadmitted = KeyPairSigner::new(&pair).unwrap();
     for (selected, preimage, expected) in [
@@ -318,9 +324,9 @@ fn shared_node_and_funded_kernels_preserve_grouped_and_invalid_verdicts() {
     let grouped_shares: Vec<_> = signers
         .iter()
         .enumerate()
-        .map(|(i, s)| s.sign(if i < 2 { &a } else { &b }))
+        .map(|(i, s)| s.sign(if i < 2 { &a } else { &b }).unwrap())
         .collect();
-    let combined = node.aggregate(&grouped_shares);
+    let combined = node.aggregate(&grouped_shares).unwrap();
     assert!(node.verify_aggregate_multi(&grouped, &combined));
     let (verdict, allocations) = observed(|| funded.verify_aggregate_multi(&grouped, &combined));
     assert!(verdict);
@@ -331,4 +337,54 @@ fn shared_node_and_funded_kernels_preserve_grouped_and_invalid_verdicts() {
     assert!(!verdict);
     assert_eq!(allocations, 0);
     assert_eq!(budget.reserved_bytes(), demand);
+}
+
+#[test]
+fn shared_aggregation_refuses_invalid_shares_without_allocating_or_consuming_inputs() {
+    let (members, signers) = fixture();
+    let demand = FundedBlsCommittee::allocation_demand(&members).unwrap();
+    let budget = AllocationBudget::new(demand);
+    let funded = FundedBlsCommittee::admit(&members, &budget).unwrap();
+    let node = BlsCrypto::new();
+    let preimage = message(1);
+    let shares: Vec<_> = signers
+        .iter()
+        .map(|signer| signer.sign(&preimage).unwrap())
+        .collect();
+    let original = shares.clone();
+    let expected =
+        AggregateSignature(consensus::aggregate(shares.iter().map(|sig| &sig.0)).unwrap());
+    let keys: Vec<_> = signers.iter().map(Signer::public_key).collect();
+    let mut identity = [0; iroha_sumeragi::types::SIGNATURE_LEN];
+    identity[0] = 0xc0;
+    let zero = [Signature([0; iroha_sumeragi::types::SIGNATURE_LEN])];
+    let identity = [Signature(identity)];
+    let malformed = [Signature([0xff; iroha_sumeragi::types::SIGNATURE_LEN])];
+    let invalid_tail = [shares[0], malformed[0]];
+
+    // The original credentials stay funded even when new pool admissions are disabled.
+    budget.set_limit_bytes(0);
+    let readers: [&dyn Crypto; 2] = [&node, &funded];
+    for crypto in readers {
+        for invalid in [
+            &[][..],
+            &zero[..],
+            &identity[..],
+            &malformed[..],
+            &invalid_tail[..],
+        ] {
+            let (result, allocations) = observed(|| crypto.aggregate(invalid));
+            assert_eq!(result, Err(AggregationError::Refused));
+            assert_eq!(allocations, 0);
+            assert_eq!(budget.reserved_bytes(), demand);
+        }
+        let (result, allocations) = observed(|| crypto.aggregate(&shares));
+        assert_eq!(result, Ok(expected));
+        assert_eq!(allocations, 0);
+        assert_eq!(shares, original);
+        assert!(funded.verify_aggregate(&keys, &preimage, &result.unwrap()));
+        assert_eq!(budget.reserved_bytes(), demand);
+    }
+    drop(funded);
+    assert_eq!(budget.reserved_bytes(), 0);
 }

@@ -24,6 +24,7 @@ import org.hyperledger.iroha.sdk.norito.NoritoCodec
 import org.hyperledger.iroha.sdk.norito.NoritoDecoder
 import org.hyperledger.iroha.sdk.testing.TestEd25519Keys
 import org.hyperledger.iroha.sdk.testing.TestNetworkIds
+import org.hyperledger.iroha.sdk.tx.norito.NoritoException
 import org.hyperledger.iroha.sdk.tx.norito.NoritoJavaCodecAdapter
 import org.hyperledger.iroha.sdk.tx.norito.SignedTransactionEncoder
 
@@ -61,23 +62,19 @@ class SignedTransactionHasherTest {
             byteArrayOf(0x01, 0x02, 0x03),
             ProofVerifierKeyRef("halo2", "vk1"),
         )
-        val withAttachment = signed(
-            adapter.encodeTransaction(samplePayload(attachments = listOf(attachment))),
-            0x33,
-        )
 
         assertNotEquals(
             SignedTransactionHasher.hashHex(base),
             SignedTransactionHasher.hashHex(changedMetadata),
         )
-        assertNotEquals(
-            SignedTransactionHasher.hashHex(base),
-            SignedTransactionHasher.hashHex(withAttachment),
-        )
-        assertEquals(
-            listOf(attachment),
-            adapter.decodeTransaction(withAttachment.encodedPayload()).attachments,
-        )
+        val attachedPayload = adapter.withProofAttachments(samplePayload(), listOf(attachment))
+        val attached = signed(adapter.encodeTransaction(attachedPayload), 0x33)
+        assertNotEquals(SignedTransactionHasher.hashHex(base), SignedTransactionHasher.hashHex(attached))
+        val changedProof = ProofAttachment("halo2", byteArrayOf(4, 5, 6), ProofVerifierKeyRef("halo2", "vk1"))
+        val replaced = adapter.withProofAttachments(samplePayload(), listOf(changedProof))
+        assertEquals(adapter.orderedIntentDigest(attachedPayload), adapter.orderedIntentDigest(replaced))
+        assertNotEquals(SignedTransactionHasher.hashHex(attached),
+            SignedTransactionHasher.hashHex(signed(adapter.encodeTransaction(replaced), 0x33)))
     }
 
     @Test
@@ -228,7 +225,7 @@ class SignedTransactionHasherTest {
 
     private fun samplePayload(
         metadata: Map<String, JsonValue> = emptyMap(),
-        attachments: List<ProofAttachment>? = null,
+        attachments: org.hyperledger.iroha.sdk.core.model.SignedAttachmentsV1? = null,
     ): TransactionPayload = TransactionPayload(
         networkId = TestNetworkIds.canonical(),
         authority = AccountAddress

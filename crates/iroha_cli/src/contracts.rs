@@ -2040,6 +2040,10 @@ mod tests {
         let actual: iroha::data_model::smart_contract::manifest::ContractManifest =
             norito::json::from_slice(&std::fs::read(path).expect("signed manifest output"))
                 .expect("decode signed manifest output");
+        assert!(
+            actual.same_signed_content(&expected),
+            "manifest signing must preserve the verified payload"
+        );
         let provenance = actual.provenance.as_ref().expect("manifest provenance");
         assert_eq!(&provenance.signer, key.public_key());
         let frame = owner

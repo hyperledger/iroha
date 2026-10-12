@@ -66,7 +66,7 @@ pub enum SccpGenerationCauseV1 {
 }
 
 record! {
-    /// Immutable NPoS registration bound to one consensus key at generation creation (G6).
+    /// Immutable `NPoS` registration bound to one consensus key at generation creation (G6).
     #[norito_schema(name = "iroha_data_model::sccp::generation::SccpGenerationMemberV1")]
     pub struct SccpGenerationMemberV1 {
         /// Lane whose staking registration supplied the key.
@@ -149,21 +149,43 @@ impl SccpCommitteeGenerationV1 {
     /// Check local record structure; committee authority still requires authenticated history.
     #[must_use]
     pub fn is_well_formed(&self) -> bool {
-        use crate::sumeragi_finality::certified_result::{MAX_VALIDITY_MS, committee_root};
+        use crate::{
+            sccp::params::{
+                SCCP_MAX_DESTINATION_PROGRESS_CAP_MS_V1, SCCP_MAX_FORGERY_EVIDENCE_GRACE_MS_V1,
+                SCCP_MIN_FORGERY_EVIDENCE_GRACE_MS_V1,
+            },
+            sumeragi_finality::certified_result::{MAX_VALIDITY_MS, committee_root},
+        };
         self.generation != 0
             && self.start_height != 0
             && (self.cause == SccpGenerationCauseV1::Genesis) == (self.generation == 1)
+            && (self.generation != 1
+                || (self.start_height == 1 && self.start_lc == self.start_timestamp_ms))
+            && (self.generation == 1 || self.start_height > 1)
             && self.start_lc <= self.start_timestamp_ms
             && crate::block::consensus::is_valid_committee_size(self.keys.len())
             && self.keys.is_sorted_by(|left, right| left < right)
             && self.keys.len() == self.members.len()
+            && self.members.iter().enumerate().all(|(index, member)| {
+                member.as_ref().is_none_or(|member| {
+                    member.lane_id == LaneId::SINGLE
+                        && member.activation_height <= self.start_height
+                        && !self.members[..index]
+                            .iter()
+                            .flatten()
+                            .any(|prior| prior.validator == member.validator)
+                })
+            })
             && self
                 .keys
                 .iter()
-                .all(|key| iroha_crypto::bls::consensus::key_validate(key))
+                .all(iroha_crypto::bls::consensus::key_validate)
             && self.committee_root != [0; 32]
             && committee_root(&self.keys) == Some(self.committee_root)
             && (1..=MAX_VALIDITY_MS).contains(&self.validity_ms)
+            && (SCCP_MIN_FORGERY_EVIDENCE_GRACE_MS_V1..=SCCP_MAX_FORGERY_EVIDENCE_GRACE_MS_V1)
+                .contains(&self.grace_ms)
+            && self.progress_cap_ms <= SCCP_MAX_DESTINATION_PROGRESS_CAP_MS_V1
             && self.deadline_ms == self.start_timestamp_ms.saturating_add(self.validity_ms)
             && self.liable_until_lc
                 == self
@@ -172,7 +194,7 @@ impl SccpCommitteeGenerationV1 {
                     .saturating_add(self.grace_ms)
             && self
                 .dest_cleared_lc
-                .is_none_or(|clock| clock >= self.start_lc)
+                .is_none_or(|clock| self.end.is_some() && clock >= self.start_lc)
             && self.end.is_none_or(|end| {
                 end.end_height >= self.start_height
                     && end.end_timestamp_ms >= self.start_timestamp_ms

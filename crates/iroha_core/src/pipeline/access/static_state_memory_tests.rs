@@ -29,7 +29,7 @@ pub(super) fn fixture() -> (State, IvmBytecode, ContractManifest, ContractArtifa
         crate::kura::Kura::blank_kura_for_testing(),
         crate::query::store::LiveQueryStore::start_test(),
     );
-    state.pipeline.access_set_cache_enabled = false;
+    state.edit_pipeline_for_testing(|pipeline| pipeline.access_set_cache_enabled = false);
     (state, IvmBytecode::from_compiled(bytes), manifest, artifact)
 }
 

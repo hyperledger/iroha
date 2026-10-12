@@ -727,7 +727,7 @@ fn read_value(bits: &mut Bits<'_>) -> Result<TvmStackValueV1, TonError> {
 }
 
 /// Decode integer, null and cell get-method results in their return order.
-/// The advertised depth cannot exceed the original BoC byte count: every stack node
+/// The advertised depth cannot exceed the original `BoC` byte count: every stack node
 /// consumes at least its tag byte. Each node and the final empty list are consumed exactly.
 ///
 /// # Errors

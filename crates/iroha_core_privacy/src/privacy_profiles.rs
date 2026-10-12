@@ -201,14 +201,14 @@ use iroha_data_model::privacy::{
     PrivacyExact12QualificationRecordV1, PrivacyFcmpPoolBootstrapV1,
     PrivacyIvmPrivateNotePoolBootstrapV1, PrivacyOrchardPoolBootstrapV1, PrivacyParameterDigestV1,
     PrivacyParameterIdV1, PrivacyPgcAccountBootstrapV1, PrivacyPqMaspPoolBootstrapV1,
-    PrivacyProofSystemIdV1, PrivacyProtocolActivationLimitsV1, PrivacyProtocolActivationRecordV1,
-    PrivacyProtocolIdV1, PrivacyProtocolLifecycleV1, PrivacyStatementSchemaDigestV1,
-    PrivacyVerifierDigestV1, TAIRA_PRIVACY_MAX_COMMITMENTS_PER_ACTION_V1,
-    TAIRA_PRIVACY_MAX_NULLIFIERS_PER_ACTION_V1, TAIRA_PRIVACY_MAX_PROOF_BYTES_PER_ACTION_V1,
-    VERANGE_HARD_MAX_AGGREGATION_COUNT_V1, VeRangeActivationLimitsV1,
-    VeRangeTransparentRangeStatementV1, ZK_AMS_MAX_BATCH_SIZE_V1, ZK_AMS_MAX_RING_SIZE_V1,
-    ZK_AMS_RING_SIZES_V1 as ZK_AMS_MODEL_RING_SIZES_V1, ZkAmsActivationLimitsV1,
-    validate_privacy_compiled_profile_catalog_archive_v1,
+    PrivacyProofEnvelopeV1, PrivacyProofSystemIdV1, PrivacyProtocolActivationLimitsV1,
+    PrivacyProtocolActivationRecordV1, PrivacyProtocolIdV1, PrivacyProtocolLifecycleV1,
+    PrivacyStatementSchemaDigestV1, PrivacyVerifierDigestV1,
+    TAIRA_PRIVACY_MAX_COMMITMENTS_PER_ACTION_V1, TAIRA_PRIVACY_MAX_NULLIFIERS_PER_ACTION_V1,
+    TAIRA_PRIVACY_MAX_PROOF_BYTES_PER_ACTION_V1, VERANGE_HARD_MAX_AGGREGATION_COUNT_V1,
+    VeRangeActivationLimitsV1, VeRangeTransparentRangeStatementV1, ZK_AMS_MAX_BATCH_SIZE_V1,
+    ZK_AMS_MAX_RING_SIZE_V1, ZK_AMS_RING_SIZES_V1 as ZK_AMS_MODEL_RING_SIZES_V1,
+    ZkAmsActivationLimitsV1, validate_privacy_compiled_profile_catalog_archive_v1,
 };
 use iroha_schema::{FloatMode, IntMode, IntoSchema, MetaMapEntry, Metadata};
 use iroha_zkp_halo2::vega::{
@@ -357,6 +357,22 @@ pub struct CompiledPrivacyProfileV1 {
     pub protocol_limits: PrivacyProtocolActivationLimitsV1,
 }
 impl CompiledPrivacyProfileV1 {
+    /// Whether a canonically bound envelope carries exactly this profile's identities.
+    ///
+    /// [`PrivacyProofEnvelopeV1::bind_v1`] derives every envelope identity from
+    /// the typed statement. A builder that selected this compiled profile uses
+    /// this to refuse a statement whose context was not built from it.
+    #[must_use]
+    pub fn matches_envelope_v1(&self, envelope: &PrivacyProofEnvelopeV1) -> bool {
+        envelope.protocol_id == self.protocol_id
+            && envelope.proof_system_id == self.proof_system_id
+            && envelope.engine_id == self.engine_id
+            && envelope.parameter_id == self.parameter_id
+            && envelope.parameter_digest == self.parameter_digest
+            && envelope.verifier_digest == self.verifier_digest
+            && envelope.statement_schema_digest == self.statement_schema_digest
+            && envelope.engine_manifest_digest == self.engine_manifest_digest
+    }
     /// Build the only valid activation record for this compiled profile.
     #[must_use]
     pub fn activation_record(

@@ -9,8 +9,7 @@ fn genesis_monetary_scope_requires_exact_height_without_npos_parameters() {
     stx.world
         .parameters
         .get_mut()
-        .custom
-        .remove(&SumeragiNposParameters::parameter_id());
+        .remove_custom_parameter(&SumeragiNposParameters::parameter_id());
     assert!(
         stx.world
             .sumeragi_npos_parameters()

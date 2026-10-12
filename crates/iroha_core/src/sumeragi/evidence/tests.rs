@@ -355,13 +355,8 @@ pub(super) fn vote_pair(
             sig: Signature([0; iroha_sumeragi::types::SIGNATURE_LEN]),
         };
         vote.sig = Signature(
-            iroha_crypto::Signature::from_bytes(
-                &iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &vote.preimage())
-                    .unwrap(),
-            )
-            .payload()
-            .try_into()
-            .unwrap(),
+            iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &vote.preimage())
+                .expect("canonical native vote signature"),
         );
         vote
     };
@@ -444,14 +439,18 @@ fn lane_terminal_replay_fence_uses_immutable_retirement_deadline_and_original_in
     // Predicate-only records: raw proof bytes and claimed attribution grant no admission.
     let source = World::new();
     let mut world = source.block();
-    world.parameters.get_mut().set_parameter(Parameter::Custom(
-        SumeragiNposParameters {
-            evidence_horizon_blocks: 7,
-            slashing_delay_blocks: 3,
-            ..SumeragiNposParameters::default()
-        }
-        .into_custom_parameter(),
-    ));
+    world
+        .parameters
+        .get_mut()
+        .set_parameter(Parameter::Custom(
+            SumeragiNposParameters {
+                evidence_horizon_blocks: 7,
+                slashing_delay_blocks: 3,
+                ..SumeragiNposParameters::default()
+            }
+            .into_custom_parameter(),
+        ))
+        .expect("valid fixture parameters");
     let original = SumeragiLaneCustody {
         lane: LaneId::new(7),
         incarnation: [0x31; 32],
@@ -644,14 +643,18 @@ fn local_lane_observations_use_inclusive_retirement_and_never_a_native_height_cl
     // Local queue predicates only: these deliberately raw frames grant no proposal authority.
     let source = World::new();
     let mut world = source.block();
-    world.parameters.get_mut().set_parameter(Parameter::Custom(
-        SumeragiNposParameters {
-            evidence_horizon_blocks: 7,
-            slashing_delay_blocks: 3,
-            ..SumeragiNposParameters::default()
-        }
-        .into_custom_parameter(),
-    ));
+    world
+        .parameters
+        .get_mut()
+        .set_parameter(Parameter::Custom(
+            SumeragiNposParameters {
+                evidence_horizon_blocks: 7,
+                slashing_delay_blocks: 3,
+                ..SumeragiNposParameters::default()
+            }
+            .into_custom_parameter(),
+        ))
+        .expect("valid fixture parameters");
     let row = SumeragiLaneCustody {
         lane: LaneId::new(7),
         incarnation: [31; 32],

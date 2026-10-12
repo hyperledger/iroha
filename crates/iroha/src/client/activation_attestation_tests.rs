@@ -1017,8 +1017,9 @@ fn bridge_finality_next_reader_response_contract_failures_do_not_advance() {
     );
     assert!(matches!(
         error.downcast_ref::<crate::Error>(),
-        Some(crate::Error::CanonicalDecode { operation: "sumeragi.finality_proof.read", source })
-            if source.kind() == norito::core::DecodeAttemptErrorKind::Invalid
+        Some(crate::Error::CanonicalDecode(failure))
+            if failure.operation == "sumeragi.finality_proof.read"
+                && failure.source.kind() == norito::core::DecodeAttemptErrorKind::Invalid
     ));
 
     let actual = capture_request(

@@ -7393,10 +7393,12 @@ mod validation_fee_registry_restore_tests {
             let mut parameters = world.parameters.block();
             parameters
                 .get_mut()
-                .set_parameter(Parameter::Custom(npos.into_custom_parameter()));
+                .set_parameter(Parameter::Custom(npos.into_custom_parameter()))
+                .expect("valid fixture parameters");
             parameters
                 .get_mut()
-                .set_parameter(Parameter::Custom(registry.clone().into_custom_parameter()));
+                .set_parameter(Parameter::Custom(registry.clone().into_custom_parameter()))
+                .expect("valid fixture parameters");
             parameters.commit();
         }
         (world, registry)
@@ -9162,12 +9164,16 @@ fn decode_world_fields(
         // SCCP v1 state is restored from its own snapshot envelope after `parse_world`.
         sccp_parameters: Cell::default(),
         sccp_reset_nonce: Cell::default(),
-        sccp_committee_generations: Storage::default(),
-        sccp_committee_current: Cell::default(),
-        sccp_liability_clock: Cell::default(),
-        sccp_degraded_run: Cell::default(),
-        sccp_anchor_open: Cell::default(),
-        sccp_anchor_chunks: Storage::default(),
+        sccp_committee_generations: initial_world_field!(
+            sccp_committee_generations,
+            execution_budget
+        ),
+        sccp_destination_pending_generations: Storage::default(),
+        sccp_committee_current: initial_world_field!(sccp_committee_current, execution_budget),
+        sccp_liability_clock: initial_world_field!(sccp_liability_clock, execution_budget),
+        sccp_degraded_run: initial_world_field!(sccp_degraded_run, execution_budget),
+        sccp_anchor_open: initial_world_field!(sccp_anchor_open, execution_budget),
+        sccp_anchor_chunks: initial_world_field!(sccp_anchor_chunks, execution_budget),
         sccp_block_leaves: Storage::default(),
         sccp_block_commitments: Storage::default(),
         sccp_history: Cell::default(),
@@ -11531,7 +11537,7 @@ mod decode_tests {
         let mut map = SnapshotJsonMap::from_owned(map);
         let parsed = take_parameters_cell(&mut map, "parameters")
             .expect("canonical parameters MV envelope must be accepted");
-        assert_eq!(parsed.view().get(), &expected);
+        assert_eq!(&**parsed.view().get(), &expected);
     }
     #[test]
     fn borrowed_snapshot_map_rejects_duplicates_and_noncanonical_order() {

@@ -212,7 +212,7 @@ fn private_dpn_quote_refuses_changed_account_scope_owner_expiry_and_policy() {
     let quote = |account_alias, record: Option<&NameRecordV1>, policy: &SuffixPolicyV1| {
         quote_private_dataspace(
             &dataspace_policy(),
-            private_dataspace_selector("dpn").unwrap(),
+            &private_dataspace_selector("dpn").unwrap(),
             owner.clone(),
             1_000,
             Duration::from_secs(60),
@@ -269,7 +269,7 @@ fn private_dataspace_quote_pays_dataspace_and_owner_alias_without_parent_catalog
     let owner = steward_account();
     let quote = quote_private_dataspace(
         &policy,
-        selector.clone(),
+        &selector,
         owner.clone(),
         1_000,
         Duration::from_secs(60),
@@ -347,7 +347,7 @@ fn private_dataspace_quote_pays_dataspace_and_owner_alias_without_parent_catalog
     assert!(
         quote_private_dataspace(
             &policy,
-            selector,
+            &selector,
             owner,
             1_000,
             Duration::from_secs(60),
@@ -385,7 +385,7 @@ fn private_dataspace_quote_refuses_reserved_aliases_physical_scopes_and_changed_
                  record: Option<&NameRecordV1>| {
         quote_private_dataspace(
             policy,
-            selector.clone(),
+            &selector,
             owner.clone(),
             now,
             ttl,

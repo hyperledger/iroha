@@ -3,15 +3,21 @@
 //! The exact logical input is a complete canonical public prefix followed by a
 //! canonical body. Prefix state caching never substitutes a digest for context.
 //! All private body bytes and permutation scratch have clearing owners.
+//!
+//! The prefix carries the name of the frozen transcript construction and the
+//! complete canonical bytes of the typed profile descriptor
+//! ([`transcript_profile`](super::transcript_profile)), so every commitment and
+//! every challenge binds the whole profile, not a digest or a label of it.
 use super::secret_polynomial::SecretPolynomial;
 use fastpq_isi::{
-    FASTPQ_CATALOG_V1, FASTPQ_FINAL_V1,
+    FASTPQ_CATALOG_V1,
     compact_challenge::{RawTapeErrorV1, RawTapeRoundV1, RawTapeV1},
     keccak256::{Sha3_256V1, Sha3Digest256V1 as Digest, Shake256V1},
 };
 use norito::NoritoSerialize;
 use std::sync::Arc;
-const MAX_CONTEXT_BYTES: usize = 256 * 1024;
+/// Longest statement context one prefix binds; part of the profile's declared envelope.
+pub(super) const MAX_CONTEXT_BYTES: usize = 256 * 1024;
 /// Largest prepared complete tree body; OOD framing has its separate exact bound.
 pub(super) const MAX_PREPARED_HASH_FRAME_BYTES: usize = 8 * 1024;
 /// Canonical framing, bounded allocation, or finite tape failure.
@@ -37,11 +43,26 @@ type Result<T> = std::result::Result<T, CandidateError>;
     frame = "fastpq_prover::compact_sha3::ProfileContextV1"
 )]
 struct PrefixFrame {
+    /// Framing version of the prefix and body layouts.
     version: u16,
     catalog: Vec<u8>,
-    protocol: Vec<u8>,
-    identity: Vec<u8>,
+    /// Name of the frozen transcript construction.
+    construction: Vec<u8>,
+    /// Complete canonical bytes of the typed profile descriptor.
+    profile: Vec<u8>,
     context: Vec<u8>,
+}
+
+/// Nominal Norito frame of the prefix, as the profile descriptor names it.
+pub(super) fn prefix_frame_name() -> String {
+    use norito::schema::identity::NoritoSchema as _;
+    PrefixFrame::frame_name()
+}
+
+/// Nominal Norito frame of every body, as the profile descriptor names it.
+pub(super) fn body_frame_name() -> String {
+    use norito::schema::identity::NoritoSchema as _;
+    Frame::frame_name()
 }
 #[derive(Debug)]
 struct AbsorbedPrefix {
@@ -177,19 +198,43 @@ impl PreparedHashFrame {
     }
 }
 impl Context {
-    /// Build exactly one prefix; all protocol domains and full statement bytes are bound.
+    /// Build exactly one prefix; the framing version, catalog, construction name,
+    /// complete profile descriptor and full statement context are bound.
     pub(super) fn new(bytes: &[u8]) -> Result<Self> {
-        if bytes.is_empty() || bytes.len() > MAX_CONTEXT_BYTES {
+        Self::with_prefix(&PrefixFrame {
+            version: super::transcript_profile::FRAMING_VERSION,
+            catalog: FASTPQ_CATALOG_V1.as_bytes().to_vec(),
+            construction: super::transcript_profile::CONSTRUCTION.as_bytes().to_vec(),
+            profile: super::transcript_profile::profile().as_bytes().to_vec(),
+            context: bytes.to_vec(),
+        })
+    }
+
+    /// Prefix with another version, catalog, construction name or profile
+    /// descriptor than the frozen ones, for binding-mutation tests only. No
+    /// production path can select these values.
+    #[cfg(test)]
+    pub(super) fn with_prefix_for_test(
+        version: u16,
+        catalog: &[u8],
+        construction: &[u8],
+        profile: &[u8],
+        context: &[u8],
+    ) -> Result<Self> {
+        Self::with_prefix(&PrefixFrame {
+            version,
+            catalog: catalog.to_vec(),
+            construction: construction.to_vec(),
+            profile: profile.to_vec(),
+            context: context.to_vec(),
+        })
+    }
+
+    fn with_prefix(prefix: &PrefixFrame) -> Result<Self> {
+        if prefix.context.is_empty() || prefix.context.len() > MAX_CONTEXT_BYTES {
             return Err(CandidateError::Context);
         }
-        let encoded = norito::encode_canonical(&PrefixFrame {
-            version: 1,
-            catalog: FASTPQ_CATALOG_V1.as_bytes().to_vec(),
-            protocol: FASTPQ_FINAL_V1.name.as_bytes().to_vec(),
-            identity: super::deep_binding::IDENTITY.to_vec(),
-            context: bytes.to_vec(),
-        })?
-        .into_boxed_slice();
+        let encoded = norito::encode_canonical(prefix)?.into_boxed_slice();
         let mut hash = Sha3_256V1::new();
         hash.update(&encoded);
         let mut xof = Shake256V1::new();

@@ -13,6 +13,44 @@ use crate::{
     types::{AggregateSignature, Bitmap, Committee, Hash32, PublicKey, Signature, ValidatorIndex},
 };
 
+/// Local signing refusal; never a peer fault or a block-validity verdict.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SigningError {
+    /// The local key or signing service refused the operation.
+    Refused,
+    /// The signing backend rejected its local input.
+    InvalidInput,
+}
+
+impl core::fmt::Display for SigningError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Self::Refused => "local signing refused",
+            Self::InvalidInput => "local signing input rejected",
+        })
+    }
+}
+impl std::error::Error for SigningError {}
+
+/// Local aggregation refusal; verified input votes remain valid and retained.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AggregationError {
+    /// The local aggregation service refused the operation.
+    Refused,
+    /// The aggregation backend rejected its local input.
+    InvalidInput,
+}
+
+impl core::fmt::Display for AggregationError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Self::Refused => "local aggregation refused",
+            Self::InvalidInput => "local aggregation input rejected",
+        })
+    }
+}
+impl std::error::Error for AggregationError {}
+
 /// A local, non-blocking signing key (§12.1). `sign` runs inside `handle`. It MUST be
 /// deterministic (the same key and preimage always give the same bytes, as BLS does): after a
 /// restart the core re-creates recorded messages by signing their recorded preimages again
@@ -20,8 +58,11 @@ use crate::{
 pub trait Signer: Send + Sync {
     /// The consensus public key.
     fn public_key(&self) -> &PublicKey;
-    /// Sign `preimage`.
-    fn sign(&self, preimage: &[u8]) -> Signature;
+    /// Sign `preimage` without substituting signature bytes for a refusal.
+    ///
+    /// # Errors
+    /// A local backend refusal; callers retain durable reservations and publish no message.
+    fn sign(&self, preimage: &[u8]) -> Result<Signature, SigningError>;
 }
 
 /// Pure cryptographic primitives (§12.1): BLS in production, a fake scheme in the simulator.
@@ -35,7 +76,10 @@ pub trait Crypto {
     /// Verify an individual signature.
     fn verify(&self, pk: &PublicKey, msg: &[u8], sig: &Signature) -> bool;
     /// Aggregate signatures (possibly over different messages).
-    fn aggregate(&self, sigs: &[Signature]) -> AggregateSignature;
+    ///
+    /// # Errors
+    /// A local backend refusal; callers retain verified input votes and emit no certificate.
+    fn aggregate(&self, sigs: &[Signature]) -> Result<AggregateSignature, AggregationError>;
     /// Verify an aggregate of signatures by `pks` over one message.
     fn verify_aggregate(&self, pks: &[&PublicKey], msg: &[u8], agg: &AggregateSignature) -> bool;
     /// Verify an aggregate over several `(keys, message)` groups.
@@ -323,6 +367,8 @@ pub enum FormError {
     Mismatch,
     /// A signer twice or out of range.
     BadSigner,
+    /// The local backend refused aggregation; retain the verified votes.
+    AggregationFailed(AggregationError),
 }
 
 /// Form a QC from `votes` (§3.4 formation): every vote must have identical
@@ -370,7 +416,7 @@ pub fn form_qc(crypto: &dyn Crypto, n: usize, votes: &[&Vote]) -> Result<Qc, For
         block_hash: first.block_hash,
         result: first.result,
         signers,
-        agg_sig: crypto.aggregate(&sigs),
+        agg_sig: aggregate_certificate(crypto, &sigs)?,
     })
 }
 
@@ -428,9 +474,29 @@ pub fn form_tc(
                 hq: t.hq(),
             })
             .collect(),
-        agg_sig: crypto.aggregate(&sigs),
+        agg_sig: aggregate_certificate(crypto, &sigs)?,
         high_pqc,
     })
+}
+
+/// Formation cannot convert a refused local operation into certificate custody.
+fn aggregate_certificate(
+    crypto: &dyn Crypto,
+    sigs: &[Signature],
+) -> Result<AggregateSignature, FormError> {
+    match crypto.aggregate(sigs) {
+        Ok(signature) => Ok(signature),
+        Err(error) => {
+            // MS55: manufacture certificate custody after an aggregation refusal.
+            #[cfg(sumeragi_mutation = "MS55")]
+            {
+                let _ = error;
+                return Ok(AggregateSignature([0; crate::types::SIGNATURE_LEN]));
+            }
+            #[cfg(not(sumeragi_mutation = "MS55"))]
+            Err(FormError::AggregationFailed(error))
+        }
+    }
 }
 
 /// Return the exact first refusal while keeping certificate checks in protocol order.
@@ -455,6 +521,26 @@ mod tests {
 
     fn validators(n: usize) -> FakeValidators {
         FakeValidators::new(n, 1, None)
+    }
+
+    #[test]
+    fn local_crypto_errors_have_owned_object_safe_diagnostics() {
+        let failures: [Box<dyn std::error::Error + Send + Sync>; 4] = [
+            Box::new(SigningError::Refused),
+            Box::new(SigningError::InvalidInput),
+            Box::new(AggregationError::Refused),
+            Box::new(AggregationError::InvalidInput),
+        ];
+        let expected = [
+            "local signing refused",
+            "local signing input rejected",
+            "local aggregation refused",
+            "local aggregation input rejected",
+        ];
+        for (error, message) in failures.into_iter().zip(expected) {
+            assert_eq!(error.to_string(), message);
+            assert!(error.source().is_none());
+        }
     }
 
     #[test]

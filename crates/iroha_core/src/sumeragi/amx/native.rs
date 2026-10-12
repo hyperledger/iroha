@@ -279,12 +279,42 @@ fn global_source_graph_error(
         GraphError::Allocator { .. } => ExecutionAttemptError::Deferred(
             ivm::error::ExecutionDeferral::AllocationUnavailable.into(),
         ),
-        GraphError::Codec(resource) => {
-            crate::execution_attempt::norito_decode_attempt_error(resource.into(), |error| {
-                invalid(error.to_string())
-            })
-        }
+        GraphError::Codec(original) => ExecutionAttemptError::Deferred(original.into()),
         invalid_graph => invalid(invalid_graph.to_string()).into(),
+    }
+}
+
+#[cfg(test)]
+mod graph_refusal_tests {
+    use super::*;
+
+    #[test]
+    fn global_source_refusal_keeps_classification_after_original_scope_retires() {
+        use crate::execution_attempt::ExecutionAttemptError;
+        let original = norito::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+            || norito::core::classify_decode_attempt(|| norito::core::reserve_decode_allocation(1)),
+        )
+        .unwrap_err();
+        let expected = original.local_refusal().unwrap();
+        let graph = GraphError::from(AmxError::Resource(original));
+        let mapped = global_source_graph_error(graph);
+        let ExecutionAttemptError::Deferred(local) = mapped else {
+            panic!("captured graph refusal lost its origin: {mapped:?}");
+        };
+        assert_eq!(
+            local.reason(),
+            ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+        );
+        assert!(local.allocation_refusal().is_none());
+        assert_eq!(local.decode_refusal(), Some(&expected));
+        let vm_error = local.into_vm_error();
+        let same = crate::execution_attempt::ExecutionDeferred::from_vm_error(&vm_error).unwrap();
+        assert_eq!(same.decode_refusal(), Some(&expected));
+        assert!(matches!(
+            global_source_graph_error(GraphError::Invalid("completed".into())),
+            ExecutionAttemptError::Rejected(_)
+        ));
     }
 }
 
@@ -718,34 +748,6 @@ fn execute_prepare_with_transfer(
 #[cfg(test)]
 mod tests;
 
-/// Test-only finite admission of an untouched native Cell writer.
-/// Nested authority remains shared with its original graph; these controls admit only the two
-/// actual EBR allocations used by World acquisition/publication contention tests.
-#[cfg(test)]
-pub(crate) trait NativeAmxCellFixtureBlock {
-    /// Acquire this exact field independently without acquiring other World writers.
-    fn block(&self) -> mv::cell::Block<'_, RetainedNativeAmx, AllocationCharge>;
-}
-#[cfg(test)]
-impl NativeAmxCellFixtureBlock for Cell<RetainedNativeAmx, AllocationCharge> {
-    fn block(&self) -> mv::cell::Block<'_, RetainedNativeAmx, AllocationCharge> {
-        let budget = AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        );
-        let [current, undo] = Self::allocation_layouts();
-        let mut original = budget
-            .try_reserve_layouts([current, undo])
-            .expect("native fixture EBR capacity");
-        let charges = mv::cell::CellAllocationCharges::new(
-            original
-                .try_split(current)
-                .expect("native fixture current EBR"),
-            original.try_split(undo).expect("native fixture undo EBR"),
-        );
-        self.block_charged(charges)
-    }
-}
-
 impl Execute for SettleAmxV1 {
     fn execute(
         self,
@@ -839,10 +841,7 @@ impl Execute for RelayGlobalAmxHandoffV1 {
         let source = original.canonical().expect("checked participant");
         let global = &source.participant.global;
         let verified = global
-            .verify_block(
-                &self.proof.block,
-                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
-            )
+            .verify_block(&self.proof.block)
             .map_err(|error| super::amx_error(error, state))?;
         if verified.epoch != global.epoch() {
             return Ok(());

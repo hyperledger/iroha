@@ -127,10 +127,7 @@ fn zk_ace_privacy_transfer_fails_closed_taira_localnet() -> Result<()> {
     let builder = NetworkBuilder::new()
         .with_peers(4)
         .with_auto_populated_trusted_peers()
-        .with_permissioned_consensus()
-        .with_config_layer(|layer| {
-            layer.write(["zk", "stark", "enabled"], true);
-        });
+        .with_permissioned_consensus();
     let Some((network, _runtime)) = sandbox::start_network_blocking_or_skip(builder, TEST_NAME)?
     else {
         return Ok(());

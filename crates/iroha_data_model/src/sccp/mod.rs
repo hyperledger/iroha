@@ -2,10 +2,11 @@
 //!
 //! SCCP (SORA Cross-Chain Protocol) moves Taira XOR between the Taira Iroha network and the
 //! Ethereum, BSC and TON mainnets. The normative design is `specs/sccp.md`.
-//! These modules hold the Taira-internal Norito types: consensus parameters, block commitments
-//! and the history accumulator, outbound and inbound records, block leaves and destination
-//! controls, the route registry and escrow identity, inbound light-client state, events and the
-//! Parliament governance payload. The v1 instructions live in [`crate::isi::sccp`].
+//! These modules hold the Taira-internal Norito types: consensus parameters, native committee
+//! generations, block commitments and the history accumulator, outbound and inbound records,
+//! block leaves and destination controls, the route registry and escrow identity, inbound
+//! light-client state, events and the Parliament governance payload. The v1 instructions live
+//! in [`crate::isi::sccp`].
 //!
 //! Destinations verify Taira's Sumeragi `CommitQC`, so SCCP has no bridge key, attestation or
 //! roster type. The finality header and the certified result it binds live in

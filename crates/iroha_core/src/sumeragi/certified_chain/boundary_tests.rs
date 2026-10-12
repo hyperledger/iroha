@@ -85,7 +85,8 @@ fn certificate(keys: &[KeyPair], header: &BlockHeader, result: Hash32, last: boo
 
             vote.sig = crate::sumeragi::crypto::KeyPairSigner::new(&keys[index])
                 .unwrap()
-                .sign(&vote.preimage());
+                .sign(&vote.preimage())
+                .unwrap();
             vote
         })
         .collect::<Vec<_>>();
@@ -283,15 +284,17 @@ fn build_history(retain: bool) -> Vec<iroha_data_model::block::SharedSignedBlock
     let routing_world = World::new();
     {
         let mut parameters = routing_world.parameters.block();
-        parameters.set_parameter(iroha_data_model::parameter::Parameter::Custom(
-            iroha_data_model::parameter::custom::CustomParameter::new(
-                iroha_data_model::parameter::system::consensus_metadata::handshake_meta_id(),
-                iroha_primitives::json::Json::from_norito_value_ref(
-                    &norito::json::value::to_value(&metadata).unwrap(),
-                )
-                .unwrap(),
-            ),
-        ));
+        parameters
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                iroha_data_model::parameter::custom::CustomParameter::new(
+                    iroha_data_model::parameter::system::consensus_metadata::handshake_meta_id(),
+                    iroha_primitives::json::Json::from_norito_value_ref(
+                        &norito::json::value::to_value(&metadata).unwrap(),
+                    )
+                    .unwrap(),
+                ),
+            ))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
     assert_eq!(

@@ -411,13 +411,15 @@ impl ParentServicePreparation {
             unreachable!("original complete authority is ready")
         };
         let authority = self.authority.as_ref().expect("complete authority backing");
+        let (instance, root_scope) = self.authenticated.expect("original signed genesis");
         (
             predecessor,
             parent,
             authority.projection(&scheduled.epoch),
             authority.config(),
             PrefixVerifierContext {
-                instance: self.authenticated.expect("original signed genesis").0,
+                instance,
+                root_scope,
             },
         )
     }

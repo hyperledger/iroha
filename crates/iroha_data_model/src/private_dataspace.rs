@@ -36,7 +36,8 @@ use crate::{
         AmxCertifiedBlockV1, AmxForeignInstanceV1, MAX_AMX_HEADER_BYTES, MAX_AMX_QC_BYTES,
     },
     sumeragi_finality::{
-        CertifiedResultV1, FinalityValidator, MAX_RESULT_PREIMAGE_BYTES, ProofCrypto, ScheduledSlot,
+        CertifiedResultScope, CertifiedResultV1, FinalityValidator, MAX_RESULT_PREIMAGE_BYTES,
+        ProofCrypto, ScheduledSlot,
     },
 };
 
@@ -437,9 +438,12 @@ impl PrivateDataspaceAnchorState {
         registration: PrivateDataspaceRegistration,
     ) -> Result<Self, PrivateDataspaceAnchorError> {
         registration.validate()?;
-        let tracker =
-            AmxForeignInstanceV1::new(registration.instance, registration.initial_epoch.clone())
-                .map_err(failure)?;
+        let tracker = AmxForeignInstanceV1::new(
+            registration.instance,
+            registration.initial_epoch.clone(),
+            crate::sumeragi_finality::CertifiedResultScope::NonGlobal,
+        )
+        .map_err(failure)?;
         let cursor = registration.genesis_cursor;
         Ok(Self {
             registration,
@@ -459,7 +463,9 @@ impl PrivateDataspaceAnchorState {
         self.registration.validate()?;
         self.tracker.validate().map_err(failure)?;
         require(
-            self.tracker.instance == self.registration.instance && self.tracker.previous.is_none(),
+            self.tracker.instance == self.registration.instance
+                && self.tracker.result_scope == CertifiedResultScope::NonGlobal
+                && self.tracker.previous.is_none(),
             "tracker differs from the registered fixed private root",
         )?;
         self.registration.fixed_context(&self.tracker.current)?;
@@ -509,10 +515,7 @@ impl PrivateDataspaceAnchorState {
         let commitment = certified_result.commitment();
         let verified = self
             .tracker
-            .verify_block(
-                &anchor.certificate,
-                crate::sumeragi_finality::CertifiedResultScope::NonGlobal,
-            )
+            .verify_block(&anchor.certificate)
             .map_err(failure)?;
         self.registration
             .fixed_context(&commitment.schedule.current)?;

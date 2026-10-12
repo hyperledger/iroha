@@ -1,0 +1,109 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "already_known_dispatch_is_awaited_not_resent",
+  "category": "dispatch_classification",
+  "rules": [
+    "authoritative_outcomes_only"
+  ],
+  "description": "The submission owner proves the exact transaction is already queued or committed. That is existence, not finality: the step is pending until a state-resolved outcome is read.",
+  "plan": {
+    "kind": "issuer_bootstrap",
+    "instance": "already-known-dispatch-is-awaited-not-resent",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "already_known"
+        ],
+        "statuses": [
+          "observed"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "FinalityPending",
+          "stage": "reconcile",
+          "step": 0,
+          "resumable": true,
+          "has_transaction_identity": true
+        },
+        "effects": [
+          "build:0#1",
+          "sign:0#1",
+          "dispatch:0#1",
+          "status:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "pending"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 1,
+              "possible_admissions": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "statuses": [
+          "applied"
+        ]
+      },
+      "expect": {
+        "result": "completed",
+        "effects": [
+          "status:0#1"
+        ],
+        "status": "completed",
+        "steps": [
+          "finalized"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0
+          ],
+          "irreversible_steps": [
+            0
+          ],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        }
+      }
+    }
+  ]
+}

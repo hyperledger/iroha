@@ -14,6 +14,8 @@
 // - The rules that only TON has: the three checkpoint slots, `next_keys`, the
 //   cell shapes of a certificate and of a checkpoint reference, and the use
 //   of a stored checkpoint after a rotation (U1, U2).
+// - The exit codes of the contracts are the shared table of the fixture
+//   (§5.2.2), which the generated replays compare by number.
 
 import "@stdlib/exotic-cells"
 import "@acton/io"
@@ -1360,12 +1362,34 @@ get fun `test next_keys of a key-changing rotation must be the committee of the 
     }
     expect(i).toEqual(9);
 
+    // A list of more than 16 chunks holds more keys than any committee. It is
+    // refused before its seventeenth chunk is loaded, so the walk is bounded:
+    // 40 chunks cost what 17 cost.
+    val all = testCommittee(35, 0).keys;
+    var eighty: array<slice> = [];
+    repeat (80) {
+        eighty.push(all.get(eighty.size() % 35));
+    }
+    val seventeen = testCommittee(33, 0).keys;
+    val short = sendHandoffNaming(
+        env,
+        rootOfListedKeys(seventeen),
+        sccpBuildKeys(seventeen),
+        attempt,
+    );
+    expectRefusedUnchanged(env, short, SccpErrors.BadCommittee);
+    attempt += 1;
+    val long = sendHandoffNaming(env, rootOfListedKeys(eighty), sccpBuildKeys(eighty), attempt);
+    expectRefusedUnchanged(env, long, SccpErrors.BadCommittee);
+    attempt += 1;
+    expect(stepGas(long) <= stepGas(short) + 1000).toBeTrue();
+
     // the genuine list is installed
     val res = sendHandoffNaming(env, next.root(), next.keysCell(), attempt);
     expectOutcome(res, 0);
     replayExpectKeys(env, next.keys);
     expect(env.minter.getSccpCommittee().n).toEqual(4);
-    expect(attempt).toEqual(12);
+    expect(attempt).toEqual(14);
 }
 
 get fun `test next_keys in a non-canonical cell shape is BadSnake`() {
@@ -1571,6 +1595,20 @@ get fun `test sccp_checkpoint checks its value before any signature work`() {
         0,
         0,
     );
+    // The entry value comes before `Live` too (§5.3.4 "Checkpoint and apply
+    // control"): an expired minter answers an underfunded call for its value.
+    testing.setNow(PIN_UNTIL_MS / 1000 + 1);
+    val y = emptyX(env.networkId, env.generation, env.committee.root(), TEST_START_HEIGHT + 6);
+    val late = certifyFor(env, env.committee, y);
+    val lateMinimum = env.minter.checkpointRequiredValue() - sccpMinterStorageGrace();
+    expectOutcome(
+        sendCheckpoint(env, env.deployer, late, null, lateMinimum - 1),
+        SccpErrors.NotEnoughValue,
+    );
+    expectOutcome(
+        sendCheckpoint(env, env.deployer, late, null, lateMinimum),
+        SccpErrors.CommitteeNotAccepted,
+    );
 }
 
 get fun `test sccp_checkpoint requires the ton mainnet global id`() {
@@ -1614,6 +1652,98 @@ get fun `test a certificate that changes nothing bounces with NothingToDo`() {
         SccpErrors.NothingToDo,
     );
     expect(env.minter.getSccpState().equivocated).toBeFalse();
+}
+
+get fun `test a stored header still passes steps 1 to 6 before the cheap path`() {
+    // §5.1.3 step 8: the lengths, the signer set and the identity check hold
+    // for a certificate whose X is stored. The classification as CUR does too:
+    // `certificates of retired generations are refused without effect` sends
+    // the stored handoff of a retired generation.
+    val env = setupEnv();
+    val x = emptyX(env.networkId, env.generation, env.committee.root(), TEST_START_HEIGHT + 5);
+    val qc = defaultQc(x.height);
+    val signers = env.committee.lowestSigners();
+    val genuine = blsAggregateSign(
+        env.committee.secretsOf(signers),
+        commitMessage(env.instance, qc, x),
+    );
+    expectOutcome(
+        sendCheckpoint(env, env.deployer, certOf(genuine, signers, qc, x), null, grams("1")),
+        0,
+    );
+    val before = minterStorage(env).toCell().hash();
+    val head = x.headBits().endCell().beginParse();
+    val tail = x.tailBits().endCell().beginParse();
+    val qcBytes = qc.toCell().beginParse();
+
+    var certs: array<cell> = [];
+    var codes: array<int> = [];
+    // step 1: a signature of 95 bytes, a QC_FIXED of 113 bytes, a library cell
+    certs.push(certCell(genuine.getFirstBits(760), signers, qcBytes, head, tail));
+    codes.push(SccpErrors.BadCertificate);
+    certs.push(
+        certCell(
+            genuine,
+            signers,
+            beginCell().storeSlice(qcBytes).storeUint(0, 8).endCell().beginParse(),
+            head,
+            tail,
+        ),
+    );
+    codes.push(SccpErrors.BadCertificate);
+    certs.push(asLibrary(certOf(genuine, signers, qc, x)));
+    codes.push(SccpErrors.BadSnake);
+    // step 5: two signers, all four, a bit at index n, and none
+    certs.push(certOf(genuine, 0b0011, qc, x));
+    codes.push(SccpErrors.BadCertificate);
+    certs.push(certOf(genuine, 0b1111, qc, x));
+    codes.push(SccpErrors.BadCertificate);
+    certs.push(certOf(genuine, 0b10011, qc, x));
+    codes.push(SccpErrors.BadCertificate);
+    certs.push(certOf(genuine, 0, qc, x));
+    codes.push(SccpErrors.BadCertificate);
+    // step 6: the identity signature
+    val identity = beginCell()
+        .storeUint(SCCP_IDENTITY_SIGNATURE_HEAD, 256)
+        .storeUint(0, 256)
+        .storeUint(0, 256)
+        .endCell()
+        .beginParse();
+    certs.push(certOf(identity, signers, qc, x));
+    codes.push(SccpErrors.BadSignature);
+    var i = 0;
+    repeat (certs.size()) {
+        val res = sendCheckpoint(env, env.deployer, certs.get(i), null, grams("1"));
+        if (outcomeOf(res) != codes.get(i)) {
+            println("stored case {} expected {} observed {}", i, codes.get(i), outcomeOf(res));
+        }
+        expectOutcome(res, codes.get(i));
+        expectEvents(res, []);
+        expect(stepGas(res) < 58000).toBeTrue();
+        i += 1;
+    }
+    expect(i).toEqual(8);
+    expect(minterStorage(env).toCell().hash()).toEqual(before);
+    // Past step 6 the signature is not looked at: the bitmap of another
+    // quorum with a signature that signs nothing takes the cheap path, and
+    // the stored X leaves nothing to do.
+    val unsigned = certOf(foreignSignature(), env.committee.highestSigners(), qc, x);
+    val cheap = sendCheckpoint(env, env.deployer, unsigned, null, grams("1"));
+    expectOutcome(cheap, SccpErrors.NothingToDo);
+    expect(stepGas(cheap) < 58000).toBeTrue();
+    // the same certificate over a header that is not stored is BadSignature
+    val fresh = emptyX(env.networkId, env.generation, env.committee.root(), TEST_START_HEIGHT + 6);
+    expectOutcome(
+        sendCheckpoint(
+            env,
+            env.deployer,
+            certOf(foreignSignature(), signers, defaultQc(fresh.height), fresh),
+            null,
+            grams("1"),
+        ),
+        SccpErrors.BadSignature,
+    );
+    expect(minterStorage(env).toCell().hash()).toEqual(before);
 }
 
 get fun `test the signer set must be exactly a quorum of the stored committee`() {
@@ -2101,6 +2231,53 @@ get fun `test every invalid header row is BadHeader`() {
     );
 }
 
+get fun `test a header without ACTIVE is refused whatever its other fields hold`() {
+    // The inactive rows of the fixture hold zero fields, which X3 refuses as
+    // well. A destination refuses the missing flag itself (§5.1.3 step 2):
+    // here every other field is that of a valid header, genuinely signed.
+    val env = setupEnv();
+    val next = testCommittee(4, 4);
+    var plain = emptyX(env.networkId, env.generation, env.committee.root(), TEST_START_HEIGHT + 5);
+    var handoff = handoffX(env, env.committee, env.generation, next, TEST_START_HEIGHT + 6);
+    expect(parseOutcome(plain.toCell())).toEqual(0);
+    expect(parseOutcome(handoff.toCell())).toEqual(0);
+    plain.flags = 0;
+    handoff.flags = SCCP_X_FLAG_ROTATION;
+    val headers: array<TestX> = [plain, handoff];
+    var i = 0;
+    repeat (headers.size()) {
+        expect(parseOutcome(headers.get(i).toCell())).toEqual(SccpErrors.BadHeader as int);
+        expectRefusedUnchanged(
+            env,
+            checkpointBy(env, env.committee, headers.get(i), next.keysCell()),
+            SccpErrors.BadHeader,
+        );
+        i += 1;
+    }
+    expect(i).toEqual(2);
+    // a stored id does not make such a header usable either (white box)
+    seedCheckpoint(env, plain);
+    expectOutcome(
+        controlStored(
+            env,
+            plain.ref(),
+            controlProofCell(
+                1,
+                SCCP_TRACK_PARLIAMENT,
+                true,
+                0,
+                1,
+                1,
+                0,
+                [],
+                ownBlockRef(plain),
+            ),
+            grams("1"),
+        ),
+        SccpErrors.BadHeader,
+    );
+}
+
 get fun `test a handoff at the top of u64 is refused by X6`() {
     val env = setupEnv();
     val next = testCommittee(4, 4);
@@ -2511,6 +2688,104 @@ get fun `test the certificate messages and events carry the tags and layouts of 
     expect(SCCP_CHECKPOINT_SLOTS).toEqual(VEC_CHECKPOINT_SLOTS);
     expect(SCCP_MAX_VALIDITY_MS).toEqual(VEC_MAX_VALIDITY_MS);
     expect(SCCP_X_MAGIC).toEqual(VEC_X_MAGIC);
+}
+
+get fun `test the deleted evidence and rotation ops are unknown messages`() {
+    // §5.3.3: `sccp_evidence` and `sccp_rotate` are deleted. A committee
+    // changes through a handoff certificate in `sccp_checkpoint` only.
+    val env = setupEnv();
+    val next = testCommittee(4, 4);
+    val handoff = handoffX(env, env.committee, env.generation, next, TEST_START_HEIGHT + 10);
+    val cert = certifyFor(env, env.committee, handoff);
+    val before = minterStorage(env).toCell().hash();
+    val ops: array<int> = [0x53434531, 0x53435231];
+    var i = 0;
+    repeat (ops.size()) {
+        // the op with the fields of `sccp_checkpoint` behind it
+        val body = beginCell()
+            .storeUint(ops.get(i), 32)
+            .storeUint(1, 64)
+            .storeAddress(env.deployer)
+            .storeRef(cert)
+            .storeMaybeRef(next.keysCell())
+            .endCell();
+        val res = env.minter.sendAny(env.deployer, body, { value: grams("1"), bounce: true });
+        expectOutcome(res, SccpErrors.InvalidMessage);
+        expectEvents(res, []);
+        i += 1;
+    }
+    expect(i).toEqual(2);
+    expect(minterStorage(env).toCell().hash()).toEqual(before);
+    // the same certificate and keys under the checkpoint op rotate
+    expectOutcome(sendCheckpoint(env, env.deployer, cert, next.keysCell(), grams("1")), 0);
+    expect(env.minter.getSccpState().generation).toEqual(env.generation + 1);
+}
+
+/// Exit codes of the shared table (`error_codes` of
+/// `committee_transitions_v1.json`).
+const PINNED_EXIT_CODES = 33
+
+get fun `test the exit codes are the shared table of the fixture`() {
+    // §5.2.2: every harness keys on the error names, and the generated
+    // replays compare the numbers of this table. `VEC_EXIT_*` are its rows.
+    val codes: array<[int, int]> = [
+        [SccpErrors.WrongChain as int, VEC_EXIT_WRONG_CHAIN],
+        [SccpErrors.MintingIsPaused as int, VEC_EXIT_MINTING_IS_PAUSED],
+        [SccpErrors.CommitteeNotAccepted as int, VEC_EXIT_COMMITTEE_NOT_ACCEPTED],
+        [SccpErrors.BadCommittee as int, VEC_EXIT_BAD_COMMITTEE],
+        [SccpErrors.BadCertificate as int, VEC_EXIT_BAD_CERTIFICATE],
+        [SccpErrors.BadSignature as int, VEC_EXIT_BAD_SIGNATURE],
+        [SccpErrors.BadHeader as int, VEC_EXIT_BAD_HEADER],
+        [SccpErrors.BadProof as int, VEC_EXIT_BAD_PROOF],
+        [SccpErrors.BadPayload as int, VEC_EXIT_BAD_PAYLOAD],
+        [SccpErrors.SupplyCapExceeded as int, VEC_EXIT_SUPPLY_CAP_EXCEEDED],
+        [SccpErrors.UnknownCheckpoint as int, VEC_EXIT_UNKNOWN_CHECKPOINT],
+        [SccpErrors.BadRecipient as int, VEC_EXIT_BAD_RECIPIENT],
+        [SccpErrors.BadAmount as int, VEC_EXIT_BAD_AMOUNT],
+        [SccpErrors.DeadlinePassed as int, VEC_EXIT_DEADLINE_PASSED],
+        [SccpErrors.DeadlineNotReached as int, VEC_EXIT_DEADLINE_NOT_REACHED],
+        [SccpErrors.NotFrozen as int, VEC_EXIT_NOT_FROZEN],
+        [SccpErrors.StaleControl as int, VEC_EXIT_STALE_CONTROL],
+        [SccpErrors.NotInitialized as int, VEC_EXIT_NOT_INITIALIZED],
+        [SccpErrors.AlreadyInitialized as int, VEC_EXIT_ALREADY_INITIALIZED],
+        [SccpErrors.BadControl as int, VEC_EXIT_BAD_CONTROL],
+        [SccpErrors.BadSnake as int, VEC_EXIT_BAD_SNAKE],
+        [SccpErrors.BucketNotDeployed as int, VEC_EXIT_BUCKET_NOT_DEPLOYED],
+        [SccpErrors.NotMinter as int, VEC_EXIT_NOT_MINTER],
+        [SccpErrors.NotBucket as int, VEC_EXIT_NOT_BUCKET],
+        [SccpErrors.BadNonce as int, VEC_EXIT_BAD_NONCE],
+        [SccpErrors.BadRange as int, VEC_EXIT_BAD_RANGE],
+        [SccpErrors.BadBurnPayload as int, VEC_EXIT_BAD_BURN_PAYLOAD],
+        [SccpErrors.NothingToDo as int, VEC_EXIT_NOTHING_TO_DO],
+        [SccpErrors.BadConfig as int, VEC_EXIT_BAD_CONFIG],
+        [SccpErrors.BucketNotActive as int, VEC_EXIT_BUCKET_NOT_ACTIVE],
+        [SccpErrors.NothingToRetry as int, VEC_EXIT_NOTHING_TO_RETRY],
+        [SccpErrors.Equivocated as int, VEC_EXIT_EQUIVOCATED],
+        [SccpErrors.LatchRequired as int, VEC_EXIT_LATCH_REQUIRED],
+    ];
+    var i = 0;
+    var previous = 0;
+    repeat (codes.size()) {
+        val [contractCode, fixtureCode] = codes.get(i);
+        if (contractCode != fixtureCode) {
+            println("exit code row {}: contract {} fixture {}", i, contractCode, fixtureCode);
+        }
+        expect(contractCode).toEqual(fixtureCode);
+        // the rows are listed in ascending order, so no code is listed twice
+        expect(contractCode > previous).toBeTrue();
+        previous = contractCode;
+        i += 1;
+    }
+    expect(i).toEqual(PINNED_EXIT_CODES);
+    // the numbers as §5.2.2, §5.3.3 and §5.3.4 item 6 write them
+    expect(SccpErrors.CommitteeNotAccepted as int).toEqual(402);
+    expect(SccpErrors.BadProof as int).toEqual(407);
+    expect(SccpErrors.BadControl as int).toEqual(420);
+    expect(SccpErrors.BadSnake as int).toEqual(421);
+    expect(SccpErrors.BadNonce as int).toEqual(425);
+    expect(SccpErrors.NothingToRetry as int).toEqual(431);
+    expect(SccpErrors.Equivocated as int).toEqual(433);
+    expect(SccpErrors.LatchRequired as int).toEqual(434);
 }
 
 // ---------------------------------------------------------------------------

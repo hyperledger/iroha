@@ -1518,13 +1518,17 @@ def require_block_start_enactment_phases(state: str) -> None:
         "        let current_slot =",
         state_path,
     )
-    # This small statement region contains only the original height and the two
-    # unconditional calls. Ignore line comments, but reject hidden conditions,
+    # This small statement region contains only the original height and the
+    # three unconditional calls: private-settlement expiry, the SCCP begin-block
+    # step (specs/sccp.md S0, before the governance pass) and Parliament
+    # enactment. Ignore line comments, but reject hidden conditions,
     # substituted owners/heights, duplicate calls, or swapped execution order.
     phases = re.sub(r"//[^\n]*", "", phases)
     expected = (
         "let now_h = sb._curr_block.height().get();"
         "Self::apply_block_start_private_settlement_expiry(&mut sb, now_h)"
+        ".map_err(StateBlockStartError::Storage)?;"
+        "crate::smartcontracts::isi::sccp::hook::begin_block(&mut sb)"
         ".map_err(StateBlockStartError::Storage)?;"
         "Self::apply_block_start_parliament_enactments(&mut sb, now_h)?;"
     )
@@ -1552,6 +1556,7 @@ def require_block_start_enactment_phases(state: str) -> None:
         "sb.freeze_axt_block_start();",
         "letcontinuation=before_start(&mutsb).map_err(StateBlockStartError::Stage)?;",
         "Self::apply_block_start_private_settlement_expiry(&mutsb,now_h).map_err(StateBlockStartError::Storage)?;",
+        "crate::smartcontracts::isi::sccp::hook::begin_block(&mutsb).map_err(StateBlockStartError::Storage)?;",
         "Self::apply_block_start_parliament_enactments(&mutsb,now_h)?;",
         "sb.start_of_block_effects_applied=true;",
         "sb.capture_execution_output_capacity();",
@@ -3050,7 +3055,11 @@ def require_native_beacon_pulse_application(
                     .global_beacon_latest_pulse
                     .insert(GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY, link);
             }
-            self.sumeragi_schedule = ScheduleStep::Requested { captured, pulse };
+            self.sumeragi_schedule = ScheduleStep::Requested {
+                captured,
+                pulse,
+                root_scope,
+            };
             Ok(())
         }
     """)

@@ -12389,7 +12389,7 @@ async fn handler_get_configuration(
 ) -> Result<impl IntoResponse, Error> {
     let remote_ip = remote.ip();
     check_operator_rate_limit(&app, &headers, Some(remote_ip), "v1/configuration", true).await?;
-    routing::handle_get_configuration(app.kiso.clone()).await
+    routing::handle_get_configuration(app.kiso.clone(), app.state.clone()).await
 }
 /// Exact native marketplace policy and reviewed rollout qualification.
 async fn handler_nft_offer_capabilities(
@@ -32470,6 +32470,7 @@ pub(crate) fn quote_internal_fee_payment_from_parts(
         quote_view.world(),
         quote_view.nexus(),
         quote_view.pipeline(),
+        &quote_view.zk().gas,
         payload,
         ledger_time_ms,
         sccp_committed_time_ms,
@@ -32588,6 +32589,7 @@ async fn handler_fee_quote(
             quote_view.world(),
             quote_view.nexus(),
             quote_view.pipeline(),
+            &quote_view.zk().gas,
             &request.payload,
             ledger_time_ms,
             sccp_committed_time_ms,

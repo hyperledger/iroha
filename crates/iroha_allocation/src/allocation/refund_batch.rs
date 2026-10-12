@@ -5,7 +5,8 @@ use std::cell::Cell;
 
 /// Coalesced original-pool wakes retained until enclosing writers have retired.
 ///
-/// Freed credits remain immediately reusable. Only refunds performed inside
+/// Freed credits remain immediately reusable, including callback-free native
+/// thread parking. Only arbitrary task callbacks for refunds performed inside
 /// `with_scope` are captured; other pools and concurrent threads retain their
 /// normal behavior. This owner allocates no storage and is not a reservation.
 /// It may move across threads after a synchronous scope has ended. Its scopes

@@ -10,16 +10,129 @@ use crate::{
     sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
 };
 
-fn chain() -> CertifiedTestChain {
-    let mut chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000)).unwrap();
+fn chain(root_scope: SumeragiRootScope) -> CertifiedTestChain {
+    let mut config = match root_scope {
+        SumeragiRootScope::Global => TestChainConfig::new(World::new(), 1_000),
+        SumeragiRootScope::Dataspace { dataspace_id, .. } => private_config(dataspace_id),
+    };
+    config.root_scope = root_scope;
+    let mut chain = CertifiedTestChain::start(config).unwrap();
     chain.commit_at(2_000, Vec::new());
     chain.commit_at(3_000, Vec::new());
     chain
 }
 
+fn private_config(dataspace_id: iroha_model_base::topology::DataSpaceId) -> TestChainConfig {
+    use iroha_data_model::{
+        Registrable,
+        account::{Account, AccountId},
+        asset::{
+            Asset, AssetBalancePolicy, AssetBalanceScope, AssetDefinition, AssetDefinitionId,
+            AssetId,
+        },
+        block::consensus::PrivateRootFeePolicy,
+        domain::Domain,
+        nexus::{DataSpaceCatalog, DataSpaceMetadata, LaneCatalog, LaneConfig, LaneVisibility},
+        parameter::Parameter,
+    };
+
+    let clock = iroha_crypto::KeyPair::from_seed(vec![0xCC; 32], iroha_crypto::Algorithm::Ed25519);
+    let owner = AccountId::new(clock.public_key().clone());
+    let domain =
+        iroha_model_base::domain::DomainId::parse_fully_qualified("app.parent-service-test")
+            .unwrap();
+    let asset = AssetDefinitionId::derive_from_components(domain.clone(), "gas".parse().unwrap());
+    let mut definition = AssetDefinition::numeric(
+        asset.clone(),
+        "Private gas",
+        AssetBalancePolicy::DataspaceRestricted,
+        Some(domain.clone()),
+    )
+    .build(&owner);
+    definition.total_quantity = 1_000_000_u32.into();
+    let world = World::with_assets(
+        [Domain::new(domain).build(&owner)],
+        [Account::new(owner.clone()).build(&owner)],
+        [definition],
+        [Asset::new(
+            AssetId::with_scope(
+                asset.clone(),
+                owner,
+                AssetBalanceScope::Dataspace(dataspace_id),
+            ),
+            1_000_000_u32,
+        )],
+        [],
+    );
+    let mut config = TestChainConfig::new(world, 1_000);
+    config.genesis_parameters.push(Parameter::Custom(
+        PrivateRootFeePolicy {
+            asset_definition_id: asset.clone(),
+            base_fee: 1_u32.into(),
+            per_byte_fee: 0_u32.into(),
+            per_instruction_fee: 1_u32.into(),
+            per_gas_unit_fee: 1_u32.into(),
+        }
+        .into_custom_parameter()
+        .unwrap(),
+    ));
+    let mut nexus = iroha_config::parameters::actual::Nexus::default();
+    nexus.fees.fee_asset_id = asset.to_string();
+    nexus.lane_catalog = LaneCatalog::new(
+        std::num::NonZeroU32::MIN,
+        vec![LaneConfig {
+            dataspace_id,
+            visibility: LaneVisibility::Restricted,
+            ..LaneConfig::default()
+        }],
+    )
+    .unwrap();
+    nexus.configured_lane_catalog = nexus.lane_catalog.clone();
+    nexus.lane_config =
+        iroha_config::parameters::actual::LaneConfig::from_catalog(&nexus.lane_catalog);
+    nexus.dataspace_catalog = DataSpaceCatalog::new(vec![DataSpaceMetadata {
+        id: dataspace_id,
+        alias: "parent-service-test".into(),
+        description: None,
+        fault_tolerance: 1,
+    }])
+    .unwrap();
+    nexus.configured_dataspace_catalog = nexus.dataspace_catalog.clone();
+    nexus.routing_policy.default_dataspace = dataspace_id;
+    config.nexus = Some(nexus);
+    config
+}
+
+#[test]
+fn original_parent_service_context_retains_signed_dataspace_scope() {
+    let scope = SumeragiRootScope::Dataspace {
+        parent_network_id: NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
+            b"parent-service parent network",
+        ))),
+        dataspace_id: iroha_model_base::topology::DataSpaceId::new(7),
+    };
+    let chain = chain(scope);
+    let view = chain.state().view();
+    let mut preparation = ParentServicePreparation::default();
+    preparation.prepare(&view, 3).unwrap();
+    let (predecessor, parent, _, _, context) = preparation.inputs();
+    assert_eq!(context.instance, chain.instance());
+    assert_eq!(context.root_scope, scope);
+    assert_eq!((predecessor.height(), parent.height()), (2, 3));
+    let reader = CertifiedChain::new_for_parent_service(&view).unwrap();
+    assert_eq!(
+        preparation
+            .proposal_original(&view, parent.block())
+            .unwrap(),
+        reader
+            .parent_service_proposal_original(parent.block())
+            .unwrap()
+    );
+}
+
 #[test]
 fn original_native_successor_authority_retains_its_actual_source_pool() {
-    let chain = chain();
+    let chain = chain(SumeragiRootScope::Global);
     let parent = chain.committed(2);
     let current = chain.committed(3);
     let original = (
@@ -88,7 +201,7 @@ fn original_native_authority_capacity_refusal_waits_for_its_own_release_then_ret
         task::{Context, Waker},
     };
 
-    let chain = chain();
+    let chain = chain(SumeragiRootScope::Global);
     let parent = chain.committed(2);
     let current = chain.committed(3);
     let original = (parent.id(), current.id());

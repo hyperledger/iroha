@@ -658,14 +658,9 @@ where
     for<'de> T: norito::NoritoDeserialize<'de>,
 {
     norito::decode_canonical_for_admission(payload, norito::canonical_decode_limits(payload.len()))
-        .map_err(|error| match error.kind() {
-            norito::core::DecodeAttemptErrorKind::Allocator => {
-                VMError::ExecutionDeferred(crate::error::ExecutionDeferral::AllocationUnavailable)
-            }
-            norito::core::DecodeAttemptErrorKind::EnclosingLimit => {
-                VMError::ExecutionDeferred(crate::error::ExecutionDeferral::ActiveMemoryCapacity)
-            }
-            norito::core::DecodeAttemptErrorKind::Invalid => VMError::DecodeError,
+        .map_err(|error| match error.into_local_refusal() {
+            Ok(original) => VMError::DecodeDeferred(original),
+            Err(_) => VMError::DecodeError,
         })
 }
 fn decode_schema(payload: &[u8]) -> Result<EntrypointArgumentSchemaV1, VMError> {
@@ -4007,9 +4002,16 @@ mod tests {
             )
             .expect_err("the actual canonical record cannot decode under zero caller allocation");
             assert_eq!(
-                error,
-                VMError::ExecutionDeferred(ExecutionDeferral::ActiveMemoryCapacity),
+                error.execution_deferral(),
+                Some(ExecutionDeferral::ActiveMemoryCapacity),
                 "canonical prepared record must retain its original enclosing decoder deferral"
+            );
+            let VMError::DecodeDeferred(original_refusal) = error else {
+                panic!("prepared record lost its captured decoder owner");
+            };
+            assert_eq!(
+                original_refusal.kind(),
+                norito::core::DecodeLocalRefusalKind::EnclosingLimit
             );
             assert_eq!(
                 (
@@ -4085,9 +4087,16 @@ mod tests {
             )
             .unwrap_err();
             assert_eq!(
-                error,
-                VMError::ExecutionDeferred(ExecutionDeferral::ActiveMemoryCapacity),
+                error.execution_deferral(),
+                Some(ExecutionDeferral::ActiveMemoryCapacity),
                 "canonical argument schema must retain its original enclosing decoder deferral"
+            );
+            let VMError::DecodeDeferred(original_refusal) = error else {
+                panic!("argument syscall lost its captured decoder owner");
+            };
+            assert_eq!(
+                original_refusal.kind(),
+                norito::core::DecodeLocalRefusalKind::EnclosingLimit
             );
             assert_eq!(
                 (vm.register(10), vm.register(11), vm.remaining_gas()),

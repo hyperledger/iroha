@@ -380,22 +380,16 @@ fn tron_endpoint_list_is_rejected() {
 }
 
 #[test]
-fn zk_sccp_rejects_secp256k1_limits() {
+fn zk_sccp_rejects_node_local_validity_limits() {
     for key in [
         "max_secp256k1_recoveries_per_transaction",
         "max_secp256k1_recoveries_per_block",
+        "max_ed25519_signature_checks_per_block",
     ] {
         let extra = format!("[zk.sccp]\n{key} = 2048\n");
         let error = load(&extra).expect_err(&extra);
-        assert!(error.contains(&format!("zk.sccp.{key}")), "{error}");
+        assert!(error.contains("`zk.sccp`"), "{error}");
     }
-    // The remaining work categories still read from the same table.
-    let config = load("[zk.sccp]\nmax_ed25519_signature_checks_per_block = 262145\n")
-        .expect("a surviving limit");
-    assert_eq!(
-        config.zk.sccp.max_ed25519_signature_checks_per_block.get(),
-        262_145
-    );
 }
 
 #[test]

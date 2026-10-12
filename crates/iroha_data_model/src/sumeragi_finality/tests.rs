@@ -367,25 +367,10 @@ pub(super) fn sign_qc(qc: &mut Qc, keys: &[KeyPair], chosen: &[u32]) {
     let signatures: Vec<_> = chosen
         .iter()
         .map(|index| {
-            iroha_crypto::Signature::from_bytes(
-                &iroha_crypto::bls::consensus::sign_preimage(
-                    keys[*index as usize].private_key(),
-                    &qc.preimage(),
-                )
-                .unwrap(),
-            )
+            consensus::sign_preimage(keys[*index as usize].private_key(), &qc.preimage()).unwrap()
         })
         .collect();
-    let bytes: Vec<_> = signatures
-        .iter()
-        .map(iroha_crypto::Signature::payload)
-        .collect();
-    qc.agg_sig = AggregateSignature(
-        bls_normal_aggregate_signatures(&bytes)
-            .unwrap()
-            .try_into()
-            .unwrap(),
-    );
+    qc.agg_sig = AggregateSignature(consensus::aggregate(&signatures).unwrap());
 }
 
 // Preserve the selected original epoch and use the sole fixture authoring path.
@@ -1092,6 +1077,7 @@ fn certified_beacon_pulse_requires_the_exact_committed_parent() {
             assert_eq!(
                 proof
                     .decode_checked(CertifiedResultScope::TairaGlobal)
+                    .map_err(invalid_read_error)
                     .unwrap_err()
                     .0,
                 "beacon pulse names another committed parent"
@@ -1246,6 +1232,7 @@ fn certified_beacon_pulse_requires_exact_parent_and_native_context() {
             assert_eq!(
                 proof
                     .decode_checked(CertifiedResultScope::TairaGlobal)
+                    .map_err(invalid_read_error)
                     .unwrap_err()
                     .0,
                 "beacon pulse names another committed parent"
@@ -1255,6 +1242,7 @@ fn certified_beacon_pulse_requires_exact_parent_and_native_context() {
             assert_eq!(
                 proof
                     .decode_checked(CertifiedResultScope::TairaGlobal)
+                    .map_err(invalid_read_error)
                     .unwrap_err()
                     .0,
                 "beacon pulse names another native consensus context"
@@ -1319,6 +1307,7 @@ fn quorum_certificate_and_control_bytes_cannot_authorize_no_work() {
         assert_eq!(
             proof
                 .decode_checked(CertifiedResultScope::TairaGlobal)
+                .map_err(invalid_read_error)
                 .unwrap_err()
                 .0,
             "empty blocks are invalid"
@@ -1611,6 +1600,7 @@ fn proof_reader_preserves_original_framing_refusals_without_a_second_frame() {
         assert_eq!(
             offered
                 .decode_checked(CertifiedResultScope::TairaGlobal)
+                .map_err(invalid_read_error)
                 .unwrap_err()
                 .0,
             original_error.to_string()
@@ -1648,7 +1638,14 @@ fn proof_reader_keeps_enclosing_decode_refusal_and_same_source_retry() {
             .decode_checked(CertifiedResultScope::TairaGlobal)
     })
     .unwrap_err();
-    assert_eq!(error.0, original_text);
+    let FinalityReadError::DecodeResource(original) = error else {
+        panic!("original enclosing refusal lost: {error:?}");
+    };
+    assert_eq!(
+        original.kind(),
+        norito::core::DecodeAttemptErrorKind::EnclosingLimit
+    );
+    assert_eq!(original.to_string(), original_text);
     assert_eq!(fixture.second.block_wire, original_wire);
     let retried = fixture
         .second
@@ -1716,6 +1713,11 @@ fn proof_crypto_accepts_only_current_consensus_suite_in_every_relation() {
         .collect();
     validators.sort_by_key(|member| member.public_key.borrowed_parts().unwrap().1.to_vec());
     let (crypto, _) = ProofCrypto::new(&validators).unwrap();
+    assert_eq!(crypto.aggregate(&[]), Err(AggregationError::Refused));
+    assert_eq!(
+        crypto.aggregate(&[Signature([0; 96])]),
+        Err(AggregationError::Refused)
+    );
     let key = CoreKey::new(pairs[0].public_key().borrowed_parts().unwrap().1.to_vec()).unwrap();
     let other_key =
         CoreKey::new(pairs[1].public_key().borrowed_parts().unwrap().1.to_vec()).unwrap();
@@ -1743,7 +1745,7 @@ fn proof_crypto_accepts_only_current_consensus_suite_in_every_relation() {
             .unwrap(),
     );
     for (signature, valid) in [(current, true), (retired, false)] {
-        let aggregate = crypto.aggregate(&[signature]);
+        let aggregate = crypto.aggregate(&[signature]).unwrap();
         assert_eq!(crypto.verify(&key, &message, &signature), valid);
         assert_eq!(
             crypto.verify_aggregate(&[&key], &message, &aggregate),
@@ -1783,7 +1785,7 @@ fn proof_crypto_accepts_only_current_consensus_suite_in_every_relation() {
             )
         })
         .collect();
-    let aggregate = crypto.aggregate(&shares);
+    let aggregate = crypto.aggregate(&shares).unwrap();
     assert!(crypto.verify_aggregate_multi(
         &[
             (vec![&key], messages[0].clone()),

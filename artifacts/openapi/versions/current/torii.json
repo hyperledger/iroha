@@ -51798,7 +51798,7 @@
         "properties": {
           "attachments": {
             "contentEncoding": "base64",
-            "description": "Optional canonical bounded ProofAttachmentList frame encoded as padded base64.",
+            "description": "Optional canonical bounded SignedAttachmentsV1 frame (ordered intent descriptor and signed inline attachment occurrences) encoded as padded base64.",
             "type": [
               "string",
               "null"

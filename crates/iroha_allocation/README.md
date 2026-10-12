@@ -13,6 +13,15 @@ Refusal returns the original owner for retry; it grants no publication or
 consensus authority. Deferred refund and physical release notifications keep
 callbacks outside the integrating caller's writer locks.
 
+An `OwnedAllocationScope` admits its exact refund control before physical
+writer acquisition. Retain `scope.control()` when detaching journals: the
+`AllocationScopeControl` can cross threads and activate that same backing
+without allocation or new capacity, even after the original pool limit shrinks.
+Activation refuses while an earlier guard or its final callback cohort remains
+active. The thread-bound guard must outlive all sibling releases and cleanup;
+retaining an inactive control keeps its original charge for a later retry.
+The control grants no publication authority.
+
 The pool measures requested layout bytes. Nested payloads, allocator/runtime
 bookkeeping and the budget's own control storage remain separately owned
 obligations. Fixed buffers cannot grow or safely expose uncharged backing.

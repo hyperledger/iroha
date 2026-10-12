@@ -279,13 +279,14 @@ fn authenticated_anchor_state_json_roundtrip_and_restore_invariants() {
     let restored: PrivateDataspaceAnchorState = norito::json::from_str(&json).unwrap();
     restored.validate().unwrap();
     assert_eq!(restored, state);
-    for field in 0..5 {
+    for field in 0..6 {
         let mut malformed = genesis.clone();
         match field {
             0 => malformed.cursor.height = 0,
             1 => malformed.cursor.result = [0; 32],
             2 => malformed.cursor.consensus_hash = [1; 32],
             3 => malformed.tracker.instance = [1; 32],
+            4 => malformed.tracker.result_scope = CertifiedResultScope::TairaGlobal,
             _ => malformed.tracker.previous = Some(registration.initial_epoch.clone()),
         }
         assert!(malformed.validate().is_err());

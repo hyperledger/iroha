@@ -59,9 +59,18 @@ impl State {
             )
             .expect("persisted privacy consensus policy was validated before block construction"),
         );
+        // Validity-affecting ZK values are read from the committed policy of the
+        // acquired predecessor and frozen for this block; the installed value
+        // supplies local resources only. A policy committed inside the block
+        // governs the next one.
+        let effective_zk =
+            crate::zk_validity_policy::effective_zk(self.zk.clone(), acquired.world.parameters());
+        // Metering inside this block charges `effective_zk.gas`, read from the
+        // block's frozen settings by every caller; the gauges only report it.
+        crate::gas::publish_confidential_gas_gauges(&effective_zk.gas);
         runtime_policy = Some(canonical_runtime::CapturedRuntimePolicy::capture(
             &acquired.projection,
-            &self.zk,
+            &effective_zk,
             self.lane_compliance.read().clone(),
         ));
         pipeline_ivm_prepared_cache = Some(self.pipeline_ivm_prepared_cache.read().clone());
@@ -70,7 +79,13 @@ impl State {
         ));
         soracloud_runtime = Some(self.soracloud_runtime());
         accounts_snapshot_cache = Some(SyncOnceCell::new());
-        pipeline = Some(self.pipeline.clone());
+        // Execution limits are read from the committed pipeline validity policy
+        // of the acquired predecessor and frozen for this block, like the ZK
+        // policy above; the installed value supplies local resources.
+        pipeline = Some(crate::pipeline_validity_policy::effective_pipeline(
+            self.pipeline.clone(),
+            acquired.world.parameters.get(),
+        ));
         oracle = Some(self.oracle.clone());
         crypto = Some(self.crypto());
         lane_compliance = Some(
@@ -81,7 +96,7 @@ impl State {
                 .clone(),
         );
         fraud_monitoring = Some(self.fraud_monitoring.clone());
-        zk = Some(self.zk.clone());
+        zk = Some(effective_zk);
         gov = Some(self.gov.clone());
         content = Some(self.content.clone());
         settlement = Some(self.settlement);

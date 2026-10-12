@@ -18,7 +18,7 @@ fn scoped_wallet_inspection_preserves_all_real_phases_markers_and_no_http() {
         .read_native(NativeRecord::Request)
         .unwrap()
         .unwrap();
-    let payload: Payload = original
+    let payload: EncodedPayload = original
         .read_native(NativeRecord::Payload)
         .unwrap()
         .unwrap();

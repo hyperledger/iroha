@@ -541,7 +541,8 @@ fn unwitnessed_role_and_parameter_changes_change_the_root() {
         .get_mut()
         .set_parameter(Parameter::Block(BlockParameter::MaxTransactions(
             std::num::NonZeroU64::new(7).unwrap(),
-        )));
+        )))
+        .expect("valid fixture parameters");
     let parameterized = parent.apply_block(&block).unwrap();
     assert_ne!(
         parameterized.root(),

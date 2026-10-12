@@ -881,6 +881,9 @@ pub(super) async fn schedule_retained_withdrawal(
         network.chain_id(),
         network.network_id(),
         signed_genesis_hash,
+        iroha_genesis::signed_genesis_consensus_metadata(&network.genesis().0)?
+            .sumeragi_context
+            .root_scope,
     )?);
     let mut lifecycle = WithdrawalLifecycle {
         destination: AssetId::with_scope(xor, owner.account.clone(), *escrow.scope()),

@@ -1235,7 +1235,7 @@ mod tests {
         state::{State, StateBlock, World},
         sumeragi::evidence::evidence_key,
     };
-    use iroha_crypto::{Algorithm, Hash, KeyPair, Signature};
+    use iroha_crypto::{Algorithm, Hash, KeyPair};
     use iroha_data_model::{
         NetworkId,
         asset::{AssetDefinitionId, AssetId},
@@ -1410,16 +1410,11 @@ mod tests {
                 sig: NativeSignature([0; iroha_sumeragi::types::SIGNATURE_LEN]),
             };
             vote.sig = NativeSignature(
-                Signature::from_bytes(
-                    &iroha_crypto::bls::consensus::sign_preimage(
-                        keys[signer as usize].private_key(),
-                        &vote.preimage(),
-                    )
-                    .unwrap(),
+                iroha_crypto::bls::consensus::sign_preimage(
+                    keys[signer as usize].private_key(),
+                    &vote.preimage(),
                 )
-                .payload()
-                .try_into()
-                .unwrap(),
+                .expect("canonical native vote signature"),
             );
             vote
         };
@@ -1529,7 +1524,9 @@ mod tests {
             slashing_delay_blocks: 1,
             ..SumeragiNposParameters::default()
         };
-        parameters.set_parameter(Parameter::Custom(npos.into_custom_parameter()));
+        parameters
+            .set_parameter(Parameter::Custom(npos.into_custom_parameter()))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
     fn penalty_header(height: u64) -> BlockHeader {
@@ -3718,16 +3715,11 @@ mod tests {
         for vote in [&mut first, &mut second] {
             vote.height = 1_000;
             vote.sig = iroha_sumeragi::types::Signature(
-                Signature::from_bytes(
-                    &iroha_crypto::bls::consensus::sign_preimage(
-                        roster_keys()[1].private_key(),
-                        &vote.preimage(),
-                    )
-                    .unwrap(),
+                iroha_crypto::bls::consensus::sign_preimage(
+                    roster_keys()[1].private_key(),
+                    &vote.preimage(),
                 )
-                .payload()
-                .try_into()
-                .unwrap(),
+                .expect("canonical native vote signature"),
             );
         }
         let proof = Evidence::from_native(&iroha_sumeragi::message::Evidence::VoteEquivocation(

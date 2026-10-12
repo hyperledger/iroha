@@ -82,7 +82,7 @@ Admission/host guardrails
 Query syscall (Norito)
 - `0xA1` and extended `0x010000` expect `r10=&NoritoBytes(QueryRequest)` and return `r10=&NoritoBytes(QueryResponse)`. The authority is always the calling contract; embedded authorities are ignored.
 - Iterable queries run in ephemeral cursor mode inside IVM; `QueryRequest::Continue` is rejected to keep query lifetimes bound to the VM run.
-- `pipeline.query_max_fetch_size` caps iterable query `fetch_size` for IVM query syscalls (0 clamps to 1). Torii endpoints continue to use `torii.app_api.max_fetch_size`.
+- `query_max_fetch_size` of the committed `pipeline_validity_policy_v1` chain parameter caps iterable query `fetch_size` for IVM query syscalls (0 clamps to 1). Torii endpoints continue to use `torii.app_api.max_fetch_size`.
 - Gas is `base + per_item + per_byte`, with per-item cost multiplied when sorting is requested and an offset penalty applied for large pagination skips.
 
 Vendor syscall (Norito)
@@ -652,6 +652,13 @@ node enforces that policy unconditionally.
 - ABI goldens (syscall list, ABI hash, pointer type IDs) are pinned to the current
   v1 surface and must be updated in the same change whenever the first-release
   surface intentionally changes.
+- A changed ABI hash is a `contract_redeployment` cutover
+  ([`specs/first_release_history_cutover.md`](../../../specs/first_release_history_cutover.md)).
+  Record the new hash under `declared_abi_cutover` in
+  `specs/first_release_history_cutover.json` and regenerate, through its own
+  generator, every artifact the `abi` surface lists as carrying it;
+  `scripts/check_first_release_history.py` fails until the golden, the carriers
+  and the inventory agree. Admission keeps rejecting any other `abi_hash`.
 - Syscall `0xA0` defines exactly one operation tag, `1=SubmitBallot`; every
   other tag is rejected. Contracts cannot record outbound SCCP messages: an
   encoded `RecordSccpMessage` fails under every tag, and a contract-registered

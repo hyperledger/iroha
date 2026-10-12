@@ -15,6 +15,8 @@ use iroha_data_model::{
 use iroha_test_samples::ALICE_ID;
 use mv::storage::StorageReadOnly;
 use nonzero_ext::nonzero;
+#[path = "common/root_scope_fixture.rs"]
+mod root_scope_fixture;
 fn bridge_proof_id(proof: &BridgeProof) -> ProofId {
     let encoded = norito::to_bytes(proof).expect("encode bridge proof");
     let backend = proof.backend_label();
@@ -56,16 +58,20 @@ fn make_transparent_proof(range: (u64, u64)) -> BridgeProof {
         }),
     }
 }
+/// A test State whose first height commits the Global root scope: instruction execution
+/// requires committed root authority, so every test executes at height two or later.
 fn state_for_test() -> State {
-    State::new_for_testing(
+    let state = State::new_for_testing(
         iroha_core::state::World::new(),
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),
-    )
+    );
+    root_scope_fixture::commit_global_root_scope(&state);
+    state
 }
 fn execute_bridge_proof(proof: BridgeProof) -> Result<(), String> {
     let state = state_for_test();
-    let header = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
+    let header = iroha_data_model::block::BlockHeader::new(nonzero!(2_u64), None, None, 0, 0);
     let mut block = state.block(header);
     let mut stx = block.transaction();
     let submit: InstructionBox =
@@ -91,7 +97,7 @@ fn generic_proof_variants_require_authoritative_on_chain_verifiers() {
 #[test]
 fn rejected_generic_proof_does_not_mutate_proof_registry() {
     let state = state_for_test();
-    let header = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
+    let header = iroha_data_model::block::BlockHeader::new(nonzero!(2_u64), None, None, 0, 0);
     let mut block = state.block(header);
     let mut stx = block.transaction();
     let proof = make_ics_proof(0x12, (1, 1));
@@ -124,7 +130,9 @@ fn bridge_range_and_binding_shape_are_checked_before_backend_admission() {
 #[test]
 fn bridge_range_length_cap_enforced() {
     let mut state = state_for_test();
-    state.zk.bridge_proof_max_range_len = 2;
+    state
+        .edit_zk_for_testing(|zk| zk.bridge_proof_max_range_len = 2)
+        .expect("fixture ZK settings install");
     let header = iroha_data_model::block::BlockHeader::new(nonzero!(10_u64), None, None, 0, 0);
     let mut block = state.block(header);
     let mut stx = block.transaction();
@@ -142,7 +150,9 @@ fn bridge_range_length_cap_enforced() {
 fn bridge_height_window_respected_before_generic_backend_rejection() {
     let mut state = state_for_test();
     let executor = Executor::default();
-    state.zk.bridge_proof_max_future_drift_blocks = 1;
+    state
+        .edit_zk_for_testing(|zk| zk.bridge_proof_max_future_drift_blocks = 1)
+        .expect("fixture ZK settings install");
     let header_future =
         iroha_data_model::block::BlockHeader::new(nonzero!(5_u64), None, None, 0, 0);
     let mut block_future = state.block(header_future);
@@ -155,8 +165,12 @@ fn bridge_height_window_respected_before_generic_backend_rejection() {
     assert!(format!("{error:?}").contains("future window"));
     drop(stx_future);
     drop(block_future);
-    state.zk.bridge_proof_max_future_drift_blocks = 10;
-    state.zk.bridge_proof_max_past_age_blocks = 2;
+    state
+        .edit_zk_for_testing(|zk| zk.bridge_proof_max_future_drift_blocks = 10)
+        .expect("fixture ZK settings install");
+    state
+        .edit_zk_for_testing(|zk| zk.bridge_proof_max_past_age_blocks = 2)
+        .expect("fixture ZK settings install");
     let header_past = iroha_data_model::block::BlockHeader::new(nonzero!(10_u64), None, None, 0, 0);
     let mut block_past = state.block(header_past);
     let mut stx_past = block_past.transaction();
@@ -187,9 +201,15 @@ fn proof_record(proof: BridgeProof, verified_at_height: u64) -> (ProofId, ProofR
 #[test]
 fn manual_prune_has_no_caller_controlled_retention_bypass() {
     let mut state = state_for_test();
-    state.zk.proof_history_cap = 1;
-    state.zk.proof_retention_grace_blocks = 0;
-    state.zk.proof_prune_batch = 10;
+    state
+        .edit_zk_for_testing(|zk| zk.proof_history_cap = 1)
+        .expect("fixture ZK settings install");
+    state
+        .edit_zk_for_testing(|zk| zk.proof_retention_grace_blocks = 0)
+        .expect("fixture ZK settings install");
+    state
+        .edit_zk_for_testing(|zk| zk.proof_prune_batch = 10)
+        .expect("fixture ZK settings install");
     let (older_id, older) = proof_record(make_ics_proof(0x23, (1, 1)), 1);
     let (newer_id, newer) = proof_record(make_ics_proof(0x34, (2, 2)), 2);
     insert_proof_record_for_test(&mut state, older_id.clone(), older);
@@ -197,6 +217,9 @@ fn manual_prune_has_no_caller_controlled_retention_bypass() {
     let header = iroha_data_model::block::BlockHeader::new(nonzero!(3_u64), None, None, 0, 0);
     let mut block = state.block(header);
     let mut stx = block.transaction();
+    // TODO: applied directly because the Initial executor admits no transaction that
+    // carries `zk::PruneProofs` (see the note in zk_proof_retention.rs; owner F.1 and the
+    // roadmap). Submit it through the executor once it has an admission class.
     iroha_data_model::isi::zk::PruneProofs::new(Some("bridge/ics23".to_owned()))
         .execute(&ALICE_ID, &mut stx)
         .expect("manual bridge prune");

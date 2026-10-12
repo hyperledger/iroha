@@ -22,7 +22,8 @@ pub(super) fn registered_custody_world_for_test(
         let mut parameters = world.parameters.block();
         parameters
             .get_mut()
-            .set_parameter(Parameter::Custom(npos.into_custom_parameter()));
+            .set_parameter(Parameter::Custom(npos.into_custom_parameter()))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
     let state = State::new(

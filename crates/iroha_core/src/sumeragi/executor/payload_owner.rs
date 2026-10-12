@@ -544,10 +544,11 @@ mod tests {
             let missing = OriginalJournal { path, saved };
             chain.kura().reset_canonical_query_reads_for_test();
             for _ in 0..2 {
-                assert!(matches!(
-                    worker.build(2, 0, 1 << 20, 100),
-                    Err(PublicationError::Retryable(_))
-                ));
+                let result = worker.build(2, 0, 1 << 20, 100);
+                assert!(
+                    matches!(result, Err(PublicationError::Retryable(_))),
+                    "original parent journal unavailability remains retryable: {result:?}"
+                );
                 assert_eq!(retained_partial_pointer(worker), pointer);
                 assert_eq!(
                     worker
@@ -609,10 +610,11 @@ mod tests {
             std::fs::copy(&saved, &path).unwrap();
             let replacement = OriginalJournal { path, saved };
             chain.kura().reset_canonical_query_reads_for_test();
-            assert!(matches!(
-                worker.build(2, 0, 1 << 20, 100),
-                Err(PublicationError::Retryable(_))
-            ));
+            let result = worker.build(2, 0, 1 << 20, 100);
+            assert!(
+                matches!(result, Err(PublicationError::Retryable(_))),
+                "original parent journal unavailability remains retryable: {result:?}"
+            );
             assert_eq!(retained_partial_pointer(worker), pointer);
             assert_eq!(budget.reserved_bytes(), held);
             assert!(worker.completed_payload.is_none());
@@ -831,6 +833,99 @@ mod tests {
                 }
             });
         }
+    }
+
+    #[test]
+    fn retained_partial_payload_idle_expiry_wakes_original_commit_with_live_execution() {
+        use crate::sumeragi::driver::{
+            exec::{ExecDone, ExecOp, ExecSched, ExecutionRegistrations},
+            persist::Backoff,
+        };
+        use iroha_allocation::{AllocationBudget, AllocationRefusal};
+        use std::task::{Context, Poll, Waker};
+
+        super::super::publication_tests::with_worker(|chain, worker, _blocks, events| {
+            let _fixture_epoch = crossbeam_epoch::pin();
+            let (queue, clock, _time) = attach_queue(chain, worker);
+            let budget = worker.state.ivm_execution_budget();
+            let mut registration = crate::unit_test_support::release_registration(&budget);
+            let original_thread = std::thread::current();
+            registration.bind_thread(original_thread.clone());
+            let scheduler_registration = ExecutionRegistrations::admit(&budget).unwrap();
+            let (partial_pointer, input_hash) = stage_original_partial(worker, &queue);
+            assert!(!worker.payload_build.as_ref().unwrap().job.is_completed());
+            let (body, qc) = super::super::publication_tests::executed(chain, worker);
+            assert_eq!(retained_partial_pointer(worker), partial_pointer);
+            let live = worker.live.as_ref().unwrap();
+            let overlay = std::ptr::from_ref(live.overlay.as_deref().unwrap());
+            let commitment = std::ptr::from_ref(live.commitment().get());
+            let original_source = live.source.clone();
+            let original_result = live.result;
+            let mut scheduler = ExecSched::new(1, Backoff::default(), scheduler_registration);
+            scheduler.bind_release_thread(original_thread);
+            scheduler.commit(body.clone(), qc.clone());
+            let Some(ExecOp::Prepare(original)) = scheduler.next(0) else {
+                panic!("the actual completed execution enters original certificate preparation");
+            };
+            let pressure = budget
+                .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
+                .unwrap();
+            let failure = worker.prepare(&original.block, &original.qc).unwrap_err();
+            let PublicationError::Deferred(ref refusal) = failure else {
+                panic!("original certificate preparation must retain its capacity refusal");
+            };
+            let original_refusal = refusal.clone();
+            let Some(AllocationRefusal::Capacity { release, .. }) = refusal.allocation_refusal()
+            else {
+                panic!("the actual original State pool supplies the release observation");
+            };
+            let wait = release.clone();
+            let context = &mut Context::from_waker(Waker::noop());
+            assert_eq!(registration.poll_wait(&wait, context), Poll::Pending);
+            scheduler.done(0, ExecDone::Prepared(Err(failure)));
+            assert_eq!(scheduler.preparation_refusal(), Some(&original_refusal));
+            assert!(scheduler.next(0).is_none());
+            assert_eq!(scheduler.wakeup(), u64::MAX);
+            assert_eq!(retained_partial_pointer(worker), partial_pointer);
+            assert!(worker.payload_storage_wait().is_some());
+            let foreign = AllocationBudget::new(1);
+            drop(foreign.try_reserve_bytes(1).unwrap());
+            assert_eq!(registration.poll_wait(&wait, context), Poll::Pending);
+            let occupied = budget.reserved_bytes();
+
+            clock.advance(queue.tx_time_to_live + Duration::from_secs(1));
+            // The real worker receive loop performs this same retirement at the
+            // original Queue deadline, without a new build or execution request.
+            assert!(worker.payload_storage_wait().is_none());
+            assert!(worker.payload_build.is_none());
+            assert!(worker.completed_payload.is_none());
+            assert!(budget.reserved_bytes() < occupied);
+            assert_eq!(queue.queued_len(), 1);
+            assert!(queue.contains_entrypoint_hash(input_hash));
+            let live = worker.live.as_ref().unwrap();
+            assert_eq!(
+                std::ptr::from_ref(live.overlay.as_deref().unwrap()),
+                overlay
+            );
+            assert_eq!(std::ptr::from_ref(live.commitment().get()), commitment);
+            assert_eq!(live.source, original_source);
+            assert_eq!(live.result, original_result);
+            assert_eq!(worker.applied.0, 1);
+            assert!(events.try_recv().is_err());
+            assert_eq!(
+                registration.poll_wait(&wait, context),
+                Poll::Ready(()),
+                "real partial payload retirement wakes the original retained execution"
+            );
+            let Some(ExecOp::Prepare(retry)) = scheduler.next(0) else {
+                panic!("actual original-pool retirement permits the same committed head to retry");
+            };
+            assert!(Arc::ptr_eq(&original, &retry));
+            assert_eq!(scheduler.preparation_refusal(), Some(&original_refusal));
+            // The independent pressure owner is deliberately still retained at
+            // every retirement, identity and wake assertion above.
+            drop(pressure);
+        });
     }
 
     #[test]

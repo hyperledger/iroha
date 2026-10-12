@@ -29,6 +29,9 @@ pub enum SccpRestoreError {
     /// Malformed canonical current or predecessor data.
     #[error(transparent)]
     Json(#[from] json::Error),
+    /// The original enclosing map or Cell allocation refused restoration.
+    #[error(transparent)]
+    Storage(#[from] mv::storage::AdmittedStorageError),
     /// The complete current/undo graph was refused before any partial owner was created.
     #[error("snapshot SCCP original graph admission refused: {0}")]
     Admission(#[from] AllocationRefusal),
@@ -43,41 +46,103 @@ pub enum SccpRestoreError {
     Pause(#[from] PauseRecordError),
 }
 
-/// Admit every immutable graph before constructing the replacement storage.
-/// TODO: fund the enclosing decoded map and MV map-node allocations at their owners.
+/// Admit complete current and predecessor graphs into their original prepaid maps.
 fn admit_generations(
     decoded: &Storage<u64, SccpCommitteeGenerationV1>,
     budget: &AllocationBudget,
     reservation: &mut AllocationReservation,
-) -> Result<Storage<u64, RetainedSccpGeneration>, SccpRestoreError> {
+) -> Result<CommitteeStorage, SccpRestoreError> {
     let snapshot = decoded.snapshot();
-    let mut current = BTreeMap::new();
-    let mut undo = BTreeMap::new();
-    for (key, value) in snapshot.current().iter() {
-        current.insert(
-            *key,
-            RetainedSccpGeneration::admit_prepaid(value, budget, reservation)?,
-        );
-    }
-    for (key, value) in snapshot.revert_map().iter() {
-        undo.insert(
-            *key,
-            value
-                .as_ref()
-                .map(|value| RetainedSccpGeneration::admit_prepaid(value, budget, reservation))
-                .transpose()?,
-        );
-    }
-    Ok(Storage::from_snapshot_parts(current, undo))
+    CommitteeStorage::try_restore_admitted(budget.clone(), |current, undo| {
+        for (key, value) in snapshot.current().iter() {
+            current(
+                *key,
+                RetainedSccpGeneration::admit_prepaid(value, budget, reservation)?,
+            )?;
+        }
+        for (key, value) in snapshot.revert_map().iter() {
+            undo(
+                *key,
+                value
+                    .as_ref()
+                    .map(|value| RetainedSccpGeneration::admit_prepaid(value, budget, reservation))
+                    .transpose()?,
+            )?;
+        }
+        Ok::<(), SccpRestoreError>(())
+    })
+    .map_err(|error| match error {
+        mv::storage::AdmittedBlockError::Admission(original) => original.into(),
+        mv::storage::AdmittedBlockError::Callback(original) => original,
+    })
+}
+
+/// Preserve both exact MV cuts in original-pool immutable anchor map nodes.
+fn admit_anchor_chunks(
+    decoded: &Storage<u64, [u8; 32]>,
+    budget: &AllocationBudget,
+) -> Result<AnchorStorage, SccpRestoreError> {
+    let snapshot = decoded.snapshot();
+    AnchorStorage::try_restore_admitted(budget.clone(), |current, undo| {
+        for (key, value) in snapshot.current().iter() {
+            current(*key, *value)?;
+        }
+        for (key, value) in snapshot.revert_map().iter() {
+            undo(*key, *value)?;
+        }
+        Ok::<(), SccpRestoreError>(())
+    })
+    .map_err(|error| match error {
+        mv::storage::AdmittedBlockError::Admission(original) => original.into(),
+        mv::storage::AdmittedBlockError::Callback(original) => original,
+    })
+}
+
+/// Admit the original scalar current/undo Cell owners before publishing any field.
+fn admit_scalar<T: mv::Value>(
+    decoded: Cell<T>,
+    budget: &AllocationBudget,
+) -> Result<Cell<T, iroha_allocation::AllocationCharge>, SccpRestoreError> {
+    mv::cell::CellInitialization::try_reserve(budget)
+        .map(|owner| {
+            owner.initialize(
+                decoded.view().get().clone(),
+                decoded.predecessor_view().get().clone(),
+            )
+        })
+        .map_err(|error| scalar_cell_custody::admission_error(error).into())
+}
+
+/// Rebuild the destination-work index from the canonical current and exact undo records.
+/// This index carries no independent authority and never requires a historical scan per block.
+fn destination_pending_index(generations: &CommitteeStorage) -> Storage<u64, ()> {
+    let snapshot = generations.snapshot();
+    let pending =
+        |record: &RetainedSccpGeneration| record.end.is_some() && record.dest_cleared_lc.is_none();
+    let current = snapshot
+        .current()
+        .iter()
+        .filter_map(|(id, record)| pending(record).then_some((*id, ())))
+        .collect();
+    let undo = snapshot
+        .revert_map()
+        .iter()
+        .map(|(id, record)| {
+            (
+                *id,
+                record.as_ref().filter(|record| pending(record)).map(|_| ()),
+            )
+        })
+        .collect();
+    Storage::from_snapshot_parts(current, undo)
 }
 
 /// Preserve exact predecessor presence while admitting both actual anchor allocations.
-/// TODO: fund the enclosing Cell EBR allocations at the State cell owner.
 fn admit_anchors(
     decoded: &Cell<Vec<SccpAnchorV1>>,
     budget: &AllocationBudget,
     reservation: &mut AllocationReservation,
-) -> Result<Cell<RetainedSccpAnchors>, SccpRestoreError> {
+) -> Result<Cell<RetainedSccpAnchors, iroha_allocation::AllocationCharge>, SccpRestoreError> {
     let current = RetainedSccpAnchors::admit_prepaid(decoded.view().get(), budget, reservation)?;
     let undo = decoded
         .predecessor_view()
@@ -85,14 +150,9 @@ fn admit_anchors(
         .as_ref()
         .map(|value| RetainedSccpAnchors::admit_prepaid(value, budget, reservation))
         .transpose()?;
-    Ok(Cell::from_values_charged(
-        current,
-        undo,
-        mv::cell::CellAllocationCharges::new(
-            concread::ebrcell::Untracked,
-            concread::ebrcell::Untracked,
-        ),
-    ))
+    mv::cell::CellInitialization::try_reserve(budget)
+        .map(|owner| owner.initialize(current, undo))
+        .map_err(|error| scalar_cell_custody::admission_error(error).into())
 }
 use iroha_data_model::{
     bridge::SccpNetworkV1,
@@ -140,7 +200,6 @@ fn admit_pause_map<K: mv::Key, V: mv::Value, R: mv::Value>(
 }
 
 /// Preserve absent predecessors separately from a predecessor whose panel is absent.
-/// TODO: fund the enclosing Cell EBR allocations at the State cell owner.
 fn admit_panel(
     decoded: &Cell<Option<SccpPausePanelV1>>,
     budget: &AllocationBudget,
@@ -565,12 +624,18 @@ impl SnapshotSccpState {
         )?;
         let panel = admit_panel(&self.sccp_pause_panel, budget, &mut reservation)?;
         debug_assert_eq!(reservation.remaining_bytes(), 0);
+        let destination_pending_generations = destination_pending_index(&committee_generations);
+        let anchor_chunks = admit_anchor_chunks(&anchor_chunks, budget)?;
+        let committee_current = admit_scalar(self.sccp_committee_current, budget)?;
+        let liability_clock = admit_scalar(self.sccp_liability_clock, budget)?;
+        let degraded_run = admit_scalar(self.sccp_degraded_run, budget)?;
+        world.sccp_destination_pending_generations = destination_pending_generations;
         world.sccp_parameters = self.sccp_parameters;
         world.sccp_reset_nonce = self.sccp_reset_nonce;
         world.sccp_committee_generations = committee_generations;
-        world.sccp_committee_current = self.sccp_committee_current;
-        world.sccp_liability_clock = self.sccp_liability_clock;
-        world.sccp_degraded_run = self.sccp_degraded_run;
+        world.sccp_committee_current = committee_current;
+        world.sccp_liability_clock = liability_clock;
+        world.sccp_degraded_run = degraded_run;
         world.sccp_anchor_open = anchor_open;
         world.sccp_anchor_chunks = anchor_chunks;
         world.sccp_block_leaves = block_leaves;

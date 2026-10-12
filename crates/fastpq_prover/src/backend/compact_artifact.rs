@@ -182,7 +182,9 @@ pub(in crate::backend) fn diagnostic_profile_id() -> FastpqCompactProfileIdV1 {
 struct DeepQuantityArtifactProfile {
     version: u16,
     catalog: &'static str,
-    protocol_identity: Vec<u8>,
+    /// Complete canonical bytes of the typed transcript profile descriptor,
+    /// the same bytes every commitment and challenge absorbs.
+    transcript_profile: Vec<u8>,
     trace_rows: u32,
     trace_root: u64,
     lde_rows: u32,
@@ -223,7 +225,9 @@ impl DeepQuantityArtifactProfile {
         Self {
             version: 1,
             catalog: fastpq_isi::FASTPQ_CATALOG_V1,
-            protocol_identity: deep_binding::IDENTITY.to_vec(),
+            transcript_profile: crate::backend::transcript_profile::profile()
+                .as_bytes()
+                .to_vec(),
             trace_rows: fixed_u32(TRACE_ROWS),
             trace_root: fastpq_isi::FASTPQ_FINAL_V1.trace_root,
             lde_rows: fixed_u32(LDE_ROWS),
@@ -234,7 +238,7 @@ impl DeepQuantityArtifactProfile {
             constraints: fixed_u32(CONSTRAINTS),
             modulus: crate::field::GOLDILOCKS_MODULUS_V1,
             extension_degree: 4,
-            extension_nonresidue: 7,
+            extension_nonresidue: deep_binding::EXTENSION_NONRESIDUE,
             extension_schema: crate::GoldilocksFp4V1::frame_name(),
             extension_bytes: fixed_u32(crate::GoldilocksFp4V1::BYTES),
             commitment_algorithm: "FIPS202:SHA3-256:suffix06",

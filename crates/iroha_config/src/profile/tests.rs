@@ -77,6 +77,30 @@ fn every_compiled_profile_loads_with_its_identity() {
 }
 
 #[test]
+fn shipping_gossip_profiles_and_execution_overlay_carry_the_default_frame() {
+    let expected = defaults::network::MAX_PLAINTEXT_FRAME_BYTES.get() as i64;
+    assert_eq!(
+        defaults::network::MAX_FRAME_BYTES_TX_GOSSIP.get() as i64,
+        expected
+    );
+    for id in [ProfileId::SoraNexusV1, ProfileId::SoraNexusV1Qual] {
+        let profile = Profile::compiled(id).unwrap();
+        assert_eq!(
+            integer_at(&profile.static_config, "network.max_frame_bytes_tx_gossip"),
+            expected
+        );
+    }
+    let overlay: toml::Table = toml::from_str(include_str!(
+        "../../../../configs/soranexus/execution-proof-transport.toml"
+    ))
+    .unwrap();
+    assert_eq!(
+        integer_at(&overlay, "network.max_frame_bytes_tx_gossip"),
+        expected
+    );
+}
+
+#[test]
 fn profile_and_role_names_roundtrip() {
     for id in ProfileId::ALL {
         assert_eq!(id.as_str().parse::<ProfileId>(), Ok(id));
@@ -200,7 +224,6 @@ fn sora_nexus_v1_literals_are_the_defaults_for_discriminant_369() {
         .to_i105_for_discriminant(369)
         .unwrap();
     for key in [
-        "pipeline.gas.tech_account_id",
         "nexus.staking.stake_escrow_account_id",
         "nexus.staking.slash_sink_account_id",
         "nexus.fees.fee_sink_account_id",
@@ -208,6 +231,10 @@ fn sora_nexus_v1_literals_are_the_defaults_for_discriminant_369() {
     ] {
         assert_eq!(string_at(static_config, key), custody, "{key}");
     }
+    assert!(
+        static_config["pipeline"].get("gas").is_none(),
+        "pipeline fee policy belongs exclusively to committed parameters"
+    );
     let asset = |domain: &str| {
         AssetDefinitionId::derive_from_components(
             DomainId::parse_fully_qualified(domain).unwrap(),
@@ -551,12 +578,11 @@ fn digests_are_stable_across_loads_and_formatting() {
 #[test]
 fn digests_are_pinned() {
     let profile = sora();
-    // The first-release native PIPA-R selector is consensus-bound static configuration.
-    // Replacing the retired backend therefore changes this digest; node-local publisher
-    // custody paths do not participate in this canonical input.
+    // The first-release profile admits complete 17 MiB transaction-gossip frames.
+    // Pipeline fee and ZK validity policies belong to committed parameters.
     assert_eq!(
         profile.consensus_digest(4).unwrap().to_string(),
-        "04e7033fd0484e15bd5ceae5f9cef7b5633e41c7af2c98cbce82f85e626b146d"
+        "a4b90a9c3e3cbb2c70690511bf4296ebeecafa1dc427274b4d9fc75f53e1476b"
     );
     // The retired Torii KAGEMUSHA command policy is absent from this canonical input.
     // Native proof-backend selection above does not change this separate policy input.

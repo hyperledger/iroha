@@ -10,14 +10,14 @@ fn encoded(world: &World) -> String {
 }
 
 fn restore(text: &str, world: &mut World) -> Result<(), SccpRestoreError> {
-    let budget = AllocationBudget::new(16 * 1024 * 1024);
+    let budget = world.sccp_committee_generations.allocation_budget().clone();
     json::from_json::<SnapshotSccpState>(text)?.restore(world, &budget)
 }
 
 /// Return a World whose every SCCP map and cell holds a current value and an undo record.
 pub(crate) fn sccp_world() -> World {
-    let budget = AllocationBudget::new(16 * 1024 * 1024);
     let world = World::default();
+    let budget = world.sccp_committee_generations.allocation_budget().clone();
     {
         let mut block = world.block();
         populate_every_sccp_map(&mut block, 1, &budget);
@@ -81,6 +81,11 @@ fn sccp_snapshot_preserves_every_current_and_undo_envelope() {
         );
         assert_eq!(replacement.sccp_block_commitments.len(), 1);
         assert_eq!(replacement.sccp_light_client_checkpoints.len(), 1);
+        assert_eq!(
+            replacement.sccp_anchor_open.get().as_slice()[0].core_hash,
+            [1; 32]
+        );
+        assert_eq!(replacement.sccp_anchor_chunks.len(), 1);
     }
     {
         let view = restored.view();
@@ -97,6 +102,8 @@ fn sccp_snapshot_preserves_every_current_and_undo_envelope() {
         assert_eq!(view.sccp_history_leaves().len(), 2);
         assert_eq!(view.sccp_history().size, 1);
         assert!(view.sccp_parameters().is_some());
+        assert_eq!(view.sccp_anchor_open().as_slice()[0].core_hash, [2; 32]);
+        assert_eq!(view.sccp_anchor_chunks().len(), 2);
     }
     restored.block_and_revert().commit();
     let reverted = encoded(&restored);
@@ -605,7 +612,9 @@ fn pause_snapshot_admits_complete_current_and_undo_graph_once_and_holds_final_re
         .restore(&mut world, &measured)
         .unwrap();
     let bytes = measured.reserved_bytes();
+    let peak_bytes = measured.peak_reserved_bytes();
     assert!(bytes > 0);
+    assert!(peak_bytes >= bytes);
     let retirement_pin = crossbeam_epoch::pin();
     drop(world);
     retirement_pin.flush();
@@ -616,13 +625,29 @@ fn pause_snapshot_admits_complete_current_and_undo_graph_once_and_holds_final_re
     drop(retirement_pin);
     collect_until(&measured, 0);
     assert_eq!(measured.reserved_bytes(), 0);
-    let budget = AllocationBudget::new(bytes);
-    let blocker = budget.try_reserve_bytes(1).unwrap();
+    // The one aggregate request covers retained payload graphs. Original outer map and
+    // Cell owners are additionally admitted before publication and remain separately charged.
     let mut target = World::default();
     let before = encoded(&target);
+    let probe = AllocationBudget::new(0);
+    let SccpRestoreError::Admission(AllocationRefusal::ExceedsLimit {
+        requested_bytes: graph_bytes,
+        limit_bytes: 0,
+    }) = json::from_json::<SnapshotSccpState>(&source)
+        .unwrap()
+        .restore(&mut target, &probe)
+        .unwrap_err()
+    else {
+        panic!("the complete payload graph is admitted before any outer owner");
+    };
+    assert!(graph_bytes > 0 && graph_bytes < bytes);
+    assert_eq!(probe.reserved_bytes(), 0);
+    assert_eq!(encoded(&target), before);
+    let refused_budget = AllocationBudget::new(graph_bytes);
+    let blocker = refused_budget.try_reserve_bytes(1).unwrap();
     let error = json::from_json::<SnapshotSccpState>(&source)
         .unwrap()
-        .restore(&mut target, &budget)
+        .restore(&mut target, &refused_budget)
         .unwrap_err();
     let SccpRestoreError::Admission(AllocationRefusal::Capacity {
         requested_bytes,
@@ -635,15 +660,34 @@ fn pause_snapshot_admits_complete_current_and_undo_graph_once_and_holds_final_re
     };
     assert_eq!(
         (requested_bytes, reserved_bytes, limit_bytes),
-        (bytes, 1, bytes)
+        (graph_bytes, 1, graph_bytes)
     );
     assert_eq!(
-        budget.reserved_bytes(),
+        refused_budget.reserved_bytes(),
         1,
         "no retained prefix was admitted and refunded"
     );
     assert_eq!(encoded(&target), before);
     drop(blocker);
+    let error = json::from_json::<SnapshotSccpState>(&source)
+        .unwrap()
+        .restore(&mut target, &refused_budget)
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        SccpRestoreError::Storage(mv::storage::AdmittedStorageError::Allocation(
+            AllocationRefusal::Capacity { .. }
+        ))
+    ));
+    collect_until(&refused_budget, 0);
+    assert_eq!(
+        encoded(&target),
+        before,
+        "outer admission publishes no prefix"
+    );
+    // Restore must fund the measured overlap of old/new private map generations;
+    // retained bytes alone exclude those transient original owners.
+    let budget = AllocationBudget::new(peak_bytes);
     json::from_json::<SnapshotSccpState>(&source)
         .unwrap()
         .restore(&mut target, &budget)
@@ -686,4 +730,81 @@ fn pause_snapshot_admits_complete_current_and_undo_graph_once_and_holds_final_re
     );
     drop(readers);
     assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn destination_pending_index_restores_current_and_exact_predecessor_generations() {
+    use crate::smartcontracts::isi::sccp::test_support::sample_generation;
+    use iroha_data_model::sccp::generation::SccpGenerationEndV1;
+
+    let budget = AllocationBudget::new(16 * 1024 * 1024);
+    let ended = |seed| {
+        let mut record = RetainedSccpGeneration::admit(&sample_generation(seed), &budget).unwrap();
+        record.end = Some(SccpGenerationEndV1 {
+            end_height: 10,
+            end_timestamp_ms: 10_000,
+            next_committee_root: record.committee_root,
+            successor_validity_ms: record.validity_ms,
+        });
+        record
+    };
+    let pending_one = ended(1);
+    let mut cleared_one = pending_one.clone();
+    cleared_one.dest_cleared_lc = Some(5_000);
+    let active_three = RetainedSccpGeneration::admit(&sample_generation(3), &budget).unwrap();
+    let mut world = World::default();
+    world.sccp_committee_generations = CommitteeStorage::try_restore_admitted(
+        world.sccp_committee_generations.allocation_budget().clone(),
+        |current, undo| {
+            for (id, record) in [(1, cleared_one), (2, ended(2)), (3, ended(3))] {
+                current(id, record)?;
+            }
+            for (id, record) in [(1, Some(pending_one)), (2, None), (3, Some(active_three))] {
+                undo(id, record)?;
+            }
+            Ok::<(), mv::storage::AdmittedStorageError>(())
+        },
+    )
+    .unwrap();
+    world.sccp_destination_pending_generations =
+        destination_pending_index(&world.sccp_committee_generations);
+    let mut restored = World::default();
+    restore(&encoded(&world), &mut restored).unwrap();
+    assert_eq!(
+        restored
+            .sccp_destination_pending_generations
+            .view()
+            .iter()
+            .map(|(id, ())| *id)
+            .collect::<Vec<_>>(),
+        vec![2, 3]
+    );
+    {
+        let reverted = restored.block_and_revert();
+        assert_eq!(
+            reverted
+                .sccp_destination_pending_generations
+                .iter()
+                .map(|(id, ())| *id)
+                .collect::<Vec<_>>(),
+            vec![1]
+        );
+        assert!(reverted.sccp_committee_generations.get(&2).is_none());
+        assert!(
+            reverted
+                .sccp_committee_generations
+                .get(&3)
+                .unwrap()
+                .end
+                .is_none()
+        );
+    }
+    let mut advanced = restored.block();
+    advanced.sccp_destination_pending_generations.remove(2);
+    drop(advanced);
+    assert_eq!(
+        restored.sccp_destination_pending_generations.view().len(),
+        2,
+        "discarding a transaction preserves the committed work index"
+    );
 }

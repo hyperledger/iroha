@@ -10,9 +10,8 @@ use crate::queue::RoutingDecision;
 pub(crate) struct ExecutionOutputSealMetadata {
     /// Actual fragment count after the finalizer's deterministic State changes.
     pub(crate) committed_fragment_count: u64,
-    /// Exact fixed-size finality header produced by this execution's SCCP tail.
-    pub(crate) sccp_finality_header:
-        iroha_data_model::sumeragi_finality::certified_result::SccpFinalityHeaderV1,
+    /// Fixed X produced from this exact completed execution cut.
+    pub(crate) sccp_finality_header: iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1,
 }
 
 /// Keep source-specific validation errors intact across State's consuming seal.
@@ -445,9 +444,7 @@ impl StateBlock<'_> {
                 || metadata.sccp_finality_header.height() != block.header().height().get()
                 || metadata.sccp_finality_header.timestamp_ms() != block.header().creation_time_ms
             {
-                return Err(
-                    "SCCP finality header differs from the original execution carrier".into(),
-                );
+                return Err("SCCP finality header differs from its original execution".into());
             }
             let fragments = u64::try_from(state.committed_fragment_count())
                 .map_err(|_| "committed fragment count exceeds u64")?;
@@ -533,6 +530,17 @@ impl StateBlock<'_> {
                 state.execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
                 Err(error)
             }
+        }
+    }
+
+    /// Borrow the fixed finality header retained by the original completed output owner.
+    /// No new World view or reconstructed metadata can substitute for this value.
+    pub(crate) fn sccp_finality_header(
+        &self,
+    ) -> Result<iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1, String> {
+        match self.execution_output_plan.as_ref() {
+            Some(ExecutionOutputPlanState::Sealed(sealed)) => Ok(sealed.sccp_finality_header),
+            _ => Err("SCCP header requires the original completed execution seal".into()),
         }
     }
 

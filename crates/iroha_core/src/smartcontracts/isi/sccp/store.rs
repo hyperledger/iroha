@@ -35,6 +35,61 @@ use iroha_data_model::{
 };
 use mv::storage::StorageReadOnly;
 
+/// Keep the original local refusal armed until the enclosing block aborts.
+fn storage_refusal(
+    state: &mut StateTransaction<'_, '_>,
+    error: mv::storage::AdmittedStorageError,
+) -> Error {
+    state.arm_local_storage_refusal(crate::state::StateStorageAdmissionError::World(error));
+    Error::InvariantViolation("SCCP original map allocation did not complete".into())
+}
+macro_rules! insert_map {
+    ($state:ident, sccp_committee_generations, $key:ident, $value:ident) => {
+        $state
+            .world
+            .sccp_committee_generations
+            .try_insert_admitted($key, $value)
+            .map_err(|(_, error)| storage_refusal($state, error))
+    };
+    ($state:ident, sccp_anchor_chunks, $key:ident, $value:ident) => {
+        $state
+            .world
+            .sccp_anchor_chunks
+            .try_insert_admitted($key, $value)
+            .map_err(|(_, error)| storage_refusal($state, error))
+    };
+    ($state:ident, $field:ident, $key:ident, $value:ident) => {
+        Ok::<_, Error>($state.world.$field.insert($key, $value))
+    };
+}
+macro_rules! remove_map {
+    ($state:ident, sccp_committee_generations, $key:ident) => {
+        match $state
+            .world
+            .sccp_committee_generations
+            .try_remove_admitted($key)
+        {
+            Ok(previous) => previous,
+            Err((_, error)) => {
+                let _ = storage_refusal($state, error);
+                None
+            }
+        }
+    };
+    ($state:ident, sccp_anchor_chunks, $key:ident) => {
+        match $state.world.sccp_anchor_chunks.try_remove_admitted($key) {
+            Ok(previous) => previous,
+            Err((_, error)) => {
+                let _ = storage_refusal($state, error);
+                None
+            }
+        }
+    };
+    ($state:ident, $field:ident, $key:ident) => {
+        $state.world.$field.remove($key)
+    };
+}
+
 /// Generate the typed helpers of one SCCP storage map, optionally with a stored invariant
 /// `valid(key_pattern, value_pattern) => rule` over borrowed keys and values.
 macro_rules! storage_map {
@@ -46,6 +101,7 @@ macro_rules! storage_map {
     (
         $(#[$meta:meta])* $module:ident => $field:ident: $key:ty => $value:ty,
         valid($key_pattern:pat, $value_pattern:pat) => $rule:expr
+        $(, index($index:ident, $indexed_value:ident) => $indexed:expr)?
     ) => {
         $(#[$meta])*
         pub mod $module {
@@ -95,7 +151,16 @@ macro_rules! storage_map {
                         .into(),
                     ));
                 }
-                Ok(state_transaction.world.$field.insert(key, value))
+                $(let $indexed_value = &value; let indexed = $indexed;)?
+                let previous = insert_map!(state_transaction, $field, key, value)?;
+                $(
+                    if indexed {
+                        state_transaction.world.$index.insert(key, ());
+                    } else {
+                        state_transaction.world.$index.remove(key);
+                    }
+                )?
+                Ok(previous)
             }
 
             /// Remove `key` in the executing transaction, returning the previous value.
@@ -103,7 +168,13 @@ macro_rules! storage_map {
                 state_transaction: &mut StateTransaction<'_, '_>,
                 key: $key,
             ) -> Option<$value> {
-                state_transaction.world.$field.remove(key)
+                let previous = remove_map!(state_transaction, $field, key);
+                $(
+                    if previous.is_some() {
+                        state_transaction.world.$index.remove(key);
+                    }
+                )?
+                previous
             }
 
             /// Iterate every entry in ascending key order.
@@ -168,7 +239,8 @@ cell_value! {
 storage_map! {
     /// Immutable committee trust and liability records (§4.2).
     committee_generations => sccp_committee_generations: u64 => crate::smartcontracts::isi::sccp::generation_record::RetainedSccpGeneration,
-    valid(generation, record) => *generation == record.generation && record.is_well_formed()
+    valid(generation, record) => *generation == record.generation && record.is_well_formed(),
+    index(sccp_destination_pending_generations, record) => record.end.is_some() && record.dest_cleared_lc.is_none()
 }
 cell_value! {
     /// Current committee generation; zero before initialization.
@@ -383,6 +455,29 @@ mod tests {
                 None
             );
             assert_eq!(committee_generations::get(&*stx.world, &1), Some(&original));
+            assert!(stx.world.sccp_destination_pending_generations.is_empty());
+            let mut ended = original.clone();
+            ended.end = Some(iroha_data_model::sccp::generation::SccpGenerationEndV1 {
+                end_height: 5,
+                end_timestamp_ms: 5_000,
+                next_committee_root: original.committee_root,
+                successor_validity_ms: original.validity_ms,
+            });
+            assert!(committee_generations::insert(&mut stx, 2, ended.clone()).is_err());
+            assert!(stx.world.sccp_destination_pending_generations.is_empty());
+            committee_generations::insert(&mut stx, 1, ended.clone()).unwrap();
+            assert_eq!(
+                stx.world.sccp_destination_pending_generations.get(&1),
+                Some(&())
+            );
+            let mut cleared = ended.clone();
+            cleared.dest_cleared_lc = Some(5_000);
+            committee_generations::insert(&mut stx, 1, cleared).unwrap();
+            assert!(stx.world.sccp_destination_pending_generations.is_empty());
+            committee_generations::insert(&mut stx, 1, ended.clone()).unwrap();
+            assert!(committee_generations::remove(&mut stx, 1).is_some());
+            assert!(stx.world.sccp_destination_pending_generations.is_empty());
+            committee_generations::insert(&mut stx, 1, ended).unwrap();
             assert_eq!(committee_current::set(&mut stx, 1), 0);
             assert_eq!(liability_clock::set(&mut stx, 1_000), 0);
             assert_eq!(degraded_run::set(&mut stx, 2), 0);
@@ -404,6 +499,7 @@ mod tests {
             // Dropping the complete transaction retains neither metadata nor new trust state.
         }
         assert!(committee_generations::is_empty(&block.world));
+        assert!(block.world.sccp_destination_pending_generations.is_empty());
         assert!(anchor_chunks::is_empty(&block.world));
         assert!(anchor_open::get(&block.world).as_slice().is_empty());
         assert_eq!(*committee_current::get(&block.world), 0);

@@ -46,10 +46,14 @@ fn state(row_bytes: u64) -> State {
     policy.validate().expect("feasible fixture policy");
     parameters
         .get_mut()
-        .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)));
-    parameters.get_mut().set_parameter(Parameter::Block(
-        BlockParameter::MaxTimeTriggerInvocations(NonZeroU32::MIN),
-    ));
+        .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)))
+        .expect("valid fixture parameters");
+    parameters
+        .get_mut()
+        .set_parameter(Parameter::Block(BlockParameter::MaxTimeTriggerInvocations(
+            NonZeroU32::MIN,
+        )))
+        .expect("valid fixture parameters");
     parameters.commit();
     state
 }
@@ -61,6 +65,20 @@ fn authenticated_state(row_bytes: u64) -> State {
 }
 
 fn authenticate_output_state(component: State) -> State {
+    let pipeline_policy = component
+        .world
+        .parameters
+        .view()
+        .get()
+        .pipeline_policy()
+        .clone();
+    authenticate_output_state_with_policy(component, pipeline_policy)
+}
+
+fn authenticate_output_state_with_policy(
+    component: State,
+    pipeline_policy: crate::pipeline_validity_policy::PipelineValidityPolicyV1,
+) -> State {
     use crate::sumeragi::{
         startup,
         test_chain::{CertifiedTestChain, TestChainConfig},
@@ -72,6 +90,7 @@ fn authenticate_output_state(component: State) -> State {
     // Genesis materializes a complete parameter snapshot. Carry the tested limits
     // in that signed source rather than replacing them with the builder defaults.
     config.genesis_parameters.extend([
+        Parameter::Custom(pipeline_policy.into_custom_parameter()),
         Parameter::Block(BlockParameter::ExecutionOutput(
             block_parameters.execution_output(),
         )),
@@ -739,10 +758,14 @@ fn receipt_source(
     policy.validate().expect("finite receipt fixture policy");
     parameters
         .get_mut()
-        .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)));
-    parameters.get_mut().set_parameter(Parameter::Block(
-        BlockParameter::MaxTimeTriggerInvocations(NonZeroU32::MIN),
-    ));
+        .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)))
+        .expect("valid fixture parameters");
+    parameters
+        .get_mut()
+        .set_parameter(Parameter::Block(BlockParameter::MaxTimeTriggerInvocations(
+            NonZeroU32::MIN,
+        )))
+        .expect("valid fixture parameters");
     parameters.commit();
     let state = authenticate_output_state(state);
 
@@ -1154,7 +1177,8 @@ fn poisoned_carrier_refuses_consensus_world_application() {
         .get_mut()
         .set_parameter(Parameter::Block(BlockParameter::MaxTransactions(
             NonZeroU64::new(7).unwrap(),
-        )));
+        )))
+        .expect("valid fixture parameters");
     *tx.block_execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
     tx.apply_consensus_effects();
     assert_eq!(*block.world.parameters.get(), before);

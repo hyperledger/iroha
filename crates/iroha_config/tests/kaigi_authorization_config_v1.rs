@@ -13,20 +13,44 @@ fn reader() -> ConfigReader {
 }
 
 #[test]
-fn every_authorization_action_uses_one_explicit_governed_key_reference() {
-    let table = "[zk.kaigi_authorization_vk]\nbackend = \"pipa-r/pasta/kaigi-authorization-v1\"\nname = \"kaigi-final\"\n"
-        .parse()
-        .unwrap();
+fn kaigi_key_references_are_chain_policy_not_node_configuration() {
+    // The verifying keys that select the Kaigi authorization and usage
+    // relations are fields of the committed `zk_validity_policy_v1` parameter
+    // (`proofs.kaigi_authorization_vk`, `proofs.kaigi_usage_vk`). A node
+    // configuration that names one fails to load.
+    for name in ["kaigi_authorization_vk", "kaigi_usage_vk"] {
+        let table = format!("[zk.{name}]\nbackend = \"pipa-r/pasta/kaigi-authorization-v1\"\nname = \"kaigi-final\"\n")
+            .parse()
+            .unwrap();
+        let error = reader()
+            .with_toml_source(TomlSource::inline(table))
+            .read_and_complete::<Root>()
+            .unwrap_err();
+        let diagnostic = format!("{error:?}");
+        assert!(
+            diagnostic.contains("unknown parameter") && diagnostic.contains(name),
+            "{diagnostic}"
+        );
+    }
     let config = reader()
-        .with_toml_source(TomlSource::inline(table))
         .read_and_complete::<Root>()
         .unwrap()
         .parse()
         .unwrap();
-    let key = config.zk.kaigi_authorization_vk.unwrap();
-    assert_eq!(key.backend, "pipa-r/pasta/kaigi-authorization-v1");
-    assert_eq!(key.name, "kaigi-final");
+    assert!(config.zk.kaigi_authorization_vk.is_none());
     assert!(config.zk.kaigi_usage_vk.is_none());
+    // The policy carries exactly one authorization key and one usage key.
+    let policy = iroha_data_model::zk_validity_policy::ZkValidityPolicyV1::protocol_default();
+    assert!(policy.proofs.kaigi_authorization_vk.is_none());
+    assert!(policy.proofs.kaigi_usage_vk.is_none());
+    let kaigi_fields = iroha_data_model::zk_validity_policy::ZkValidityPolicyV1::field_names()
+        .into_iter()
+        .filter(|field| field.contains("kaigi"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        kaigi_fields,
+        ["proofs.kaigi_authorization_vk", "proofs.kaigi_usage_vk"]
+    );
 }
 
 #[test]

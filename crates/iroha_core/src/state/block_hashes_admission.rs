@@ -96,7 +96,7 @@ pub enum StateStorageAdmissionError {
     World(#[from] mv::storage::AdmittedStorageError),
     /// The original decoder scope or allocator refused while executing an AMX instruction.
     #[error("local AMX decoder resource refusal: {0}")]
-    AmxDecode(norito::core::DecodeResourceError),
+    AmxDecode(#[source] norito::core::DecodeLocalRefusal),
     /// The original native participant graph or allocator refused before monetary execution.
     #[error("local native AMX graph refusal: {0}")]
     NativeAmx(crate::sumeragi::amx::NativeAmxAdmissionError),

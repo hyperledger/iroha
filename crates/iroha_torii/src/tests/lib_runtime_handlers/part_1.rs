@@ -146,7 +146,7 @@ async fn api_version_negotiates_text_success_and_typed_unavailable() {
     );
 
     let block = make_empty_signed_block(1, None, 0);
-    let expected_version = block.version().to_string();
+    let expected_version = block.encode_wire().expect("canonical block wire")[0].to_string();
     let header = block.header();
     let hash = store_block(&app, block);
     record_committed_block_hash_for_test(&app, header, hash);

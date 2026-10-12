@@ -93,9 +93,8 @@ async fn diagnostic_openings_require_compute_admission_when_native_operations_di
     let app_mut = Arc::get_mut(&mut app).expect("unique Torii app fixture");
     Arc::get_mut(&mut app_mut.state)
         .expect("unique core state fixture")
-        .zk
-        .pipa_r
-        .enabled = false;
+        .edit_zk_for_testing(|zk| zk.pipa_r.enabled = false)
+        .expect("fixture ZK settings install");
     app_mut.query_heavy_inflight = Arc::new(tokio::sync::Semaphore::new(0));
     app_mut.query_queue_timeout = Duration::ZERO;
     let mut headers = HeaderMap::new();
@@ -128,9 +127,8 @@ async fn diagnostic_openings_require_compute_admission_when_native_operations_en
     let app_mut = Arc::get_mut(&mut app).expect("unique Torii app fixture");
     Arc::get_mut(&mut app_mut.state)
         .expect("unique core state fixture")
-        .zk
-        .pipa_r
-        .enabled = true;
+        .edit_zk_for_testing(|zk| zk.pipa_r.enabled = true)
+        .expect("fixture ZK settings install");
     app_mut.query_heavy_inflight = Arc::new(tokio::sync::Semaphore::new(0));
     app_mut.query_queue_timeout = Duration::ZERO;
     let mut headers = HeaderMap::new();
@@ -3126,7 +3124,8 @@ pub(super) fn app_with_root_scope_for_handler_test(world: World, private: bool) 
         .set_parameter(Parameter::Custom(CustomParameter::new(
             consensus_metadata::handshake_meta_id(),
             Json::new(metadata),
-        )));
+        )))
+        .expect("valid fixture parameters");
     transaction.apply();
     block.commit_world_overlay_for_testing().unwrap();
     app

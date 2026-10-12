@@ -120,7 +120,7 @@ classified_owner!(State, check_state_fields, STATE_FIELDS, {
     fraud_monitoring: iroha_config::parameters::actual::FraudMonitoring => ("state.fraud_monitoring",
         Role::Canonical(Canonical::Cell(Schema::Semantic { identity: "iroha:state:fraud_monitoring:v1", encoder: "state::authority_registry::fraud_policy::FraudAdmissionPolicyV1::from_actual; tx::enforce_fraud_policy", layout: V1_LAYOUT })));
     zk: iroha_config::parameters::actual::Zk => ("state.zk",
-        Role::Canonical(Canonical::Cell(Schema::Semantic { identity: "iroha:state:zk:v1", encoder: "state::authority_registry::zk_policy::ZkConsensusPolicyV1::from_actual; exact Halo2/STARK/SCCP/confidential verification and gas fields, excluding local prover queues and timeouts", layout: V1_LAYOUT })));
+        Role::Canonical(Canonical::Cell(Schema::Semantic { identity: "iroha:state:zk:v1", encoder: "state::authority_registry::zk_policy::ZkConsensusPolicyV1::from_actual; exact native PIPA-R/STARK/SCCP/confidential verification and gas fields, excluding local prover queues and timeouts", layout: V1_LAYOUT })));
     gov: iroha_config::parameters::actual::Governance => ("state.gov",
         Role::Canonical(Canonical::Cell(Schema::Semantic { identity: "iroha:state:governance:v1", encoder: "state::authority_registry::governance_policy::GovernanceAuthorityV1::from_actual; governance admission, rewards, SoraFS and Parliament policy excluding diagnostics", layout: V1_LAYOUT })));
     content: iroha_config::parameters::actual::Content => ("state.content",

@@ -19,6 +19,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
+from types import SimpleNamespace
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY / "scripts"))
@@ -268,7 +269,8 @@ class IdentityTests(unittest.TestCase):
                                 third["source_dirty_digest"])
             os.symlink("source.txt", repository / "link")
             self.assertTrue(harness.source_state(repository)["source_dirty"])
-        with tempfile.TemporaryDirectory() as directory, self.assertRaises(harness.HarnessRefusal):
+        with tempfile.TemporaryDirectory() as directory, self.assertRaises(harness.HarnessRefusal), \
+                mock.patch.object(harness, "_git", return_value=subprocess.CompletedProcess([], 128, b"", b"")):
             harness.source_state(Path(directory))
 
     def test_output_root_must_be_untracked_and_ignored_inside_a_repository(self):
@@ -740,14 +742,22 @@ class NativeRunTests(unittest.TestCase):
         # tee still creates its empty output file, which is not a record.
         self.assertEqual((status, line["reasons"]), (1, ["record_decode_error:0"]))
 
-    def test_a_command_too_short_to_sample_twice_is_accepted_on_exact_kernel_totals(self):
+    def test_short_command_keeps_exact_kernel_totals_and_observer_failures(self):
         status, line, _ = self.run_tee(hold_seconds=0.0)
-        self.assertEqual((status, line["verdict"], line["reasons"]), (0, "accepted", []))
         _, report = self.report(line)
         sampled = report["process"]["sampled"]
-        self.assertEqual(sampled["state"], "not_sampled")
-        self.assertIn(sampled["reason"], ("exited_before_first_sample", "exited_before_second_sample"))
-        self.assertLess(sampled["observations"], 2)
+        # The live process may still exist at the exact failing observation.
+        # A later exit no longer erases that failure. Deterministic mocked reap
+        # outcomes below prove both sides without introducing a timing grace.
+        if sampled["state"] == "failed":
+            self.assertEqual((status, line["verdict"]), (1, "rejected"))
+            self.assertEqual(len(line["reasons"]), 1)
+            self.assertTrue(line["reasons"][0].startswith("process_observation_failed:"))
+        else:
+            self.assertEqual((status, line["verdict"], line["reasons"]), (0, "accepted", []))
+            self.assertEqual(sampled["state"], "not_sampled")
+            self.assertIn(sampled["reason"], ("exited_before_first_sample", "exited_before_second_sample"))
+            self.assertLess(sampled["observations"], 2)
         # The kernel's totals for the child are exact without any sample.
         self.assertGreater(report["process"]["peak_rss_bytes"], 4096)
         self.assertEqual(report["process"]["peak_rss_source"], "kernel_child_rusage")
@@ -774,8 +784,7 @@ class NativeRunTests(unittest.TestCase):
                 return real(scope)
             raise other
 
-        with mock.patch.object(harness.observer.ProcessScope, "observe", baseline_then_fail), \
-                mock.patch.object(harness, "EXIT_GRACE_SECONDS", 0.05):
+        with mock.patch.object(harness.observer.ProcessScope, "observe", baseline_then_fail):
             status, line, _ = self.run_tee(hold_seconds=0.4)
         self.assertEqual(line["reasons"], ["process_observation_failed:process_observation_failed"])
         # The pinned executable must still be the same file after the run.
@@ -921,8 +930,9 @@ class NativeRunTests(unittest.TestCase):
         self.assertEqual(len(self.report(line)[1]["records"]), 1)
         with mock.patch.object(harness, "MAX_RECORD_BYTES", 64):
             status, line, _ = self.run_tee(hold_seconds=0.2)
-        self.assertEqual((status, line["reasons"]), (1, ["record_too_large:0"]))
-        self.assertFalse(self.report(line)[1]["records"][0]["decoded"])
+        self.assertEqual(status, 1)
+        self.assertTrue(any(reason.startswith("unsafe_or_oversize_evidence:") for reason in line["reasons"]))
+        self.assertEqual(self.report(line)[1]["records"], [])
 
     def test_a_report_that_cannot_be_written_leaves_a_failure_marker(self):
         real = harness.control.RecordDirectory.publish
@@ -943,7 +953,7 @@ class NativeRunTests(unittest.TestCase):
         self.assertTrue((run / "child" / "phase-tree.json").is_file())
         scope = harness.build_context(DESCRIPTOR, self.repository, harness.sha256_file(TEE)[0],
                                       "test+tee", "defaults", "reference/unit-test-host", "warm")
-        self.assertEqual(harness.salvage_reasons(run, scope), ["manifest_unreadable"])
+        self.assertEqual(harness.salvage_reasons(run, scope), ["manifest_digest_required"])
         # A failure inside the run itself is a retained, rejected report.
         with mock.patch.object(harness, "collect_records", side_effect=RuntimeError("judge failed")):
             status, line, _ = self.run_tee(hold_seconds=0.2)
@@ -982,17 +992,24 @@ class NativeRunTests(unittest.TestCase):
         status, line, _ = self.run_tee()
         self.assertEqual(status, 0)
         run = Path(line["run_directory"])
-        scope = self.salvage_scope()
+        scope = [*self.salvage_scope(), "--manifest-sha256", line["manifest_sha256"]]
         before = {path: os.stat(path).st_mtime_ns for path in run.rglob("*")}
-        self.assertEqual(run_harness([*scope, str(run)])[:2],
-                         (0, {"run_directory": str(run), "salvageable": True, "reasons": [],
-                              "manifest_binding": "unsigned"}))
-        # Salvage is read-only.
+        result = run_harness([*scope, str(run)])
+        self.assertEqual(result[0], 0)
+        self.assertEqual(result[1]["reasons"], [])
+        self.assertEqual(result[1]["manifest_binding"], "external_sha256")
+        self.assertEqual(result[1]["original_requirements"], result[1]["consumer_requirements"])
+        consumer = run_harness([*scope, "--require-thermal-state", str(run)])[1]
+        self.assertFalse(consumer["salvageable"])
+        self.assertIn("consumer_requirement_not_established:thermal_state", consumer["reasons"])
+        self.assertFalse(consumer["original_requirements"]["thermal_state"])
+        self.assertTrue(consumer["consumer_requirements"]["thermal_state"])
         self.assertEqual({path: os.stat(path).st_mtime_ns for path in run.rglob("*")}, before)
         other = [*scope[:3], "--hardware", "another/host", *scope[5:]]
         self.assertEqual(run_harness([*other, str(run)])[1]["reasons"],
                          ["record_scope_differs:0:hardware", "scope_differs:hardware"])
-        self.assertEqual(run_harness([*scope[:-1], str(CAT), str(run)])[1]["reasons"],
+        other_executable = [str(CAT) if value == str(TEE) else value for value in scope]
+        self.assertEqual(run_harness([*other_executable, str(run)])[1]["reasons"],
                          ["record_scope_differs:0:artifact", "scope_differs:artifact"])
         (self.repository / "source.txt").write_text("changed after the run\n")
         self.assertEqual(run_harness([*scope, str(run)])[1]["reasons"],
@@ -1006,25 +1023,24 @@ class NativeRunTests(unittest.TestCase):
             stream.write(b"edited")
         (copied / "extra.txt").write_text("added")
         os.unlink(copied / "observations" / "baseline.json")
-        self.assertEqual(run_harness([*scope, str(copied)])[1]["reasons"],
-                         ["evidence_changed:child/context.json", "evidence_missing:observations/baseline.json",
-                          "evidence_added:extra.txt"])
-        rejected = Path(self.run_tee(change=lambda record: record.update(schema="other"),
-                                     hold_seconds=0.2)[1]["run_directory"])
-        self.assertEqual(run_harness([*scope, str(rejected)])[1]["reasons"], ["run_was_rejected"])
-        empty = Path(self.directory.name) / "empty"
-        empty.mkdir()
-        self.assertEqual(harness.salvage_reasons(empty, {}), ["manifest_unreadable"])
-        (empty / "manifest.json").write_text("{}")
-        self.assertEqual(harness.salvage_reasons(empty, {}), ["manifest_malformed"])
-        # The digest the operator retained or signed binds the manifest itself.
-        pinned = [*scope, "--manifest-sha256", line["manifest_sha256"], str(run)]
-        self.assertEqual(run_harness(pinned)[:2],
-                         (0, {"run_directory": str(run), "salvageable": True, "reasons": [],
-                              "manifest_binding": "external_sha256"}))
-        self.assertEqual(run_harness([*scope, "--manifest-sha256", "0" * 64, str(run)])[1]["reasons"],
-                         ["manifest_digest_differs"])
-        self.assertEqual(run_harness([*scope, "--manifest-sha256", "not-a-digest", str(run)])[0], 2)
+        findings = run_harness([*scope, str(copied)])[1]["reasons"]
+        for prefix in ("evidence_changed:", "evidence_missing:", "unexpected_evidence_entry:"):
+            self.assertTrue(any(reason.startswith(prefix) for reason in findings))
+        self.assertNotIn("extra.txt", str(findings))
+        rejected_line = self.run_tee(change=lambda record: record.update(schema="other"),
+                                     hold_seconds=0.2)[1]
+        rejected = Path(rejected_line["run_directory"])
+        self.assertEqual(run_harness([*self.salvage_scope(), "--manifest-sha256",
+                                      rejected_line["manifest_sha256"], str(rejected)])[1]["reasons"],
+                         ["run_was_rejected"])
+        self.assertEqual(harness.salvage_reasons(run, {}), ["manifest_digest_required"])
+        self.assertEqual(harness.salvage_reasons(run, {}, "bad"), ["manifest_digest_invalid"])
+        self.assertEqual(run_harness([*self.salvage_scope(), "--manifest-sha256", "0" * 64,
+                                      str(run)])[1]["reasons"], ["manifest_digest_differs"])
+        self.assertEqual(run_harness([*self.salvage_scope(), "--manifest-sha256", "not-a-digest",
+                                      str(run)])[0], 2)
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            harness.parser().parse_args([*self.salvage_scope(), str(run)])
 
     def rewritten(self, run, name, change):
         """A copy of `run` with one JSON file edited and nothing else touched."""
@@ -1046,7 +1062,13 @@ class NativeRunTests(unittest.TestCase):
 
     def test_salvage_derives_the_verdict_and_scope_from_the_evidence_not_the_manifest(self):
         scope = self.salvage_scope()
-        reasons = lambda *arguments: run_harness([*arguments])[1]["reasons"]
+        def reasons(*arguments):
+            # Synthetic malformed input at its initial fixture boundary. This is
+            # not a replacement receipt for an actual previously accepted run.
+            if "--manifest-sha256" not in arguments:
+                arguments = (*arguments[:-1], "--manifest-sha256",
+                             harness.sha256_file(Path(arguments[-1]) / "manifest.json")[0], arguments[-1])
+            return run_harness(list(arguments))[1]["reasons"]
         rejected = Path(self.run_tee(change=lambda record: record.update(schema="other"),
                                      hold_seconds=0.2)[1]["run_directory"])
         self.assertEqual(reasons(*scope, str(rejected)), ["run_was_rejected"])
@@ -1091,8 +1113,8 @@ class NativeRunTests(unittest.TestCase):
         hidden = self.rewritten(rejected, "report.json", lambda report: report["records"][0].update(findings=[]))
         self.assertEqual(reasons(*scope, str(self.rebound(hidden))),
                          ["records_not_reproducible", "run_was_rejected"])
-        # Only an externally retained digest detects a manifest that was
-        # rewritten consistently; without one the manifest is unsigned.
+        # The original external pin detects any coordinated manifest change;
+        # a newly issued synthetic fixture pin below tests only rederivation.
         consistent = self.rebound(accepted)
         self.assertEqual(reasons(*scope, str(consistent)), [])
         self.assertEqual(reasons(*scope, "--manifest-sha256", accepted_line["manifest_sha256"],
@@ -1112,11 +1134,12 @@ class NativeRunTests(unittest.TestCase):
              ["manifest_malformed"]),
             ("manifest.json", lambda manifest: manifest.update(
                 files=[row for row in manifest["files"] if row["path"] != "report.json"]),
-             ["evidence_added:report.json", "report_not_bound"]),
+             ["evidence_added:3", "report_not_bound"]),
             ("report.json", lambda report: report.pop("host"), ["report_malformed"]),
             ("report.json", lambda report: report.update(reasons=[1]), ["report_malformed"]),
-            ("report.json", lambda report: report.update(requirements={}), ["report_malformed"]),
-            ("report.json", lambda report: report.update(process={"pid": 1}), ["report_malformed"]),
+            ("report.json", lambda report: report.update(requirements={}), ["report_requirements_invalid"]),
+            ("report.json", lambda report: report.update(process={"pid": 1}),
+             ["report_requirement_observations_differ", "report_malformed"]),
             ("report.json", lambda report: report.update(process=None), ["run_was_rejected"]),
         ):
             edited = self.rewritten(accepted, name, change)
@@ -1127,6 +1150,296 @@ class NativeRunTests(unittest.TestCase):
         with open(unreadable / "report.json", "wb") as stream:
             stream.write(b"{not json")
         self.assertEqual(reasons(*scope, str(self.rebound(unreadable))), ["report_unreadable"])
+
+
+class ObservationExitRaceTests(unittest.TestCase):
+    def test_immediate_reap_establishes_an_actual_exit_race(self):
+        usage = SimpleNamespace(ru_utime=1.0, ru_stime=1.0, ru_maxrss=1024)
+        child = SimpleNamespace(pid=424242, returncode=None)
+        reader = mock.Mock()
+        with mock.patch.object(harness.observer, "native_reader", return_value=reader), \
+                mock.patch.object(harness.observer, "ProcessScope", side_effect=ValueError("exited")), \
+                mock.patch.object(harness.os, "getpgid", return_value=1), \
+                mock.patch.object(harness, "_try_reap", return_value=(0, usage)) as reaped:
+            result = harness.observe_child(child, mock.Mock(), mock.Mock(), 100, 10000)
+        self.assertEqual(result["sampled"], {"state": "not_sampled", "reason": "exited_before_first_sample",
+                                           "observations": 0})
+        reaped.assert_called_once_with(child.pid)
+        reader.close.assert_called_once()
+
+    def test_later_exit_does_not_erase_initial_or_subsequent_observer_failure(self):
+        usage = SimpleNamespace(ru_utime=1.0, ru_stime=1.0, ru_maxrss=1024)
+        for after_baseline in (False, True):
+            child = SimpleNamespace(pid=424242, returncode=None)
+            reader = mock.Mock()
+            scope = SimpleNamespace(initial={}, observe=mock.Mock(side_effect=ValueError("observer unavailable")))
+            journal = SimpleNamespace(append=mock.Mock(), failed=False, failure_reason=None, count=1)
+            with self.subTest(after_baseline=after_baseline), \
+                    mock.patch.object(harness.observer, "native_reader", return_value=reader), \
+                    mock.patch.object(harness.observer, "ProcessScope", return_value=scope,
+                                      side_effect=None if after_baseline else ValueError("observer unavailable")), \
+                    mock.patch.object(harness.observer, "ResourceObservationJournal", return_value=journal), \
+                    mock.patch.object(harness.os, "getpgid", return_value=1), \
+                    mock.patch.object(harness.time, "sleep"), \
+                    mock.patch.object(harness, "_try_reap", side_effect=([None, None, (0, usage)]
+                                                                 if after_baseline else [None, (0, usage)])):
+                result = harness.observe_child(child, mock.Mock(), mock.Mock(), 100, 10000)
+            self.assertEqual(result["sampled"]["state"], "failed")
+            self.assertEqual(result["exit"], {"kind": "exited", "code": 0})
+            self.assertFalse(result["timed_out"])
+            reader.close.assert_called_once()
+
+
+class PinnedEvidenceTests(unittest.TestCase):
+    """Closed intake and consumer policies over deterministic public synthetic records."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.serial = 0
+        self.requirements = {"classification": "engineering_target", "address_space_limit_bytes": None,
+                             "thermal_state": False, "max_undivided_phase_ppm": None}
+
+    def fixture(self, requirements=None, child_change=None, report_change=None):
+        self.serial += 1
+        run = self.root / str(self.serial)
+        run.mkdir(mode=0o700)
+        (run / "child").mkdir(mode=0o700)
+        record = copy.deepcopy(GOLDEN)
+        record["identity"]["emitter"] = "python.synthetic_test"
+        context = {key: value for key, value in record["identity"].items()
+                   if key not in {"emitter", "flow", "workload"}}
+        context["schema"] = DESCRIPTOR["context_schema"]
+        requirements = dict(self.requirements if requirements is None else requirements)
+        limit = requirements["address_space_limit_bytes"]
+        if limit is not None:
+            record["address_space"].update(enforced=True, soft_limit_bytes=limit, hard_limit_bytes=limit)
+        process = dict(record["process"], exit={"kind": "exited", "code": 0}, timed_out=False,
+                       sampled={"state": "not_sampled", "reason": "exited_before_first_sample", "observations": 0},
+                       address_space=harness.address_space_enforcement(limit, None), wall_ns=1_000_000_000)
+        (run / "child/context.json").write_bytes(harness.control.canonical(context))
+        (run / "child/record.json").write_bytes(harness.control.canonical(record))
+        os.chmod(run / "child/record.json", 0o644)
+        if child_change:
+            child_change(run)
+        entries, orphans, reasons = harness.collect_records(DESCRIPTOR, run, context, process, requirements)
+        stream = {"bytes": 0, "sha256": hashlib.sha256(b"").hexdigest(), "complete": True, "tail": None}
+        report = {"schema": harness.REPORT_SCHEMA, "context": context,
+                  "command": {"arguments": None}, "host": {},
+                  "limits": {"classification": "local_scheduling", "requested_address_space_bytes": limit,
+                             "timeout_ms": 10000, "sampling_interval_ms": 100, "output_tail_bytes": 0},
+                  "requirements": requirements, "process": process,
+                  "output": {"classification": "measured", "retention": "digest_only",
+                             "stdout": dict(stream), "stderr": dict(stream)},
+                  "records": entries, "orphans": orphans, "reasons": reasons,
+                  "verdict": "rejected" if reasons else "accepted"}
+        if report_change:
+            report_change(report)
+        with harness.control.RecordDirectory(run) as directory:
+            directory.publish("report.json", harness.control.canonical(report))
+            binding = harness.write_manifest(run, directory, context, report["verdict"])
+        return run, binding["sha256"], report
+
+    def test_mandatory_pin_refuses_before_open_and_safe_reader_returns_bound_documents(self):
+        run, pin, report = self.fixture()
+        with mock.patch.object(harness, "_EvidenceDirectory", side_effect=AssertionError("must not open")):
+            self.assertEqual(harness.salvage_reasons(run, {}), ["manifest_digest_required"])
+            for invalid in (True, 42, "x" * 64, "1" * 63, "A" * 64):
+                self.assertEqual(harness.salvage_reasons(run, {}, invalid), ["manifest_digest_invalid"])
+        result = harness.read_pinned_run(run, pin)
+        self.assertEqual(result["report"], report)
+        self.assertEqual(result["manifest_sha256"], pin)
+        self.assertEqual(set(result["documents"]), {"child/record.json"})
+        self.assertEqual(result["documents"]["child/record.json"]["identity"],
+                         json.loads((run / "child/record.json").read_bytes())["identity"])
+        self.assertEqual(result["original_requirements"], result["consumer_requirements"])
+        self.assertEqual(os.stat(run / "child/record.json").st_mode & 0o777, 0o644)
+
+    def test_original_external_receipt_rejects_coordinated_report_manifest_rewrites(self):
+        changes = (
+            lambda report: report["requirements"].update(thermal_state=True),
+            lambda report: report["process"]["exit"].update(code=1),
+            lambda report: report["process"].update(timed_out=True),
+            lambda report: report["process"].update(sampled={"state": "failed", "reason": "observer_failed"}),
+        )
+        for change in changes:
+            run, original_pin, report = self.fixture()
+            change(report)
+            (run / "report.json").write_bytes(harness.control.canonical(report))
+            manifest = json.loads((run / "manifest.json").read_bytes())
+            for row in manifest["files"]:
+                if row["path"] == "report.json":
+                    row["sha256"], row["bytes"] = harness.sha256_file(run / "report.json")
+            (run / "manifest.json").write_bytes(harness.control.canonical(manifest))
+            self.assertEqual(harness.salvage_reasons(run, {}, original_pin), ["manifest_digest_differs"])
+
+    def test_consumer_requirements_must_have_been_established_by_original_contract(self):
+        run, pin, _ = self.fixture()
+        for consumer, field in (
+            (dict(self.requirements, thermal_state=True), "thermal_state"),
+            (dict(self.requirements, max_undivided_phase_ppm=700_000), "max_undivided_phase_ppm"),
+            (dict(self.requirements, address_space_limit_bytes=1 << 35), "address_space_limit_bytes"),
+        ):
+            self.assertIn("consumer_requirement_not_established:" + field,
+                          harness.salvage_reasons(run, {}, pin, consumer))
+        original = dict(self.requirements, thermal_state=True, max_undivided_phase_ppm=600_000,
+                        address_space_limit_bytes=1 << 35)
+        run, pin, _ = self.fixture(original)
+        for consumer in (original, dict(original, thermal_state=False, max_undivided_phase_ppm=700_000),
+                         self.requirements):
+            result = harness.read_pinned_run(run, pin, consumer_requirements=consumer)
+            self.assertEqual(result["original_requirements"], original)
+            self.assertEqual(result["consumer_requirements"], consumer)
+        for requested in (1 << 34, 1 << 36):
+            self.assertIn("consumer_requirement_not_established:address_space_limit_bytes",
+                          harness.salvage_reasons(run, {}, pin, dict(original, address_space_limit_bytes=requested)))
+        self.assertIn("consumer_requirement_not_established:max_undivided_phase_ppm",
+                      harness.salvage_reasons(run, {}, pin, dict(original, max_undivided_phase_ppm=599_999)))
+
+    def test_weaker_consumer_never_rescues_rejected_original_evidence(self):
+        original = dict(self.requirements, max_undivided_phase_ppm=599_999)
+        run, pin, report = self.fixture(original)
+        self.assertEqual(report["verdict"], "rejected")
+        self.assertIn("run_was_rejected", harness.salvage_reasons(run, {}, pin, self.requirements))
+        with self.assertRaises(harness.HarnessRefusal):
+            harness.read_pinned_run(run, pin, consumer_requirements=self.requirements)
+
+    def test_requirement_schema_checks_classification_types_and_ranges(self):
+        invalid = [dict(self.requirements, **change) for change in (
+            {"classification": "measured"}, {"thermal_state": 0},
+            {"address_space_limit_bytes": True}, {"address_space_limit_bytes": 0},
+            {"address_space_limit_bytes": 1 << 63}, {"max_undivided_phase_ppm": True},
+            {"max_undivided_phase_ppm": 0}, {"max_undivided_phase_ppm": 1 << 32},
+        )]
+        invalid += [{}, dict(self.requirements, unknown=1)]
+        run, pin, _ = self.fixture()
+        for requirements in invalid:
+            with self.assertRaises(harness.HarnessRefusal):
+                harness.validate_requirements(requirements)
+            self.assertEqual(harness.salvage_reasons(run, {}, pin, requirements),
+                             ["consumer_requirements_invalid"])
+            malformed, malformed_pin, _ = self.fixture(report_change=lambda report: report.update(requirements=requirements))
+            self.assertIn("report_requirements_invalid", harness.salvage_reasons(malformed, {}, malformed_pin))
+
+    def test_requested_applied_and_kernel_limit_observations_must_match(self):
+        original = dict(self.requirements, address_space_limit_bytes=1 << 35)
+        for change in (
+            lambda report: report["limits"].update(requested_address_space_bytes=1 << 34),
+            lambda report: report["process"]["address_space"].update(enforced=False),
+            lambda report: report["process"]["address_space"].pop("kernel_observed"),
+            lambda report: report["process"]["address_space"].update(soft_limit_bytes=1 << 34),
+            lambda report: report["process"]["address_space"].update(kernel_observed={"soft_limit_bytes": 1, "hard_limit_bytes": 1}),
+        ):
+            run, pin, _ = self.fixture(original, report_change=change)
+            self.assertIn("report_requirement_observations_differ", harness.salvage_reasons(run, {}, pin))
+
+    def test_report_limits_are_closed_typed_and_missing_optional_value_still_refuses(self):
+        for change in (
+            lambda report: report["limits"].pop("requested_address_space_bytes"),
+            lambda report: report["limits"].update(extra=1),
+            lambda report: report["limits"].update(timeout_ms=True),
+            lambda report: report["limits"].update(timeout_ms=999),
+            lambda report: report["limits"].update(sampling_interval_ms=9),
+            lambda report: report["limits"].update(output_tail_bytes=65537),
+        ):
+            run, pin, _ = self.fixture(report_change=change)
+            self.assertIn("report_requirement_observations_differ", harness.salvage_reasons(run, {}, pin))
+
+    def test_unknown_child_output_is_rejected_retained_and_not_promoted(self):
+        secret_name = "private-looking-sentinel-928374.bin"
+        for name in (secret_name, "unknown.log", "nested"):
+            def create(run):
+                path = run / "child" / name
+                path.mkdir() if name == "nested" else path.write_bytes(b"PUBLIC TEST SENTINEL")
+            run, pin, report = self.fixture(child_change=create)
+            self.assertEqual(report["verdict"], "rejected")
+            self.assertTrue((run / "child" / name).exists())
+            self.assertTrue(any(reason.startswith("unexpected_evidence_entry:") for reason in report["reasons"]))
+            self.assertNotIn(name, str(report["reasons"]))
+            manifest = json.loads((run / "manifest.json").read_bytes())
+            self.assertNotIn("child/" + name, {row["path"] for row in manifest["files"]})
+            self.assertTrue(harness.salvage_reasons(run, {}, pin))
+
+    def test_unsafe_files_refuse_without_following_or_blocking(self):
+        creators = (
+            lambda path, outside: path.symlink_to(outside),
+            lambda path, outside: os.mkfifo(path),
+            lambda path, outside: os.link(outside, path),
+            lambda path, outside: (path.write_bytes(b"PUBLIC TEST SENTINEL"), os.chmod(path, 0o666)),
+        )
+        outside = self.root / "outside-public-sentinel"
+        outside.write_bytes(b"PUBLIC TEST SENTINEL")
+        for extension in ("json", "norito"):
+            for creator in creators:
+                name = "unsafe." + extension
+                real_open = harness.os.open
+                def refuse_unsafe_open(path, *args, **kwargs):
+                    if path == name:
+                        raise AssertionError("unsafe file must be rejected before opening")
+                    return real_open(path, *args, **kwargs)
+                with mock.patch.object(harness.os, "open", side_effect=refuse_unsafe_open):
+                    run, pin, report = self.fixture(child_change=lambda run: creator(run / "child" / name, outside))
+                    self.assertTrue(harness.salvage_reasons(run, {}, pin))
+                self.assertEqual(report["verdict"], "rejected")
+                self.assertTrue(any(reason.startswith("unsafe_or_oversize_evidence:") for reason in report["reasons"]))
+                self.assertEqual(outside.read_bytes(), b"PUBLIC TEST SENTINEL")
+
+    def test_replaced_named_file_is_rejected_during_held_descriptor_read(self):
+        run, pin, _ = self.fixture()
+        target = run / "child/record.json"
+        inode = os.stat(target).st_ino
+        real_read = harness.os.read
+        replaced = []
+        def replace_after_read(fd, length):
+            raw = real_read(fd, length)
+            if os.fstat(fd).st_ino == inode and not replaced:
+                replacement = self.root / "replacement"
+                replacement.write_bytes(target.read_bytes())
+                os.replace(replacement, target)
+                replaced.append(True)
+            return raw
+        with mock.patch.object(harness.os, "read", side_effect=replace_after_read):
+            self.assertTrue(harness.salvage_reasons(run, {}, pin))
+        self.assertEqual(replaced, [True])
+
+    def test_consumer_receives_captured_bytes_even_if_path_changes_after_read(self):
+        run, pin, _ = self.fixture()
+        real_read = harness._EvidenceDirectory._read
+        original = json.loads((run / "child/record.json").read_bytes())
+        def change_after_complete_read(directory, name, maximum, retain):
+            result = real_read(directory, name, maximum, retain)
+            if name == "child/record.json":
+                (run / name).write_bytes(b"{untrusted later replacement")
+            return result
+        with mock.patch.object(harness._EvidenceDirectory, "_read", change_after_complete_read):
+            result = harness.read_pinned_run(run, pin)
+        self.assertEqual(result["documents"]["child/record.json"], original)
+        self.assertNotEqual((run / "child/record.json").read_bytes(), harness.control.canonical(original))
+        self.assertTrue(harness.salvage_reasons(run, {}, pin))
+
+    def test_parent_replacement_and_permissions_refuse_without_modifying_inputs(self):
+        for change in (
+            lambda run: os.chmod(run / "child", 0o755),
+            lambda run: os.chmod(run, 0o755),
+        ):
+            run, pin, _ = self.fixture()
+            change(run)
+            before = {path: path.lstat().st_mode for path in run.rglob("*")}
+            self.assertTrue(harness.salvage_reasons(run, {}, pin))
+            self.assertEqual({path: path.lstat().st_mode for path in run.rglob("*")}, before)
+        run, pin, _ = self.fixture()
+        os.rename(run / "child", run / "moved")
+        (run / "child").symlink_to(run / "moved", target_is_directory=True)
+        self.assertTrue(harness.salvage_reasons(run, {}, pin))
+
+    def test_output_stream_failure_is_reproduced_without_runtime_only_exception(self):
+        def incomplete(report):
+            report["output"]["stdout"]["complete"] = False
+            report["reasons"] = ["output_stream_not_closed:stdout"]
+            report["verdict"] = "rejected"
+        run, pin, _ = self.fixture(report_change=incomplete)
+        self.assertEqual(harness.salvage_reasons(run, {}, pin), ["run_was_rejected"])
 
 
 class StaticSafetyTests(unittest.TestCase):

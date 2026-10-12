@@ -94,7 +94,6 @@ use iroha_test_samples::{
     SAMPLE_GENESIS_ACCOUNT_KEYPAIR,
 };
 use iroha_torii_shared::status::Status;
-use iroha_version::codec::EncodeVersioned;
 use nonzero_ext::nonzero;
 use norito::json::{self, Value as JsonValue};
 pub use private_settlement_route_control::{
@@ -4300,10 +4299,9 @@ impl Network {
         let pipeline_config = actual_config.as_ref().map(|config| config.pipeline.clone());
         let nexus_config = actual_config.as_ref().map(|config| config.nexus.clone());
         let zk_config = actual_config.as_ref().map(|config| config.zk.clone());
-        let confidential_policy_hash = Some(actual_config.as_ref().map_or_else(
-            iroha_core::state::default_genesis_confidential_policy_hash,
-            |config| iroha_core::state::compute_genesis_confidential_policy_hash(&config.zk),
-        ));
+        // Genesis runs under the protocol-default ZK validity policy on every peer.
+        let confidential_policy_hash =
+            Some(iroha_core::state::default_genesis_confidential_policy_hash());
         let consensus_handshake_meta = consensus_handshake_parameter(&self.consensus_profile);
         let genesis_account_id = AccountId::new(self.genesis_key_pair.public_key().clone());
         let recompute_staged_hashes = |block: &GenesisBlock| {
@@ -8040,10 +8038,9 @@ impl NetworkBuilder {
         let da_proof_policies = resolved_genesis_config
             .as_ref()
             .map(|config| iroha_core::da::proof_policy_bundle(&config.nexus.lane_config));
-        let confidential_policy_hash = Some(resolved_genesis_config.as_ref().map_or_else(
-            iroha_core::state::default_genesis_confidential_policy_hash,
-            |config| iroha_core::state::compute_genesis_confidential_policy_hash(&config.zk),
-        ));
+        // Genesis runs under the protocol-default ZK validity policy on every peer.
+        let confidential_policy_hash =
+            Some(iroha_core::state::default_genesis_confidential_policy_hash());
         let genesis_crypto = resolved_genesis_config
             .as_ref()
             .map(|config| config::manifest_crypto_from_actual(&config.crypto));
@@ -9979,12 +9976,9 @@ impl NetworkPeer {
             .encode_wire()
             .map_err(color_eyre::Report::new)
             .wrap_err("encode genesis block with Norito header")?;
-        let deframed =
-            iroha_data_model::block::deframe_versioned_signed_block_bytes(framed.as_slice())
-                .map_err(color_eyre::Report::new)
-                .wrap_err("deframe genesis sanity check")?;
-        let versioned = block.0.encode_versioned();
-        assert_eq!(deframed.bare_versioned.as_ref(), versioned.as_slice());
+        iroha_data_model::block::decode_framed_signed_block(&framed)
+            .map_err(color_eyre::Report::new)
+            .wrap_err("validate canonical genesis wire")?;
         Ok(framed)
     }
     fn restart_genesis_file(&self, has_genesis: bool) -> Option<PathBuf> {
@@ -10603,12 +10597,11 @@ mod tests {
     use iroha_core::sumeragi::consensus::compute_consensus_parameters_fingerprint;
     use iroha_crypto::Algorithm;
     use iroha_data_model::{
-        block::{decode_framed_signed_block, deframe_versioned_signed_block_bytes},
+        block::decode_framed_signed_block,
         isi::{Instruction, SetParameter},
         parameter::{Parameter, system::consensus_metadata},
         transaction::{Executable, ExecutableBatchItem},
     };
-    use iroha_version::{Version, codec::EncodeVersioned};
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use std::{
@@ -12780,19 +12773,14 @@ mod tests {
         );
     }
     #[test]
-    fn genesis_embeds_confidential_policy_hash_from_config_layers() {
+    fn genesis_embeds_default_confidential_policy_hash() {
         init_instruction_registry();
-        let network =
-            build_with_isolated_permit(NetworkBuilder::new().with_peers(4).with_config_layer(
-                |layer| {
-                    layer.write(["zk", "pipa_r", "enabled"], true);
-                },
-            ));
+        let network = build_with_isolated_permit(NetworkBuilder::new().with_peers(4));
         let config_layers: Vec<Table> = network.config_layers().map(Cow::into_owned).collect();
         let peer = network.peers().first().expect("network should have peers");
-        let actual = resolve_actual_config(peer, &config_layers)
+        resolve_actual_config(peer, &config_layers)
             .expect("should resolve full config for genesis");
-        let expected = iroha_core::state::compute_genesis_confidential_policy_hash(&actual.zk);
+        let expected = iroha_core::state::default_genesis_confidential_policy_hash();
         let genesis = network.genesis();
         assert_eq!(
             genesis
@@ -12801,7 +12789,7 @@ mod tests {
                 .confidential_features()
                 .and_then(|digest| digest.zk_policy_hash),
             Some(expected),
-            "genesis should commit to the confidential policy resolved from config layers"
+            "genesis should commit to the default confidential policy"
         );
     }
     #[test]
@@ -16068,10 +16056,7 @@ mod tests {
         let network = build_with_isolated_permit(NetworkBuilder::new().with_peers(4));
         let g1 = network.genesis();
         let g2 = network.genesis();
-        // Compare encoded bytes to be strict about byte-for-byte equality
-        let b1 = g1.0.encode_versioned();
-        let b2 = g2.0.encode_versioned();
-        assert_eq!(b1, b2, "genesis must be identical across calls");
+        // Compare the complete stored frame, including the declared layout.
         let f1 = g1.0.encode_wire().expect("encode genesis wire");
         let f2 = g2.0.encode_wire().expect("encode genesis wire");
         assert_eq!(f1, f2, "framed genesis must be identical across calls");
@@ -16113,7 +16098,6 @@ mod tests {
         init_instruction_registry();
         let network = NetworkBuilder::new().build();
         let block = network.genesis();
-        let versioned = block.0.encode_versioned();
         let framed = block.0.encode_wire().expect("encode versioned genesis");
         if let Ok(dump_path) = env::var("IROHA_TEST_DUMP_GENESIS") {
             let dump_path = std::path::PathBuf::from(dump_path);
@@ -16139,14 +16123,10 @@ mod tests {
             norito::core::default_encode_flags(),
             "framed genesis must use canonical header flags",
         );
-        let deframed =
-            deframe_versioned_signed_block_bytes(&framed).expect("deframe framed genesis");
-        assert_eq!(deframed.bytes.as_ref(), framed.as_slice());
-        assert_eq!(deframed.bare_versioned.as_ref(), versioned.as_slice());
         let decoded = decode_framed_signed_block(framed.as_slice()).expect("decode framed genesis");
         assert_eq!(
-            decoded.version(),
-            1,
+            decoded.canonical_wire().expect("decoded wire").version(),
+            iroha_data_model::block::SignedBlock::WIRE_VERSION,
             "decoded genesis must be a version 1 signed block"
         );
         assert_eq!(

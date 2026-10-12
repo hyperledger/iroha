@@ -66,6 +66,7 @@ fn terminal_certifier_refusal_retains_original_target_gap_decoder_and_public_res
     // tighter inherited decoder layer specifically on the sole certificate verifier.
     let verifier = PrefixVerifierContext {
         instance: reader.instance,
+        root_scope: reader.root_scope,
     };
     let mut cursor = reader.prefix.lock();
     let prefix = cursor.as_mut().unwrap();
@@ -232,6 +233,7 @@ fn terminal_schedule_failure_after_valid_qc_cannot_deliver_original_target() {
         .with(|| {
             PrefixVerifierContext {
                 instance: reader.instance,
+                root_scope: reader.root_scope,
             }
             .prepare_advance(prefix, gap.borrowed(), None)
         })
@@ -307,6 +309,7 @@ fn terminal_amx_original_scratch_admission(rs16_only: bool) {
 
     let verifier = PrefixVerifierContext {
         instance: reader.instance,
+        root_scope: reader.root_scope,
     };
     let mut cursor = reader.prefix.lock();
     let prefix = cursor.as_mut().unwrap();

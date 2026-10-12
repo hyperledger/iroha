@@ -962,7 +962,8 @@ fn finality_chain_from_proofs(
             block_wire: proof.block_wire,
         });
     }
-    let blocks = authenticate_finality_journal(&journal, chain_id, network_id, end, deadline)?;
+    let blocks =
+        authenticate_finality_journal(&journal, chain_id, network_id, end, deadline, root_scope)?;
     Ok((journal, blocks))
 }
 
@@ -974,12 +975,13 @@ fn authenticate_finality_journal(
     network_id: NetworkId,
     end: u64,
     deadline: Instant,
+    root_scope: iroha::data_model::block::consensus::SumeragiRootScope,
 ) -> Result<Vec<CertifiedBlock>> {
     let limits = finality_limits();
     let cursor = NativeJournalCursor::new(
         chain_id.clone(),
         network_id,
-        iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        root_scope,
         limits,
         &iroha_allocation::AllocationBudget::new(limits.allocated_bytes),
     )
@@ -991,6 +993,11 @@ fn authenticate_finality_journal(
         limits,
         cursor.allocation_budget(),
         |reader| {
+            if reader.root_scope() != root_scope {
+                return Err(
+                    "committee history differs from its original signed genesis root scope".into(),
+                );
+            }
             reader
                 .walk(1, end)
                 .collect::<std::result::Result<Vec<_>, _>>()
@@ -1138,7 +1145,8 @@ fn extend_finality_chain_from_proofs(
         "rotation finality prefix acquired: base={base} target={end} actual_new_rows={}",
         end - base
     );
-    let blocks = authenticate_finality_journal(&journal, chain_id, network_id, end, deadline)?;
+    let blocks =
+        authenticate_finality_journal(&journal, chain_id, network_id, end, deadline, root_scope)?;
     eprintln!("rotation finality prefix verified: tip={end}");
     Ok((journal, blocks))
 }
@@ -1618,14 +1626,6 @@ async fn execute_rotation_preparation(
         defaults::runtime_provider_broker::CREDENTIAL_MAX_MEMORY_BYTES;
     let credential_budget =
         iroha_allocation::AllocationBudget::new(credential_max_memory_bytes.get());
-    let proof_cursor = NativeJournalCursor::new(
-        network.chain_id(),
-        network_id,
-        iroha_data_model::block::consensus::SumeragiRootScope::Global,
-        finality_limits(),
-        &credential_budget,
-    )
-    .map_err(|error| eyre!(error))?;
     verify_validator_committee_provisioning_evidence_v1(
         &custody_evidence,
         &network.chain_id(),

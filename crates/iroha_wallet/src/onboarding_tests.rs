@@ -475,21 +475,28 @@ fn faucet_recovery_binds_original_trusted_request_before_network_or_submission()
     }
     let service = OnboardingService::new(config.clone()).unwrap();
     service.verify_faucet_journal(&path, &request).unwrap();
-    let mut changed = request.clone();
-    changed.amount = 999_u64.into();
-    assert!(service.verify_faucet_journal(&path, &changed).is_err());
-    for submit in [false, true] {
-        let result = if submit {
-            service.submit_faucet_with_request(&path, &changed, 1)
-        } else {
-            service.resume_faucet_with_request(&path, &changed, 1)
-        };
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("exact trusted request")
-        );
+    let mut changed_amount = request.clone();
+    changed_amount.amount = 999_u64.into();
+    let mut changed_fee = request.clone();
+    let FeePaymentIntent::Authority(fee) = &mut changed_fee.fee_payment else {
+        panic!("faucet fixture uses authority-paid fees");
+    };
+    fee.gas_limit = std::num::NonZeroU64::new(1);
+    for changed in [changed_amount, changed_fee] {
+        assert!(service.verify_faucet_journal(&path, &changed).is_err());
+        for submit in [false, true] {
+            let result = if submit {
+                service.submit_faucet_with_request(&path, &changed, 1)
+            } else {
+                service.resume_faucet_with_request(&path, &changed, 1)
+            };
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("exact trusted request")
+            );
+        }
     }
     assert!(!path.join("submission.json").exists());
     let held: OperationJournalV1 = Journal::open(&path).unwrap().read_operation().unwrap();

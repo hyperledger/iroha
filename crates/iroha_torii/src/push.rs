@@ -4128,13 +4128,16 @@ mod tests {
             .reconcile(&bridge, PushReplayTarget::Height(1))
             .unwrap();
         // Replace only fixture State history under its real publication owner.
+        // Retain the successor height so the genesis-only guard cannot reject
+        // before the operation's original cursor binding is checked.
         // The unchanged durable cursor still matches this operation's receipt,
         // so the mandatory current-State binding check is the rejecting control.
         state.block_hashes.block_and_revert().commit_for_tests();
         let mut replacement = state.block_hashes.block_and_revert();
         replacement.push_for_tests(replacement_hash);
+        replacement.push_for_tests(replacement_hash);
         replacement.commit_for_tests();
-        assert_eq!(state.committed_height(), 1);
+        assert_eq!(state.committed_height(), 2);
         assert!(matches!(
             rebound.reconcile(&bridge, PushReplayTarget::Height(1)),
             Err(PushReplayError::Fatal(PushError::Storage(reason)))

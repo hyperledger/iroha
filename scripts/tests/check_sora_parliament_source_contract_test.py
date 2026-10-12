@@ -1273,6 +1273,10 @@ EXPIRY_CALL = (
     "            .map_err(StateBlockStartError::Storage)?;"
 )
 ENACTMENT_CALL = "Self::apply_block_start_parliament_enactments(&mut sb, now_h)?;"
+SCCP_BEGIN_CALL = (
+    "crate::smartcontracts::isi::sccp::hook::begin_block(&mut sb)\n"
+    "            .map_err(StateBlockStartError::Storage)?;"
+)
 
 
 def test_block_start_phase_helpers_preserve_original_order_and_custody() -> None:
@@ -1371,6 +1375,8 @@ def test_shared_start_construction_retains_exact_original_owner(
 @pytest.mark.parametrize("mutation", (
     "missing_expiry", "missing_enactment", "duplicate", "swapped",
     "wrong_height", "conditional", "late_before_flag", "late_after_execution",
+    "missing_sccp_begin", "duplicate_sccp_begin", "sccp_begin_after_enactment",
+    "conditional_sccp_begin",
 ))
 def test_block_start_phase_calls_reject_disconnected_or_late_owners(mutation: str) -> None:
     """Valid Rust statement changes cannot disconnect helpers or defer them until after execution."""
@@ -1389,6 +1395,15 @@ def test_block_start_phase_calls_reject_disconnected_or_late_owners(mutation: st
         mutated = source.replace(ENACTMENT_CALL, ENACTMENT_CALL.replace("now_h)", "now_h + 1)"), 1)
     elif mutation == "conditional":
         mutated = source.replace(ENACTMENT_CALL, "if false { " + ENACTMENT_CALL + " }", 1)
+    elif mutation == "missing_sccp_begin":
+        mutated = source.replace(SCCP_BEGIN_CALL, "", 1)
+    elif mutation == "duplicate_sccp_begin":
+        mutated = source.replace(SCCP_BEGIN_CALL, SCCP_BEGIN_CALL * 2, 1)
+    elif mutation == "sccp_begin_after_enactment":
+        mutated = source.replace(SCCP_BEGIN_CALL, "PHASE_SWAP", 1).replace(
+            ENACTMENT_CALL, SCCP_BEGIN_CALL, 1).replace("PHASE_SWAP", ENACTMENT_CALL, 1)
+    elif mutation == "conditional_sccp_begin":
+        mutated = source.replace(SCCP_BEGIN_CALL, "if false { " + SCCP_BEGIN_CALL + " }", 1)
     else:
         anchor = ("        sb.start_of_block_effects_applied = true;" if mutation == "late_before_flag"
                   else "\n        let result = after_start(&mut sb, continuation).map_err(StateBlockStartError::Stage)?;")
@@ -1433,6 +1448,7 @@ def test_block_start_phase_bodies_reject_changed_height_or_rollback(
     ("before_start(&mut sb).map_err(StateBlockStartError::Stage)?", "before_start(&mut sb).unwrap()"),
     (EXPIRY_CALL, "Self::apply_block_start_private_settlement_expiry(&mut sb, now_h).unwrap();"),
     (ENACTMENT_CALL, "Self::apply_block_start_parliament_enactments(&mut sb, now_h).unwrap();"),
+    (SCCP_BEGIN_CALL, "crate::smartcontracts::isi::sccp::hook::begin_block(&mut sb).unwrap();"),
     ("\n        let result = after_start(&mut sb, continuation).map_err(StateBlockStartError::Stage)?", "\n        let result = after_start(&mut sb, continuation).unwrap()"),
     ("\n            let result = after_start(&mut sb, continuation).map_err(StateBlockStartError::Stage)?", "\n            let result = after_start(&mut sb, continuation).unwrap()"),
 ))
@@ -2312,7 +2328,8 @@ def test_native_beacon_pulse_application_baseline_and_entrypoint() -> None:
     (guard.SCHEDULE_EXECUTION_PATH, "                value.height,", "                value.height + 1,"),
     (guard.SCHEDULE_EXECUTION_PATH, ".insert(slot, value.pulse_id);", ".insert(slot, other.pulse_id);"),
     (guard.SCHEDULE_EXECUTION_PATH,
-     "self.sumeragi_schedule = ScheduleStep::Requested { captured, pulse };\n        Ok(())", "Ok(())"),
+     "self.sumeragi_schedule = ScheduleStep::Requested {\n            captured,\n            pulse,\n"
+     "            root_scope,\n        };\n        Ok(())", "Ok(())"),
     (BLOCK_PATH,
      "            if block.global_beacon_pulse().is_some()\n"
      "                || block.header().global_beacon_pulse_hash().is_some()\n",
@@ -3543,7 +3560,7 @@ def test_sortition_slot_rule_baseline_and_entrypoint() -> None:
      "                        || election.failure_kind.is_some()\n"
      "                        || election.failure_height.is_some()\n"
      "                    {\n"
-     "                        return Err(ParliamentReducerErrorV1::ImmutableBindingMismatch);", 
+     "                        return Err(ParliamentReducerErrorV1::ImmutableBindingMismatch);",
      "                    {\n"
      "                        return Err(ParliamentReducerErrorV1::ImmutableBindingMismatch);"),
     (REDUCER_PATH, VALIDATE,

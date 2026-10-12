@@ -36,6 +36,9 @@ use once_cell::sync::OnceCell;
 #[path = "poseidon/bn254_v1.rs"]
 mod bn254_v1;
 #[cfg(test)]
+#[path = "poseidon/bn254_v1_reference_vectors_tests.rs"]
+mod bn254_v1_reference_vectors_tests;
+#[cfg(test)]
 #[path = "poseidon/bn254_v1_tests.rs"]
 mod bn254_v1_tests;
 use std::io::{self, Write};

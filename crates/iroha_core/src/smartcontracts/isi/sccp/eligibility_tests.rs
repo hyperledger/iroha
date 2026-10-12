@@ -160,11 +160,13 @@ fn parent() -> Parent {
         {
             let mut stx = block.transaction();
             // Fee quoting needs the explicit immutable root scope of the network.
-            stx.world.parameters.get_mut().set_parameter(
-                crate::sumeragi::lanes::routing::test_support::metadata(
+            stx.world
+                .parameters
+                .get_mut()
+                .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
                     iroha_data_model::block::consensus::SumeragiRootScope::Global,
-                ),
-            );
+                ))
+                .expect("fixture global root scope");
             install_value_route(
                 &mut stx,
                 ETH,
@@ -454,6 +456,7 @@ fn every_inbound_shape_and_authority_is_classified_quoted_counted_and_executed_a
             world,
             &nexus,
             &pipeline,
+            &view.zk().gas,
             payload,
             0,
             crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
@@ -605,6 +608,7 @@ fn a_relayer_proof_is_charged_once_and_owes_no_self_claim_fee() {
         view.world(),
         &nexus,
         &iroha_config::parameters::actual::Pipeline::default(),
+        &view.zk().gas,
         transaction.payload(),
         0,
         crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
@@ -702,6 +706,7 @@ fn self_claim_pause_eligibility_uses_parent_time_not_fee_observation_horizon() {
                 world,
                 &nexus(),
                 &iroha_config::parameters::actual::Pipeline::default(),
+                &stx.zk.gas,
                 payload,
                 fee_observation_ms,
                 parent_time,

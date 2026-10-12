@@ -17,13 +17,12 @@ use crate::{
 };
 use iroha_allocation::{AllocationBudget, ChargedBuffer, ChargedBufferError, RetainedPayload};
 use iroha_crypto::HashOf;
-#[cfg(test)]
-use iroha_data_model::sumeragi_finality::ExecutionResultCommitment;
 use iroha_data_model::{
     block::{
         BlockHeader, SignedBlock,
         consensus::{ExecKv, ExecWitness},
     },
+    sumeragi_finality::CertifiedResultV1,
     sumeragi_lanes::SumeragiLaneState,
 };
 
@@ -264,7 +263,7 @@ impl NativeContextArchive {
         &self,
         overlay: &StateBlock<'_>,
         executed: &SignedBlock,
-        result: &RetainedPayload<iroha_data_model::sumeragi_finality::CertifiedResultV1>,
+        result: &RetainedPayload<CertifiedResultV1>,
         witness: &ExecWitness,
     ) -> Result<PreparedNativeContext, NativeContextArchiveError> {
         self.recheck_namespace()?;

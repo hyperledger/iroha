@@ -655,6 +655,20 @@ mod tests {
         assert_eq!(reader.0, 2);
     }
     #[test]
+    fn keccak256_chunks_match_concatenation_across_rate_boundaries() {
+        let bytes = [0x9a; 300];
+        for boundary in [0, 1, 135, 136, 137, 272, 300] {
+            let chunks = [&bytes[..boundary], &[], &bytes[boundary..]];
+            assert_eq!(
+                try_keccak256_from_chunks(
+                    chunks.into_iter().map(Ok::<_, core::convert::Infallible>)
+                ),
+                Ok(keccak256(bytes))
+            );
+        }
+    }
+
+    #[test]
     fn borrowed_keccak_chunks_match_one_shot_and_preserve_first_error() {
         for parts in [
             vec![],
@@ -1159,6 +1173,10 @@ mod prehashed_tests {
         assert_eq!(hash.as_ref()[Hash::LENGTH - 1] & 1, 1);
     }
 }
+
+#[cfg(test)]
+#[path = "hash_native_candidate_tests.rs"]
+mod native_candidate_tests;
 
 #[cfg(test)]
 mod hash_raw_wire_tests {

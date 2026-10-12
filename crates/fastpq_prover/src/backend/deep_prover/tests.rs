@@ -11,10 +11,14 @@ use rand::{SeedableRng, TryRngCore, rngs::StdRng};
 mod diagnostic_artifact;
 
 const COMPLETE_CONTEXT: &[u8] = b"native producer diagnostic";
-// Exact source-bound native q77 SHA3 seeded proof, reviewed before publication.
-// Verification, negative controls and required-Metal parity still check these bytes.
-const COMPLETE_BYTES: usize = 485_219;
-const COMPLETE_HASH: &str = "8a1a23ca4af35b6e0d7346ecf5f54fb489d1933244e267db893d1e9a3e08fdab";
+// Seeded complete proof under the frozen transcript profile: a golden of the
+// current source, regenerated with
+// `generate_current_seeded_proof_for_review_with_all_relation_controls` and
+// replaced deliberately when the profile or the wire changes. It pins bytes and
+// approves nothing. Verification, negative controls and required-Metal parity
+// still check these bytes.
+const COMPLETE_BYTES: usize = 484_374;
+const COMPLETE_HASH: &str = "eb3de327c1632512113999d1174887bca63763a1715e353948ffcee71dcd2c01";
 
 /// The fixed profile's exact relation shape with the given attempt ceilings
 /// and no additional statement ceiling.

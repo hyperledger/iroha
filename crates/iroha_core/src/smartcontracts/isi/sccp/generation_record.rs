@@ -428,7 +428,9 @@ impl RetainedSccpGeneration {
     #[must_use]
     pub fn is_well_formed(&self) -> bool {
         self.body.get().is_well_formed()
-            && self.dest_cleared_lc.is_none_or(|lc| lc >= self.start_lc)
+            && self
+                .dest_cleared_lc
+                .is_none_or(|lc| self.end.is_some() && lc >= self.start_lc)
             && self.end.is_none_or(|end| {
                 end.end_height >= self.start_height
                     && end.end_timestamp_ms >= self.start_timestamp_ms
@@ -581,9 +583,10 @@ mod tests {
             start_lc: 100,
             validity_ms: 10,
             deadline_ms: 110,
-            grace_ms: 5,
+            grace_ms: iroha_data_model::sccp::params::SCCP_MIN_FORGERY_EVIDENCE_GRACE_MS_V1,
             progress_cap_ms: 10,
-            liable_until_lc: 115,
+            liable_until_lc: 110
+                + iroha_data_model::sccp::params::SCCP_MIN_FORGERY_EVIDENCE_GRACE_MS_V1,
             dest_cleared_lc: None,
             end: None,
         }
@@ -637,6 +640,13 @@ mod tests {
         let budget = AllocationBudget::new(1024 * 1024);
         let previous = RetainedSccpGeneration::admit(&source, &budget).unwrap();
         let bytes = budget.reserved_bytes();
+        let mut premature = previous.clone();
+        premature.dest_cleared_lc = Some(source.start_lc);
+        assert!(
+            !premature.is_well_formed(),
+            "clearance requires an ended generation"
+        );
+        drop(premature);
         let mut next = previous.clone();
         next.end = Some(SccpGenerationEndV1 {
             end_height: 2,
@@ -660,9 +670,10 @@ mod tests {
             norito::json::to_json(&expected).unwrap()
         );
         assert_eq!(budget.reserved_bytes(), bytes);
-        assert!(next.is_liable(2, 123));
-        assert!(!next.is_liable(2, 124));
-        assert!(previous.is_liable(2, 125));
+        let cleared_deadline = next.dest_cleared_lc.unwrap() + source.grace_ms;
+        assert!(next.is_liable(2, cleared_deadline));
+        assert!(!next.is_liable(2, cleared_deadline + 1));
+        assert!(previous.is_liable(2, source.liable_until_lc + source.progress_cap_ms));
         let restored = RetainedSccpGeneration::admit(&decoded, &budget).unwrap();
         assert_eq!(restored, next);
         assert!(!ChargedShared::ptr_eq(&restored.body, &next.body));

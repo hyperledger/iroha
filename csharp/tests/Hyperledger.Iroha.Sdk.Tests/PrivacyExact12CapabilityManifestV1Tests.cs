@@ -283,8 +283,8 @@ public sealed class PrivacyExact12CapabilityManifestV1Tests
             foreach (var item in cases)
             {
                 var next = consensus
-                    ? Struct(U32(1), U32(2), U32(9 * 1024 * 1024), U32(9 * 1024 * 1024),
-                        U32(9 * 1024 * 1024), U32(18 * 1024 * 1024), U32(256 * 1024),
+                    ? Struct(U32(1), U32(2), U32(9 * 1024 * 1024), U32(9_699_840),
+                        U32(9_699_840), U32(16_711_680), U32(256 * 1024),
                         U32(8), U32(8), U32(1_024))
                     : EnumValue(6, Struct(U32(3)));
                 var pending = Struct(U64(item.Scheduled), U64(item.Effective), next);
@@ -837,9 +837,9 @@ public sealed class PrivacyExact12CapabilityManifestV1Tests
             U32(maxActionsPerTransaction),
             U32(2),
             U32(9 * 1024 * 1024),
-            U32(9 * 1024 * 1024),
-            U32(9 * 1024 * 1024),
-            U32(18 * 1024 * 1024),
+            U32(9_699_840),
+            U32(9_699_840),
+            U32(16_711_680),
             U32(256 * 1024),
             U32(8),
             U32(8),

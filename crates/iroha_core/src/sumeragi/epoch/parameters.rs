@@ -83,7 +83,9 @@ mod tests {
             .expect("test NPoS parameters must be internally consistent");
         {
             let mut block = state.world.parameters.block();
-            block.set_parameter(Parameter::Custom(parameters.into_custom_parameter()));
+            block
+                .set_parameter(Parameter::Custom(parameters.into_custom_parameter()))
+                .expect("valid fixture parameters");
             block.commit();
         }
         let world = state.world_view();

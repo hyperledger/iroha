@@ -20,7 +20,7 @@ fn selected(fixture: &Fixture) -> SumeragiFinalityVerifier {
 fn independent_export(
     verifier: &SumeragiFinalityVerifier,
     tip: &SumeragiFinalityProof,
-) -> Result<SumeragiFinalityCheckpoint, FinalityError> {
+) -> Result<SumeragiFinalityCheckpoint, FinalityReadError> {
     need(
         verifier
             .decisions
@@ -125,9 +125,14 @@ fn encoding_rechecks_changed_contexts_and_every_later_decision_bound() {
             _ => later.height += 1,
         }
         let source = norito::encode_canonical(&changed).unwrap();
-        let expected = independent_encoding(&changed).unwrap_err();
+        let expected = independent_encoding(&changed)
+            .map_err(invalid_read_error)
+            .unwrap_err();
         assert_eq!(
-            changed.encode_canonical().unwrap_err(),
+            changed
+                .encode_canonical()
+                .map_err(invalid_read_error)
+                .unwrap_err(),
             expected,
             "{mutation}"
         );
@@ -187,8 +192,16 @@ fn export_rechecks_native_qc_roster_tip_and_retained_decision_after_reuse() {
     assert_eq!(wrong_quorum.block_header, fixture.second.block_header);
     for changed in [&wrong_roster, &wrong_quorum, &fixture.first] {
         let source = norito::encode_canonical(changed).unwrap();
-        let expected = independent_export(&verifier, changed).unwrap_err();
-        assert_eq!(verifier.export_checkpoint(changed).unwrap_err(), expected);
+        let expected = independent_export(&verifier, changed)
+            .map_err(invalid_read_error)
+            .unwrap_err();
+        assert_eq!(
+            verifier
+                .export_checkpoint(changed)
+                .map_err(invalid_read_error)
+                .unwrap_err(),
+            expected
+        );
         assert_eq!(norito::encode_canonical(changed).unwrap(), source);
         assert_eq!(
             verifier.export_checkpoint(&fixture.second).unwrap(),
@@ -224,9 +237,14 @@ fn export_rechecks_native_qc_roster_tip_and_retained_decision_after_reuse() {
                 _ => unreachable!(),
             }
         }
-        let expected = independent_export(&changed, &fixture.second).unwrap_err();
+        let expected = independent_export(&changed, &fixture.second)
+            .map_err(invalid_read_error)
+            .unwrap_err();
         assert_eq!(
-            changed.export_checkpoint(&fixture.second).unwrap_err(),
+            changed
+                .export_checkpoint(&fixture.second)
+                .map_err(invalid_read_error)
+                .unwrap_err(),
             expected,
             "{field}"
         );
@@ -253,13 +271,13 @@ fn caller_limits(allocation: usize) -> norito::DecodeLimits {
     )
 }
 
-fn under_caller<T>(
+fn under_caller<T, E: Into<FinalityReadError>>(
     allocation: usize,
-    operation: impl FnOnce() -> Result<T, FinalityError>,
-) -> (Result<T, FinalityError>, u64, usize) {
+    operation: impl FnOnce() -> Result<T, E>,
+) -> (Result<T, ReadErrorObservation>, u64, usize) {
     let budget = DecodeBudgetContext::new(caller_limits(allocation));
     let before = validation_counts::calls();
-    let result = budget.with(operation);
+    let result = budget.with(operation).map_err(observe_read_error);
     (
         result,
         budget.consumed_allocated_bytes(),
@@ -267,9 +285,9 @@ fn under_caller<T>(
     )
 }
 
-fn assert_original_admission<T: std::fmt::Debug + PartialEq>(
-    original: impl Fn() -> Result<T, FinalityError>,
-    candidate: impl Fn() -> Result<T, FinalityError>,
+fn assert_original_admission<T: std::fmt::Debug + PartialEq, E: Into<FinalityReadError>>(
+    original: impl Fn() -> Result<T, E>,
+    candidate: impl Fn() -> Result<T, E>,
     positive_limit_refuses: bool,
 ) {
     let expected = under_caller(TEST_ALLOCATION_CEILING, &original);

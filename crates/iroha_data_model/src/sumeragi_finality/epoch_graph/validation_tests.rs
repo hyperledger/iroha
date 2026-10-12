@@ -114,19 +114,24 @@ fn scoped_canonical_commitment_decode_preserves_bytes_and_all_other_validation()
             ExecutionResultCommitment::decode_with_validation(&bytes, &mut validation).unwrap();
         assert_eq!(decoded, value);
         assert_eq!(decoded.preimage().unwrap(), bytes);
-        let x = crate::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+        let header = crate::sumeragi_finality::SccpFinalityHeaderV1::inactive(
             *value.schedule.current.network_id.as_bytes(),
             value.height,
             0,
         )
         .unwrap();
-        let result = |body: &ExecutionResultCommitment| {
-            crate::sumeragi_finality::certified_result::outer_result(
-                &x,
-                &crate::sumeragi_finality::certified_result::body_digest(&body.preimage().unwrap()),
+        let certified = |body| {
+            crate::sumeragi_finality::CertifiedResultV1::new(
+                header,
+                body,
+                crate::sumeragi_finality::CertifiedResultScope::NonGlobal,
             )
+            .unwrap()
         };
-        assert_eq!(result(&decoded), result(&value));
+        assert_eq!(
+            certified(decoded.clone()).result().unwrap(),
+            certified(value.clone()).result().unwrap()
+        );
         decoded.validate_with_validation(&mut validation).unwrap();
     }
     assert_eq!(validation.validations, 1);
@@ -346,11 +351,16 @@ fn scoped_decode_keeps_inherited_resource_refusal_and_reuses_epoch_work_after_re
     let refused = norito::with_decode_limits_scope(limits, || {
         ExecutionResultCommitment::decode_with_validation(&bytes, &mut validation)
     });
+    let Err(CommitmentError::Resource(original_attempt)) = refused else {
+        panic!("expected the original caller allocation refusal");
+    };
+    assert_eq!(
+        original_attempt.kind(),
+        norito::core::DecodeAttemptErrorKind::EnclosingLimit
+    );
     assert!(matches!(
-        refused,
-        Err(CommitmentError::Resource(
-            norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
-        ))
+        original_attempt.into_error().decode_resource_error(),
+        Some(norito::core::DecodeResourceError::TotalAllocationExceeded { .. })
     ));
     assert_eq!(validation.validations, 0);
     assert!(validation.entries.iter().all(Option::is_none));

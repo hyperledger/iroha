@@ -1,0 +1,95 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "interrupted_while_signing_reuses_the_persisted_payload",
+  "category": "interruption_before_submission",
+  "rules": [
+    "persist_before_effect"
+  ],
+  "description": "The process stops inside the signer. The exact unsigned payload is already durable, so the resumed run signs it without proving again.",
+  "plan": {
+    "kind": "issuer_bootstrap",
+    "instance": "interrupted-while-signing-reuses-the-persisted-payload",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "interrupt"
+        ]
+      },
+      "expect": {
+        "result": "interrupted",
+        "effects": [
+          "build:0#1",
+          "sign:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "ready_to_sign"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "accepted"
+        ],
+        "statuses": [
+          "applied"
+        ]
+      },
+      "expect": {
+        "result": "completed",
+        "effects": [
+          "sign:0#1",
+          "dispatch:0#1",
+          "status:0#1"
+        ],
+        "status": "completed",
+        "steps": [
+          "finalized"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0
+          ],
+          "irreversible_steps": [
+            0
+          ],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        }
+      }
+    }
+  ]
+}

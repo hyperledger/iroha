@@ -108,11 +108,15 @@ pub fn execute_initialize(
         return Err(refuse("reset_nonce must be nonzero"));
     }
     let timing = state_transaction.world.parameters().sumeragi();
-    if !generations::epoch_duration_is_valid(
+    if super::params::validate_epoch(
         timing.epoch_length_blocks.get(),
         timing.block_cadence_ms().get(),
-    ) {
-        return Err(refuse("epoch duration is below SCCP_MIN_EPOCH_MS"));
+    )
+    .is_err()
+    {
+        return Err(refuse(
+            "epoch duration is below SCCP_MIN_EPOCH_MS or exceeds the u64 clock",
+        ));
     }
     if state_transaction.nexus.staking.max_slash_bps == 0 {
         return Err(refuse("max_slash_bps must be at least one"));
@@ -130,7 +134,10 @@ pub fn execute_initialize(
     store::parameters::set(state_transaction, Some(instruction.parameters));
     store::reset_nonce::set(state_transaction, Some(instruction.reset_nonce));
     escrow::create_route_escrows(state_transaction)?;
-    generations::install_genesis(state_transaction, generation);
+    generations::install_genesis(state_transaction, generation).map_err(|original| {
+        state_transaction.arm_local_storage_refusal(original);
+        refuse("local genesis generation map admission did not complete")
+    })?;
     Ok(())
 }
 
@@ -158,7 +165,8 @@ mod tests {
         stx.world
             .parameters
             .get_mut()
-            .set_parameter(Parameter::Custom(npos.into_custom_parameter()));
+            .set_parameter(Parameter::Custom(npos.into_custom_parameter()))
+            .expect("fixture validator parameters");
     }
 
     fn original_genesis_context() -> iroha_data_model::sumeragi::epoch::ValidatorEpochContextV1 {
@@ -365,7 +373,8 @@ mod tests {
                     .get_mut()
                     .set_parameter(Parameter::Sumeragi(SumeragiParameter::EpochLengthBlocks(
                         std::num::NonZeroU64::new(1).unwrap(),
-                    )));
+                    )))
+                    .expect("fixture short epoch");
             }
             let error = refusal(execute_initialize(
                 SampleInstructions::initialize(),

@@ -167,7 +167,7 @@ impl TransactionStructuralSummary {
             proof_attachment_count: payload
                 .attachments
                 .as_ref()
-                .map_or(0, |attachments| attachments.len()),
+                .map_or(0, |attachments| attachments.occurrences().len()),
             fee_payment_kind: fee_payment_kind(fee_payment),
             fee_charge_limit_count: fee_payment.charge_limits().len(),
             gas_limit: fee_payment.gas_limit().map(Into::into),

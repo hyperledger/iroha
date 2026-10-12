@@ -210,13 +210,12 @@ use iroha_data_model::{
         PrivacyProofBytesV1, PrivacyProofEnvelopeV1, PrivacyProofSystemIdV1, PrivacyProofV1,
         PrivacyProtocolActivationLimitsV1, PrivacyProtocolActivationRecordV1, PrivacyProtocolIdV1,
         PrivacyProtocolLifecycleV1, PrivacyRootV1, PrivacySessionTranscriptDigestV1,
-        PrivacyStatementContextV1, PrivacyStatementDigestV1, PrivacyStatementV1,
-        PrivacyTransactionIntentDigestV1, PrivacyValueBalanceDirectionV1, PrivacyValueBalanceV1,
-        PrivacyVegaIssuerRecordLifecycleV1, PrivacyVegaIssuerRecordV1, PrivacyVegaMdlDateV1,
-        PrivacyVegaMdlDigestAlgorithmV1, PrivacyVegaMdlNamespaceV1,
-        PrivacyVegaMdlSignatureAlgorithmV1, PrivacyZkAmsActionV1, PrivacyZkAmsAdmissionAnchorV1,
-        PrivacyZkAmsBatchAdmissionV1, PrivacyZkAmsCredentialNonceV1, PrivacyZkAmsKeyImageV1,
-        PrivacyZkAmsPersonhoodCredentialV1, PrivacyZkAmsProvisionAccountV1,
+        PrivacyStatementContextV1, PrivacyStatementV1, PrivacyTransactionIntentDigestV1,
+        PrivacyValueBalanceDirectionV1, PrivacyValueBalanceV1, PrivacyVegaIssuerRecordLifecycleV1,
+        PrivacyVegaIssuerRecordV1, PrivacyVegaMdlDateV1, PrivacyVegaMdlDigestAlgorithmV1,
+        PrivacyVegaMdlNamespaceV1, PrivacyVegaMdlSignatureAlgorithmV1, PrivacyZkAmsActionV1,
+        PrivacyZkAmsAdmissionAnchorV1, PrivacyZkAmsBatchAdmissionV1, PrivacyZkAmsCredentialNonceV1,
+        PrivacyZkAmsKeyImageV1, PrivacyZkAmsPersonhoodCredentialV1, PrivacyZkAmsProvisionAccountV1,
         PrivacyZkAmsRegistryIdV1, PrivacyZkAmsRegistryRecordDigestV1, PrivacyZkAmsSeedPublicKeyV1,
         PrivacyZkAmsSubjectCommitmentV1, TAIRA_PRIVACY_MAX_PROOF_BYTES_PER_ACTION_V1,
         VegaExistingCredentialStatementV1, ZK_AMS_PHC_VERSION_V1,
@@ -3427,7 +3426,7 @@ fn zk_ams_prepared_release_material_v1(
             .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?
             != expected_proof_bytes
             || u32::try_from(
-                norito::to_bytes(&submission.envelope.statement)
+                norito::encode_canonical(&submission.envelope.statement)
                     .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?
                     .len(),
             )
@@ -3436,7 +3435,7 @@ fn zk_ams_prepared_release_material_v1(
         {
             return Err(PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant);
         }
-        let encoded_envelope = norito::to_bytes(&submission.envelope)
+        let encoded_envelope = norito::encode_canonical(&submission.envelope)
             .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?;
         if u32::try_from(encoded_envelope.len())
             .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?
@@ -3508,7 +3507,7 @@ fn zk_ams_prepared_release_material_v1(
         ) => proof.as_bytes(),
         _ => return Err(PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant),
     };
-    let signed_envelope = norito::to_bytes(&signed_submission.envelope)
+    let signed_envelope = norito::encode_canonical(&signed_submission.envelope)
         .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?;
     if signed_proof != proof.as_slice()
         || u32::try_from(signed_envelope.len())
@@ -3955,21 +3954,11 @@ fn verify_zk_ams_release_production_envelope_v1(
             IrohaZkAmsProofV1::Ristretto255LsagProvisionAccount(proof_bytes)
         }
     };
-    let envelope = PrivacyProofEnvelopeV1 {
-        wire_magic: Default::default(),
-        catalog_commitment: Default::default(),
-        protocol_id: profile.protocol_id,
-        proof_system_id: profile.proof_system_id,
-        engine_id: profile.engine_id,
-        parameter_id: profile.parameter_id,
-        parameter_digest: profile.parameter_digest,
-        verifier_digest: profile.verifier_digest,
-        statement_schema_digest: profile.statement_schema_digest,
-        engine_manifest_digest: profile.engine_manifest_digest,
-        statement_digest,
-        statement: typed_statement,
-        proof: PrivacyProofV1::IrohaZkAmsV1(action_proof),
-    };
+    let envelope = PrivacyProofEnvelopeV1::bind_v1(
+        typed_statement,
+        PrivacyProofV1::IrohaZkAmsV1(action_proof),
+    )
+    .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::ProductionEnvelopeRejected)?;
     let limits = PrivacyConsensusLimitsV1::taira_default();
     let effects = verify_privacy_envelope_v1(
         &envelope,
@@ -4302,23 +4291,11 @@ fn verify_jindo_release_production_envelope_v1(
     let statement_digest = typed_statement
         .digest()
         .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?;
-    let envelope = PrivacyProofEnvelopeV1 {
-        wire_magic: Default::default(),
-        catalog_commitment: Default::default(),
-        protocol_id: profile.protocol_id,
-        proof_system_id: profile.proof_system_id,
-        engine_id: profile.engine_id,
-        parameter_id: profile.parameter_id,
-        parameter_digest: profile.parameter_digest,
-        verifier_digest: profile.verifier_digest,
-        statement_schema_digest: profile.statement_schema_digest,
-        engine_manifest_digest: profile.engine_manifest_digest,
-        statement_digest,
-        statement: typed_statement,
-        proof: PrivacyProofV1::IrohaJindoPolynomialCommitmentV1(PrivacyProofBytesV1::new(
-            proof.to_vec(),
-        )),
-    };
+    let envelope = PrivacyProofEnvelopeV1::bind_v1(
+        typed_statement,
+        PrivacyProofV1::IrohaJindoPolynomialCommitmentV1(PrivacyProofBytesV1::new(proof.to_vec())),
+    )
+    .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::ProductionEnvelopeRejected)?;
     let limits = PrivacyConsensusLimitsV1::taira_default();
     let effects = verify_privacy_envelope_v1(
         &envelope,
@@ -4484,21 +4461,14 @@ fn run_orchard_stage_v1(
     };
     let mut statement = orchard_release_statement_v1(draft_context, prepared.public_draft())?;
     let draft_typed_statement = PrivacyStatementV1::OrchardHalo2ActionsV1(statement.clone());
-    let draft_envelope = PrivacyProofEnvelopeV1 {
-        wire_magic: Default::default(),
-        catalog_commitment: Default::default(),
-        protocol_id: profile.protocol_id,
-        proof_system_id: profile.proof_system_id,
-        engine_id: profile.engine_id,
-        parameter_id: profile.parameter_id,
-        parameter_digest: profile.parameter_digest,
-        verifier_digest: profile.verifier_digest,
-        statement_schema_digest: profile.statement_schema_digest,
-        engine_manifest_digest: profile.engine_manifest_digest,
-        statement_digest: PrivacyStatementDigestV1::new([0; 32]),
-        statement: draft_typed_statement,
-        proof: PrivacyProofV1::OrchardHalo2ActionsV1(PrivacyProofBytesV1::new(Vec::new())),
-    };
+    let draft_envelope = PrivacyProofEnvelopeV1::bind_v1(
+        draft_typed_statement,
+        PrivacyProofV1::OrchardHalo2ActionsV1(PrivacyProofBytesV1::new(Vec::new())),
+    )
+    .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?;
+    if !profile.matches_envelope_v1(&draft_envelope) {
+        return Err(PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant);
+    }
     let canonical_intent = orchard_release_transaction_payload_v1(draft_envelope)?
         .privacy_transaction_intent_digest_v1()
         .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::FixtureConstructionFailed)?;
@@ -4540,24 +4510,14 @@ fn run_orchard_stage_v1(
         return Err(PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant);
     }
     let final_typed_statement = PrivacyStatementV1::OrchardHalo2ActionsV1(statement);
-    let final_statement_digest = final_typed_statement
-        .digest()
-        .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?;
-    let final_envelope = PrivacyProofEnvelopeV1 {
-        wire_magic: Default::default(),
-        catalog_commitment: Default::default(),
-        protocol_id: profile.protocol_id,
-        proof_system_id: profile.proof_system_id,
-        engine_id: profile.engine_id,
-        parameter_id: profile.parameter_id,
-        parameter_digest: profile.parameter_digest,
-        verifier_digest: profile.verifier_digest,
-        statement_schema_digest: profile.statement_schema_digest,
-        engine_manifest_digest: profile.engine_manifest_digest,
-        statement_digest: final_statement_digest,
-        statement: final_typed_statement,
-        proof: PrivacyProofV1::OrchardHalo2ActionsV1(PrivacyProofBytesV1::new(proof_bytes.clone())),
-    };
+    let final_envelope = PrivacyProofEnvelopeV1::bind_v1(
+        final_typed_statement,
+        PrivacyProofV1::OrchardHalo2ActionsV1(PrivacyProofBytesV1::new(proof_bytes.clone())),
+    )
+    .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?;
+    if !profile.matches_envelope_v1(&final_envelope) {
+        return Err(PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant);
+    }
     let final_payload = orchard_release_transaction_payload_v1(final_envelope.clone())?;
     let validated_intent = final_payload
         .validate_privacy_transaction_intent_binding_v1()

@@ -99,8 +99,10 @@ impl RetainedFeeClaim {
         if bytes.is_empty() || bytes.len() > FEE_CLAIM_MAX_BYTES_V1 {
             return Err(Error::Invalid("fee claim frame bound"));
         }
-        let value: Self =
-            archive::decode(bytes).map_err(|_| Error::Invalid("fee claim canonical frame"))?;
+        let value: Self = archive::decode(bytes).map_err(|error| match error {
+            Error::WitnessLost(_) => Error::Invalid("fee claim canonical frame"),
+            original => original,
+        })?;
         // This parser receives transport DATA. Lost selected archive originals are classified
         // separately by read_fee_claim; malformed offered pairs never imply local custody loss.
         if value

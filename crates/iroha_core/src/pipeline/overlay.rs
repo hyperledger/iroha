@@ -3780,9 +3780,11 @@ pub(crate) mod test_support {
     /// Component fixture with explicit committed global-root metadata.
     pub(crate) fn with_global_root(world: crate::state::World) -> crate::state::World {
         let mut parameters = world.parameters.block();
-        parameters.set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
-            iroha_data_model::block::consensus::SumeragiRootScope::Global,
-        ));
+        parameters
+            .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+                iroha_data_model::block::consensus::SumeragiRootScope::Global,
+            ))
+            .expect("valid fixture parameters");
         parameters.commit();
         world
     }
@@ -7255,7 +7257,9 @@ seiyaku ProtectedProved { permission CanWriteProved;
             world,
             ChainId::from("protected-proved-overlay"),
         );
-        state.zk.pipa_r.enabled = true;
+        state
+            .edit_zk_for_testing(|zk| zk.pipa_r.enabled = true)
+            .expect("fixture ZK settings install");
         let mut metadata = Metadata::default();
         metadata.insert(
             "contract_entrypoint".parse().expect("metadata key"),
@@ -7622,7 +7626,9 @@ seiyaku AliasBoundArguments { permission CanInvokeOverlayFixture;
             .account_permissions_mut_for_testing()
             .insert(authority.clone(), permissions);
         let mut state = test_support::state_after_genesis(world);
-        state.zk.pipa_r.enabled = true;
+        state
+            .edit_zk_for_testing(|zk| zk.pipa_r.enabled = true)
+            .expect("fixture ZK settings install");
         let summary = IvmCache::new()
             .summarize_program(bytecode.as_ref())
             .expect("program summary");

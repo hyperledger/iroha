@@ -421,14 +421,17 @@ impl<'a> PreparationCustodyV1<'a> {
                     &manifest::sequence_key(u128::from(epoch)),
                 )?
                 .ok_or(Error::Invalid("Load epoch has not been synchronized"))?;
-            let entry: native_owner::epochs::EpochEntry = archive::decode(&bytes)
-                .map_err(|_| Error::WitnessLost("Load selected epoch entry"))?;
+            let entry: native_owner::epochs::EpochEntry = archive::decode(&bytes)?;
             let bytes = self
                 .maps
                 .store()
                 .read_object(&entry.checkpoint, MAX_COMMIT_CHECKPOINT_BYTES)?;
-            SumeragiCommitCheckpointV1::decode_canonical(&bytes)
-                .map_err(|_| Error::WitnessLost("Load selected epoch original"))?
+            SumeragiCommitCheckpointV1::decode_canonical(&bytes).map_err(|error| {
+                super::finality_read_error(
+                    error,
+                    Error::WitnessLost("Load selected epoch original"),
+                )
+            })?
         };
         if checkpoint.selected_epoch().authorization.epoch != epoch {
             return Err(Error::WitnessLost("Load selected epoch identity"));

@@ -762,22 +762,21 @@ impl ViewCallV1 {
             Self::CommitteeState => {
                 ViewReturnV1::CommitteeState(decode_committee_state_return(data)?)
             }
-            Self::CheckpointHeader(_) => ViewReturnV1::Bytes32(decode_bytes32_return(data)?),
+            Self::CheckpointHeader(_) | Self::ConsensusInstance | Self::TairaNetworkId => {
+                ViewReturnV1::Bytes32(decode_bytes32_return(data)?)
+            }
             Self::PauseState => ViewReturnV1::PauseState(decode_pause_state_return(data)?),
-            Self::ConsensusInstance => ViewReturnV1::Bytes32(decode_bytes32_return(data)?),
             Self::InitialCommittee => {
                 ViewReturnV1::InitialCommittee(decode_initial_committee_return(data)?)
             }
-            Self::Equivocated => ViewReturnV1::Bool(decode_bool_return(data)?),
-            Self::MaxValidityMs => ViewReturnV1::U64(decode_u64_return(data)?),
-            Self::IsConsumed(_) => ViewReturnV1::Bool(decode_bool_return(data)?),
-            Self::TransferNonces(_) => ViewReturnV1::U64(decode_u64_return(data)?),
-            Self::TairaNetworkId => ViewReturnV1::Bytes32(decode_bytes32_return(data)?),
+            Self::Equivocated | Self::IsConsumed(_) | Self::MintingPaused => {
+                ViewReturnV1::Bool(decode_bool_return(data)?)
+            }
+            Self::MaxValidityMs | Self::TransferNonces(_) | Self::ControlNonce | Self::OpCount => {
+                ViewReturnV1::U64(decode_u64_return(data)?)
+            }
             Self::RouteRevision => ViewReturnV1::U32(decode_u32_return(data)?),
             Self::MaxWrappedSupply => ViewReturnV1::U128(decode_u128_return(data)?),
-            Self::MintingPaused => ViewReturnV1::Bool(decode_bool_return(data)?),
-            Self::ControlNonce => ViewReturnV1::U64(decode_u64_return(data)?),
-            Self::OpCount => ViewReturnV1::U64(decode_u64_return(data)?),
         })
     }
 }

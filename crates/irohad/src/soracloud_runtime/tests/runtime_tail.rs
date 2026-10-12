@@ -124,6 +124,73 @@ fn vm_deferrals_are_local_unavailable_and_never_deterministic_faults() -> Result
     Ok(())
 }
 #[test]
+fn vm_decode_deferral_retains_original_owner_and_refuses_durable_mailbox_results() -> Result<()> {
+    let bytes = norito::encode_canonical(&vec![31_u8; 16]).unwrap();
+    let original = norito::core::with_decode_limits_scope(
+        norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+        || {
+            norito::decode_canonical_for_admission::<Vec<u8>>(
+                &bytes,
+                norito::canonical_decode_limits(bytes.len()),
+            )
+        },
+    )
+    .unwrap_err()
+    .into_local_refusal()
+    .unwrap();
+    assert_eq!(
+        original.kind(),
+        norito::core::DecodeLocalRefusalKind::EnclosingLimit,
+    );
+    let bundle = load_deployment_bundle_fixture()?;
+    let request = sample_ordered_mailbox_request(
+        &bundle,
+        "update",
+        sample_mailbox_message(&bundle, "update", b"decode-retry".to_vec()),
+    );
+    let direct = VMError::DecodeDeferred(original.clone());
+    let nested = VMError::Metered {
+        gas: 41,
+        source: Box::new(VMError::Metered {
+            gas: 19,
+            source: Box::new(direct.clone()),
+        }),
+    };
+    for error in [direct, nested] {
+        assert_eq!(vm_error_label(&error), "decode_deferred");
+        assert_eq!(
+            vm_error_kind(&error),
+            SoracloudRuntimeExecutionErrorKind::Unavailable,
+        );
+        assert_eq!(error.fault_kind(), None);
+        assert_eq!(error.metered_gas(), None);
+        let failure = ordered_mailbox_vm_failure(request.clone(), &error)
+            .expect_err("original local decoder refusal must not create a durable mailbox result");
+        assert_eq!(
+            failure.kind,
+            SoracloudRuntimeExecutionErrorKind::Unavailable
+        );
+        let VMError::DecodeDeferred(retained) = error.as_unmetered() else {
+            panic!("daemon inspection must preserve the original decoder owner");
+        };
+        assert_eq!(retained, &original);
+        assert_eq!(
+            error.split_metered(),
+            (None, VMError::DecodeDeferred(original.clone()))
+        );
+    }
+    assert_eq!(
+        norito::decode_canonical_for_admission::<Vec<u8>>(
+            &bytes,
+            norito::canonical_decode_limits(bytes.len()),
+        )
+        .unwrap(),
+        vec![31_u8; 16],
+    );
+    Ok(())
+}
+
+#[test]
 fn vm_nested_call_faults_keep_distinct_deterministic_mailbox_labels_when_metered() -> Result<()> {
     let bundle = load_deployment_bundle_fixture()?;
     let request = sample_ordered_mailbox_request(

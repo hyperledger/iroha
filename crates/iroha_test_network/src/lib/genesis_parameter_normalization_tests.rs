@@ -5,7 +5,7 @@ use iroha_data_model::{
     executor::Executor,
     isi::Upgrade,
     parameter::{BlockParameter, CustomParameter},
-    proof::{ProofAttachment, ProofAttachmentList, ProofBox, VerifyingKeyId},
+    proof::{ProofAttachment, ProofBox, VerifyingKeyId},
     transaction::{FeePaymentIntent, IvmBytecode, TransactionBuilder, signed::MultisigSignatures},
 };
 use std::{num::NonZeroU32, panic::AssertUnwindSafe};
@@ -216,7 +216,8 @@ fn normalization_rejects_removing_a_proof_attached_parameter_source() {
         VerifyingKeyId::new("halo2/ipa", "normalization"),
     );
     let attached = builder(&key, 1, vec![SetParameter::new(block_limit(7)).into()])
-        .with_attachments(ProofAttachmentList::try_from(vec![attachment]).unwrap())
+        .with_proof_attachments(vec![attachment])
+        .expect("valid proof carriers")
         .try_sign(key.private_key())
         .unwrap();
     let source = [sign(&key, 0, vec![marker("carrier")]), attached];

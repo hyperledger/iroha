@@ -429,7 +429,11 @@ impl QueryLimits {
     pub fn from_torii(cfg: &ToriiActual) -> Self {
         Self::new(u64::from(cfg.app_api.max_fetch_size.get()))
     }
-    /// Construct limits from a Pipeline configuration snapshot.
+    /// Construct limits from the pipeline settings of a State view or block.
+    ///
+    /// `query_max_fetch_size` there is the committed pipeline validity policy
+    /// (`pipeline_validity_policy_v1`) or the protocol default; the node
+    /// configuration has no key for it.
     #[must_use]
     pub fn from_pipeline(cfg: &PipelineActual) -> Self {
         Self::new(cfg.query_max_fetch_size)
@@ -3053,42 +3057,38 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             iroha_config::base::toml::TomlSource::from_file(file.path()).expect("read config");
         ConfigRoot::from_toml_source(source).expect("load minimal config")
     }
-    fn minimal_root_with_pipeline_max_fetch(max_fetch_size: u64) -> ConfigRoot {
-        let config = format!(
-            r#"
-chain = "00000000-0000-0000-0000-000000000000"
-public_key = "ea01309060D021340617E9554CCBC2CF3CC3DB922A9BA323ABDF7C271FCC6EF69BE7A8DEBCA7D9E96C0F0089ABA22CDAADE4A2"
-private_key = "8926201CA347641228C3B79AA43839DEDC85FA51C0E8B9B6A00F6B0D6B0423E902973F"
-soranet_transport_public_key = "ed0120D9F6AEF1813164294D1D9C0662FEB9C7F7861B4DFFE385680331093DA4ABD10B"
-soranet_transport_private_key = "802620134C4527B3852AE2218A8F079B301C651EAD8C7567B96BD7A9BE8DB366E46B89"
-trusted_peers_pop = [
-  {{ public_key = "ea01309060D021340617E9554CCBC2CF3CC3DB922A9BA323ABDF7C271FCC6EF69BE7A8DEBCA7D9E96C0F0089ABA22CDAADE4A2", pop_hex = "8515da750f81182aaba5c22fc9f03a01e81ed85e4495a2ca6b29a71c0c8549537e31e79cddf6ff285b9e22d0d9dc17ce0f46e7d0cf78b2ef9feab50c849a1ea8e1e4f07e966f6113faa8a999317545d9f111b8e08a7273913710b43a20b19c08" }},
-]
-
-[network]
-address = "addr:127.0.0.1:1337#8F78"
-public_address = "addr:127.0.0.1:1337#8F78"
-
-[torii]
-address = "addr:127.0.0.1:8080#8942"
-
-[pipeline]
-query_max_fetch_size = {max_fetch_size}
-
-[genesis]
-public_key = "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03"
-expected_hash = "hash:0000000000000000000000000000000000000000000000000000000000000001#C50E"
-
-[streaming]
-identity_public_key = "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB"
-identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544168B6CB894F84F"
-"#
+    /// A State whose World commits `pipeline_validity_policy_v1` with the given
+    /// IVM query fetch limit; `node` is the node's own pipeline settings.
+    fn state_with_committed_max_fetch(
+        max_fetch_size: u64,
+        node: Option<PipelineActual>,
+    ) -> crate::state::State {
+        use iroha_data_model::{
+            parameter::Parameter, pipeline_validity_policy::PipelineValidityPolicyV1,
+        };
+        let world = crate::state::World::default();
+        let mut policy = PipelineValidityPolicyV1::protocol_default();
+        policy.query_max_fetch_size = max_fetch_size;
+        {
+            let mut block = world.block();
+            block
+                .parameters
+                .get_mut()
+                .set_parameter(Parameter::Custom(policy.into_custom_parameter()))
+                .expect("valid fixture parameters");
+            block.commit();
+        }
+        let mut state = crate::state::State::new_for_testing(
+            world,
+            crate::kura::Kura::blank_kura_for_testing(),
+            crate::query::store::LiveQueryStore::start_test(),
         );
-        let mut file = NamedTempFile::new().expect("temp config file");
-        file.write_all(config.as_bytes()).expect("write config");
-        let source =
-            iroha_config::base::toml::TomlSource::from_file(file.path()).expect("read config");
-        ConfigRoot::from_toml_source(source).expect("load minimal config")
+        if let Some(node) = node {
+            state
+                .install_node_pipeline(node)
+                .expect("node pipeline resources install");
+        }
+        state
     }
     #[test]
     fn reject_fetch_size_above_max() {
@@ -3181,16 +3181,50 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         ));
     }
     #[test]
-    fn query_limits_from_pipeline_uses_configured_max_fetch() {
-        let root = minimal_root_with_pipeline_max_fetch(3);
-        let limits = QueryLimits::from_pipeline(&root.pipeline);
-        let request = request_with_fetch_size(4);
-        let err = validate_query_request_limits(&request, limits)
-            .expect_err("configured pipeline max fetch should be enforced");
-        assert!(matches!(
-            err,
-            ValidationFail::QueryFailed(Error::FetchSizeTooBig)
-        ));
+    fn query_limits_from_pipeline_use_the_committed_max_fetch_at_and_above_the_limit() {
+        // The limit is the committed pipeline validity policy, not node
+        // configuration: a node that holds another value decides the same.
+        let mut divergent = iroha_config::parameters::actual::Pipeline::default();
+        divergent.query_max_fetch_size = 1;
+        for node in [None, Some(divergent)] {
+            let state = state_with_committed_max_fetch(3, node);
+            let view = state.view();
+            let limits = QueryLimits::from_pipeline(&view.pipeline);
+            validate_query_request_limits(&request_with_fetch_size(3), limits)
+                .expect("a fetch of exactly the committed limit is accepted");
+            let err = validate_query_request_limits(&request_with_fetch_size(4), limits)
+                .expect_err("one item above the committed limit is rejected");
+            assert!(matches!(
+                err,
+                ValidationFail::QueryFailed(Error::FetchSizeTooBig)
+            ));
+            // The block built on this State freezes the same limit.
+            let block = state.block(iroha_data_model::block::BlockHeader::new(
+                nonzero!(2_u64),
+                None,
+                None,
+                0,
+                0,
+            ));
+            let limits = QueryLimits::from_pipeline(&block.pipeline);
+            validate_query_request_limits(&request_with_fetch_size(3), limits)
+                .expect("the block accepts a fetch of exactly the committed limit");
+            assert!(validate_query_request_limits(&request_with_fetch_size(4), limits).is_err());
+        }
+        // Without a committed policy the protocol default decides.
+        let default_limit = pipeline_defaults::QUERY_MAX_FETCH_SIZE;
+        let state = crate::state::State::new_for_testing(
+            crate::state::World::default(),
+            crate::kura::Kura::blank_kura_for_testing(),
+            crate::query::store::LiveQueryStore::start_test(),
+        );
+        let limits = QueryLimits::from_pipeline(&state.view().pipeline);
+        validate_query_request_limits(&request_with_fetch_size(default_limit), limits)
+            .expect("the protocol default limit is accepted");
+        assert!(
+            validate_query_request_limits(&request_with_fetch_size(default_limit + 1), limits)
+                .is_err()
+        );
     }
 }
 /// Validate a fresh client query without exposing a reusable execution capability.

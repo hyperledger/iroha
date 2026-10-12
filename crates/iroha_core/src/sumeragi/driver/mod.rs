@@ -136,7 +136,7 @@ pub enum Worker {
 pub struct FrameLimitExceeded {
     /// Height the configuration applies from.
     pub height: u64,
-    /// `max_block_bytes + FRAME_OVERHEAD`.
+    /// Required budget (`max_block_bytes + 2 * FRAME_OVERHEAD`) for feasible sync settings.
     pub needed: u64,
     /// The transport's frame limit.
     pub limit: u64,
@@ -272,7 +272,8 @@ pub fn frame_limit_exceeded(
     height: u64,
     config: &HeightConfig,
 ) -> Option<FrameLimitExceeded> {
-    let needed = u64::from(config.params.max_block_bytes) + u64::from(FRAME_OVERHEAD);
+    let needed =
+        iroha_sumeragi::pacemaker::minimum_transport_frame_bytes(config.params.max_block_bytes);
     (needed > frame_limit).then_some(FrameLimitExceeded {
         height,
         needed,
@@ -897,7 +898,10 @@ impl Crypto for CryptoRef {
     fn verify(&self, pk: &PublicKey, msg: &[u8], sig: &Signature) -> bool {
         self.0.verify(pk, msg, sig)
     }
-    fn aggregate(&self, sigs: &[Signature]) -> AggregateSignature {
+    fn aggregate(
+        &self,
+        sigs: &[Signature],
+    ) -> Result<AggregateSignature, iroha_sumeragi::crypto::AggregationError> {
         self.0.aggregate(sigs)
     }
     fn verify_aggregate(&self, pks: &[&PublicKey], msg: &[u8], agg: &AggregateSignature) -> bool {
@@ -1788,6 +1792,14 @@ where
                             kernel
                                 .exec
                                 .bind_release_waker(shared.wake.clone().into_waker());
+                            kernel
+                                .exec
+                                .bind_release_thread(shared.wake.original_thread());
+                            shared
+                                .pending_admission
+                                .lock()
+                                .registration
+                                .bind_thread(shared.wake.original_thread());
                             if let Some(metrics) = metrics {
                                 kernel.attach_metrics(metrics);
                             }

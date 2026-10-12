@@ -634,7 +634,7 @@ fn absent_selection(policy: &SignerCustodyPolicyV1) -> StreamTokenCustodySelecti
 fn configure_plan(policy: SignerCustodyPolicyV1) -> Plan {
     Plan {
         selection: absent_selection(&policy),
-        action: Action::Configure(policy),
+        action: Action::Configure(Box::new(policy)),
         validated_at_unix_ms: 1_000,
         deadline_unix_ms: 2_000,
     }

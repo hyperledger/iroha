@@ -607,11 +607,15 @@ mod tests {
         assert_eq!(committed_root_scope(&absent), None);
         drop(absent);
         let mut parameters = world.parameters.block();
-        parameters.set_parameter(Parameter::Custom(CustomParameter::new(
-            consensus_metadata::handshake_meta_id(),
-            iroha_primitives::json::Json::from_norito_value_ref(&norito::json::Value::Bool(false))
+        parameters
+            .set_parameter(Parameter::Custom(CustomParameter::new(
+                consensus_metadata::handshake_meta_id(),
+                iroha_primitives::json::Json::from_norito_value_ref(&norito::json::Value::Bool(
+                    false,
+                ))
                 .unwrap(),
-        )));
+            )))
+            .expect("valid fixture parameters");
         parameters.commit();
         let view = world.view();
         assert_eq!(committed_root_scope(&view), None);

@@ -24,6 +24,8 @@ use std::sync::OnceLock;
 pub const BACKEND: &str = "pipa-r/pasta";
 /// Whole-container key bound applied before any expensive material construction.
 pub const MAX_KEY_BYTES: usize = 64 * 1024;
+/// Whole native proof carrier bound checked before canonical Norito decoding.
+pub const MAX_PROOF_BYTES: usize = 128 * 1024;
 
 /// Canonical registry identity of a built-in native verifier.
 ///
@@ -292,7 +294,7 @@ pub fn public_instances(
 fn decode_native(kind: NativeRelationV1, bytes: &[u8]) -> Result<NativePipaRProofV1, String> {
     // All current fixed circuits are much smaller; this cap bounds a malicious
     // Norito container before allocation. Exact transcript/arity checks follow.
-    if bytes.len() > 128 * 1024 {
+    if bytes.len() > MAX_PROOF_BYTES {
         return Err("native proof container exceeds fixed bound".into());
     }
     let native: NativePipaRProofV1 =

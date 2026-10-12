@@ -7,8 +7,13 @@ production admission. Full native proofs, integrated tests, concrete resource
 measurements and Keccak hardware parity remain required.
 
 Every H/G input is the complete canonical `ProfileContextV1` frame followed by
-one canonical `BodyV1` frame. The prefix binds the catalog, protocol, full fixed
-profile identity and full statement context. The body binds its kind, oracle,
+one canonical `BodyV1` frame. The prefix binds the framing version, the
+catalog, the name of the frozen transcript construction
+(`fips202-atomic-whole-tape-transcript-v1`), the complete canonical bytes of
+the typed profile descriptor and the full statement context. The
+[DEEP contract](fastpq_deep_protocol_contract.md#frozen-transcript-profile)
+lists what the descriptor binds and states the frozen profile's security
+claims. The body binds its kind, oracle,
 round, level, position, output length and exact ordered fields. SHA3's `0x06`
 and SHAKE's `0x1f` suffixes separate the primitives. Cached absorbed prefixes
 preserve every logical input byte; context hashes do not replace those bytes.

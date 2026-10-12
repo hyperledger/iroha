@@ -85,6 +85,13 @@ origin through which its construction sites are reachable, never fewer:
   type, such as the executor-upgrade instruction or a local diagnostic check. It
   is never an invocation outcome.
 
+`DecodeDeferred` retains the canonical decoder's original non-wire refusal through
+metadata, literal and argument admission, VM errors and Core attempt boundaries.
+Its opaque scope is preserved after the caller's decode scope retires. It carries
+no allocation-pool release notification and cannot become metered gas or a
+deterministic fault. Its presence does not qualify other decoder or verifier
+paths that still discard resource causes.
+
 `run_phases` restates the trap tokens and propagated helpers of the four parts
 of a run outside the dispatch arms. The terminal block also returns results
 without `?` (the recorded contract abort and the shared cycle allowance), so the

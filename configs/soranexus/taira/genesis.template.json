@@ -329,6 +329,10 @@
             "id": "ivm_gas_limit_per_block",
             "payload": 50000000
           },
+          "ivm_gas_tech_account_id": {
+            "id": "ivm_gas_tech_account_id",
+            "payload": "testuﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"
+          },
           "ivm_gas_accepted_assets": {
             "id": "ivm_gas_accepted_assets",
             "payload": [
@@ -360,6 +364,81 @@
               "xor_asset_definition_id": null,
               "epoch_length_blocks": 3600,
               "slashing_delay_blocks": 3600
+            }
+          },
+          "zk_validity_policy_v1": {
+            "id": "zk_validity_policy_v1",
+            "payload": {
+              "pipa_r": {
+                "enabled": true,
+                "max_envelope_bytes": 1048576,
+                "max_proof_bytes": 196608
+              },
+              "stark": {
+                "enabled": true,
+                "max_envelope_bytes": 1048576,
+                "max_proof_bytes": 1048576
+              },
+              "sccp": {
+                "max_proofs_per_transaction": 1,
+                "max_proofs_per_block": 4,
+                "max_proof_bytes_per_proof": 8388608,
+                "max_proof_bytes_per_transaction": 8388608,
+                "max_proof_bytes_per_block": 33554432,
+                "max_native_headers_per_transaction": 4096,
+                "max_native_headers_per_block": 16384,
+                "max_ethereum_light_client_updates_per_transaction": 128,
+                "max_ethereum_light_client_updates_per_block": 512,
+                "max_native_header_bytes_per_transaction": 8388608,
+                "max_native_header_bytes_per_block": 33554432,
+                "max_ed25519_signature_checks_per_transaction": 65536,
+                "max_ed25519_signature_checks_per_block": 262144,
+                "max_bls_vote_attestations_per_transaction": 64,
+                "max_bls_vote_attestations_per_block": 256
+              },
+              "proofs": {
+                "max_verify_batch": 16,
+                "ballot_history_cap": 1024,
+                "preverify_max_bytes": 1048576,
+                "preverify_budget_bytes": 0,
+                "proof_history_cap": 4096,
+                "proof_retention_grace_blocks": 256,
+                "proof_prune_batch": 512,
+                "bridge_proof_max_range_len": 4096,
+                "bridge_proof_max_past_age_blocks": 0,
+                "bridge_proof_max_future_drift_blocks": 0,
+                "poseidon_params_id": null,
+                "pedersen_params_id": null,
+                "kaigi_authorization_vk": null,
+                "kaigi_usage_vk": null
+              },
+              "confidential": {
+                "max_proof_size_bytes": 8388608,
+                "max_nullifiers_per_tx": 8,
+                "max_commitments_per_tx": 8,
+                "max_confidential_ops_per_block": 256,
+                "max_anchor_age_blocks": 10000,
+                "max_proof_bytes_block": 16777216,
+                "max_verify_calls_per_tx": 128,
+                "max_verify_calls_per_block": 128,
+                "max_public_inputs": 32,
+                "reorg_depth_bound": 10000,
+                "policy_transition_delay_blocks": 100,
+                "policy_transition_window_blocks": 200,
+                "policy_transition_max_per_height": 256,
+                "tree_roots_history_len": 10000,
+                "tree_frontier_checkpoint_interval": 100,
+                "registry_max_vk_entries": 64,
+                "registry_max_params_entries": 32,
+                "registry_max_delta_per_block": 4
+              },
+              "gas": {
+                "proof_base": 250000,
+                "per_public_input": 2000,
+                "per_proof_byte": 5,
+                "per_nullifier": 300,
+                "per_commitment": 500
+              }
             }
           }
         },

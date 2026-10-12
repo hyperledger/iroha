@@ -12,7 +12,8 @@ use super::{
 use crate::{
     execution_attempt::{ExecutionAttemptError, ExecutionDeferred, norito_decode_attempt_error},
     state::{
-        StateReadOnly, StateTransaction, WorldReadOnly, public_lane_validator_record_matches_key,
+        StateReadOnly, StateStorageAdmissionError, StateTransaction, WorldReadOnly,
+        public_lane_validator_record_matches_key,
     },
 };
 use iroha_allocation::{AllocationBudget, AllocationRefusal, AllocationReservation};
@@ -26,20 +27,14 @@ use iroha_data_model::{
             SccpGenerationMemberUnslashableV1,
         },
         generation::{SccpCommitteeGenerationV1, SccpGenerationCauseV1, SccpGenerationEndV1},
-        params::{SCCP_MIN_EPOCH_MS_V1, SccpParametersV1},
+        params::SccpParametersV1,
         registry::SccpRouteActivationV1,
     },
     sumeragi_finality::certified_result::committee_root,
 };
-use iroha_model_base::peer::PeerId;
+use iroha_model_base::{peer::PeerId, topology::LaneId};
 use ivm::error::ExecutionDeferral;
 use mv::storage::StorageReadOnly;
-
-/// Whether the proposed chain timing meets the SCCP generation-rate guard (§4.2.2).
-#[must_use]
-pub fn epoch_duration_is_valid(epoch_length_blocks: u64, block_cadence_ms: u64) -> bool {
-    epoch_length_blocks.saturating_mul(block_cadence_ms) >= SCCP_MIN_EPOCH_MS_V1
-}
 
 /// Distinguish fail-closed SCCP state from retryable original local resource failure.
 #[derive(Debug)]
@@ -110,10 +105,11 @@ impl<'a> Committee<'a> {
     }
 }
 
-/// Same registration identity, active root lane and inclusive activation/exclusive exit
+/// Same global election owner, registration identity and inclusive activation/exclusive exit
 /// predicates as the penalty pipeline, evaluated at the new generation's start height.
 /// Registrations are borrowed from the original State at executing h, including a handoff
-/// to h + 1. More than one qualifying registration is unresolved:
+/// to h + 1. Only LaneId::SINGLE owns the global election. More than one qualifying
+/// registration within that owner is unresolved:
 /// no map iteration order may choose who bears another registration's liability.
 fn member_for_peer<'a>(
     stx: &'a StateTransaction<'_, '_>,
@@ -124,6 +120,9 @@ fn member_for_peer<'a>(
         .world
         .public_lane_validators()
         .iter()
+        .filter(|(key, _)| {
+            cfg!(all(test, sumeragi_core_mutation = "HC250")) || key.0 == LaneId::SINGLE
+        })
         .filter(|(key, record)| {
             &record.peer_id == peer
                 && public_lane_validator_record_matches_key(key, record)
@@ -328,13 +327,11 @@ fn created_events(
 pub(super) fn install_genesis(
     stx: &mut StateTransaction<'_, '_>,
     generation: RetainedSccpGeneration,
-) {
+) -> Result<(), StateStorageAdmissionError> {
     store::liability_clock::set(stx, generation.start_lc);
     store::committee_current::set(stx, generation.generation);
     created_events(stx, &generation, false);
-    stx.world
-        .sccp_committee_generations
-        .insert(generation.generation, generation);
+    publish_record(stx, generation)
 }
 
 /// Borrowed whole transition demand, before any new retained generation allocation.
@@ -395,28 +392,26 @@ pub(super) struct GenerationPlan {
     pub validity_ms: u64,
 }
 impl GenerationPlan {
-    pub(super) fn publish(self, stx: &mut StateTransaction<'_, '_>) {
+    pub(super) fn publish(
+        self,
+        stx: &mut StateTransaction<'_, '_>,
+    ) -> Result<(), StateStorageAdmissionError> {
         let mut current = self.generation;
         if let Some(old) = self.old_end {
-            stx.world
-                .sccp_committee_generations
-                .insert(old.generation, old);
+            publish_record(stx, old)?;
         }
         if let Some(resync) = self.resync {
             created_events(stx, &resync, true);
-            stx.world
-                .sccp_committee_generations
-                .insert(resync.generation, resync);
+            publish_record(stx, resync)?;
         }
         if let Some(rotation) = self.rotation {
             current = rotation.generation;
             created_events(stx, &rotation, false);
-            stx.world
-                .sccp_committee_generations
-                .insert(rotation.generation, rotation);
+            publish_record(stx, rotation)?;
         }
         store::committee_current::set(stx, current);
         store::degraded_run::set(stx, 0);
+        Ok(())
     }
 }
 
@@ -580,27 +575,77 @@ pub(super) fn timestamp_ms(header: &BlockHeader) -> u64 {
     u64::try_from(header.creation_time().as_millis()).expect("BlockHeader stores u64 milliseconds")
 }
 
-/// First 64 ended, uncleared generations, in ascending map order, share the post-block clock.
-pub(super) fn clear_destinations(stx: &mut StateTransaction<'_, '_>) {
+/// Publish a generation and its destination-work membership in the same transaction.
+fn publish_record(
+    stx: &mut StateTransaction<'_, '_>,
+    generation: RetainedSccpGeneration,
+) -> Result<(), StateStorageAdmissionError> {
+    let id = generation.generation;
+    let pending = generation.end.is_some() && generation.dest_cleared_lc.is_none();
+    stx.world
+        .sccp_committee_generations
+        .try_insert_admitted(id, generation)
+        .map_err(|(_, error)| {
+            let original = StateStorageAdmissionError::World(error);
+            stx.arm_local_storage_refusal(original.clone());
+            original
+        })?;
+    if pending {
+        stx.world
+            .sccp_destination_pending_generations
+            .insert(id, ());
+    } else {
+        stx.world.sccp_destination_pending_generations.remove(id);
+    }
+    Ok(())
+}
+
+/// Visit the first 64 pending generations in ascending order, without traversing cleared history.
+/// Returns the number of generation records visited, including every examined historical row.
+pub(super) fn clear_destinations(
+    stx: &mut StateTransaction<'_, '_>,
+) -> Result<usize, StateStorageAdmissionError> {
     let mut selected = [0; 64];
     let mut count = 0;
-    for (id, generation) in store::committee_generations::iter(&*stx.world)
-        .filter(|(_, generation)| generation.end.is_some() && generation.dest_cleared_lc.is_none())
-        .take(64)
+    let mut visited = 0;
     {
-        let cleared = store::routes::iter(&*stx.world).all(|(network, route)| {
-            !route
-                .revisions
-                .values()
-                .any(|revision| revision.activation != SccpRouteActivationV1::Retired)
-                || store::light_clients::get(&*stx.world, network).is_some_and(|client| {
-                    !client.is_frozen()
-                        && client.head.latest_finalized.source_time_ms > generation.deadline_ms
-                })
-        });
-        if cleared {
-            selected[count] = *id;
-            count += 1;
+        let mut pending = stx
+            .world
+            .sccp_destination_pending_generations
+            .iter()
+            .map(|(id, ())| *id)
+            .take(64);
+        let mut history = store::committee_generations::iter(&*stx.world).map(|(id, _)| *id);
+        let candidates: &mut dyn Iterator<Item = u64> =
+            if cfg!(all(test, sumeragi_core_mutation = "HC251")) {
+                &mut history
+            } else {
+                &mut pending
+            };
+        for id in candidates {
+            visited += 1;
+            let generation = store::committee_generations::get(&*stx.world, &id)
+                .expect("pending destination index references an original generation");
+            if generation.end.is_none() || generation.dest_cleared_lc.is_some() {
+                continue;
+            }
+            let cleared = store::routes::iter(&*stx.world).all(|(network, route)| {
+                !route
+                    .revisions
+                    .values()
+                    .any(|revision| revision.activation != SccpRouteActivationV1::Retired)
+                    || store::light_clients::get(&*stx.world, network).is_some_and(|client| {
+                        !client.is_frozen()
+                            && client.head.latest_finalized.source_time_ms > generation.deadline_ms
+                    })
+            });
+            if cleared {
+                selected[count] = id;
+                count += 1;
+                if count == selected.len() {
+                    break;
+                }
+            }
         }
     }
     let lc = *store::liability_clock::get(&*stx.world);
@@ -609,7 +654,7 @@ pub(super) fn clear_destinations(stx: &mut StateTransaction<'_, '_>) {
             .expect("selected original generation")
             .clone();
         generation.dest_cleared_lc = Some(lc);
-        stx.world.sccp_committee_generations.insert(*id, generation);
+        publish_record(stx, generation)?;
         stx.world
             .emit_events(Some(SccpEvent::GenerationDestinationCleared(
                 SccpGenerationDestinationClearedV1 {
@@ -618,10 +663,11 @@ pub(super) fn clear_destinations(stx: &mut StateTransaction<'_, '_>) {
                 },
             )));
     }
+    Ok(visited)
 }
 
 /// Pure bounded selection for §4.11; caller must supply the actual Pending-forgery owner.
-/// Production deliberately does not call this until WP-S6 integrates that State/instruction
+/// TODO: production deliberately does not call this until WP-S6 integrates that State/instruction
 /// owner. An absent pending owner must never be represented by an invented empty set.
 #[cfg(test)]
 fn prune_selection<'a>(

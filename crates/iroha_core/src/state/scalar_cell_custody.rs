@@ -49,6 +49,9 @@ impl ScalarCellFixtureBlock for Cell<u64, AllocationCharge> {
     fn block(&self) -> mv::cell::Block<'_, u64, AllocationCharge> {
         use super::world_acquisition::{OriginalControlSource, WorldFieldAcquisition};
         let budget = default_budget();
+        let scope = budget
+            .try_owned_refund_scope()
+            .expect("fixture original refund scope");
         let layouts = self
             .generation_layouts()
             .into_iter()
@@ -58,7 +61,7 @@ impl ScalarCellFixtureBlock for Cell<u64, AllocationCharge> {
             .try_reserve_layouts(layouts)
             .expect("fixture scalar writer capacity");
         let mut slot = self
-            .original_acquisition(&budget, &mut original)
+            .original_acquisition(&budget, &scope, &mut original)
             .expect("fixture scalar original pool");
         slot.try_initialize(mv::BlockMode::Ordinary)
             .expect("fixture scalar writer");
@@ -92,8 +95,8 @@ mod tests {
 
     #[test]
     fn actual_world_scalar_keeps_original_charges_through_rollback_capture_and_publication() {
-        let world = super::super::World::default();
         let original = AllocationBudget::new(16 * 1024 * 1024);
+        let world = super::super::World::try_with_execution_budget([], [], [], &original).unwrap();
         let mut block = world.try_block(&original).unwrap();
         *block.musubi_replication_shortfall_releases.get_mut() = 9;
         {

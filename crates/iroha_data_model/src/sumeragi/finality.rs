@@ -6,7 +6,6 @@
 
 use crate::block::{SignedBlock, decode_framed_signed_block};
 use iroha_schema::IntoSchema;
-use iroha_version::Version as _;
 use norito::codec::{Decode, Encode};
 
 /// Maximum one-block source accepted by the public native finality transport.
@@ -213,7 +212,7 @@ impl NativeFinalityArtifact {
                     )
                 })?;
                 block_wire.resize(len, 0);
-                block_wire[0] = block.version();
+                block_wire[0] = crate::block::SignedBlock::WIRE_VERSION;
                 let mut writer = std::io::Cursor::new(&mut block_wire[1..]);
                 norito::core::write_canonical_to_writer(block, &mut writer)
                     .map_err(|error| NativeFinalityArtifactError::codec(&error))?;

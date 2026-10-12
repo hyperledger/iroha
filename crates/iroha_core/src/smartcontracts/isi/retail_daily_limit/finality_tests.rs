@@ -513,7 +513,7 @@ fn lane_certificate(
                     .expect("lane member"),
                 sig: Signature([0; SIGNATURE_LEN]),
             };
-            vote.sig = signer.sign(&vote.preimage());
+            vote.sig = signer.sign(&vote.preimage()).unwrap();
             vote
         })
         .collect::<Vec<_>>();

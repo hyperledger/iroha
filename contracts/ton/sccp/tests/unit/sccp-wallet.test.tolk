@@ -210,4 +210,39 @@ get fun `test top-ups are accepted by minter, wallet and bucket`() {
         to: env.minter.address,
         exitCode: SccpErrors.InvalidMessage as int,
     });
+    // by the wallet and the bucket too; the deleted roster and attestation ops
+    // (`sccp_rotate`, `sccp_evidence`) are unknown operations like any other
+    val unknown: array<cell> = [
+        beginCell().storeUint(0xDEADBEEF, 32).endCell(),
+        beginCell().storeUint(0x53435231, 32).storeUint(0, 64).endCell(),
+        beginCell().storeUint(0x53434531, 32).storeUint(0, 64).endCell(),
+    ];
+    var i = 0;
+    repeat (unknown.size()) {
+        expect(
+            walletOf(env, alice).sendAny(
+                alice,
+                unknown.get(i),
+                { value: grams("1"), bounce: true },
+            ),
+        ).toHaveFailedTx({
+            to: walletOf(env, alice).address,
+            exitCode: SccpErrors.InvalidMessage as int,
+        });
+        expect(
+            bucketOf(env, 0).sendAny(alice, unknown.get(i), { value: grams("1"), bounce: true }),
+        ).toHaveFailedTx({
+            to: bucketOf(env, 0).address,
+            exitCode: SccpErrors.InvalidMessage as int,
+        });
+        expect(
+            env.minter.sendAny(alice, unknown.get(i), { value: grams("1"), bounce: true }),
+        ).toHaveFailedTx({
+            to: env.minter.address,
+            exitCode: SccpErrors.InvalidMessage as int,
+        });
+        i += 1;
+    }
+    expect(jettonBalanceOf(env, alice)).toEqual(1);
+    expect(isConsumedAt(env, 0)).toBeTrue();
 }

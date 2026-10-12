@@ -290,7 +290,8 @@ pub fn finalize_block(
                 .ok()
             });
         if let Some(active) = active {
-            plan.publish(&mut stx);
+            plan.publish(&mut stx)
+                .map_err(BlockValidationError::StateStorageAdmission)?;
             active
         } else {
             failure = Some(SccpFinalityDegradedReasonV1::InvalidGeneration);
@@ -301,7 +302,10 @@ pub fn finalize_block(
     };
     if let Some(anchor) = anchor {
         if let Some((chunk, root)) = anchor.completed {
-            stx.world.sccp_anchor_chunks.insert(chunk, root);
+            stx.world
+                .sccp_anchor_chunks
+                .try_insert_admitted(chunk, root)
+                .map_err(|(_, error)| BlockValidationError::StateStorageAdmission(error.into()))?;
         }
         store::anchor_open::set(&mut stx, anchor.open);
     }
@@ -311,7 +315,8 @@ pub fn finalize_block(
     light_clients::prune(&mut stx, MAX_PRUNE_DELETIONS_PER_BLOCK);
     // TODO: WP-S6: generation/anchor-root retirement requires the real Pending SCCP forgery
     // State and instruction owner. Never replace that missing authority with an empty set.
-    generations::clear_destinations(&mut stx);
+    generations::clear_destinations(&mut stx)
+        .map_err(BlockValidationError::StateStorageAdmission)?;
     stx.apply();
     Ok(header)
 }
@@ -1004,6 +1009,7 @@ mod tests {
         let view = chain.state().view();
         let budget = chain.state().ivm_execution_budget();
         let occupied = budget.reserved_bytes();
+        let original_generation = chain.state().state_view_generation();
         let original_peer = std::ptr::from_ref(
             &view
                 .world()
@@ -1058,8 +1064,22 @@ mod tests {
             std::ptr::from_ref(inputs.roster.iter().next().unwrap()),
             original_peer
         );
+        let released_bytes = external.remaining_bytes();
+        let before_release = budget.reserved_bytes();
         drop(external);
+        assert_eq!(budget.reserved_bytes(), before_release - released_bytes);
+        assert_eq!(
+            waiter.poll_wait(release, &mut cx),
+            Poll::Pending,
+            "same-thread refunds wait until every original State writer retires"
+        );
+        // Native validation drops an unsealed refused overlay before returning its
+        // original proposal and release. Retry that same candidate only after the
+        // writer boundary, retaining this exact captured schedule and its borrower.
+        drop(block);
         assert_eq!(waiter.poll_wait(release, &mut cx), Poll::Ready(()));
+        assert_eq!(chain.state().state_view_generation(), original_generation);
+        let mut block = chain.state().block(candidate);
         let active = finalize_block(&mut block, &candidate, Some(&inputs)).unwrap();
         assert!(active.is_active());
         assert!(!active.is_rotation());

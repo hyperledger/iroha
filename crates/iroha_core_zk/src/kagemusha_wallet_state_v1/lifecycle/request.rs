@@ -129,11 +129,17 @@ impl OperationRequestV1 {
         let id = scheme.scheme_id();
         match &self.action {
             OperationActionV1::Load { receipt, finality } => {
-                let receipt = valid(KagemushaWalletLoadReceiptV1::decode_canonical(receipt))?;
+                let receipt = read_model_original(
+                    || KagemushaWalletLoadReceiptV1::decode_canonical(receipt),
+                    Error::Invalid("Load receipt original"),
+                )?;
                 if receipt.scheme_id != id {
                     return Err(Error::Invalid("load request scheme"));
                 }
-                valid(KagemushaWalletLoadFinalityV1::decode_canonical(finality))?;
+                read_model_original(
+                    || KagemushaWalletLoadFinalityV1::decode_canonical(finality),
+                    Error::Invalid("Load finality original"),
+                )?;
             }
             OperationActionV1::Send { request } => {
                 bounded(request, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1)?;

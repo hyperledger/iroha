@@ -106,7 +106,7 @@ impl SumeragiFinalityCheckpoint {
         &self,
         proofs: &[SumeragiFinalityProof],
         scope: CertifiedResultScope,
-    ) -> Result<Self, FinalityError> {
+    ) -> Result<Self, FinalityReadError> {
         self.validate_bounds()?;
         let tip = proofs
             .last()
@@ -173,7 +173,7 @@ impl SumeragiFinalityCheckpoint {
     ///
     /// # Errors
     /// Empty, oversized, noncanonical or structurally malformed checkpoint.
-    pub fn decode_canonical(bytes: &[u8]) -> Result<Self, FinalityError> {
+    pub fn decode_canonical(bytes: &[u8]) -> Result<Self, FinalityReadError> {
         Self::decode_canonical_with_validation(bytes, None)
     }
 
@@ -186,7 +186,7 @@ impl SumeragiFinalityCheckpoint {
     pub fn decode_canonical_with_validation(
         bytes: &[u8],
         validation: Option<&mut EpochValidationScope>,
-    ) -> Result<Self, FinalityError> {
+    ) -> Result<Self, FinalityReadError> {
         // Sample before entering the native decoder's own input-derived scope.
         let validation = if norito::core::decode_limits_active() {
             None
@@ -197,11 +197,11 @@ impl SumeragiFinalityCheckpoint {
             !bytes.is_empty() && bytes.len() <= MAX_FINALITY_CHECKPOINT_BYTES,
             "checkpoint frame exceeds bound",
         )?;
-        let value: Self = norito::decode_canonical_with_limits(
+        let value: Self = norito::decode_canonical_for_admission(
             bytes,
             norito::canonical_decode_limits(bytes.len()),
         )
-        .map_err(malformed)?;
+        .map_err(FinalityReadError::from)?;
         value.validate_bounds_with_validation(validation)?;
         Ok(value)
     }
@@ -277,7 +277,7 @@ impl SumeragiFinalityVerifier {
     pub fn export_checkpoint(
         &self,
         tip: &SumeragiFinalityProof,
-    ) -> Result<SumeragiFinalityCheckpoint, FinalityError> {
+    ) -> Result<SumeragiFinalityCheckpoint, FinalityReadError> {
         need(
             self.decisions.last_key_value().map(|(height, _)| *height) == Some(tip.height()),
             "checkpoint must export the authenticated tip",
@@ -436,19 +436,16 @@ impl SumeragiFinalityVerifier {
             selected.network_id == *network && selected.chain_id == chain_id,
             "checkpoint differs from independently selected network or chain",
         )?;
-        let genesis = norito::core::with_decode_limits_scope(
-            norito::canonical_decode_limits(selected.genesis_wire.len()),
-            || decode_framed_signed_block(&selected.genesis_wire),
-        )
-        .map_err(|error| match error.kind() {
-            norito::core::DecodeAttemptErrorKind::Allocator
-            | norito::core::DecodeAttemptErrorKind::EnclosingLimit => {
-                super::FinalityReadError::DecodeResource(error)
-            }
-            norito::core::DecodeAttemptErrorKind::Invalid => {
-                super::FinalityReadError::Invalid(malformed(error))
-            }
-        })?;
+        let genesis = norito::core::classify_decode_attempt(|| {
+            norito::core::with_decode_limits_scope(
+                norito::canonical_decode_limits(selected.genesis_wire.len()),
+                || {
+                    decode_framed_signed_block(&selected.genesis_wire)
+                        .map_err(norito::core::DecodeAttemptError::into_error)
+                },
+            )
+        })
+        .map_err(FinalityReadError::from)?;
         need(
             genesis.header().is_genesis()
                 && genesis.hash().as_ref() == network.as_bytes()

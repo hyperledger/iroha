@@ -2,7 +2,7 @@
 //!
 //! Policy, partition and selection fields are immutable caller claims, never authenticated state.
 //! Native execution checks the current policy, provider owner, partition revision, pending ceiling
-//! and movement-id uniqueness. This purpose creates only a Pending TopUp request: manager approval
+//! and movement-id uniqueness. This purpose creates only a Pending `TopUp` request: manager approval
 //! and its asset transfer are separate native operations. It grants no collateral or service readiness.
 
 use super::{
@@ -185,9 +185,10 @@ pub(super) fn instructions(
     Ok(vec![plan.instruction(config)?])
 }
 
+#[derive(Clone, Copy)]
 pub(super) struct ReserveTopUpExpectation<'a>(pub(super) &'a ReserveTopUpRequest);
 impl ReserveTopUpExpectation<'_> {
-    pub(super) fn verify(&self, record: &preparation::Selection<'_>) -> Result<()> {
+    pub(super) fn verify(self, record: &preparation::Selection<'_>) -> Result<()> {
         let NativeOperation::ReserveTopUpRequest { plan, terms } = record.operation else {
             eyre::bail!("reserve journal differs from selected top-up-request purpose");
         };

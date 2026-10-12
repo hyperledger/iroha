@@ -5287,6 +5287,10 @@ dependencies = [
 name = "iroha_fhe"
 version = "2.0.0-rc.2.0"
 dependencies = [
+ "blake3",
+ "getrandom 0.3.4",
+ "iroha_fhe",
+ "iroha_measurement",
  "num-bigint 0.4.6",
  "thiserror 2.0.18",
  "zeroize",

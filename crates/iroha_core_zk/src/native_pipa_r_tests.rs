@@ -16,6 +16,21 @@ fn policy() -> ZkVerifyGuardrails {
     }
 }
 #[test]
+fn native_proof_carrier_cap_precedes_decode_and_includes_the_boundary() {
+    let kind = NativeRelationV1::KaigiAuthorization;
+    let cap_error = "native proof container exceeds fixed bound";
+    // Malformed frames within the cap reach the canonical decoder. The exact
+    // boundary is a resource admission boundary, not a valid circuit proof size.
+    for len in [MAX_PROOF_BYTES - 1, MAX_PROOF_BYTES] {
+        let error = decode_native(kind, &vec![0; len]).unwrap_err();
+        assert_ne!(error, cap_error);
+    }
+    assert_eq!(
+        decode_native(kind, &vec![0; MAX_PROOF_BYTES + 1]).unwrap_err(),
+        cap_error
+    );
+}
+#[test]
 fn native_confidential_fixture_is_genuine_cached_and_relation_scoped() {
     let first = crate::test_utils::native_confidential_fixture_envelope();
     let repeated = crate::test_utils::native_confidential_fixture_envelope();

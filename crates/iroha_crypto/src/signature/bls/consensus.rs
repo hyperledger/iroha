@@ -32,9 +32,11 @@
 //! [`crate::BlsNormalAggregateScratch`]), and its verification allocates nothing.
 //!
 //! `TODO:` unify every other BLS signature on RFC 9380 suites in a later release.
-//! Production Sumeragi `KeyPairSigner`, `BlsCrypto` and the data-model `ProofCrypto`
-//! use this suite. Request-funded native readers admit the same exact pairing backing
-//! before verification; proof-of-possession admission retains its separate transcript.
+//! The production Sumeragi `KeyPairSigner`, `BlsCrypto`, data-model `ProofCrypto` and
+//! delegated signers use this suite exclusively. Request-funded native readers admit
+//! the exact [`ConsensusAggregateScratch`] pairing backing before verification.
+//! Proof-of-possession admission, generic attestations and account signatures retain
+//! their separate transcripts.
 
 use core::borrow::Borrow;
 

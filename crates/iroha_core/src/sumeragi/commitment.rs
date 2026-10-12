@@ -781,12 +781,11 @@ mod tests {
                 );
             }
         }
-        assert_eq!(
+        assert!(matches!(
             ExecutionResultCommitment::decode(&vec![0; MAX_RESULT_PREIMAGE_BYTES + 1]),
-            Err(CommitmentError::PreimageLength(
-                MAX_RESULT_PREIMAGE_BYTES + 1
-            ))
-        );
+            Err(CommitmentError::PreimageLength(actual))
+                if actual == MAX_RESULT_PREIMAGE_BYTES + 1
+        ));
         let mut wide = valid.clone();
         wide.schedule.current.committee = vec![valid.schedule.current.committee[0].clone(); 97];
         // Keep the omitted epochs equal to their source so these probes reach decoder limits,
@@ -1256,10 +1255,10 @@ mod tests {
         let proposal = block
             .canonical_resultless_proposal()
             .expect("valid fixture proposal projection");
-        assert_eq!(
+        assert!(matches!(
             execution_commitment(&sample_witness(), &proposal, &transition()),
             Err(CommitmentError::MissingResult)
-        );
+        ));
         let certified = block.with_commit_certificate(Some(
             iroha_data_model::block::CommitCertificate::from_untrusted_parts(
                 vec![1],
@@ -1268,10 +1267,10 @@ mod tests {
                 vec![4],
             ),
         ));
-        assert_eq!(
+        assert!(matches!(
             execution_commitment(&sample_witness(), &certified, &transition()),
             Err(CommitmentError::CertifiedBlock)
-        );
+        ));
     }
 
     #[test]
@@ -1405,6 +1404,21 @@ mod tests {
             result_of_preimage(b"p"),
             None,
             "body-only bytes are not a current result"
+        );
+        let budget = AllocationBudget::new(MAX_RESULT_PREIMAGE_BYTES);
+        let owner = allocation_free_encoding_owner(&budget);
+        let bytes = owner.get().preimage().unwrap();
+        let body_digest =
+            iroha_data_model::sumeragi_finality::certified_result::body_digest(&bytes[221..]);
+        let input = [
+            iroha_data_model::sumeragi_finality::RESULT_TAG,
+            &bytes[..221],
+            body_digest.as_slice(),
+        ]
+        .concat();
+        assert_eq!(
+            result_of_preimage(&bytes).unwrap().0,
+            iroha_crypto::sha256(input)
         );
     }
 

@@ -373,6 +373,16 @@ fn native_authority_admission_keeps_original_release_and_policy_refusals() {
             };
             assert_eq!(classified.reason(), ExecutionDeferral::ActiveMemoryCapacity);
             assert_eq!(classified.allocation_refusal(), Some(&original));
+            if original == AllocationRefusal::DemandOverflow {
+                // No release or larger configured pool can repair an overflowing demand.
+                let diagnostic = classified.to_string();
+                assert_eq!(
+                    classify_parent_service_deferral_for_test(classified),
+                    PublicationError::RecoveryRequired(diagnostic),
+                    "the actual parent-service boundary must retain terminal overflow"
+                );
+                continue;
+            }
             let PublicationError::Deferred(returned) =
                 classify_parent_service_deferral_for_test(classified)
             else {

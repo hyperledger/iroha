@@ -968,7 +968,8 @@ fn activate_registers_cross_contract_manifest_trigger_callback() {
             .set_parameter(Parameter::Custom(CustomParameter::new(
                 consensus_metadata::handshake_meta_id(),
                 Json::new(metadata),
-            )));
+            )))
+            .expect("valid fixture parameters");
         assert_eq!(
             iroha_core::sumeragi::lanes::routing::committed_root_scope(&*stx.world),
             Some(iroha_data_model::block::consensus::SumeragiRootScope::Global),

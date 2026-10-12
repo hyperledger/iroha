@@ -195,6 +195,11 @@ impl SumeragiAmxState {
         }
         for entry in &self.dataspaces {
             entry.tracker.validate()?;
+            if entry.tracker.result_scope
+                != crate::sumeragi_finality::CertifiedResultScope::NonGlobal
+            {
+                return Err(rejected("participant tracker must name a non-global root"));
+            }
         }
         for entry in &self.transactions {
             entry.begin.validate()?;
@@ -237,6 +242,9 @@ impl SumeragiAmxState {
         tracker: AmxForeignInstanceV1,
     ) -> Result<(), AmxError> {
         tracker.validate()?;
+        if tracker.result_scope != crate::sumeragi_finality::CertifiedResultScope::NonGlobal {
+            return Err(rejected("participant tracker must name a non-global root"));
+        }
         let Err(index) = self
             .dataspaces
             .binary_search_by_key(&dataspace, |entry| entry.dataspace)
@@ -332,10 +340,7 @@ impl SumeragiAmxState {
         self.dataspace(prepared.participant)
             .ok_or_else(|| rejected("the voter is not registered"))?
             .tracker
-            .verify_record(
-                proof,
-                crate::sumeragi_finality::CertifiedResultScope::NonGlobal,
-            )?;
+            .verify_record(proof)?;
         let entry = &mut self.transactions[index];
         let outcome = match prepared.vote {
             AmxVoteV1::No => AmxOutcomeV1::Abort,
@@ -374,10 +379,7 @@ impl SumeragiAmxState {
             .dataspaces
             .binary_search_by_key(&dataspace, |entry| entry.dataspace)
             .map_err(|_| rejected("the dataspace is not registered"))?;
-        self.dataspaces[index].tracker.apply_handoff(
-            proof,
-            crate::sumeragi_finality::CertifiedResultScope::NonGlobal,
-        )
+        self.dataspaces[index].tracker.apply_handoff(proof)
     }
 
     /// The deadline step of the block at `height`, after its transactions (§11.5): every known

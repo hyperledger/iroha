@@ -8,7 +8,7 @@ use crate::state::*;
 use iroha_data_model::block::consensus::EvidenceRecord;
 
 classified_owner!(WorldData, check_world_fields, WORLD_FIELDS, readers = WorldReadReleases, {
-    parameters: Cell<Parameters> => ("world.parameters",
+    parameters: Cell<StateParameters> => ("world.parameters",
         Role::Canonical(Canonical::Cell(schema::<Parameters>()))), release = parameters;
     consensus_schedule: Cell<crate::sumeragi::schedule::RetainedConsensusSchedule> => ("world.consensus_schedule",
         Role::Canonical(Canonical::Cell(schema::<crate::sumeragi::schedule::ConsensusSchedule>()))), release = consensus_schedule;
@@ -569,17 +569,19 @@ classified_owner!(WorldData, check_world_fields, WORLD_FIELDS, readers = WorldRe
         Role::Canonical(Canonical::Cell(schema::<Option<iroha_data_model::sccp::params::SccpParametersV1>>()))), release = sccp_parameters;
     sccp_reset_nonce: Cell<Option<[u8; 32]>> => ("world.sccp_reset_nonce",
         Role::Canonical(Canonical::Cell(schema::<Option<[u8; 32]>>()))), release = sccp_reset_nonce;
-    sccp_committee_generations: Storage<u64, crate::smartcontracts::isi::sccp::generation_record::RetainedSccpGeneration> => ("world.sccp_committee_generations",
+    sccp_committee_generations: CommitteeStorage => ("world.sccp_committee_generations",
         Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<iroha_data_model::sccp::generation::SccpCommitteeGenerationV1>() })), release = sccp_committee_generations;
-    sccp_committee_current: Cell<u64> => ("world.sccp_committee_current",
+    sccp_destination_pending_generations: Storage<u64, ()> => ("world.sccp_destination_pending_generations",
+        Role::Derived { sources: &["world.sccp_committee_generations"], check: DerivationCheck::Rebuild("state::sccp_snapshot_state::destination_pending_index") }), release = sccp_destination_pending_generations;
+    sccp_committee_current: Cell<u64, iroha_allocation::AllocationCharge> => ("world.sccp_committee_current",
         Role::Canonical(Canonical::Cell(schema::<u64>()))), release = sccp_committee_current;
-    sccp_liability_clock: Cell<u64> => ("world.sccp_liability_clock",
+    sccp_liability_clock: Cell<u64, iroha_allocation::AllocationCharge> => ("world.sccp_liability_clock",
         Role::Canonical(Canonical::Cell(schema::<u64>()))), release = sccp_liability_clock;
-    sccp_degraded_run: Cell<u32> => ("world.sccp_degraded_run",
+    sccp_degraded_run: Cell<u32, iroha_allocation::AllocationCharge> => ("world.sccp_degraded_run",
         Role::Canonical(Canonical::Cell(schema::<u32>()))), release = sccp_degraded_run;
-    sccp_anchor_open: Cell<crate::smartcontracts::isi::sccp::anchor_record::RetainedSccpAnchors> => ("world.sccp_anchor_open",
+    sccp_anchor_open: Cell<crate::smartcontracts::isi::sccp::anchor_record::RetainedSccpAnchors, iroha_allocation::AllocationCharge> => ("world.sccp_anchor_open",
         Role::Canonical(Canonical::Cell(schema::<Vec<iroha_data_model::sccp::generation::SccpAnchorV1>>()))), release = sccp_anchor_open;
-    sccp_anchor_chunks: Storage<u64, [u8; 32]> => ("world.sccp_anchor_chunks",
+    sccp_anchor_chunks: AnchorStorage => ("world.sccp_anchor_chunks",
         Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<[u8; 32]>() })), release = sccp_anchor_chunks;
     sccp_block_leaves: Storage<(u64, u32), iroha_data_model::sccp::control::SccpLeafRefV1> => ("world.sccp_block_leaves",
         Role::Canonical(Canonical::Table { key: schema::<(u64, u32)>(), value: schema::<iroha_data_model::sccp::control::SccpLeafRefV1>() })), release = sccp_block_leaves;

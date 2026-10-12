@@ -76,8 +76,8 @@ pub const MAX_EXECUTED_BLOCK_WIRE_BYTES: u64 = 256 * 1024 * 1024;
 /// Keeping the bytes here lets configuration-independent genesis builders emit
 /// a valid signed template without introducing a data-model/config cycle.
 pub const RECOMMENDED_NEXUS_AMX_CONTEXT_HASH: [u8; 32] = [
-    184, 201, 137, 127, 132, 160, 253, 49, 98, 200, 33, 224, 106, 253, 214, 89, 70, 108, 60, 163,
-    25, 61, 120, 83, 183, 110, 129, 158, 132, 13, 42, 75,
+    74, 51, 152, 173, 244, 125, 165, 95, 209, 37, 162, 171, 118, 190, 96, 81, 77, 208, 196, 105,
+    150, 82, 221, 249, 100, 224, 199, 91, 89, 239, 44, 131,
 ];
 /// Canonical V1 boot execution-policy identity emitted by the recommended genesis template.
 ///

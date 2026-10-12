@@ -616,7 +616,6 @@ async fn all_unreleased_profiles_fail_closed_across_four_peer_restart_impl() -> 
             // Keep the production handshake enabled while minimizing its supported
             // puzzle cost so this four-peer gate isolates consensus progress.
             layer
-                .write(["zk", "stark", "enabled"], true)
                 .write(
                     ["nexus", "storage", "local_budget_bytes"],
                     TEST_NEXUS_LOCAL_STORAGE_BUDGET_BYTES,
@@ -813,7 +812,7 @@ async fn canonical_exact12_governance_survives_four_peer_activation_replay_and_r
         .with_block_cadence(TEST_BLOCK_CADENCE)
         .with_permissioned_consensus()
         .with_config_layer(|layer| {
-            layer.write(["zk", "stark", "enabled"], true).write(
+            layer.write(
                 ["nexus", "storage", "local_budget_bytes"],
                 TEST_NEXUS_LOCAL_STORAGE_BUDGET_BYTES,
             );

@@ -72,7 +72,7 @@ final class KagemushaWalletEnrollmentV1Tests: XCTestCase {
     }
   }
   func testRetainedResultSelectorHasNoCallerOriginalsAndPreservesAppleSelectors() throws {
-    for selector: UInt32 in [13,16,17,18] {
+    for selector: UInt32 in [13,16,17,18,20] {
       let input = try KagemushaWalletEnrollmentInputV1(selector)
       XCTAssertEqual(input.originals, [Data(),Data(),Data()])
       XCTAssertThrowsError(try KagemushaWalletEnrollmentInputV1(selector,Data([1])))
@@ -81,7 +81,9 @@ final class KagemushaWalletEnrollmentV1Tests: XCTestCase {
     }
     _ = try KagemushaWalletEnrollmentInputV1(14,Data([1]))
     _ = try KagemushaWalletEnrollmentInputV1(15,Data([1]),Data([2]))
-    XCTAssertThrowsError(try KagemushaWalletEnrollmentInputV1(20))
+    for selector: UInt32 in [21, UInt32.max] {
+      XCTAssertThrowsError(try KagemushaWalletEnrollmentInputV1(selector))
+    }
   }
   func testRenewedSessionUsesOnlyBoundedOriginalFramesAndNonmonetaryAcknowledgement() throws {
     let session = try KagemushaWalletEnrollmentSessionOriginalsV1(accessToken: Data([1]), dpopProof: Data([2]), attestationRootDER: Data([3]))

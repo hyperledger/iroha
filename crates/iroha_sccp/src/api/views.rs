@@ -43,8 +43,8 @@ pub const MAX_CONTROLS_PAGE: usize = 64;
 
 /// Payload of [`SccpOutboundStateV1::Recorded`].
 ///
-/// TODO: Torii work package (TT-A1): add `provable`, set once a certificate covers the record
-/// height (§6).
+/// TODO: Torii work package (TT-A1): add `provable` once the request-funded native proof
+/// producer can serve a certificate covering the record height (§6).
 #[derive(
     Debug,
     Clone,
@@ -68,9 +68,6 @@ pub struct SccpRecordedStateV1 {
 }
 
 /// Wallet-facing state of an outbound record (§6, §7.1 step 4, §7.3).
-///
-/// Codec index 1 belonged to the attested state of the attestation transport and stays
-/// unassigned.
 #[derive(
     Debug,
     Clone,
@@ -95,15 +92,15 @@ pub enum SccpOutboundStateV1 {
     #[norito(rename = "recorded")]
     Recorded(SccpRecordedStateV1),
     /// Voided on the destination and proven on Taira.
-    #[codec(index = 2)]
+    #[codec(index = 1)]
     #[norito(rename = "voided")]
     Voided(SccpVoidStatusV1),
     /// Refunded to the sender.
-    #[codec(index = 3)]
+    #[codec(index = 2)]
     #[norito(rename = "refunded")]
     Refunded(SccpStatusHeightV1),
     /// Moved to the route's stranded balance.
-    #[codec(index = 4)]
+    #[codec(index = 3)]
     #[norito(rename = "stranded")]
     Stranded(SccpStatusHeightV1),
 }
@@ -916,12 +913,11 @@ mod tests {
     }
 
     #[test]
-    fn outbound_state_keeps_its_codec_indices_and_has_no_attested_state() {
-        // Index 1 was the attested state; it stays unassigned and the survivors do not shift.
-        for (state, index) in states().iter().zip([0_u32, 2, 3, 4]) {
+    fn outbound_state_has_four_contiguous_indices_and_no_attested_state() {
+        for (state, index) in states().iter().zip([0_u32, 1, 2, 3]) {
             assert!(state.encode().starts_with(&index.encode()), "{state:?}");
         }
-        for index in [1_u32, 5, u32::MAX] {
+        for index in [4_u32, 5, u32::MAX] {
             let mut encoded = index.encode();
             encoded.extend_from_slice(&[0x11; 64]);
             assert!(
@@ -937,6 +933,9 @@ mod tests {
 
     #[test]
     fn views_roundtrip_in_every_codec() {
+        let recorded = SccpRecordedStateV1 { deadline_ms: 99 };
+        roundtrip(&recorded);
+        assert_closed(&recorded, "deadline_ms");
         for state in states() {
             roundtrip(&state);
             roundtrip(&SccpMessageStatusV1::Outbound(outbound(state)));

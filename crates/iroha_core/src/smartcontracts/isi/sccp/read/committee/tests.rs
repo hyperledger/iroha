@@ -82,6 +82,12 @@ fn committee_reads_distinguish_absent_pruned_and_inclusive_liability() {
         Err(SccpReadError::Invalid(_))
     ));
     let mut source = sample_generation(2);
+    source.end = Some(SccpGenerationEndV1 {
+        end_height: source.start_height,
+        end_timestamp_ms: source.start_timestamp_ms,
+        next_committee_root: source.committee_root,
+        successor_validity_ms: source.validity_ms,
+    });
     source.dest_cleared_lc = Some(source.start_lc);
     let limit = source.liable_until_lc;
     store::committee_generations::insert(

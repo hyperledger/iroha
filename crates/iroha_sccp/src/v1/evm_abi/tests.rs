@@ -134,7 +134,7 @@ fn every_state_changing_call_uses_its_selector() {
     let calls = [
         finalize_from_taira_calldata(&cert, &proof),
         finalize_from_checkpoint_calldata(&checkpoint, &proof),
-        submit_checkpoints_calldata(&[cert.clone()]),
+        submit_checkpoints_calldata(std::slice::from_ref(&cert)),
         apply_control_calldata(&cert, &control),
         apply_control_from_checkpoint_calldata(&checkpoint, &control),
         void_expired_calldata(9, &cert, &proof),
@@ -399,7 +399,7 @@ fn submit_checkpoints_layout() {
     let len = certificate_token(&cert).encode().len();
     let data = submit_checkpoints_calldata(&[cert.clone(), cert]);
     let args = &data[4..];
-    assert_eq!(word_hex(args, 0), format!("{:064x}", WORD));
+    assert_eq!(word_hex(args, 0), format!("{WORD:064x}"));
     assert_eq!(word_hex(args, 1), format!("{:064x}", 2));
     assert_eq!(word_hex(args, 2), format!("{:064x}", 2 * WORD));
     assert_eq!(word_hex(args, 3), format!("{:064x}", 2 * WORD + len));
@@ -670,10 +670,22 @@ fn view_calls_and_returns() {
         decode_u32_return(&word_u64(1 << 32)),
         Err(AbiError::DirtyWord)
     );
-    assert_eq!(
-        ViewCallV1::OpCount.decode_return(&one),
-        Ok(ViewReturnV1::U64(1))
-    );
+    for call in [
+        ViewCallV1::MaxValidityMs,
+        ViewCallV1::TransferNonces([0x44; 20]),
+        ViewCallV1::ControlNonce,
+        ViewCallV1::OpCount,
+    ] {
+        assert_eq!(call.decode_return(&one), Ok(ViewReturnV1::U64(1)));
+        assert_eq!(
+            call.decode_return(&word_u64(u64::MAX)),
+            Ok(ViewReturnV1::U64(u64::MAX))
+        );
+        assert_eq!(call.decode_return(&[0; 33]), Err(AbiError::BadLength));
+        let mut overflow = word_u64(u64::MAX);
+        overflow[23] = 1;
+        assert_eq!(call.decode_return(&overflow), Err(AbiError::DirtyWord));
+    }
     assert_eq!(
         ViewCallV1::MaxWrappedSupply.decode_return(&word_u128(u128::MAX)),
         Ok(ViewReturnV1::U128(u128::MAX))
@@ -681,10 +693,10 @@ fn view_calls_and_returns() {
     let mut wide = [0_u8; 32];
     wide[15] = 1;
     assert_eq!(decode_u128_return(&wide), Err(AbiError::DirtyWord));
-    assert_eq!(
-        ViewCallV1::TairaNetworkId.decode_return(&TAIRA),
-        Ok(ViewReturnV1::Bytes32(TAIRA))
-    );
+    for call in [ViewCallV1::TairaNetworkId, ViewCallV1::ConsensusInstance] {
+        assert_eq!(call.decode_return(&TAIRA), Ok(ViewReturnV1::Bytes32(TAIRA)));
+        assert_eq!(call.decode_return(&TAIRA[..31]), Err(AbiError::BadLength));
+    }
     assert_eq!(
         decode_bytes32_return(&TAIRA[..31]),
         Err(AbiError::BadLength)

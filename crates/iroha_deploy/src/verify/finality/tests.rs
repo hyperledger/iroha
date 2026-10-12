@@ -2,8 +2,7 @@
 //! These portable verifier fixtures do not execute World, custody or DKG.
 use super::*;
 use iroha_crypto::{
-    Algorithm, Hash, KeyPair, Signature, SignatureOf, bls_normal_aggregate_signatures,
-    bls_normal_pop_prove,
+    Algorithm, Hash, KeyPair, Signature, SignatureOf, bls::consensus, bls_normal_pop_prove,
 };
 use iroha_data_model::{
     account::AccountId,
@@ -135,27 +134,9 @@ fn sign_qc(qc: &mut Qc, keys: &[KeyPair], indices: &[u32]) {
     qc.signers = Bitmap::from_indices(keys.len(), indices.iter().copied()).unwrap();
     let signatures: Vec<_> = indices
         .iter()
-        .map(|i| {
-            Signature::from_bytes(
-                &iroha_crypto::bls::consensus::sign_preimage(
-                    keys[*i as usize].private_key(),
-                    &qc.preimage(),
-                )
-                .unwrap(),
-            )
-        })
+        .map(|i| consensus::sign_preimage(keys[*i as usize].private_key(), &qc.preimage()).unwrap())
         .collect();
-    qc.agg_sig = AggregateSignature(
-        bls_normal_aggregate_signatures(
-            &signatures
-                .iter()
-                .map(Signature::payload)
-                .collect::<Vec<_>>(),
-        )
-        .unwrap()
-        .try_into()
-        .unwrap(),
-    );
+    qc.agg_sig = AggregateSignature(consensus::aggregate(&signatures).unwrap());
 }
 fn replace_certificate(
     proof: &mut SumeragiFinalityProof,
@@ -469,13 +450,13 @@ impl Chain {
                 u64::try_from(b.header().creation_time().as_millis()).unwrap(),
             )
             .unwrap();
-            let commitment =
+            let certified =
                 CertifiedResultV1::new(x, commitment, chain.root_scope().into()).unwrap();
             let certificate = if height == 1 {
                 CommitCertificate::from_untrusted_parts(
                     vec![],
                     vec![],
-                    commitment.preimage().unwrap(),
+                    certified.preimage().unwrap(),
                     vec![],
                 )
             } else {
@@ -526,7 +507,7 @@ impl Chain {
                     height,
                     view: 0,
                     block_hash: chain_hash(&block_hash_preimage(header)),
-                    result: commitment.result().unwrap(),
+                    result: certified.result().unwrap(),
                     signers: Bitmap::new(keys.len()),
                     agg_sig: AggregateSignature([0; 96]),
                 };
@@ -534,7 +515,7 @@ impl Chain {
                 CommitCertificate::from_untrusted_parts(
                     norito::encode_canonical(header).unwrap(),
                     norito::encode_canonical(&qc).unwrap(),
-                    commitment.preimage().unwrap(),
+                    certified.preimage().unwrap(),
                     norito::encode_canonical(authored.body.availability()).unwrap(),
                 )
             };
@@ -711,23 +692,9 @@ fn forge_qc(qc: &mut Qc, members: usize, named: &[u32], signers: &[&KeyPair], me
     qc.signers = Bitmap::from_indices(members, named.iter().copied()).unwrap();
     let signatures: Vec<_> = signers
         .iter()
-        .map(|k| {
-            Signature::from_bytes(
-                &iroha_crypto::bls::consensus::sign_preimage(k.private_key(), message).unwrap(),
-            )
-        })
+        .map(|k| consensus::sign_preimage(k.private_key(), message).unwrap())
         .collect();
-    qc.agg_sig = AggregateSignature(
-        bls_normal_aggregate_signatures(
-            &signatures
-                .iter()
-                .map(Signature::payload)
-                .collect::<Vec<_>>(),
-        )
-        .unwrap()
-        .try_into()
-        .unwrap(),
-    );
+    qc.agg_sig = AggregateSignature(consensus::aggregate(&signatures).unwrap());
 }
 /// `context` with its equal-vote BLS signing generation replaced by `keys`.
 fn with_committee(context: &ValidatorEpochContextV1, keys: &[KeyPair]) -> ValidatorEpochContextV1 {
@@ -1410,6 +1377,23 @@ fn native_result_decode_bounds_complete_committee_graphs_and_preserves_outer_lim
         let decoded = CertifiedResultV1::decode(bytes, chain.root_scope().into()).unwrap();
         assert_eq!(decoded.commitment().schedule.current.committee.len(), size);
         assert_eq!(decoded.preimage().unwrap(), bytes);
+        decoded
+            .check_block(
+                carrier.header().height().get(),
+                carrier.header().creation_time_ms,
+            )
+            .unwrap();
+        assert_eq!(
+            decoded.result().unwrap(),
+            iroha_data_model::sumeragi_finality::result_of_preimage(bytes).unwrap()
+        );
+        assert!(
+            CertifiedResultV1::decode(
+                &bytes[iroha_data_model::sumeragi_finality::certified_result::X_LEN..],
+                chain.root_scope().into(),
+            )
+            .is_err()
+        );
         assert!(
             CertifiedResultV1::decode(&bytes[..bytes.len() - 1], chain.root_scope().into())
                 .is_err()
@@ -1425,6 +1409,17 @@ fn native_result_decode_bounds_complete_committee_graphs_and_preserves_outer_lim
             matches!(outer_refusal, Err(_) | Ok(Err(_))),
             "inner canonical policy cannot replace the caller's exhausted budget"
         );
+        let original_resource = norito::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 128),
+            || CertifiedResultV1::decode(bytes, chain.root_scope().into()),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            original_resource,
+            iroha_data_model::sumeragi_finality::CertifiedResultError::Body(
+                iroha_data_model::sumeragi_finality::CommitmentError::Resource(_)
+            )
+        ));
     }
     let native = NativeFinalityFixture::start("deployment-result-bound");
     let oversized = vec![0; iroha_data_model::sumeragi_finality::MAX_RESULT_PREIMAGE_BYTES + 1];

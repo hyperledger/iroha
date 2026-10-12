@@ -1576,3 +1576,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod fips204_nistkat_tests;

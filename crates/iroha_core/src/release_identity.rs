@@ -212,71 +212,44 @@ impl BuildIdentity {
 /// ([`WireMessage`](iroha_sumeragi::message::WireMessage) plus native
 /// [`Evidence`](iroha_sumeragi::message::Evidence) frames), and the canonical
 /// [`ExecutionResultCommitment`](iroha_data_model::sumeragi_finality::ExecutionResultCommitment)
-/// body carried inside result witnesses, the actual fixed SCCP header field placement,
-/// result/body domain tags, size bounds and current outer hash contract, with the IVM ABI hash of
+/// payload carried inside result witnesses, plus the codec-owned native `X || body`
+/// descriptor (fixed offsets, integer encoding, magic, flag masks, bounds, hash
+/// domains and canonical body framing), with the IVM ABI hash of
 /// the sole first-release syscall policy through
 /// [`wire_schema_hash_of`](iroha_data_model::wire_schema::wire_schema_hash_of). Each
 /// root is rendered against its own types because the wires describe different
 /// types under the same schema identifiers (both define a `BlockHeader`). Opaque
 /// consensus byte domains (control
-/// witnesses, availability tables, rows) are described as length-prefixed byte
+/// witnesses, availability tables, rows), except for the explicitly covered certified
+/// result format, are described as length-prefixed byte
 /// sequences named with the lengths their decoders admit; the formats inside them are
-/// not part of the schema. The value is independent of the compilation target but not
-/// of the enabled features (the crypto `Algorithm` schema lists feature-gated
-/// variants), so release tooling reads it from a native build of the same commit with
-/// the release feature set.
+/// not part of this identity. No target label or process-local type identifier is
+/// included, but native descriptors bind actual compiled framing and alignment.
+/// Supported targets have equal identities only when those covered layouts agree.
+/// Enabled features also matter (the crypto `Algorithm` schema lists feature-gated
+/// variants), so release tooling reads the identity from a native build of the same
+/// commit with the release feature set.
 #[must_use]
 pub fn wire_schema_hash() -> [u8; 32] {
     static HASH: std::sync::OnceLock<[u8; 32]> = std::sync::OnceLock::new();
     *HASH.get_or_init(|| {
         let [block, consensus, execution] = covered_wire_roots();
-        native_wire_schema_hash_of(
+        hash_with_certified_result_framing(
             &[&block, &consensus, &execution],
             ivm::syscalls::compute_abi_hash(ivm::SyscallPolicy::AbiV1),
         )
     })
 }
 
-/// Bind the fixed non-Norito result envelope and hash contract in addition to typed schemas.
-fn native_wire_schema_hash_of(roots: &[&iroha_schema::MetaMap], abi: [u8; 32]) -> [u8; 32] {
-    let schemas = iroha_data_model::wire_schema::wire_schema_hash_of(roots, abi);
-    bind_result_contract(schemas, certified_result_contract())
-}
-
-fn bind_result_contract(schemas: [u8; 32], contract: [u8; 32]) -> [u8; 32] {
-    Hash::new_from_chunks(&[b"iroha/native-wire-identity/v1", &schemas, &contract]).into()
-}
-
-/// Hash actual field placement with the exact current result domains and byte bounds.
-fn certified_result_contract() -> [u8; 32] {
-    use iroha_data_model::sumeragi_finality::{
-        MAX_RESULT_PREIMAGE_BYTES, RESULT_TAG,
-        certified_result::{MAX_RESULT_BODY_BYTES, RESULT_BODY_TAG, SccpFinalityHeaderFieldsV1},
-    };
-    // Distinct byte patterns expose changed offsets or endianness through the real encoder.
-    // This is a layout descriptor, never a validated finality header or execution authority.
-    let layout = SccpFinalityHeaderFieldsV1 {
-        network_id: [1; 32],
-        height: 0x0203040506070809,
-        timestamp_ms: 0x0a0b0c0d0e0f1011,
-        flags: 0x12,
-        message_count: 0x13141516,
-        sccp_root: [0x17; 32],
-        history_size: 0x18191a1b1c1d1e1f,
-        history_root: [0x20; 32],
-        generation: 0x2122232425262728,
-        committee_root: [0x29; 32],
-        validity_ms: 0x2a2b2c2d2e2f3031,
-        next_committee_root: [0x32; 32],
-    }
-    .to_bytes();
-    Hash::new_from_chunks(&[
-        b"iroha/certified-result-wire-contract/v1",
-        b"R=raw-SHA256(RESULT_TAG||X||H_iroha(RESULT_BODY_TAG||body));stored=X||canonical-Norito-body",
-        RESULT_TAG, RESULT_BODY_TAG, &layout,
-        &(MAX_RESULT_PREIMAGE_BYTES as u64).to_be_bytes(),
-        &(MAX_RESULT_BODY_BYTES as u64).to_be_bytes(),
-    ]).into()
+/// Bind the native result framing alongside the real Norito payload roots.
+fn hash_with_certified_result_framing(roots: &[&iroha_schema::MetaMap], abi: [u8; 32]) -> [u8; 32] {
+    use iroha_data_model::sumeragi_finality::certified_result::wire_identity;
+    let descriptor = wire_identity::descriptor();
+    iroha_data_model::wire_schema::wire_schema_hash_of(
+        roots,
+        &[(wire_identity::FORMAT_NAME, &descriptor)],
+        abi,
+    )
 }
 
 /// Compiled wire roots in identity order: block, consensus and canonical execution result.
@@ -351,7 +324,6 @@ pub fn genesis_identity(
 
 #[cfg(test)]
 mod tests {
-    use super::native_wire_schema_hash_of as wire_schema_hash_of;
     use iroha_data_model::wire_schema::wire_root_defects;
 
     use super::*;
@@ -543,19 +515,27 @@ mod tests {
         let abi = ivm::syscalls::compute_abi_hash(ivm::SyscallPolicy::AbiV1);
         let [block, consensus, execution] = covered_wire_roots();
         let roots = [&block, &consensus, &execution];
-        let schemas = iroha_data_model::wire_schema::wire_schema_hash_of(&roots, abi);
-        let contract = certified_result_contract();
+        use iroha_data_model::sumeragi_finality::certified_result::wire_identity;
+        let schemas = iroha_data_model::wire_schema::wire_schema_hash_of(&roots, &[], abi);
+        let contract = wire_identity::descriptor();
+        let bind = |contract: &[u8]| {
+            iroha_data_model::wire_schema::wire_schema_hash_of(
+                &roots,
+                &[(wire_identity::FORMAT_NAME, contract)],
+                abi,
+            )
+        };
         assert_ne!(
             wire_schema_hash(),
             schemas,
             "body-only schemas omit X and the result hash contract"
         );
-        assert_eq!(wire_schema_hash(), bind_result_contract(schemas, contract));
-        assert_eq!(contract, certified_result_contract());
+        assert_eq!(wire_schema_hash(), bind(&contract));
+        assert_eq!(contract, wire_identity::descriptor());
         for index in 0..contract.len() {
-            let mut changed = contract;
+            let mut changed = contract.clone();
             changed[index] ^= 1;
-            assert_ne!(wire_schema_hash(), bind_result_contract(schemas, changed));
+            assert_ne!(wire_schema_hash(), bind(&changed));
         }
     }
 
@@ -563,7 +543,7 @@ mod tests {
     fn wire_schema_hash_binds_compiled_wire_and_ivm_abi_v1() {
         let abi = ivm::syscalls::compute_abi_hash(ivm::SyscallPolicy::AbiV1);
         let [block, consensus, execution] = covered_wire_roots();
-        let combined = wire_schema_hash_of(&[&block, &consensus, &execution], abi);
+        let combined = hash_with_certified_result_framing(&[&block, &consensus, &execution], abi);
         assert_eq!(wire_schema_hash(), combined);
         assert_eq!(
             wire_schema_hash(),
@@ -572,17 +552,43 @@ mod tests {
         );
         let [block, consensus, execution] = covered_wire_roots();
         assert_eq!(
-            wire_schema_hash_of(&[&block, &consensus, &execution], abi),
+            hash_with_certified_result_framing(&[&block, &consensus, &execution], abi),
             combined,
             "rebuilt schemas hash identically"
         );
         let mut other_abi = abi;
         other_abi[0] ^= 1;
         assert_ne!(
-            wire_schema_hash_of(&[&block, &consensus, &execution], other_abi),
+            hash_with_certified_result_framing(&[&block, &consensus, &execution], other_abi),
             combined
         );
         assert_eq!(hex::encode(wire_schema_hash()).len(), 64);
+    }
+
+    #[test]
+    fn wire_schema_hash_requires_the_native_certified_result_descriptor() {
+        use iroha_data_model::{
+            sumeragi_finality::certified_result::wire_identity, wire_schema::wire_schema_hash_of,
+        };
+        let [block, consensus, execution] = covered_wire_roots();
+        let roots = [&block, &consensus, &execution];
+        let abi = ivm::syscalls::compute_abi_hash(ivm::SyscallPolicy::AbiV1);
+        let descriptor = wire_identity::descriptor();
+        assert_eq!(
+            wire_schema_hash(),
+            wire_schema_hash_of(&roots, &[(wire_identity::FORMAT_NAME, &descriptor)], abi)
+        );
+        assert_ne!(wire_schema_hash(), wire_schema_hash_of(&roots, &[], abi));
+        let mut changed = descriptor.clone();
+        let offset = changed
+            .windows(b"big-endian".len())
+            .position(|s| s == b"big-endian")
+            .unwrap();
+        changed[offset..offset + b"big-endian".len()].copy_from_slice(b"bad-endian");
+        assert_ne!(
+            wire_schema_hash(),
+            wire_schema_hash_of(&roots, &[(wire_identity::FORMAT_NAME, &changed)], abi)
+        );
     }
 
     /// All roots are closed and unambiguous, so every type a consensus frame reaches is
@@ -644,14 +650,14 @@ mod tests {
 
         let abi = ivm::syscalls::compute_abi_hash(ivm::SyscallPolicy::AbiV1);
         let [block, consensus, execution] = covered_wire_roots();
-        let combined = wire_schema_hash_of(&[&block, &consensus, &execution], abi);
+        let combined = hash_with_certified_result_framing(&[&block, &consensus, &execution], abi);
         assert_ne!(
-            wire_schema_hash_of(&[&block, &execution], abi),
+            hash_with_certified_result_framing(&[&block, &execution], abi),
             combined,
             "the consensus root is covered"
         );
         assert_ne!(
-            wire_schema_hash_of(&[&consensus, &block, &execution], abi),
+            hash_with_certified_result_framing(&[&consensus, &block, &execution], abi),
             combined,
             "the roots are hashed in identity order"
         );
@@ -670,7 +676,7 @@ mod tests {
         let defects = wire_root_defects(&changed);
         assert!(defects.is_empty(), "{defects:?}");
         assert_ne!(
-            wire_schema_hash_of(&[&block, &changed, &execution], abi),
+            hash_with_certified_result_framing(&[&block, &changed, &execution], abi),
             combined,
             "changing a consensus field type changes the identity"
         );
@@ -698,7 +704,7 @@ mod tests {
             core::any::TypeId::of::<Defect>()
         );
         let abi = ivm::syscalls::compute_abi_hash(ivm::SyscallPolicy::AbiV1);
-        let original = wire_schema_hash_of(&[&block, &consensus, &execution], abi);
+        let original = hash_with_certified_result_framing(&[&block, &consensus, &execution], abi);
         let Some(Metadata::Enum(mut defects)) = consensus.get::<Defect>().cloned() else {
             panic!("native defect enum");
         };
@@ -706,7 +712,7 @@ mod tests {
         let mut changed = consensus.clone();
         changed.insert::<Defect>(Metadata::Enum(defects));
         assert_ne!(
-            wire_schema_hash_of(&[&block, &changed, &execution], abi),
+            hash_with_certified_result_framing(&[&block, &changed, &execution], abi),
             original
         );
         let Some(Metadata::Tuple(mut votes)) =
@@ -718,7 +724,7 @@ mod tests {
         let mut changed = consensus;
         changed.insert::<EnumVariantPayload<Evidence, 1>>(Metadata::Tuple(votes));
         assert_ne!(
-            wire_schema_hash_of(&[&block, &changed, &execution], abi),
+            hash_with_certified_result_framing(&[&block, &changed, &execution], abi),
             original
         );
     }
@@ -732,8 +738,11 @@ mod tests {
         let [block, consensus, execution] = covered_wire_roots();
         assert!(wire_root_defects(&execution).is_empty());
         let abi = ivm::syscalls::compute_abi_hash(ivm::SyscallPolicy::AbiV1);
-        let original = wire_schema_hash_of(&[&block, &consensus, &execution], abi);
-        assert_ne!(wire_schema_hash_of(&[&block, &consensus], abi), original);
+        let original = hash_with_certified_result_framing(&[&block, &consensus, &execution], abi);
+        assert_ne!(
+            hash_with_certified_result_framing(&[&block, &consensus], abi),
+            original
+        );
         let Some(Metadata::Struct(mut result)) =
             execution.get::<ExecutionResultCommitment>().cloned()
         else {
@@ -750,7 +759,7 @@ mod tests {
         changed.insert::<ExecutionResultCommitment>(Metadata::Struct(result));
         assert!(wire_root_defects(&changed).is_empty());
         assert_ne!(
-            wire_schema_hash_of(&[&block, &consensus, &changed], abi),
+            hash_with_certified_result_framing(&[&block, &consensus, &changed], abi),
             original
         );
     }

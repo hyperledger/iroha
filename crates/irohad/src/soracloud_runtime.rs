@@ -809,6 +809,7 @@ impl SoracloudRuntimeMutationSink for QueuedSoracloudRuntimeMutationSink {
                 quote_view.world(),
                 quote_view.nexus(),
                 quote_view.pipeline(),
+                &quote_view.zk().gas,
                 &payload,
                 observation_time_ms,
                 sccp_committed_time_ms,
@@ -11420,6 +11421,7 @@ fn vm_error_label(error: &VMError) -> &'static str {
     match error.as_unmetered() {
         VMError::ExecutionDeferred(_) => "execution_deferred",
         VMError::AllocationDeferred(_) => "allocation_deferred",
+        VMError::DecodeDeferred(_) => "decode_deferred",
         VMError::OutOfGas => "out_of_gas",
         VMError::OutOfMemory => "out_of_memory",
         VMError::MemoryAccessViolation { .. } => "memory_access_violation",
@@ -11465,9 +11467,9 @@ fn vm_error_label(error: &VMError) -> &'static str {
 }
 fn vm_error_kind(error: &VMError) -> SoracloudRuntimeExecutionErrorKind {
     match error.as_unmetered() {
-        VMError::ExecutionDeferred(_) | VMError::AllocationDeferred(_) => {
-            SoracloudRuntimeExecutionErrorKind::Unavailable
-        }
+        VMError::ExecutionDeferred(_)
+        | VMError::AllocationDeferred(_)
+        | VMError::DecodeDeferred(_) => SoracloudRuntimeExecutionErrorKind::Unavailable,
         _ => SoracloudRuntimeExecutionErrorKind::Internal,
     }
 }

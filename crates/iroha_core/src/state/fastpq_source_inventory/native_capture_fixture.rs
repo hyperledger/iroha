@@ -254,6 +254,7 @@ fn with_native_state_sources<T>(
                     view.world(),
                     view.nexus(),
                     view.pipeline(),
+                    &view.zk().gas,
                     draft.payload(),
                     u64::try_from(draft.creation_time().as_millis()).unwrap(),
                     crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
@@ -305,9 +306,13 @@ pub(crate) fn seal_native_source(
     block.seal_execution_outputs(source, |state, source, routes| {
         assert_eq!(routes.len(), source.network_entrypoint_count());
         Ok::<_, String>(crate::state::output_capacity::ExecutionOutputSealMetadata {
-                sccp_finality_header: iroha_data_model::sumeragi_finality::certified_result::SccpFinalityHeaderV1::inactive(
-                    *state.network_id.as_bytes(), state._curr_block.height().get(), state._curr_block.creation_time_ms,
-                ).expect("original component carrier"),
+            sccp_finality_header:
+                iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+                    *state.network_id().as_bytes(),
+                    source.header().height().get(),
+                    source.header().creation_time_ms,
+                )
+                .expect("nonzero fixture height"),
             committed_fragment_count: u64::try_from(state.committed_fragment_count()).unwrap(),
         })
     })?;

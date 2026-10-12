@@ -382,7 +382,7 @@ lockstep.
 
 1. During dial, `IrohaNetwork` compares the advertised capabilities. Any mismatch raises `HandshakeConfidentialMismatch`; the connection is closed and the peer remains in the discovery queue without ever being promoted to `Ready`.
 2. The failure is surfaced via the network service log (including the remote digest and backend), and Sumeragi never schedules the peer for proposal or voting.
-3. Operators remediate by aligning verifier registries and parameter sets (`vk_set_hash`, `pedersen_params_id`, `poseidon_params_id`) or by staging `next_conf_features` with an agreed `activation_height`. Once the digest matches, the next handshake succeeds automatically.
+3. The handshake digest carries the confidential rules version and the protocol-default ZK and SCCP policy hash of the release only. It carries neither the registry fields (`vk_set_hash`, `pedersen_params_id`, `poseidon_params_id`) nor the chain's committed `zk_validity_policy_v1`: those are State, decided by blocks, and peers at different heights must still connect. A mismatch therefore means the peers run releases with different protocol defaults; operators remediate by installing the same release.
 4. If a stale peer manages to broadcast a block (e.g., via archival replay), validators reject it deterministically with `BlockRejectionReason::ConfidentialFeatureDigestMismatch`, keeping ledger state consistent across the network.
 
 ### Replay-safe handshake flow
@@ -390,7 +390,7 @@ lockstep.
 1. Each attempt negotiates a fresh mandatory SoraNet NK2/NK3 session key inside TLS 1.3 or QUIC. The signed payload (`handshake_signature_payload`) uses an explicit V1 domain and binds the complete 256-bit domain-separated session hash, BLS-normal node public key, Norito-encoded advertised address, relay/consensus/confidential/crypto/trust capabilities, mandatory exact genesis-derived `NetworkId`, and mandatory listener-observed TLS/QUIC certificate fingerprint. The message is AEAD-encrypted before it leaves the node.
 2. The responder derives the same full session hash and verifies the long-term peer signature over those exact `HandshakeHello` claims before enforcing or using them. Replaying a captured message in another session, altering a capability, connecting to a network with another genesis hash (even under the same display name), or changing the authenticated transport binding therefore fails signature verification deterministically; the compact 64-bit connection disambiguator is used only for simultaneous-connection tie-breaking.
 3. Confidential capability flags and the `ConfidentialFeatureDigest` travel inside the signed `HandshakeConfidentialMeta`. After authentication, the receiver compares the tuple `{ enabled, assume_valid, verifier_backend, digest }` against its locally configured `ConfidentialHandshakeCaps`; any mismatch exits early with `HandshakeConfidentialMismatch` before the transport transitions to `Ready`.
-4. Operators MUST recompute the digest (via `compute_confidential_feature_digest`) and restart nodes with the updated registries/policies before reconnecting. Peers advertising old digests continue to fail the handshake, preventing stale state from re-entering the validator set.
+4. The handshake digest does not change when registries or the committed ZK validity policy change, so no restart is needed after such a change. Stale state cannot re-enter through the handshake in any case: every block header carries the full `ConfidentialFeatureDigest` computed from committed State at its height (`compute_confidential_feature_digest`), and a block with another digest is rejected deterministically.
 5. Handshake successes and failures update the standard `iroha_p2p::peer` counters (`handshake_failure_count`, error taxonomy helpers) and emit structured log entries tagged with the remote peer ID and digest fingerprint. Monitor these indicators to catch replay attempts or misconfigurations during rollout.
 
 ## Key Management & Payloads
@@ -403,11 +403,11 @@ lockstep.
 - Deterministic gas schedule:
   - Halo2 (Plonkish): base `250_000` gas + `2_000` gas per public input.
   - `5` gas per proof byte, plus per-nullifier (`300`) and per-commitment (`500`) charges.
-  - Operators may set these constants in the node configuration (`confidential.gas.{proof_base, per_public_input, per_proof_byte, per_nullifier, per_commitment}`) before startup. The schedule is consensus-relevant and committed into the ZK policy hash, so it is read-only through `/v1/configuration`; changing it requires a coordinated configuration rollout and node restart.
-- Hard limits (configurable defaults):
-- `max_proof_size_bytes = 262_144`.
+  - These constants are the `gas` section of the committed `zk_validity_policy_v1` chain parameter (`gas.{proof_base, per_public_input, per_proof_byte, per_nullifier, per_commitment}`), or the protocol default when a chain commits none. A node configuration cannot set them. An authorized `SetParameter` changes the schedule from the next block; `/v1/configuration` reports the schedule State charges and is read-only.
+- Hard limits: fields of the `confidential` section of the committed `zk_validity_policy_v1` chain parameter, or the protocol default when a chain commits none. A node configuration cannot set them; an authorized `SetParameter` changes them from the next block. Protocol defaults:
+- `max_proof_size_bytes = 1_048_576`.
 - `max_nullifiers_per_tx = 8`, `max_commitments_per_tx = 8`, `max_confidential_ops_per_block = 256`.
-- `verify_timeout_ms = 750`, `max_anchor_age_blocks = 10_000`. `verify_timeout_ms` is an operator latency budget for telemetry and backpressure; consensus validity is determined by deterministic bounds such as proof size, gas, public input counts, registry policy, and anchor age.
+- `max_anchor_age_blocks = 10_000`. `verify_timeout_ms` (default `750`) is the one node-local value here: an operator latency budget for telemetry and backpressure. Consensus validity is determined by deterministic bounds such as proof size, gas, public input counts, registry policy, and anchor age.
 - Additional quotas ensure liveness: `max_proof_bytes_block`, `max_verify_calls_per_tx`, `max_verify_calls_per_block`, and `max_public_inputs` bound block builders; `reorg_depth_bound` (≥ `max_anchor_age_blocks`) governs frontier checkpoint retention.
 - Runtime execution now rejects transactions that exceed these per-transaction or per-block limits, emitting deterministic `InvalidParameter` errors and leaving ledger state unchanged.
 - Mempool prefilters confidential transactions by `vk_id`, proof length, and anchor age before invoking the verifier to keep resource usage bounded.
@@ -445,33 +445,26 @@ lockstep.
   - Ensuring pacemaker and confidential verifier feature flags mirror production (`--features confidential,telemetry` when running benches with Telemetry).
 
 ## Config & Operations
-- `iroha_config` gains `[confidential]` section:
+- `iroha_config` `[confidential]` holds node-local settings only:
   ```toml
   [confidential]
   enabled = true
   assume_valid = false
-  verifier_backend = "ark_bls12_381"
-  max_proof_size_bytes = 262144
-  max_nullifiers_per_tx = 8
-  max_commitments_per_tx = 8
-  max_confidential_ops_per_block = 256
-  verify_timeout_ms = 750
-  max_anchor_age_blocks = 10000
-  max_proof_bytes_block = 1048576
-  max_verify_calls_per_tx = 128
-  max_verify_calls_per_block = 128
-  max_public_inputs = 32
-  reorg_depth_bound = 10000
-  policy_transition_delay_blocks = 100
-  policy_transition_window_blocks = 200
-  policy_transition_max_per_height = 256
-  tree_roots_history_len = 10000
-  tree_frontier_checkpoint_interval = 100
-  registry_max_vk_entries = 64
-  registry_max_params_entries = 32
-  registry_max_delta_per_block = 4
+  verifier_backend = "halo2-ipa-pallas"
+  verify_timeout_ms = 750   # local budget of one verification attempt
   ```
-  The default per-transaction verifier-call cap admits one complete production-shaped Soracloud BFV full-bootstrap execution proof batch, which can verify one proof per registered identifier slot. Keep the per-block cap aligned with the desired number of heavy confidential jobs per block.
+- Confidential limits, windows and registry caps are chain policy: the `confidential` section of the committed `zk_validity_policy_v1` parameter (protocol defaults shown), set in the genesis manifest or by an authorized `SetParameter` and effective from the next block. A node configuration that names one of them fails to load.
+  ```json
+  { "max_proof_size_bytes": 1048576, "max_nullifiers_per_tx": 8, "max_commitments_per_tx": 8,
+    "max_confidential_ops_per_block": 256, "max_anchor_age_blocks": 10000,
+    "max_proof_bytes_block": 1048576, "max_verify_calls_per_tx": 128,
+    "max_verify_calls_per_block": 128, "max_public_inputs": 32, "reorg_depth_bound": 10000,
+    "policy_transition_delay_blocks": 100, "policy_transition_window_blocks": 200,
+    "policy_transition_max_per_height": 256, "tree_roots_history_len": 10000,
+    "tree_frontier_checkpoint_interval": 100, "registry_max_vk_entries": 64,
+    "registry_max_params_entries": 32, "registry_max_delta_per_block": 4 }
+  ```
+  A policy is coherent when a per-proof limit does not exceed the per-transaction limit, a per-transaction limit does not exceed the per-block limit, and `tree_roots_history_len` covers `max_anchor_age_blocks`. The default per-transaction verifier-call cap admits one complete production-shaped Soracloud BFV full-bootstrap execution proof batch, which can verify one proof per registered identifier slot. Keep the per-block cap aligned with the desired number of heavy confidential jobs per block.
 - Telemetry emits aggregate metrics: `confidential_proof_verified`, `confidential_verifier_latency_ms`, `confidential_proof_bytes_total`, `confidential_nullifier_spent`, `confidential_commitments_appended`, `confidential_mempool_rejected_total{reason}`, and `confidential_policy_transitions_total`, never exposing plaintext data.
 - RPC surfaces:
   - `GET /confidential/capabilities`
@@ -586,8 +579,8 @@ Pair this with `rg 'iroha_confidential_tree_depth'` on the same scrape to confir
 
 Phase M2 also threads the configurable gas multipliers into the telemetry pipeline so operators can prove that every validator shares the same verification costs before approving a release:
 
-- `iroha_confidential_gas_base_verify` mirrors `confidential.gas.proof_base` (default `250_000`).
-- `iroha_confidential_gas_per_public_input`, `iroha_confidential_gas_per_proof_byte`, `iroha_confidential_gas_per_nullifier`, and `iroha_confidential_gas_per_commitment` mirror their respective knobs in `ConfidentialConfig`. `irohad` publishes the startup schedule through `Telemetry::set_confidential_gas_schedule`. The schedule is read-only at runtime because it is committed into the ZK policy hash.
+- `iroha_confidential_gas_base_verify` mirrors `gas.proof_base` of the committed `zk_validity_policy_v1` parameter (protocol default `250_000`).
+- `iroha_confidential_gas_per_public_input`, `iroha_confidential_gas_per_proof_byte`, `iroha_confidential_gas_per_nullifier`, and `iroha_confidential_gas_per_commitment` mirror the other four charges of that section. Core sets the gauges whenever it installs the schedule a State charges (at restore and at block construction), so they follow an authorized change of the committed policy. No node configuration holds a schedule.
 
 Scrape the gauges alongside the CommitmentTree metrics to confirm the knobs are identical across peers:
 
@@ -600,7 +593,7 @@ done
 ```
 
 Grafana dashboard `confidential_assets.json` now includes a “Gas Schedule” panel that renders the five gauges and highlights divergence. Alert rules in `dashboards/alerts/confidential_assets_rules.yml` cover:
-- `ConfidentialGasMismatch`: checks the max/min of each multiplier across all scrape targets and pages when any diverge for more than 3 minutes, prompting operators to align `confidential.gas` and perform a coordinated node restart.
+- `ConfidentialGasMismatch`: checks the max/min of each multiplier across all scrape targets and pages when any diverge for more than 3 minutes, which means the nodes are at different heights or on different histories: the schedule is committed chain policy (`zk_validity_policy_v1`), and node configuration can neither cause nor cure a divergence.
 - `ConfidentialGasTelemetryMissing`: warns when Prometheus cannot scrape any of the five multipliers for 5 minutes, indicating a missing scrape target or disabled telemetry.
 
 Keep the following PromQL handy for on-call investigations:

@@ -241,6 +241,12 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
         UseOwner::Other(Use::Record, RECORD_IDENTITY),
     ),
     function(
+        "crates/iroha_core/src/smartcontracts/isi/sccp/read/control.rs",
+        "control_proof_from_native",
+        1,
+        UseOwner::Accumulator("sccp_message_accumulator"),
+    ),
+    function(
         "crates/iroha_core/src/smartcontracts/isi/sccp/read/history/funded.rs",
         "cached",
         1,
@@ -291,12 +297,6 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
     function(
         "crates/iroha_core/src/smartcontracts/isi/sccp/read/history/funded.rs",
         "small_root",
-        1,
-        UseOwner::Accumulator("sccp_message_accumulator"),
-    ),
-    function(
-        "crates/iroha_core/src/smartcontracts/isi/sccp/read/control.rs",
-        "control_proof_from_native",
         1,
         UseOwner::Accumulator("sccp_message_accumulator"),
     ),
@@ -1085,6 +1085,12 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
         "validate_quantity_retirement_invocation",
         1,
         UseOwner::Other(Use::Record, RECORD_IDENTITY),
+    ),
+    function(
+        "crates/iroha_core/src/state/native_execution_tip.rs",
+        "restored_genesis_record",
+        1,
+        UseOwner::Other(Use::ResultBinding, CERTIFIED_IDENTITY),
     ),
     function(
         "crates/iroha_core/src/state/native_execution_tip.rs",

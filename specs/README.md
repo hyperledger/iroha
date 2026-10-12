@@ -44,7 +44,7 @@ Pipeline configuration
 - All runtime behavior is configured via `iroha_config` files. Environment variables are not used for operators.
 - Sensible defaults are provided; most deployments won’t need changes.
 - Relevant keys under `[pipeline]`:
-  - `dynamic_prepass`: enable IVM read‑only prepass to derive access sets (default: true).
+  - Execution limits and the access-set derivation mode (`dynamic_prepass`, overlay bounds, IVM cycle and decoded-program bounds, quarantine, query and AMX limits) are not keys of this section: they are the committed chain parameter `pipeline_validity_policy_v1`.
   - `access_set_cache_enabled`: cache derived access sets per `(code_hash, entrypoint)`; disable to debug hints (default: true).
   - `parallel_overlay`: build overlays in parallel; commit remains deterministic (default: true).
   - `gpu_key_bucket`: optional key bucketing for the scheduler prepass using a stable radix on `(key, tx_idx, rw_flag)`; deterministic CPU fallback is always active (default: false).

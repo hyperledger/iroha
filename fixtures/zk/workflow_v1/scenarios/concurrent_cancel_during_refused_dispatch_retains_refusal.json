@@ -1,0 +1,127 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "concurrent_cancel_during_refused_dispatch_retains_refusal",
+  "category": "cancellation",
+  "rules": [
+    "persist_before_effect",
+    "cancellation_is_sticky_and_never_rolls_back",
+    "reconcile_before_decide"
+  ],
+  "description": "Cancellation is stored while dispatch is in flight. The response proves no admission, so the journal drops the signed bytes, preserves any refusal evidence, and repeated calls start no further work.",
+  "plan": {
+    "kind": "issuer_bootstrap",
+    "instance": "cancel-inflight-refused",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction"
+      },
+      {
+        "label": "activate",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "refused"
+        ]
+      },
+      "concurrent": {
+        "when": "effect:dispatch:0#1",
+        "action": "cancel"
+      },
+      "expect": {
+        "result": {
+          "error": "CancelledBeforeSubmission",
+          "stage": "cancel",
+          "step": 0,
+          "resumable": false
+        },
+        "effects": [
+          "build:0#1",
+          "sign:0#1",
+          "dispatch:0#1",
+          "concurrent:cancel:cancelling"
+        ],
+        "status": "cancelled",
+        "steps": [
+          "rejected",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [
+            0
+          ],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 1,
+              "possible_admissions": 0,
+              "evidence": "admission_refused"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "run",
+      "expect": {
+        "result": {
+          "error": "CancelledBeforeSubmission",
+          "stage": "cancel",
+          "step": 0,
+          "resumable": false
+        },
+        "effects": [],
+        "status": "cancelled",
+        "steps": [
+          "rejected",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [
+            0
+          ],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 1,
+              "possible_admissions": 0,
+              "evidence": "admission_refused"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

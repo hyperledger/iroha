@@ -482,11 +482,10 @@ fn fenced_block<'a>(document: &'a str, marker: &str) -> &'a str {
 
 #[test]
 fn specification_carries_the_exact_descriptor() {
-    let path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../specs/ram_lfe_execution_proof.md"
-    );
-    let document = std::fs::read_to_string(path).expect("tracked RAM-LFE specification");
+    // Read with Unix line endings, whatever the checkout wrote: the descriptor
+    // is compared byte for byte.
+    let document =
+        crate::ram_lfe::specification_tests::repository_file("specs/ram_lfe_execution_proof.md");
     assert_eq!(
         fenced_block(&document, "<!-- ram-lfe-v1-plaintext-semantics -->"),
         RAM_LFE_V1_PLAINTEXT_SEMANTICS_DESCRIPTOR

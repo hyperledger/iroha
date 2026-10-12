@@ -17,7 +17,9 @@ state_test! { sync startup_sumeragi_key_policy_matches_canonical_state_without_m
     let hash = crate::snapshot::canonical_state_snapshot_hash(&state).expect("stable valid fixture snapshot");
     {
         let mut parameters = state.world.parameters.block();
-        parameters.sumeragi.key_allowed_algorithms.reverse();
+        let mut consensus = parameters.sumeragi().clone();
+        consensus.key_allowed_algorithms.reverse();
+        parameters.set_sumeragi(consensus);
         parameters.commit();
     }
     let before = norito::json::to_value(&state).expect("equivalent algorithm order");
@@ -378,7 +380,7 @@ state_test! { sync snapshot_runtime_catalog_restart_authenticates_full_configure
             iroha_data_model::parameter::Parameter::Custom(
                 runtime.into_custom_parameter().expect("valid protected catalog"),
             ),
-        );
+        ).expect("valid fixture parameters");
         world.commit();
     }
     let snapshot = norito::json::to_json(&state).expect("serialize committed catalog snapshot");

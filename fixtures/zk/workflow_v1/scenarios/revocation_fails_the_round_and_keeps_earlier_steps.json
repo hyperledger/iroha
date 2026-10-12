@@ -1,0 +1,123 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "revocation_fails_the_round_and_keeps_earlier_steps",
+  "category": "offchain_round",
+  "rules": [
+    "per_transaction_atomicity_only"
+  ],
+  "description": "A participant's consent is revoked during the dealing round. The driver reports a terminal failure; the workflow fails with AuthorizationDenied while the registration transaction stays confirmed and irreversible.",
+  "plan": {
+    "kind": "dkg",
+    "instance": "revocation-fails-the-round-and-keeps-earlier-steps",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction"
+      },
+      {
+        "label": "deal",
+        "kind": "offchain_round",
+        "irreversible": true,
+        "participants_required": 2,
+        "custody_handles_required": 1
+      },
+      {
+        "label": "publish",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "accepted"
+        ],
+        "statuses": [
+          "applied"
+        ],
+        "round_starts": [
+          "failed:AuthorizationDenied"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "AuthorizationDenied",
+          "stage": "round",
+          "step": 1,
+          "resumable": false
+        },
+        "effects": [
+          "build:0#1",
+          "sign:0#1",
+          "dispatch:0#1",
+          "status:0#1",
+          "round_start:1"
+        ],
+        "status": "failed",
+        "steps": [
+          "finalized",
+          "round_failed",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0
+          ],
+          "irreversible_steps": [
+            0
+          ],
+          "unresolved_steps": [],
+          "failed_steps": [
+            1
+          ],
+          "not_started_steps": [
+            2
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "cancel",
+      "expect": {
+        "result": "ok",
+        "effects": [],
+        "status": "failed",
+        "steps": [
+          "finalized",
+          "round_failed",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0
+          ],
+          "irreversible_steps": [
+            0
+          ],
+          "unresolved_steps": [],
+          "failed_steps": [
+            1
+          ],
+          "not_started_steps": [
+            2
+          ],
+          "rolled_back_steps": []
+        },
+        "cancel_requested": false
+      }
+    }
+  ]
+}

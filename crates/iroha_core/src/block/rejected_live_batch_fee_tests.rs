@@ -169,8 +169,7 @@ fn rejected_live_batch_business_execution_still_charges_nexus_fee() {
 }
 #[test]
 fn rejected_contract_only_batch_vm_error_still_charges_nexus_fee() {
-    let manifest_signing =
-        crate::manifest_signing_test_support::ManifestSigningFixture::new();
+    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     let _guard = crate::status::nexus_fee_test_lock()
         .lock()
         .expect("nexus fee test lock");
@@ -246,7 +245,13 @@ ledger::account::set_metadata(
             iroha_model_base::topology::DataSpaceId::UNIVERSAL,
             code_hash,
         ),
-        manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &payer_keypair).expect("sign bounded fixture manifest"),
+        manifest
+            .try_signed(
+                manifest_signing.context(),
+                manifest_signing.max_frame_bytes(),
+                &payer_keypair,
+            )
+            .expect("sign bounded fixture manifest"),
     );
     world
         .contract_instances
@@ -399,7 +404,7 @@ fn successful_live_batches_accumulate_parent_block_gas() {
             LiveQueryStore::start_test(),
             chain_id.clone(),
         );
-        let mut pipeline = state.pipeline.clone();
+        let mut pipeline = state.installed_pipeline().clone();
         pipeline.parallel_apply = parallel_apply;
         pipeline.parallel_overlay = true;
         pipeline.workers = 2;
@@ -408,7 +413,10 @@ fn successful_live_batches_accumulate_parent_block_gas() {
         let state = native_chain.state();
         let log_instruction =
             InstructionBox::from(Log::new(Level::INFO, "meter one live batch".to_owned()));
-        let expected_gas = crate::gas::meter_instructions(core::slice::from_ref(&log_instruction));
+        let expected_gas = crate::gas::meter_instructions(
+            core::slice::from_ref(&log_instruction),
+            &crate::gas::DEFAULT_ZK_GAS,
+        );
         assert!(expected_gas > 0, "the fixture must consume gas");
         let (max_clock_drift, tx_limits) = {
             let state_view = state.world.view();

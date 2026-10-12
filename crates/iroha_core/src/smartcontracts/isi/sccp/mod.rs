@@ -19,7 +19,9 @@
 
 pub mod admission;
 pub mod anchor_record;
+pub mod anchor_storage;
 pub mod commitment;
+pub mod committee_storage;
 pub mod controls;
 pub(crate) mod eligibility;
 pub mod escrow;

@@ -488,7 +488,8 @@ fn install_monthly_policy(
         .world
         .parameters
         .get_mut()
-        .set_parameter(Parameter::Custom(registry.into_custom_parameter()));
+        .set_parameter(Parameter::Custom(registry.into_custom_parameter()))
+        .expect("valid fixture parameters");
     let record = RetailFeeAccountStateV1::enroll(source.clone(), START, 1000).unwrap();
     crate::retail_fee::write_account(&mut transaction.world, &record).unwrap();
 }

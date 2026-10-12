@@ -422,6 +422,119 @@ fn enum_payloads_roundtrip_in_every_variant() {
 }
 
 #[test]
+fn finality_degraded_reasons_are_closed_and_have_explicit_tags() {
+    use norito::codec::DecodeAll as _;
+
+    let reasons = [
+        (
+            SccpFinalityDegradedReasonV1::MissingInputs,
+            "missing_inputs",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::InvalidInputs,
+            "invalid_inputs",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::MissingGeneration,
+            "missing_generation",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::InvalidGeneration,
+            "invalid_generation",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::MissingParent,
+            "missing_parent",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::CounterExhausted,
+            "counter_exhausted",
+        ),
+    ];
+    for (index, (reason, tag)) in reasons.into_iter().enumerate() {
+        roundtrip(&reason);
+        assert!(reason.encode().starts_with(&(index as u32).encode()));
+        let event = SccpEvent::FinalityDegraded(SccpFinalityDegradedV1 {
+            height: u64::MAX,
+            reason,
+        });
+        roundtrip(&event);
+        let value = norito::json::to_value(&reason).expect("reason JSON");
+        assert_eq!(
+            value.get("reason").and_then(norito::json::Value::as_str),
+            Some(tag)
+        );
+        assert_rejects_unknown_field(&reason, &[]);
+        assert_rejects_unknown_field(&event, &["payload", "reason"]);
+    }
+    for index in [6_u32, u32::MAX] {
+        assert!(SccpFinalityDegradedReasonV1::decode_all(&mut index.encode().as_slice()).is_err());
+    }
+    for tag in ["allocation_failed", "storage_unavailable", "unknown"] {
+        let json = format!(r#"{{"reason":"{tag}","detail":null}}"#);
+        assert!(norito::json::from_json::<SccpFinalityDegradedReasonV1>(&json).is_err());
+    }
+}
+
+#[test]
+fn generation_event_set_selects_each_native_variant() {
+    let sets = [
+        (SccpEventSet::FinalityDegraded, "finality_degraded"),
+        (
+            SccpEventSet::CommitteeGenerationCreated,
+            "committee_generation_created",
+        ),
+        (SccpEventSet::CommitteeResync, "committee_resync"),
+        (
+            SccpEventSet::GenerationMemberUnslashable,
+            "generation_member_unslashable",
+        ),
+        (
+            SccpEventSet::GenerationDestinationCleared,
+            "generation_destination_cleared",
+        ),
+    ];
+    let events = every_event();
+    for (set, tag) in sets {
+        let matches: Vec<_> = events
+            .iter()
+            .filter(|(event, _)| set.matches(event))
+            .map(|(_, tag)| *tag)
+            .collect();
+        assert_eq!(matches, vec![tag]);
+    }
+}
+
+#[test]
+fn native_generation_event_payload_fields_are_required() {
+    for (event, tag) in every_event().into_iter().skip(18) {
+        let value = norito::json::to_value(&event).expect("event JSON");
+        let fields: Vec<_> = value
+            .get("payload")
+            .and_then(norito::json::Value::as_object)
+            .expect("event payload")
+            .keys()
+            .cloned()
+            .collect();
+        for field in fields {
+            let mut missing = value.clone();
+            missing
+                .as_object_mut()
+                .expect("event")
+                .get_mut("payload")
+                .and_then(norito::json::Value::as_object_mut)
+                .expect("event payload")
+                .remove(&field);
+            let json = norito::json::to_json(&missing).expect("missing-field JSON");
+            assert!(
+                norito::json::from_json::<SccpEvent>(&json).is_err(),
+                "{tag} accepted missing {field}"
+            );
+        }
+    }
+}
+
+#[test]
 fn amounts_are_decimal_strings() {
     let (event, _) = every_event()
         .into_iter()
@@ -455,7 +568,11 @@ fn every_native_degradation_reason_is_copyable_closed_and_roundtrips() {
         let (original, copied) = copy_value(reason);
         assert_eq!(original, copied);
         roundtrip(&reason);
-        assert!(reason.encode().starts_with(&(index as u32).encode()));
+        assert!(
+            reason
+                .encode()
+                .starts_with(&u32::try_from(index).unwrap().encode())
+        );
         let event = SccpFinalityDegradedV1 { height: 3, reason };
         roundtrip(&SccpEvent::FinalityDegraded(event));
         assert_eq!(copy_value(event), (event, event));

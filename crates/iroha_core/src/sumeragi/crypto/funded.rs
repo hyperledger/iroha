@@ -274,7 +274,7 @@ impl Crypto for FundedBlsCommittee {
         verify_individual(pk, msg, sig)
     }
 
-    fn aggregate(&self, signatures: &[Signature]) -> AggregateSignature {
+    fn aggregate(&self, signatures: &[Signature]) -> Result<AggregateSignature, AggregationError> {
         aggregate_signatures(signatures)
     }
 

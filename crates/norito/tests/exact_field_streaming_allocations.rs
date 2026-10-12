@@ -382,6 +382,9 @@ mod field_destination;
 #[path = "exact_field_streaming_allocations/budget_context.rs"]
 mod budget_context;
 
+#[path = "exact_field_streaming_allocations/decode_local_refusal.rs"]
+mod decode_local_refusal;
+
 #[path = "exact_field_streaming_allocations/prepared_sequence.rs"]
 mod prepared_sequence;
 

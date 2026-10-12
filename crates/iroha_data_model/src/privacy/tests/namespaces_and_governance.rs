@@ -131,6 +131,7 @@ fn namespaces_root_roles_and_publications_are_closed_and_typed() {
         norito::decode_from_bytes(&bytes).expect("decode publication");
     assert_eq!(decoded, publication);
     assert!(!publication.digest().expect("publication digest").is_zero());
+    assert_privacy_digest_layout_invariant(|| publication.digest().expect("publication digest"));
     let mut invalid = publication;
     invalid.epoch = 0;
     assert!(matches!(
@@ -159,6 +160,7 @@ fn pgc_bootstrap_is_canonical_bounded_and_has_distinct_provenance() {
         norito::decode_from_bytes(&bytes).expect("decode bootstrap");
     assert_eq!(decoded, bootstrap);
     let digest = bootstrap.digest().expect("bootstrap digest");
+    assert_privacy_digest_layout_invariant(|| bootstrap.digest().expect("bootstrap digest"));
     assert!(!digest.is_zero());
     let publication = PrivacyRootPublicationV1::new(
         bootstrap.namespace,
@@ -245,6 +247,9 @@ fn orchard_pool_bootstrap_has_one_node_derived_origin_and_distinct_provenance() 
         norito::decode_from_bytes(&encoded).expect("decode Orchard bootstrap");
     assert_eq!(decoded, bootstrap);
     let digest = bootstrap.digest().expect("digest Orchard bootstrap");
+    assert_privacy_digest_layout_invariant(|| {
+        bootstrap.digest().expect("digest Orchard bootstrap")
+    });
     assert!(!digest.is_zero());
     let mut changed_asset = bootstrap.clone();
     changed_asset.asset_definition_id = AssetDefinitionId::derive_from_components(
@@ -317,6 +322,9 @@ fn proof_managed_pool_bootstraps_are_closed_bounded_and_self_authenticating() {
                 .is_compatible_with_namespace(bootstrap.namespace())
         );
         let digest = bootstrap.digest().expect("digest typed pool bootstrap");
+        assert_privacy_digest_layout_invariant(|| {
+            bootstrap.digest().expect("digest typed pool bootstrap")
+        });
         assert!(!digest.is_zero());
         let encoded = norito::to_bytes(&bootstrap).expect("encode typed pool bootstrap");
         let decoded: PrivacyProofManagedPoolBootstrapV1 =

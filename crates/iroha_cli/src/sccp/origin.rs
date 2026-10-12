@@ -277,7 +277,10 @@ mod tests {
     use super::*;
     use iroha::data_model::{
         account::AccountId,
-        sccp::generation::{SccpGenerationCauseV1, SccpGenerationMemberV1},
+        sccp::{
+            generation::{SccpGenerationCauseV1, SccpGenerationMemberV1},
+            params::SCCP_MIN_FORGERY_EVIDENCE_GRACE_MS_V1,
+        },
         sumeragi_finality::{
             WorldStateElementKindV1, WorldStateSnapshotEntryV1, world_state_value_hash_v1,
         },
@@ -313,6 +316,7 @@ mod tests {
                 })
             })
             .collect();
+        let grace_ms = SCCP_MIN_FORGERY_EVIDENCE_GRACE_MS_V1;
         SccpGenerationV1 {
             generation: 1,
             committee_root: committee_root(&keys).unwrap(),
@@ -324,9 +328,9 @@ mod tests {
             start_lc: 1000,
             validity_ms: 100,
             deadline_ms: 1100,
-            grace_ms: 20,
+            grace_ms,
             progress_cap_ms: 30,
-            liable_until_lc: 1120,
+            liable_until_lc: 1100 + grace_ms,
             dest_cleared_lc: None,
             end: None,
             liable: true,
@@ -400,9 +404,15 @@ mod tests {
         wrong_root.committee_root[0] ^= 1;
         assert!(authenticate_record(&world, 1, wrong_root, 1100).is_err());
         let mut changed = row.clone();
-        changed.start_lc -= 1;
-        changed.liable_until_lc -= 1;
+        // Genesis binds its creation and liability clocks together. Keep the
+        // altered record structurally valid and within the pin horizon so only
+        // its mismatch with the certified World can reject the substitution.
+        changed.start_timestamp_ms += 1;
+        changed.start_lc += 1;
+        changed.deadline_ms += 1;
+        changed.liable_until_lc += 1;
         assert!(native_record(changed.clone()).is_well_formed());
+        assert!(changed.deadline_ms >= 1100);
         assert!(authenticate_record(&world, 1, changed, 1100).is_err());
         let mut discovery_only = row;
         discovery_only.liable = false;

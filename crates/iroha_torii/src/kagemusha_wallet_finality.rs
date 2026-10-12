@@ -20,13 +20,30 @@ use iroha_data_model::{
     },
     sumeragi::epoch::MAX_VALIDATORS,
     sumeragi_finality::{
-        CertifiedResultScope, CertifiedResultV1, MAX_COMMIT_CERTIFICATE_BYTES_V1,
-        MAX_RESULT_PREIMAGE_BYTES, SumeragiCommitCertificateV1,
+        CertifiedResultError, CertifiedResultScope, CertifiedResultV1,
+        MAX_COMMIT_CERTIFICATE_BYTES_V1, MAX_RESULT_PREIMAGE_BYTES, SumeragiCommitCertificateV1,
     },
 };
 use iroha_model_base::peer::PeerId;
 
-type Result<T> = std::result::Result<T, &'static str>;
+/// Original decode refusal stays typed until the HTTP transport boundary renders a response.
+#[derive(Debug, thiserror::Error)]
+pub(super) enum Error {
+    /// Availability, shape or bounded transport refusal.
+    #[error("{0}")]
+    Unavailable(&'static str),
+    /// Complete result refusal, including its original local decoder resource error.
+    #[error(transparent)]
+    CertifiedResult(#[from] CertifiedResultError),
+}
+
+impl From<&'static str> for Error {
+    fn from(message: &'static str) -> Self {
+        Self::Unavailable(message)
+    }
+}
+
+type Result<T> = std::result::Result<T, Error>;
 
 // The result decoder charges both reconstructed Ready epochs and the optional retained
 // validation contexts to its inherited cumulative Norito scope. The validation workspace
@@ -44,7 +61,7 @@ const EVENT_PROOF_BYTES: usize = 32 * size_of::<Option<HashOf<EventBox>>>();
 fn reserve_event_proof(budget: &AllocationBudget) -> Result<AllocationReservation> {
     budget
         .try_reserve_bytes(EVENT_PROOF_BYTES)
-        .map_err(|_| "event proof allocation unavailable")
+        .map_err(|_| Error::Unavailable("event proof allocation unavailable"))
 }
 
 fn require_payer(payer: &AccountId, receipt: &KagemushaWalletLoadReceiptV1) -> Result<()> {
@@ -54,7 +71,7 @@ fn require_payer(payer: &AccountId, receipt: &KagemushaWalletLoadReceiptV1) -> R
     if receipt.payer_account_digest
         != kagemusha_wallet_account_digest_v1(payer).map_err(|_| "invalid payer identity")?
     {
-        return Err("committed receipt belongs to another payer");
+        return Err("committed receipt belongs to another payer".into());
     }
     Ok(())
 }
@@ -65,18 +82,19 @@ fn require_selected_data(
     boundary: bool,
     scope: CertifiedResultScope,
 ) -> Result<()> {
+    // This compact DATA carrier has no original Iroha block timestamp for C5 and
+    // grants no authority. The phone's original genesis-rooted verifier checks its scope.
+    let certified = CertifiedResultV1::decode(&certificate.result_preimage, scope)?;
+    let result = certified.commitment();
     if certificate
         .height()
         .map_err(|_| "certificate header differs")?
         != height
     {
-        return Err("certificate height differs from selected original");
+        return Err("certificate height differs from selected original".into());
     }
-    let result = CertifiedResultV1::decode(&certificate.result_preimage, scope)
-        .map_err(|_| "certificate result shape differs")?;
-    let result = result.commitment();
     if result.height != height || (boundary && result.schedule.boundary.is_none()) {
-        return Err("certificate is not the selected boundary or receipt");
+        return Err("certificate is not the selected boundary or receipt".into());
     }
     Ok(())
 }
@@ -121,7 +139,7 @@ fn selected_certificate(
         || boundary.is_some_and(|height| height >= receipt_height)
         || Instant::now() >= deadline
     {
-        return Err("certificate selection deadline or height differs");
+        return Err("certificate selection deadline or height differs".into());
     }
     let original = finality::read_commit_certificate(
         view,
@@ -139,7 +157,7 @@ fn selected_certificate(
         require_selected_data(original.certificate(), height, boundary.is_some(), scope)
     })?;
     if Instant::now() >= deadline {
-        return Err("native certificate read deadline expired");
+        return Err("native certificate read deadline expired".into());
     }
     Ok(original)
 }
@@ -151,7 +169,7 @@ fn response_frame<T: norito::core::NoritoSerialize>(
     deadline: Instant,
 ) -> Result<ChargedBuffer<u8>> {
     if Instant::now() >= deadline {
-        return Err("native certificate response deadline expired");
+        return Err("native certificate response deadline expired".into());
     }
     // Count, acquire exact original-pool capacity, and serialize directly into that owner.
     // There is no geometrically grown temporary Vec or post-encoding custody transfer.
@@ -163,7 +181,7 @@ fn response_frame<T: norito::core::NoritoSerialize>(
     )
     .map_err(|_| "certificate response encoding or allocation unavailable")?;
     if Instant::now() >= deadline {
-        return Err("native certificate response deadline expired");
+        return Err("native certificate response deadline expired".into());
     }
     Ok(output)
 }
@@ -311,6 +329,22 @@ mod tests {
         // Shape-matched transport DATA is not an authority capability.
         require_selected_data(&tampered, 3, false, chain.root_scope().into()).unwrap();
         assert!(phone.verify(&tampered).is_err());
+        let resource_error = norito::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 128),
+            || require_selected_data(original.certificate(), 3, false, chain.root_scope().into()),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            resource_error,
+            Error::CertifiedResult(CertifiedResultError::Body(
+                iroha_data_model::sumeragi_finality::CommitmentError::Resource(_)
+            ))
+        ));
+        let mut body_only = original.certificate().clone();
+        body_only
+            .result_preimage
+            .drain(..iroha_data_model::sumeragi_finality::certified_result::X_LEN);
+        assert!(require_selected_data(&body_only, 3, false, chain.root_scope().into()).is_err());
         drop(original);
         assert_eq!(budget.reserved_bytes(), 0);
         for (height, boundary, until) in [
@@ -419,7 +453,7 @@ mod tests {
             let observed = certificate_decode(&certificate, &budget, || {
                 assert_eq!(budget.reserved_bytes(), bytes);
                 if reject {
-                    Err("injected decoder refusal")
+                    Err("injected decoder refusal".into())
                 } else {
                     Ok(())
                 }

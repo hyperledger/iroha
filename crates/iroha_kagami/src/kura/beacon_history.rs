@@ -343,14 +343,11 @@ fn project_native_pulse(
     };
     let root_scope = root_scope
         .ok_or_else(|| eyre!("certified result requires authenticated signed-genesis scope"))?;
-    let certified = CertifiedResultV1::decode(certificate.result_preimage(), root_scope.into())
-        .map_err(|error| eyre!("invalid canonical native result preimage: {error}"))?;
-    certified
-        .check_block(
-            block.header().height().get(),
-            u64::try_from(block.header().creation_time().as_millis())?,
-        )
-        .map_err(|error| eyre!("native result header differs from its block: {error}"))?;
+    let certified = CertifiedResultV1::decode(certificate.result_preimage(), root_scope.into())?;
+    certified.check_block(
+        block.header().height().get(),
+        u64::try_from(block.header().creation_time().as_millis())?,
+    )?;
     let commitment = certified.commitment();
     let (wire_len, wire_hash) = block.executed_block_wire_identity()?;
     if commitment.height != block.header().height().get()
@@ -1163,6 +1160,56 @@ mod tests {
             .expect("pulse from native result preimage");
         assert_eq!(pulse["pulse_height"].as_u64(), Some(9));
         assert_eq!(pulse["pulse_signature_verified"].as_bool(), Some(false));
+        let original = pulse_block.commit_certificate().unwrap();
+        let decoded =
+            CertifiedResultV1::decode(original.result_preimage(), chain.root_scope().into())
+                .unwrap();
+        let (header, body) = decoded.into_parts();
+        let wrong_time = iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+            body.schedule.current.network_id.as_bytes().to_owned(),
+            header.height(),
+            header.timestamp_ms() + 1,
+        )
+        .unwrap();
+        let changed = CertifiedResultV1::new(wrong_time, body, chain.root_scope().into()).unwrap();
+        let mut wrong_time_block = pulse_block.as_ref().clone();
+        wrong_time_block.set_commit_certificate(Some(
+            iroha_data_model::block::CommitCertificate::from_untrusted_parts(
+                original.consensus_header().to_vec(),
+                original.commit_qc().to_vec(),
+                changed.preimage().unwrap(),
+                original.availability().to_vec(),
+            ),
+        ));
+        assert!(matches!(
+            project_native_pulse(
+                &wrong_time_block,
+                &mut Projection::default(),
+                Some(chain.root_scope())
+            )
+            .unwrap_err()
+            .downcast_ref::<iroha_data_model::sumeragi_finality::CertifiedResultError>(),
+            Some(iroha_data_model::sumeragi_finality::CertifiedResultError::BlockMismatch)
+        ));
+        let resource = norito::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 128),
+            || {
+                project_native_pulse(
+                    &pulse_block,
+                    &mut Projection::default(),
+                    Some(chain.root_scope()),
+                )
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(
+            resource.downcast_ref::<iroha_data_model::sumeragi_finality::CertifiedResultError>(),
+            Some(
+                iroha_data_model::sumeragi_finality::CertifiedResultError::Body(
+                    iroha_data_model::sumeragi_finality::CommitmentError::Resource(_)
+                )
+            )
+        ));
         let mut foreign = chain.committed(8).block().as_ref().clone();
         foreign.set_commit_certificate(pulse_block.commit_certificate().cloned());
         assert!(

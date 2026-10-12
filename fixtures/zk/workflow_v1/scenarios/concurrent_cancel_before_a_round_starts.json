@@ -1,0 +1,66 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "concurrent_cancel_before_a_round_starts",
+  "category": "cancellation",
+  "rules": [
+    "persist_before_effect",
+    "cancellation_is_sticky_and_never_rolls_back"
+  ],
+  "description": "Another actor cancels before the round intent is persisted. The runner loses the compare-and-swap of the intent and never calls the driver.",
+  "plan": {
+    "kind": "threshold_opening",
+    "instance": "concurrent-cancel-before-a-round-starts",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "collect",
+        "kind": "offchain_round",
+        "irreversible": true,
+        "participants_required": 2,
+        "custody_handles_required": 0
+      },
+      {
+        "label": "open",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "concurrent": {
+        "when": "planned",
+        "action": "cancel"
+      },
+      "expect": {
+        "result": {
+          "error": "CancelledBeforeSubmission",
+          "stage": "cancel",
+          "step": 0
+        },
+        "effects": [
+          "concurrent:cancel:cancelled"
+        ],
+        "status": "cancelled",
+        "steps": [
+          "planned",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0,
+            1
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    }
+  ]
+}

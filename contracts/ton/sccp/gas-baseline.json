@@ -1,0 +1,365 @@
+{
+  "rows": {
+    "5.4 certificate check n=31": {
+      "gas": 161644,
+      "limit": 250000
+    },
+    "5.4 certificate check n=4": {
+      "gas": 97564,
+      "limit": 250000
+    },
+    "5.4 certificate check n=7": {
+      "gas": 104668,
+      "limit": 250000
+    },
+    "5.4 inline control n=31": {
+      "gas": 174855,
+      "limit": 260000
+    },
+    "5.4 inline control n=4": {
+      "gas": 110775,
+      "limit": 260000
+    },
+    "5.4 inline control n=7": {
+      "gas": 117879,
+      "limit": 260000
+    },
+    "5.4 inline finalize n=31": {
+      "gas": 184621,
+      "limit": 300000
+    },
+    "5.4 inline finalize n=4": {
+      "gas": 120541,
+      "limit": 300000
+    },
+    "5.4 inline finalize n=7": {
+      "gas": 127645,
+      "limit": 300000
+    },
+    "5.4 inline void n=31": {
+      "gas": 184154,
+      "limit": 285000
+    },
+    "5.4 inline void n=4": {
+      "gas": 120074,
+      "limit": 285000
+    },
+    "5.4 inline void n=7": {
+      "gas": 127178,
+      "limit": 285000
+    },
+    "5.4 rotation heartbeat n=31": {
+      "gas": 165309,
+      "limit": 250000
+    },
+    "5.4 rotation heartbeat n=4": {
+      "gas": 101229,
+      "limit": 250000
+    },
+    "5.4 rotation heartbeat n=7": {
+      "gas": 108333,
+      "limit": 250000
+    },
+    "5.4 rotation key change n=31": {
+      "gas": 206472,
+      "limit": 250000
+    },
+    "5.4 rotation key change n=4": {
+      "gas": 108162,
+      "limit": 250000
+    },
+    "5.4 rotation key change n=7": {
+      "gas": 119656,
+      "limit": 250000
+    },
+    "5.4 void frozen": {
+      "gas": 12751,
+      "limit": 30000
+    },
+    "5.4 void frozen activating 4 buckets": {
+      "gas": 24586,
+      "limit": 30000
+    },
+    "5.4 void frozen n=31": {
+      "gas": 12751,
+      "limit": 30000
+    },
+    "5.4 void frozen n=4": {
+      "gas": 12751,
+      "limit": 30000
+    },
+    "5.4 void frozen n=7": {
+      "gas": 12751,
+      "limit": 30000
+    },
+    "BLS_FASTAGGREGATEVERIFY n=31": {
+      "gas": 121034,
+      "limit": 121034
+    },
+    "BLS_FASTAGGREGATEVERIFY n=4": {
+      "gas": 67034,
+      "limit": 67034
+    },
+    "BLS_FASTAGGREGATEVERIFY n=7": {
+      "gas": 73034,
+      "limit": 73034
+    },
+    "apply control checkpoint": {
+      "gas": 29624,
+      "limit": 260000
+    },
+    "apply control inline n=31": {
+      "gas": 174784,
+      "limit": 260000
+    },
+    "apply control inline n=4": {
+      "gas": 110704,
+      "limit": 260000
+    },
+    "checkpoint cheap path rotation n=4": {
+      "gas": 32746,
+      "limit": 250000
+    },
+    "checkpoint heartbeat rotation n=4": {
+      "gas": 100534,
+      "limit": 250000
+    },
+    "checkpoint key-change rotation n=31": {
+      "gas": 206031,
+      "limit": 250000
+    },
+    "checkpoint key-change rotation n=31 to n=7": {
+      "gas": 176632,
+      "limit": 250000
+    },
+    "checkpoint key-change rotation n=4": {
+      "gas": 107467,
+      "limit": 250000
+    },
+    "checkpoint key-change rotation n=4 to n=31": {
+      "gas": 141697,
+      "limit": 250000
+    },
+    "checkpoint latch n=4": {
+      "gas": 94953,
+      "limit": 250000
+    },
+    "checkpoint n=31": {
+      "gas": 164189,
+      "limit": 250000
+    },
+    "checkpoint n=4": {
+      "gas": 97580,
+      "limit": 250000
+    },
+    "checkpoint n=7": {
+      "gas": 105177,
+      "limit": 250000
+    },
+    "finalize checkpoint": {
+      "gas": 42264,
+      "limit": 300000
+    },
+    "finalize inline n=31": {
+      "gas": 187694,
+      "limit": 300000
+    },
+    "finalize inline n=4": {
+      "gas": 123614,
+      "limit": 300000
+    },
+    "finalize inline worst case n=31": {
+      "gas": 248174,
+      "limit": 300000
+    },
+    "finalize inline worst case n=4": {
+      "gas": 184094,
+      "limit": 300000
+    },
+    "limit apply control n=31": {
+      "gas": 224746,
+      "limit": 260000
+    },
+    "limit apply control n=4": {
+      "gas": 158137,
+      "limit": 260000
+    },
+    "limit apply control n=7": {
+      "gas": 165734,
+      "limit": 260000
+    },
+    "limit checkpoint n=31": {
+      "gas": 208942,
+      "limit": 250000
+    },
+    "limit checkpoint n=4": {
+      "gas": 108178,
+      "limit": 250000
+    },
+    "limit checkpoint n=7": {
+      "gas": 120165,
+      "limit": 250000
+    },
+    "limit finalize n=31": {
+      "gas": 251280,
+      "limit": 300000
+    },
+    "limit finalize n=4": {
+      "gas": 184671,
+      "limit": 300000
+    },
+    "limit finalize n=7": {
+      "gas": 192268,
+      "limit": 300000
+    },
+    "limit void n=31": {
+      "gas": 250412,
+      "limit": 285000
+    },
+    "limit void n=4": {
+      "gas": 183803,
+      "limit": 285000
+    },
+    "limit void n=7": {
+      "gas": 191400,
+      "limit": 285000
+    },
+    "minter bounced internal_transfer": {
+      "gas": 6521,
+      "limit": 20000
+    },
+    "minter range reply": {
+      "gas": 6227,
+      "limit": 8000
+    },
+    "minter sccp_consumed mint": {
+      "gas": 10079,
+      "limit": 14000
+    },
+    "minter sccp_consumed void": {
+      "gas": 8254,
+      "limit": 14000
+    },
+    "rotation run cheap path heartbeat n=4": {
+      "gas": 26435,
+      "limit": 250000
+    },
+    "rotation run cheap path key change n=4": {
+      "gas": 33368,
+      "limit": 250000
+    },
+    "rotation run signed heartbeat n=4": {
+      "gas": 101229,
+      "limit": 250000
+    },
+    "rotation run signed key change n=4": {
+      "gas": 108162,
+      "limit": 250000
+    },
+    "step bucket activation": {
+      "gas": 1848,
+      "limit": 3000
+    },
+    "step bucket already consumed": {
+      "gas": 5283,
+      "limit": 8000
+    },
+    "step bucket consume": {
+      "gas": 6155,
+      "limit": 8000
+    },
+    "step bucket consume range 512": {
+      "gas": 7029,
+      "limit": 9000
+    },
+    "step bucket consume range rejected": {
+      "gas": 6229,
+      "limit": 9000
+    },
+    "step bucket unconsume": {
+      "gas": 3800,
+      "limit": 5000
+    },
+    "step minter already consumed": {
+      "gas": 6806,
+      "limit": 14000
+    },
+    "step minter bounced internal_transfer recorded": {
+      "gas": 4670,
+      "limit": 20000
+    },
+    "step minter bounced unconsume": {
+      "gas": 5388,
+      "limit": 20000
+    },
+    "step minter burn": {
+      "gas": 38765,
+      "limit": 48000
+    },
+    "step minter consume reverted": {
+      "gas": 4455,
+      "limit": 6000
+    },
+    "step minter consumed mint": {
+      "gas": 10079,
+      "limit": 14000
+    },
+    "step minter consumed void": {
+      "gas": 8254,
+      "limit": 14000
+    },
+    "step minter deploy 16 buckets": {
+      "gas": 50662,
+      "limit": 60000
+    },
+    "step minter range consumed": {
+      "gas": 6227,
+      "limit": 8000
+    },
+    "step minter range rejected": {
+      "gas": 3727,
+      "limit": 8000
+    },
+    "step minter retry activation": {
+      "gas": 11238,
+      "limit": 14000
+    },
+    "step minter retry unconsume": {
+      "gas": 10928,
+      "limit": 14000
+    },
+    "step wallet burn": {
+      "gas": 5000,
+      "limit": 7000
+    },
+    "step wallet receive": {
+      "gas": 4155,
+      "limit": 8000
+    },
+    "step wallet receive existing": {
+      "gas": 4155,
+      "limit": 8000
+    },
+    "step wallet receive with notification": {
+      "gas": 7173,
+      "limit": 8000
+    },
+    "step wallet transfer": {
+      "gas": 5991,
+      "limit": 8000
+    },
+    "void checkpoint": {
+      "gas": 41378,
+      "limit": 285000
+    },
+    "void inline n=4": {
+      "gas": 122746,
+      "limit": 285000
+    },
+    "void_frozen": {
+      "gas": 16603,
+      "limit": 30000
+    }
+  },
+  "schema": "iroha.sccp.ton-gas.v1"
+}

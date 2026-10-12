@@ -216,6 +216,7 @@ fn quoted(
         view.world(),
         view.nexus(),
         view.pipeline(),
+        &view.zk().gas,
         builder.payload(),
         view.authenticated_query_ledger_time_ms().unwrap(),
         iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&view)

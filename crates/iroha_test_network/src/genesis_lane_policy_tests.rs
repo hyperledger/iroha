@@ -110,8 +110,7 @@ fn custom_npos_genesis_builder(include_private_input: bool) -> NetworkBuilder {
                     ["nexus", "lane_catalog"],
                     Value::Array(vec![Value::Table(lane0), Value::Table(lane1)]),
                 )
-                .write(["nexus", "staking", "max_validators"], 4_i64)
-                .write(["zk", "stark", "enabled"], true);
+                .write(["nexus", "staking", "max_validators"], 4_i64);
         })
 }
 
@@ -147,9 +146,7 @@ fn with_genesis_block_respects_npos_consensus_mode() {
             .header()
             .confidential_features()
             .and_then(|digest| digest.zk_policy_hash),
-        Some(iroha_core::state::compute_genesis_confidential_policy_hash(
-            &actual.zk
-        )),
+        Some(iroha_core::state::default_genesis_confidential_policy_hash()),
         "custom genesis must bind the builder-resolved confidential policy"
     );
     assert_exactly_one_consensus_handshake(&produced, &consensus_handshake_parameter(&profile));

@@ -301,6 +301,23 @@ owner. Caller-selected trust is not network authentication, and returned status/
 runtime observations, not current native eligibility or package-read authority. Original signing,
 genuine reload observation and crash recovery belong to the managed publisher.
 
+## Durable workflows
+
+`AccountClient::bootstrap_workflow`, `dkg_workflow` and `threshold_opening_workflow` return a
+durable handle for a sequence of transactions and off-chain rounds. A workflow is not atomic across
+its steps: each transaction is atomic by itself, a finalized step is never rolled back, and every
+result carries a progress report that lists confirmed, unresolved and not-started steps.
+
+The handle offers `run`, `recover` (ledger reads only), `cancel` and `progress`. The journal is kept
+in caller-supplied storage: `FileWorkflowStorage` is durable and owner-private,
+`MemoryWorkflowStorage` is for tests. After an interruption, `run` first reads the committed outcome
+of the persisted transaction identity and only then continues. A submission timeout is reported as
+`SubmissionOutcomeUnknown` until that read resolves it, and the transaction is not rebuilt or
+resubmitted while it may still commit. Capability logic (payloads, rounds, custody) comes from a
+`WorkflowDriver`; the module contains no key-generation or threshold cryptography.
+
+The contract is `specs/zk_durable_workflow.md`; its fixtures are in `fixtures/zk/workflow_v1/`.
+
 ## Examples
 
 We highly recommend looking at the sample [`iroha_cli`](../iroha_cli) binary

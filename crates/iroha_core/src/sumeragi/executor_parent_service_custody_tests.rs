@@ -208,10 +208,48 @@ fn parent_service_assembly_retains_original_parent_and_queue_before_capacity_ret
                 unreachable!()
             };
             let mut context = Context::from_waker(Waker::noop());
+            assert_eq!(
+                budget.reserved_bytes(),
+                budget.limit_bytes(),
+                "parent-service assembly retains original receipt charges at first refusal"
+            );
+            let pointers_before_retry = worker
+                .assembly_parent_service
+                .as_ref()
+                .unwrap()
+                .1
+                .original_pointers();
+            assert!(pointers_before_retry.iter().all(|pointer| *pointer != 0));
+            // Initial parent acquisition can refund scratch before authority admission.
+            // build delivers those wakes after its guards retire; observe a fresh real
+            // refusal from the retained source, without manufacturing a release token.
+            let _ = registration.poll_wait(release, &mut context);
+            let original = release_of(
+                worker
+                    .build(4, 0, 1 << 20, 100)
+                    .expect_err("unchanged full pool still refuses original assembly"),
+            );
+            let AllocationRefusal::Capacity { release, .. } =
+                original.allocation_refusal().unwrap()
+            else {
+                unreachable!()
+            };
+            assert_eq!(
+                worker
+                    .assembly_parent_service
+                    .as_ref()
+                    .unwrap()
+                    .1
+                    .original_pointers(),
+                pointers_before_retry
+            );
             assert!(
                 registration.poll_wait(release, &mut context).is_pending(),
                 "parent-service assembly retains original parent receipts instead of waking its own retry"
             );
+            let unrelated = AllocationBudget::new(23);
+            drop(unrelated.try_reserve_bytes(23).unwrap());
+            assert!(registration.poll_wait(release, &mut context).is_pending());
             assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
             assert_eq!(queue.queued_len(), 1);
             assert!(queue.contains_entrypoint_hash(original_hash));
@@ -461,7 +499,9 @@ fn parent_service_worker_replacement_retires_only_the_superseded_original_attemp
             let first = publication_tests::proposal(chain, worker);
             let second =
                 publication_tests::proposal_with_transaction(chain, worker, |chain, time| {
-                    chain.tick(time - 1)
+                    // The preceding millisecond's tick is already committed at H3.
+                    // Use fresh work; assembly derives its canonical later block time.
+                    chain.tick(time + 1)
                 });
             let crypto = worker.context.crypto.as_ref().unwrap();
             let first_hash = first.hash(&**crypto);
@@ -479,17 +519,7 @@ fn parent_service_worker_replacement_retires_only_the_superseded_original_attemp
             };
             let mut cx = Context::from_waker(Waker::noop());
             assert!(registration.poll_wait(release, &mut cx).is_pending());
-            let reached = Rc::new(std::cell::Cell::new(false));
-            let observed = Rc::clone(&reached);
-            let _replacement_probe =
-                super::super::certified_chain::observe_parent_service_admission(move |_, _| {
-                    observed.set(true)
-                });
             let replacement = release_of(worker.run_execution(&second, second_hash).unwrap_err());
-            assert!(
-                reached.get(),
-                "replacement rechecks its own complete native parent source"
-            );
             assert!(
                 registration.poll_wait(release, &mut cx).is_ready(),
                 "explicit replacement retires the superseded receipt owner"
@@ -497,13 +527,6 @@ fn parent_service_worker_replacement_retires_only_the_superseded_original_attemp
             let attempt = worker.signature_decode.as_ref().unwrap();
             assert_eq!(attempt.block_hash, second_hash);
             assert_eq!(attempt.source, second);
-            assert!(
-                attempt
-                    .parent_service
-                    .original_pointers()
-                    .iter()
-                    .all(|pointer| *pointer != 0)
-            );
             assert!(!worker.results.contains_key(&first_hash));
             assert!(!worker.results.contains_key(&second_hash));
             assert!(
@@ -529,6 +552,39 @@ fn parent_service_worker_replacement_retires_only_the_superseded_original_attemp
                 registration
                     .poll_wait(replacement_release, &mut cx)
                     .is_ready()
+            );
+            // A replacement may first exhaust capacity in its own signature decoder.
+            // Once that original refusal is released, occupy capacity at the actual
+            // native authority boundary and inspect its completed original receipts.
+            let (_replacement_probe, replacement_occupied, replacement_receipts) =
+                occupy_at_real_authority(&budget);
+            let replacement = release_of(worker.run_execution(&second, second_hash).unwrap_err());
+            assert!(
+                replacement_occupied.borrow().is_some(),
+                "replacement rechecks its own complete native parent source"
+            );
+            let pointers = worker
+                .signature_decode
+                .as_ref()
+                .unwrap()
+                .parent_service
+                .original_pointers();
+            assert!(pointers.iter().all(|pointer| *pointer != 0));
+            let AllocationRefusal::Capacity { release, .. } =
+                replacement.allocation_refusal().unwrap()
+            else {
+                unreachable!()
+            };
+            assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
+            assert!(registration.poll_wait(release, &mut cx).is_pending());
+            let receipt_pointers = replacement_receipts.borrow().unwrap();
+            drop(replacement_occupied.borrow_mut().take());
+            assert!(registration.poll_wait(release, &mut cx).is_ready());
+            let _retry_source = super::super::certified_chain::observe_parent_service_admission(
+                move |parent, current| {
+                    assert_eq!(std::ptr::from_ref(parent) as usize, receipt_pointers[0]);
+                    assert_eq!(std::ptr::from_ref(current) as usize, receipt_pointers[1]);
+                },
             );
             assert!(
                 worker

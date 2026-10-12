@@ -212,6 +212,11 @@ path = "tests/validator_staking_sdk_fixtures.rs"
 name = "ram_lfe_canonical_v1"
 path = "tests/ram_lfe_canonical_v1.rs"
 
+# Provider-backed phone-control challenge, credential and provider policy.
+[[test]]
+name = "phone_control_v1"
+path = "tests/phone_control_v1.rs"
+
 # Canonical zk-X509 presentation-interval definition and its shared SDK vectors.
 [[test]]
 name = "zk_x509_presentation_interval"

@@ -27,8 +27,8 @@ class JniSdkAndroidPairGuardTests(unittest.TestCase):
 
     def test_repository_inventory_is_exact(self) -> None:
         result = GUARD.audit_source(SOURCE)
-        self.assertEqual(40, result.sdk_count)
-        self.assertEqual(9, result.privacy_count)
+        self.assertEqual(41, result.sdk_count)
+        self.assertEqual(10, result.privacy_count)
         self.assertEqual(5, result.governance_count)
         self.assertEqual(GUARD.EXPECTED_GOVERNANCE_SOURCE_DIGEST, result.governance_digest)
         self.assertEqual(GUARD.EXPECTED_ABI_DIGEST, result.abi_digest)

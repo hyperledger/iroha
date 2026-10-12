@@ -43,13 +43,13 @@ fn original_finish_attestation(
         finality_proof: proofs.tip,
     };
     body.validate_consistency(chain.root_scope().into())
-        .map_err(Error::InvalidBody)?;
+        .map_err(attestation_body_read_error)?;
     let signature = SignatureOf::try_from_hash(signer.private_key(), body.signing_hash())
         .map_err(|error| Error::Signing(error.to_string()))?;
     let attestation = SumeragiFinalityAttestation { body, signature };
     attestation
         .verify(chain.root_scope().into())
-        .map_err(Error::InvalidBody)?;
+        .map_err(attestation_body_read_error)?;
     Ok(attestation)
 }
 
@@ -97,6 +97,60 @@ fn finish_selected(
 
 fn limits(allocation: usize) -> norito::DecodeLimits {
     norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, allocation, 64)
+}
+
+#[test]
+fn attestation_body_refusal_keeps_original_origin_after_scope_retirement() {
+    with_chain_at(2, check_retired_body_refusal);
+}
+
+#[inline(never)]
+fn check_retired_body_refusal(chain: &CertifiedTestChain) {
+    use crate::execution_attempt::ExecutionDeferred;
+    use ivm::error::ExecutionDeferral;
+    use norito::core::DecodeAttemptErrorKind;
+
+    let view = chain.state().view();
+    let original = capture(&view, chain, [62; 32], status(chain)).unwrap();
+    let before = original.clone();
+    let refused = {
+        let budget = DecodeBudgetContext::new(limits(0));
+        budget
+            .with(|| {
+                original
+                    .body
+                    .validate_consistency(chain.root_scope().into())
+            })
+            .unwrap_err()
+    };
+    assert!(matches!(
+        &refused,
+        FinalityReadError::DecodeResource(error)
+            if error.kind() == DecodeAttemptErrorKind::EnclosingLimit
+    ));
+    // Equal diagnostic numbers from an unrelated owner cannot replace the captured origin.
+    let unrelated = DecodeBudgetContext::new(limits(0));
+    let mapped = unrelated.with(|| attestation_body_read_error(refused));
+    let expected = ExecutionDeferred::from(ExecutionDeferral::ActiveMemoryCapacity);
+    assert!(matches!(
+        mapped,
+        AttestationBuildError::FinalityProof(ProofError::Deferred(local)) if local == expected
+    ));
+    assert_eq!(unrelated.consumed_allocated_bytes(), 0);
+    assert_eq!(original, before);
+    original.verify(chain.root_scope().into()).unwrap();
+
+    let mut invalid = original;
+    invalid.body.challenge = [0; 32];
+    let completed = invalid
+        .body
+        .validate_consistency(chain.root_scope().into())
+        .unwrap_err();
+    assert!(matches!(completed, FinalityReadError::Invalid(_)));
+    assert!(matches!(
+        attestation_body_read_error(completed),
+        AttestationBuildError::InvalidBody(_)
+    ));
 }
 
 #[test]

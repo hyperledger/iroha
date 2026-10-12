@@ -626,7 +626,7 @@ fn propose_runtime_upgrade_rejects_untrusted_signer() {
         provenance: Vec::new(),
     }
     .try_signed(&untrusted)
-    .expect("sign runtime upgrade fixture manifest");
+    .expect("sign the runtime upgrade manifest with the untrusted key");
     let manifest_bytes = manifest.canonical_bytes();
     let err = iroha_data_model::isi::runtime_upgrade::ProposeRuntimeUpgrade { manifest_bytes }
         .execute(&account_id, &mut stx)

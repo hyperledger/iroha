@@ -527,7 +527,7 @@ fn malformed_transactions_and_substituted_begins_refuse_without_heap_allocations
                 begin.matches(black_box(&malformed)),
             )
         });
-        assert_eq!(id, Err(AmxError::Transaction(reason)));
+        assert!(matches!(id, Err(AmxError::Transaction(actual)) if actual == reason));
         assert!(!matched);
         assert_eq!(requests, [0; 3]);
     }
