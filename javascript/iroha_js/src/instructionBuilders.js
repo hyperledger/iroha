@@ -4281,7 +4281,8 @@ export function buildMultisigProposeRequest(options) {
 }
 
 /**
- * Build a normalized payload for `ToriiClient.proposeMultisigContractCall(...)`.
+ * Build the JSON HTTP body for the multisig contract-call proposal endpoint.
+ * Local `ToriiClient.proposeMultisigContractCall(...)` also requires a separately reviewed draftIntent.
  * @param {object} options
  * @returns {object}
  */

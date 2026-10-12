@@ -18458,7 +18458,12 @@ function normalizeContractTargetSelector(record, context) {
 
 function normalizeLocalTransactionDraftIntent(input, context, required, includeInstructionsHash = false) {
   const record = ensureRecord(input, `${context} request`);
-  const raw = pickOverride(record, "draft_intent", "draftIntent");
+  if (includeInstructionsHash && Object.hasOwn(record, "draft_intent")) {
+    rejectType(`${context}.draft_intent is not supported; use draftIntent`);
+  }
+  const raw = includeInstructionsHash
+    ? record.draftIntent
+    : pickOverride(record, "draft_intent", "draftIntent");
   if (raw === undefined || raw === null) {
     if (required) {
       rejectType(`${context} requires a caller-trusted draftIntent for unsigned preparation`);

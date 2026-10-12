@@ -17240,6 +17240,7 @@ test("multisig response decoders reject non-exact resolved account ids", async (
 
 test("proposeMultisigContractCall posts a caller-resolved selector and binds native occurrence", async () => {
   let captured;
+  let fetchCount = 0;
   const draft = multisigDraftForBindings({
     feePayment: authorityFeePayment(5),
     creationTimeMs: 123456,
@@ -17254,6 +17255,7 @@ test("proposeMultisigContractCall posts a caller-resolved selector and binds nat
     fee_payment: authorityFeePayment(5),
   };
   const fetchImpl = async (url, init) => {
+    fetchCount += 1;
     captured = { url, init };
     return createResponse({
       status: 200,
@@ -17303,6 +17305,15 @@ test("proposeMultisigContractCall posts a caller-resolved selector and binds nat
     draftIntent: reviewed,
   };
   await assert.rejects(() => client.proposeMultisigContractCall({...request, draftIntent: draftIntentForDraft(draft)}), /instructionsHash/);
+  const { draftIntent: _reviewedDraft, ...withoutDraft } = request;
+  await assert.rejects(() => client.proposeMultisigContractCall(withoutDraft), /requires a caller-trusted draftIntent/);
+  for (const rejectedRequest of [
+    {...withoutDraft, draft_intent: reviewed},
+    {...request, draft_intent: reviewed},
+  ]) {
+    await assert.rejects(() => client.proposeMultisigContractCall(rejectedRequest), /draft_intent is not supported/);
+  }
+  assert.equal(fetchCount, 1, "invalid local draft bindings fail before fetch");
   responsePayload.instructions_hash = "ab".repeat(32);
   await assert.rejects(() => client.proposeMultisigContractCall(request), /changed the native instruction commitment/);
 });

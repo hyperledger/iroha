@@ -509,8 +509,7 @@ export interface MultisigContractCallProposeRequest
   publicKeyHex?: string | null;
   signatureB64?: string | null;
   creationTimeMs?: number | string | bigint | null;
-  draftIntent?: MultisigContractCallDraftIntent;
-  draft_intent?: MultisigContractCallDraftIntent;
+  draftIntent: MultisigContractCallDraftIntent;
   multisig_account_id?: string;
   multisig_account_alias?: string;
   signer_account_id?: string;
@@ -12777,7 +12776,7 @@ export function buildMultisigProposeRequest(
 ): MultisigProposePayload;
 
 export function buildMultisigContractCallProposeRequest(
-  options: MultisigContractCallProposeRequest & {
+  options: Omit<MultisigContractCallProposeRequest, "draftIntent"> & {
     trigger: string;
     args?: JsonValue;
     argPreset?: MultisigTriggerArgsPreset;
