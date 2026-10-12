@@ -495,6 +495,15 @@ pub mod query {
         pub struct CanReadAllLedgerData;
     }
     permission! {
+        /// Read complete certified native resource-name and authority originals.
+        ///
+        /// Only an existing [`CanReadAllLedgerData`] holder may grant or revoke
+        /// this capability. Its holder cannot delegate it. It grants no generic
+        /// private query, full-block carrier, event-stream or write authority.
+        #[derive(Copy)]
+        pub struct CanReadCertifiedOriginals;
+    }
+    permission! {
         /// Permission to read private data belonging to one exact account.
         pub struct CanReadAccountData {
             /// Exact account whose private data may be read.
@@ -1352,7 +1361,10 @@ mod tests {
     use super::oracle::{
         CanManageTwitterBindings, CanRegisterOracleFeed, CanVoteOracleChangeStage,
     };
-    use super::query::{CanReadAccountData, CanReadAllLedgerData, CanReadRestrictedDataspace};
+    use super::query::{
+        CanReadAccountData, CanReadAllLedgerData, CanReadCertifiedOriginals,
+        CanReadRestrictedDataspace,
+    };
     use super::trigger::CanRegisterGlobalDataTrigger;
     use crate::permission::Permission as _;
     use iroha_crypto::KeyPair;
@@ -1626,6 +1638,27 @@ mod tests {
             norito::json::from_str::<CanReadAccountData>("{}").is_err(),
             "account reads must require an exact account"
         );
+    }
+    #[test]
+    fn certified_originals_permission_requires_exact_unit_payload() {
+        let permission: iroha_data_model::permission::Permission = CanReadCertifiedOriginals.into();
+        assert_eq!(permission.name(), "CanReadCertifiedOriginals");
+        assert_eq!(permission.payload().as_ref(), "null");
+        assert_eq!(
+            CanReadCertifiedOriginals::try_from(&permission).unwrap(),
+            CanReadCertifiedOriginals
+        );
+        for payload in [
+            norito::json!({}),
+            norito::json!({"scope": "all"}),
+            norito::json!(true),
+        ] {
+            let malformed = iroha_data_model::permission::Permission::new(
+                "CanReadCertifiedOriginals".into(),
+                payload,
+            );
+            assert!(CanReadCertifiedOriginals::try_from(&malformed).is_err());
+        }
     }
     #[test]
     fn oracle_permissions_use_expected_names_and_payloads() {

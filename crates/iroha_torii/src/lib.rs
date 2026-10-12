@@ -60,6 +60,7 @@ mod account_activity;
 #[cfg(feature = "app_api")]
 mod app_api;
 mod authority_originals;
+mod certified_originals_auth;
 mod bridge_attestation;
 mod canonical_history;
 mod finality_interval;

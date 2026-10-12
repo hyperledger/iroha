@@ -332,19 +332,21 @@ fn require_names_read_authority(
         .map_err(|_| "World names read authority is not registered")?;
     let permission: iroha_data_model::permission::Permission =
         iroha_executor_data_model::permission::query::CanReadAllLedgerData.into();
+    let originals: iroha_data_model::permission::Permission =
+        iroha_executor_data_model::permission::query::CanReadCertifiedOriginals.into();
     let direct = world
         .account_permissions_iter(authority)
         .map_err(|error| error.to_string())?
         .into_iter()
-        .any(|stored| stored == &permission);
+        .any(|stored| stored == &permission || stored == &originals);
     let assigned = world.account_roles_iter(authority).any(|id| {
-        world
-            .roles()
-            .get(id)
-            .is_some_and(|role| role.permissions().any(|stored| stored == &permission))
+        world.roles().get(id).is_some_and(|role| {
+            role.permissions()
+                .any(|stored| stored == &permission || stored == &originals)
+        })
     });
     if !direct && !assigned {
-        return Err("World names originals require existing native CanReadAllLedgerData".into());
+        return Err("World names originals require existing native CanReadCertifiedOriginals or CanReadAllLedgerData".into());
     }
     Ok(())
 }
@@ -667,9 +669,10 @@ impl State {
     /// to a currently registered native ledger-wide reader at one certified cut.
     ///
     /// The signed HTTP corridor must authenticate `authority` independently.
-    /// This method requires its exact existing `CanReadAllLedgerData` token under
+    /// This method requires its exact existing `CanReadCertifiedOriginals` or
+    /// `CanReadAllLedgerData` token under
     /// the same locked World overlay, including directly held or assigned-role
-    /// permissions. It never grants or delegates that genesis-only capability.
+    /// permissions. It never grants or delegates either capability.
     /// All canonical binding values and all smart-contract keys must match the
     /// reconstructed certified snapshot. Only dataspace SNS values are exposed;
     /// unrelated smart-contract values remain withheld. Callback storage and all
