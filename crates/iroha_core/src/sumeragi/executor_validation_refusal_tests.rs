@@ -550,6 +550,7 @@ fn original_lane_finalizer_refusal_returns_same_graph_before_seal_and_publishes_
                 decoded: None,
                 returned_refusal: None,
                 amx_legs: None,
+                parent_service: Default::default(),
             };
             let entries = attempt
                 .original_decoded(&budget)
@@ -760,6 +761,7 @@ fn validated_witness_guard_failure_requires_recovery_without_reexecuting_origina
                 decoded: None,
                 returned_refusal: None,
                 amx_legs: None,
+                parent_service: Default::default(),
             };
             let entries = attempt
                 .original_decoded(&budget)

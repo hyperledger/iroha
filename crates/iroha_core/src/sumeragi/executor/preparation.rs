@@ -152,6 +152,9 @@ pub(super) fn validation_failure(error: &BlockValidationError) -> Option<Publica
     };
     use mv::storage::AdmittedStorageError;
     let source = match error {
+        BlockValidationError::NativeHistory(original) => {
+            return Some(super::parent_native_source_error(original.clone()));
+        }
         BlockValidationError::NativeSourceChanged { .. } => {
             return Some(if cfg!(all(test, sumeragi_core_mutation = "HC98")) {
                 PublicationError::RecoveryRequired(error.to_string())

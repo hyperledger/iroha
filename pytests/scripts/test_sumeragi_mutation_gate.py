@@ -1427,6 +1427,8 @@ def test_original_local_custody_invariant_requires_native_recovery():
     assert rule.tests == (
         "sumeragi::executor::preparation::tests::"
         "original_local_custody_invariant_halts_worker_without_fee_result_or_quarantine",
+        "sumeragi::certified_chain::funded_authority::tests::"
+        "native_authority_prepaid_custody_errors_require_recovery",
     )
     assert not rule.scenarios
     assert gate.has_switch("HC86", core=True)
@@ -6817,7 +6819,7 @@ def test_epoch_cache_mutation_requires_its_exact_native_terminal(monkeypatch, tm
     rows = [] if status == 'missing' else [
         (rule.tests[0] + '_incidental', 'FAILED') if status == 'incidental' else (rule.tests[0], status)
     ]
-    code, output = exact_control_output(rows)
+    code, output = causal_control_output(rule, rows)
     selected_cargo_results(monkeypatch, code, output, names=tuple(name for name, _ in rows))
     result = gate.evaluate(SimpleNamespace(model=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
     assert result['verdict'] == verdict, result
@@ -6891,8 +6893,170 @@ def test_payload_producer_mutation_requires_its_exact_native_terminals(monkeypat
         (name + "_incidental", "FAILED") if status == "incidental" else (name, status)
         for name in rule.tests
     ]
-    code, output = exact_control_output(rows)
+    code, output = causal_control_output(rule, rows)
     selected_cargo_results(monkeypatch, code, output, names=tuple(name for name, _ in rows))
     result = gate.evaluate(SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
     assert result["verdict"] == verdict, result
     assert result["named_tests"] == list(rule.tests)
+
+
+_PARENT_SERVICE_CUSTODY_CONTROLS = {'sumeragi::executor::parent_service_custody_tests::parent_service_validation_retains_original_receipts_without_waking_its_own_retry': 'parent-service validation keeps original receipts instead of refunding its own waiter', 'sumeragi::executor::parent_service_custody_tests::parent_service_assembly_retains_original_parent_and_queue_before_capacity_retry': 'parent-service assembly retains original parent receipts instead of waking its own retry'}
+
+
+def test_parent_service_custody_mutation_selects_both_actual_worker_waiters():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC248"]
+    assert rule.tests == tuple(_PARENT_SERVICE_CUSTODY_CONTROLS) and not rule.scenarios
+    assert gate.has_switch("HC248", core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True},
+                   {"deploy": True}, {"torii": True}, {"norito": True}):
+        assert not gate.has_switch("HC248", **family)
+    core = ROOT / "crates/iroha_core/src"
+    owners = {p.relative_to(core).as_posix() for p in core.rglob("*.rs")
+              if 'sumeragi_core_mutation = "HC248"' in p.read_text()}
+    assert owners == {"sumeragi/executor.rs"}
+    executor = (core / "sumeragi/executor.rs").read_text()
+    compact = re.sub(r"\s+", "", executor)
+    assert compact.count('#[cfg(all(test,sumeragi_core_mutation="HC248"))]') == 2
+    assert 'ifprepared.is_err(){self.signature_decode.as_mut().expect("originalsignedproposal").parent_service=Default::default();}' in compact
+    assert 'ifprepared.is_err(){self.assembly_parent_service=None;}' in compact
+    source = (core / "sumeragi/executor_parent_service_custody_tests.rs").read_text()
+    for name, cause in _PARENT_SERVICE_CUSTODY_CONTROLS.items():
+        marker = "fn " + name.rsplit("::", 1)[-1] + "("
+        assert source.count(marker) == 1
+        body = source.split(marker, 1)[1].split("#[test]", 1)[0]
+        normalized = re.sub(r"\s+", "", body)
+        assert cause in body and 'occupy_at_real_authority(&budget)' in normalized
+        assert 'registration.poll_wait(release,&mutcontext).is_pending()' in normalized
+        assert 'drop(occupied.borrow_mut().take())' in normalized
+        assert 'registration.poll_wait(release,&mutcontext).is_ready()' in normalized
+        assert 'observe_parent_service_admission(' in body
+    assert 'mod parent_service_custody_tests;' in executor
+    rows = re.findall(r"^\| HC248 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(rows) == 1 and all(name in rows[0] for name in rule.tests)
+
+
+@pytest.mark.parametrize("status,verdict", [
+    ("ok", "survived"), ("FAILED", "killed_by_test"), ("ignored", "error"),
+    ("missing", "error"), ("incidental", "error"),
+])
+def test_parent_service_custody_mutation_requires_exact_declared_terminals(monkeypatch, tmp_path, status, verdict):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC248"]
+    monkeypatch.setattr(gate, "has_switch", lambda *args, **kwargs: True)
+    monkeypatch.setattr(gate, "build", lambda *args: gate.Step(status="pass"))
+    rows = [] if status == "missing" else [
+        (name + "_incidental", "FAILED") if status == "incidental" else (name, status)
+        for name in rule.tests
+    ]
+    code, output = causal_control_output(rule, rows)
+    selected_cargo_results(monkeypatch, code, output, names=tuple(name for name, _ in rows))
+    result = gate.evaluate(SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
+    assert result["verdict"] == verdict, result
+    assert result["named_tests"] == list(rule.tests)
+
+
+def causal_control_output(rule, rows):
+    """Generate captured panic fixtures for script checks, never native kill evidence."""
+    code, output = exact_control_output(rows)
+    sections = []
+    expectations = dict(zip(rule.tests, rule.causes))
+    for name, verdict in rows:
+        if verdict != "FAILED" or name not in expectations:
+            continue
+        expected = expectations[name]
+        body = (f"---- {name} stdout ----\n\n"
+                f"thread '{expected.worker_thread or name}' (12) panicked at {expected.source}:123:7:\n"
+                f"{expected.cause}\n")
+        if expected.worker_thread:
+            body += (f"\nthread '{name}' (13) panicked at {expected.join_source}:59:10:\n"
+                     f"{expected.join_message}\n")
+        sections.append(body)
+    if sections:
+        output = output.replace('test result:', 'failures:\n\n' + '\n'.join(sections) + '\nfailures:\n\ntest result:')
+    return code, output
+
+
+def causal_rule(mid):
+    """Select the registered original owner of a declared cause."""
+    return gate.index_mutations(gate.MODEL_MUTATIONS if mid == 'DM34' else gate.CORE_MUTATIONS)[mid]
+
+
+@pytest.mark.parametrize('mid', ['HC246', 'HC247', 'HC248', 'DM34'])
+@pytest.mark.parametrize('corruption', ['none', 'unrelated', 'incidental', 'source', 'owner', 'missing_panic', 'extra_panic', 'outside_section', 'duplicate_section', 'one_passes', 'all_pass'])
+def test_declared_causal_mutation_requires_every_owned_cause(monkeypatch, tmp_path, mid, corruption):
+    rule = causal_rule(mid)
+    assert len(rule.causes) == len(rule.tests)
+    rows = [(name, 'ok' if corruption == 'all_pass' or corruption == 'one_passes' and index == 0 else 'FAILED') for index, name in enumerate(rule.tests)]
+    code, output = causal_control_output(rule, rows)
+    name, expected = rule.tests[0], rule.causes[0]
+    panic = f"thread '{expected.worker_thread or name}' (12) panicked at {expected.source}:123:7:\n{expected.cause}\n"
+    if corruption == 'unrelated':
+        output = output.replace(expected.cause, 'unexpected setup failure', 1)
+    elif corruption == 'incidental':
+        output = output.replace(expected.cause, 'unexpected setup failure\n' + expected.cause, 1)
+    elif corruption == 'source':
+        output = output.replace(expected.source + ':123:', 'wrong_source.rs:123:', 1)
+    elif corruption == 'owner':
+        output = output.replace("thread '" + (expected.worker_thread or name) + "'", "thread 'wrong_owner'", 1)
+    elif corruption == 'missing_panic':
+        output = output.replace(panic, '', 1)
+    elif corruption == 'extra_panic':
+        output = output.replace(panic, panic + "thread 'extra' panicked at extra.rs:1:1:\nextra failure\n", 1)
+    elif corruption == 'outside_section':
+        output = panic + output.replace(panic, '', 1)
+    elif corruption == 'duplicate_section':
+        output = output.replace(panic, panic + f'---- {name} stdout ----\n', 1)
+    monkeypatch.setattr(gate, 'has_switch', lambda *args, **kwargs: True)
+    monkeypatch.setattr(gate, 'build', lambda *args: gate.Step(status='pass'))
+    selected_cargo_results(monkeypatch, code, output, names=rule.tests)
+    result = gate.evaluate(SimpleNamespace(model=mid == 'DM34', core=mid != 'DM34', target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
+    verdict = 'killed_by_test' if corruption == 'none' else 'survived' if corruption == 'all_pass' or corruption == 'one_passes' and len(rule.tests) == 1 else 'error'
+    assert result['verdict'] == verdict, result
+    if corruption == 'none':
+        assert result['named']['causal_failures'] == dict.fromkeys(rule.tests, True)
+
+
+@pytest.mark.parametrize('mid', ['HC247', 'HC248'])
+@pytest.mark.parametrize('corruption', ['join_owner', 'join_source', 'join_message', 'reversed', 'missing_join'])
+def test_declared_causal_worker_requires_original_child_and_join(monkeypatch, tmp_path, mid, corruption):
+    rule = causal_rule(mid)
+    code, output = causal_control_output(rule, [(name, 'FAILED') for name in rule.tests])
+    name, expected = rule.tests[0], rule.causes[0]
+    child = f"thread '{expected.worker_thread}' (12) panicked at {expected.source}:123:7:\n{expected.cause}\n"
+    join = f"thread '{name}' (13) panicked at {expected.join_source}:59:10:\n{expected.join_message}\n"
+    if corruption == 'join_owner':
+        output = output.replace(join, join.replace(name, 'wrong_join'), 1)
+    elif corruption == 'join_source':
+        output = output.replace(join, join.replace(expected.join_source, 'wrong_join.rs'), 1)
+    elif corruption == 'join_message':
+        output = output.replace(join, join.replace(expected.join_message, 'unrelated failure'), 1)
+    elif corruption == 'reversed':
+        output = output.replace(child + '\n' + join, join + '\n' + child, 1)
+    elif corruption == 'missing_join':
+        output = output.replace(join, '', 1)
+    monkeypatch.setattr(gate, 'has_switch', lambda *args, **kwargs: True)
+    monkeypatch.setattr(gate, 'build', lambda *args: gate.Step(status='pass'))
+    selected_cargo_results(monkeypatch, code, output, names=rule.tests)
+    result = gate.evaluate(SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
+    assert result['verdict'] == 'error', result
+
+
+def test_declared_causal_registration_rejects_incomplete_or_ambiguous_policy():
+    expected = gate.ExpectedFailure('own cause', 'original.rs')
+    for tests, causes in [(['leaf'], [expected]), (['tests::named'], [expected, expected]), (['tests::named', 'tests::named'], [expected, expected]), (['tests::named'], [gate.ExpectedFailure('', 'original.rs')]), (['tests::named'], [gate.ExpectedFailure('own cause', 'original.rs', worker_thread='worker')])]:
+        with pytest.raises(ValueError):
+            gate.m('FIXTURE', 'script control', tests, causes=causes)
+
+
+def test_native_authority_mapper_has_an_independent_original_custody_mutation():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC249"]
+    assert rule.tests == (
+        "sumeragi::certified_chain::funded_authority::tests::"
+        "native_authority_prepaid_custody_errors_require_recovery",
+    )
+    assert not rule.scenarios
+    assert rule.causes == (gate.ExpectedFailure(
+        "prepaid authority custody violations must require recovery",
+        "crates/iroha_core/src/sumeragi/certified_chain/funded_authority/tests.rs",
+    ),)
+    assert gate.has_switch("HC249", core=True)
+    assert not gate.has_switch("HC249")

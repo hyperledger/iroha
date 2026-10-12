@@ -147,15 +147,35 @@ SCENARIOS = {
 
 
 @dataclass(frozen=True)
+class ExpectedFailure:
+    """One declared assertion, with an optional original worker and fixture join."""
+    cause: str
+    source: str
+    worker_thread: str = ""
+    join_source: str = ""
+    join_message: str = ""
+
+
+@dataclass(frozen=True)
 class Mutation:
     id: str
     site: str
     tests: tuple
     scenarios: tuple
+    causes: tuple = ()
 
 
-def m(mid, site, tests, scenarios=()):
-    return Mutation(mid, site, tuple(tests), tuple(scenarios))
+def m(mid, site, tests, scenarios=(), *, causes=()):
+    tests, causes = tuple(tests), tuple(causes)
+    if causes:
+        if len(causes) != len(tests) or len(set(tests)) != len(tests) or any("::" not in name for name in tests):
+            raise ValueError("causal mutations require one exact expectation per qualified control")
+        for expected in causes:
+            if (not isinstance(expected, ExpectedFailure) or not expected.cause or not expected.source
+                    or bool(expected.worker_thread) != bool(expected.join_source)
+                    or bool(expected.worker_thread) != bool(expected.join_message)):
+                raise ValueError("causal mutation expectation is incomplete")
+    return Mutation(mid, site, tests, tuple(scenarios), causes)
 
 
 # id, site and change, named deterministic test(s), randomized scenario(s) — mirrors §13.4.
@@ -683,7 +703,8 @@ CORE_MUTATIONS = [
     m("HC85", "beacon: reuse authenticated shared session under a substituted current binding",
       ["beacon::session_owner::validated::tests::shared_authenticated_session_rechecks_every_current_external_binding"]),
     m("HC86", "native execution: retry an original local custody invariant instead of requiring recovery",
-      ["sumeragi::executor::preparation::tests::original_local_custody_invariant_halts_worker_without_fee_result_or_quarantine"]),
+      ["sumeragi::executor::preparation::tests::original_local_custody_invariant_halts_worker_without_fee_result_or_quarantine",
+       "sumeragi::certified_chain::funded_authority::tests::native_authority_prepaid_custody_errors_require_recovery"]),
     m("HC88", "beacon decoder: collapse original surviving decode scope refusal into invalid input",
       ["beacon::tests::session_decoder_preserves_actual_local_scope_without_invalidity_or_fabricated_pool"]),
     m("HC89", "credential decoder: reject original inherited-scope or physical allocation refusal",
@@ -1045,10 +1066,30 @@ CORE_MUTATIONS = [
     m('HC245', 'Network ballot-penalty settlement: swallow the original local execution deferral as a completed rejection',
       ['state::output_capacity::producer::tests::network::penalties::refusal::actual_ballot_penalty_decoder_refusal_keeps_original_deferral_and_retry']),
     m('HC246', 'SCCP fast-pause lifecycle: omit Global G4 expiry cleanup after enactments',
-      ['smartcontracts::isi::sccp::read::control::tests::lapse::native_fast_pause_lapse_uses_exact_time_and_preserves_parliament_confirmation', 'smartcontracts::isi::sccp::read::control::tests::lapse::native_fast_pause_lapse_cancellation_keeps_original_record_and_retries_once']),
+      ['smartcontracts::isi::sccp::read::control::tests::lapse::native_fast_pause_lapse_uses_exact_time_and_preserves_parliament_confirmation', 'smartcontracts::isi::sccp::read::control::tests::lapse::native_fast_pause_lapse_cancellation_keeps_original_record_and_retries_once'],
+      causes=(
+          ExpectedFailure('the first native block at expiry must remove the original fast-pause record', 'crates/iroha_core/src/smartcontracts/isi/sccp/read/control/tests/lapse.rs'),
+          ExpectedFailure('the original native execution must stage lapse before publication', 'crates/iroha_core/src/smartcontracts/isi/sccp/read/control/tests/lapse.rs'),
+      )),
 
     m('HC247', 'Payload producer retry: erase the original resource refusal at the driver boundary',
-      ['sumeragi::executor::publication_tests::original_lane_policy_proposal_refusal_retains_worker_owner_and_exact_queued_retry', 'sumeragi::executor::publication_tests::original_staking_payload_worker_retains_pool_refusal_and_exact_queued_retry']),
+      ['sumeragi::executor::publication_tests::original_lane_policy_proposal_refusal_retains_worker_owner_and_exact_queued_retry', 'sumeragi::executor::publication_tests::original_staking_payload_worker_retains_pool_refusal_and_exact_queued_retry'],
+      causes=(
+          ExpectedFailure('original lane policy refusal must reach the driver as a typed deferral', 'crates/iroha_core/src/sumeragi/executor_publication_tests.rs', worker_thread="sumeragi-publication-test", join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs", join_message="publication worker fixture: Any { .. }"),
+          ExpectedFailure('original staking capacity must reach the driver as a typed deferral', 'crates/iroha_core/src/sumeragi/executor_publication_tests.rs', worker_thread="sumeragi-publication-test", join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs", join_message="publication worker fixture: Any { .. }"),
+      )),
+
+    m("HC248", "Native parent-service retry: drop the original source and authority preparation on refusal",
+      ['sumeragi::executor::parent_service_custody_tests::parent_service_validation_retains_original_receipts_without_waking_its_own_retry', 'sumeragi::executor::parent_service_custody_tests::parent_service_assembly_retains_original_parent_and_queue_before_capacity_retry'],
+      causes=(
+          ExpectedFailure('parent-service validation keeps original receipts instead of refunding its own waiter', 'crates/iroha_core/src/sumeragi/executor_parent_service_custody_tests.rs', worker_thread="sumeragi-publication-test", join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs", join_message="publication worker fixture: Any { .. }"),
+          ExpectedFailure('parent-service assembly retains original parent receipts instead of waking its own retry', 'crates/iroha_core/src/sumeragi/executor_parent_service_custody_tests.rs', worker_thread="sumeragi-publication-test", join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs", join_message="publication worker fixture: Any { .. }"),
+      )),
+
+    m("HC249", "Native successor authority: relabel impossible prepaid custody as active pool capacity",
+      ["sumeragi::certified_chain::funded_authority::tests::native_authority_prepaid_custody_errors_require_recovery"],
+      causes=(ExpectedFailure("prepaid authority custody violations must require recovery",
+          "crates/iroha_core/src/sumeragi/certified_chain/funded_authority/tests.rs"),)),
 
 ]
 
@@ -1134,7 +1175,10 @@ MODEL_MUTATIONS = [
        "sumeragi_amx::native::leg_decode::tests::invalid_native_multisig_member_replay_preserves_original_cause_without_diagnostic_allocations"]),
 
     m("DM34", "epoch validation cache: reconstruct an owning canonical epoch snapshot",
-      ["sumeragi_finality::epoch_graph::validation_tests::epoch_scope_retains_exact_context_without_a_hidden_heap_graph"]),
+      ["sumeragi_finality::epoch_graph::validation_tests::epoch_scope_retains_exact_context_without_a_hidden_heap_graph"],
+      causes=(
+          ExpectedFailure('epoch cache adds no heap graph beyond original context validation', 'crates/iroha_data_model/src/sumeragi_finality/epoch_graph/validation_tests.rs'),
+      )),
 
 ]
 
@@ -1306,6 +1350,40 @@ def serial_test_terminals(output):
     return results, valid and pending is None
 
 
+def captured_test_panics(output):
+    """Keep each panic inside its exact libtest captured-output owner."""
+    headers = list(re.finditer(r"^---- (\S+) stdout ----$", output, re.M))
+    boundaries = list(re.finditer(r"^(?:---- \S+ stdout ----|failures:|test result:.*)$", output, re.M))
+    generic = re.compile(r"^thread '[^']+'(?: \(\d+\))? panicked at [^\n]+:\n", re.M)
+    exact = re.compile(r"^thread '([^']+)'(?: \(\d+\))? panicked at (.+):[0-9]+:[0-9]+:\n([^\n]*)", re.M)
+    result = {}
+    accounted = 0
+    valid = True
+    for header in headers:
+        name = header.group(1)
+        end = next((boundary.start() for boundary in boundaries if boundary.start() > header.start()), len(output))
+        body = output[header.end():end]
+        panics = list(exact.finditer(body))
+        valid = valid and name not in result and len(panics) == len(list(generic.finditer(body)))
+        result[name] = [dict(thread=panic.group(1), source=panic.group(2), message=panic.group(3)) for panic in panics]
+        accounted += len(panics)
+    return result, valid and accounted == len(list(generic.finditer(output)))
+
+
+def expected_test_failure(name, expected, panics):
+    """An incidental message or fixture failure cannot kill a declared causal control."""
+    if not panics or len(panics) != (2 if expected.worker_thread else 1):
+        return False
+    first = panics[0]
+    if (first['thread'] != (expected.worker_thread or name) or first['source'] != expected.source
+            or first['message'] not in (expected.cause,
+                f"assertion `left == right` failed: {expected.cause}",
+                f"assertion `left != right` failed: {expected.cause}")):
+        return False
+    return not expected.worker_thread or panics[1] == {
+        'thread': name, 'source': expected.join_source, 'message': expected.join_message}
+
+
 @dataclass
 class Step:
     status: str  # pass | fail | build-error | execution-error | timeout | missing-test | skipped
@@ -1316,6 +1394,8 @@ class Step:
     log: str = ""
     selected: list = field(default_factory=list)
     discovery_log: str = ""
+    panics: dict = field(default_factory=dict)
+    panic_owners_valid: bool = False
 
 
 def cargo_test(args, target_dir, mutation, filters, seeds, timeout, log_path, no_run=False):
@@ -1422,8 +1502,10 @@ def run_step(args, target_dir, mutation, filters, seeds, timeout, log_path):
     results = [(name, verdict) for name, verdict, _, _ in terminals]
     ran = sorted({name for name, verdict in results if not verdict.startswith("ignored")})
     failed = sorted({name for name, verdict in results if verdict == "FAILED"})
+    panics, panic_owners_valid = captured_test_panics(out)
     step = Step(status="pass", seconds=round(elapsed, 1), failed=failed, ran=ran,
-                selected=selected, log=str(log_path), discovery_log=str(discovery_log))
+                selected=selected, log=str(log_path), discovery_log=str(discovery_log),
+                panics=panics, panic_owners_valid=panic_owners_valid)
     missing = sorted(required - set(ran))
     if code is None or (timeout and elapsed > timeout):
         step.status = "timeout"
@@ -1558,6 +1640,15 @@ def evaluate(args, target_dir, mu):
     named_failed = required_test_failures(mu.tests, named.failed)
     result["named"] = {**named.__dict__, "required_failed": named_failed}
     killed_by_test = named.status == "fail" and bool(named_failed)
+    causal_failures = None
+    if mu.causes and named.status == "fail":
+        causal_failures = {
+            name: (named.panic_owners_valid and name in named_failed
+                   and expected_test_failure(name, expected, named.panics.get(name)))
+            for name, expected in zip(mu.tests, mu.causes)
+        }
+        result["named"]["causal_failures"] = causal_failures
+        killed_by_test = all(causal_failures.values())
     scen = None
     if mu.scenarios and not args.fast:
         groups = [(scenario,) for scenario in dict.fromkeys(SCENARIOS[s] for s in mu.scenarios)]
@@ -1567,6 +1658,8 @@ def evaluate(args, target_dir, mu):
     killed_by_scenario = scen is not None and scen["status"] == "fail" and bool(scen["required_failed"])
     if named.status not in ("pass", "fail"):
         result.update(verdict="error", reason=f"named tests: {named.status}")
+    elif causal_failures is not None and not killed_by_test:
+        result.update(verdict="error", reason="named tests: every declared causal control must fail at its exact owned assertion")
     elif named.status == "fail" and not killed_by_test:
         result.update(verdict="error", reason="named tests: only additional substring-selected tests failed")
     elif scen is not None and scen["status"] not in ("pass", "fail"):

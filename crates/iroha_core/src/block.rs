@@ -1662,6 +1662,8 @@ pub enum BlockValidationError {
         /// State generation observed before the unfinished attempt returned.
         observed_generation: u64,
     },
+    /// Original native parent history is unavailable or contradicts its retained source: {0}
+    NativeHistory(crate::sumeragi::certified_chain::ChainReadError),
     /// Local State view could not be captured before candidate validation: {0}
     StateView(#[source] crate::state::StateViewError),
     /// Local World storage admission failed before State execution: {0}
@@ -4570,6 +4572,7 @@ pub(crate) mod valid {
                 false,
                 None,
                 None,
+                None,
             )
         }
         /// Execute the exact original nonempty proposal bound by its native consensus header.
@@ -4601,6 +4604,7 @@ pub(crate) mod valid {
                 native_payload,
                 state,
                 None,
+                None,
             )
         }
 
@@ -4618,6 +4622,7 @@ pub(crate) mod valid {
             native_payload: &[u8],
             state: &'state State,
             amx_legs: Option<&mut crate::sumeragi::amx::NativeAmxLegPreparations>,
+            parent_service: Option<&crate::sumeragi::certified_chain::ParentServicePreparation>,
         ) -> WithEvents<Result<(ValidBlock, Box<StateBlock<'state>>), Error>> {
             if let Err(error) = expansion.validate_publication(state) {
                 return WithEvents::new(Err((
@@ -4676,6 +4681,7 @@ pub(crate) mod valid {
                 true,
                 None,
                 amx_legs,
+                parent_service,
             )
             .with_authenticated_rejection(
                 authenticated_header,
@@ -4760,6 +4766,7 @@ pub(crate) mod valid {
             allow_empty_block: bool,
             mut send_events: Option<&mut dyn FnMut(PipelineEventBox)>,
             amx_legs: Option<&mut crate::sumeragi::amx::NativeAmxLegPreparations>,
+            parent_service: Option<&crate::sumeragi::certified_chain::ParentServicePreparation>,
         ) -> WithEvents<Result<(ValidBlock, Box<StateBlock<'state>>), Error>> {
             let total_start = Instant::now();
             let stateless_start = Instant::now();
@@ -4977,6 +4984,7 @@ pub(crate) mod valid {
                 genesis.as_ref(),
                 validation_profile.sccp_height_source(),
                 amx_legs,
+                parent_service,
             ) {
                 drop(state_block);
                 record_timings(&mut timings, stateless_elapsed, Some(execution_start));
@@ -6298,6 +6306,7 @@ pub(crate) mod valid {
                 genesis,
                 crate::smartcontracts::isi::sccp::height::SccpHeightSourceV1::Unauthenticated,
                 None,
+                None,
             )
         }
         /// Execute and seal ordinary outputs. `sccp_height` names the authenticated consensus
@@ -6311,6 +6320,9 @@ pub(crate) mod valid {
             genesis: Option<&AuthenticatedGenesisOutputSource>,
             sccp_height: crate::smartcontracts::isi::sccp::height::SccpHeightSourceV1,
             amx_legs: Option<&mut crate::sumeragi::amx::NativeAmxLegPreparations>,
+            parent_service_preparation: Option<
+                &crate::sumeragi::certified_chain::ParentServicePreparation,
+            >,
         ) -> Result<(), BlockValidationError> {
             let start = Instant::now();
             let mut timings = timings;
@@ -6332,6 +6344,25 @@ pub(crate) mod valid {
                     ));
                 }
                 None
+            } else if let Some(prepared) = parent_service_preparation {
+                prepared
+                    .authenticate(&*state_block, block)
+                    .map_err(|error| match error {
+                        crate::sumeragi::certified_chain::ParentServiceError::Invalid(reason) => {
+                            Self::execution_context_error(reason)
+                        }
+                        crate::sumeragi::certified_chain::ParentServiceError::NativeSource(
+                            error,
+                        ) => BlockValidationError::NativeHistory(error),
+                        crate::sumeragi::certified_chain::ParentServiceError::Source(error) => {
+                            BlockValidationError::LocalStorageRecoveryRequired {
+                                reason: error.to_string(),
+                            }
+                        }
+                        crate::sumeragi::certified_chain::ParentServiceError::Deferred(reason) => {
+                            BlockValidationError::ExecutionDeferred(reason)
+                        }
+                    })?
             } else {
                 let reader =
                     crate::sumeragi::certified_chain::CertifiedChain::new_for_parent_service(
@@ -6351,6 +6382,9 @@ pub(crate) mod valid {
                         crate::sumeragi::certified_chain::ParentServiceError::Invalid(reason) => {
                             Self::execution_context_error(reason)
                         }
+                        crate::sumeragi::certified_chain::ParentServiceError::NativeSource(
+                            error,
+                        ) => BlockValidationError::NativeHistory(error),
                         crate::sumeragi::certified_chain::ParentServiceError::Source(error) => {
                             BlockValidationError::LocalStorageRecoveryRequired {
                                 reason: error.to_string(),
@@ -8941,6 +8975,7 @@ mod event {
         use iroha_data_model::block::error::BlockRejectionReason as Reason;
         Some(match err {
             BlockValidationError::NativeSourceChanged { .. }
+            | BlockValidationError::NativeHistory(_)
             | BlockValidationError::DaIndexHydration(_)
             | BlockValidationError::LocalStorageRecoveryRequired { .. }
             | BlockValidationError::StateView(_)

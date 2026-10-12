@@ -213,6 +213,7 @@ fn context(
 fn worker(context: &ExecutorContext, archives: FinalizedArchives) -> Worker<'_> {
     Worker {
         payload_build: None,
+        assembly_parent_service: None,
         signature_decode: None,
         routing_refusal: None,
         payload_refusal: None,

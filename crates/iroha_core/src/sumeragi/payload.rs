@@ -252,6 +252,17 @@ pub fn assemble_with_merges(
     transactions: &[AcceptedTransaction<'static>],
     merges: &MergeProposal,
 ) -> Result<SignedBlock, PayloadError> {
+    assemble_with_parent_service(state, assembly, transactions, merges, None)
+}
+
+/// Same assembly kernel borrowing the original worker's already funded native source.
+pub(crate) fn assemble_with_parent_service(
+    state: &State,
+    assembly: Assembly<'_>,
+    transactions: &[AcceptedTransaction<'static>],
+    merges: &MergeProposal,
+    parent_service: Option<&super::certified_chain::ParentServicePreparation>,
+) -> Result<SignedBlock, PayloadError> {
     if transactions.is_empty() && merges.merges.is_empty() {
         return Err(PayloadError::EmptyBlock);
     }
@@ -268,7 +279,7 @@ pub fn assemble_with_merges(
         minimum.max(Duration::from_millis(merges.time_floor_ms))
     };
     let build = |time: Duration| -> Result<SignedBlock, PayloadError> {
-        build_at(state, assembly, transactions, merges, time)
+        build_at(state, assembly, transactions, merges, time, parent_service)
     };
     let first = build(minimum)?;
     let canonical = ValidBlock::sumeragi_block_time(&first, parent_time, assembly.cadence)
@@ -286,6 +297,7 @@ fn build_at(
     transactions: &[AcceptedTransaction<'static>],
     merges: &MergeProposal,
     time: Duration,
+    parent_service: Option<&super::certified_chain::ParentServicePreparation>,
 ) -> Result<SignedBlock, PayloadError> {
     #[cfg(test)]
     work_tests::record_build_at();
@@ -353,21 +365,17 @@ fn build_at(
     };
     if height > 2 {
         let view = state.view();
-        let reader = super::certified_chain::CertifiedChain::new_for_parent_service(&view)
-            .map_err(|error| match error {
-                super::certified_chain::ParentServiceError::Deferred(reason) => {
-                    PayloadError::RoutingDeferred(reason)
-                }
-                error => PayloadError::ParentService(error.to_string()),
-            })?;
-        let original = reader
-            .parent_service_proposal_original(assembly.parent)
-            .map_err(|error| match error {
-                super::certified_chain::ParentServiceError::Deferred(reason) => {
-                    PayloadError::RoutingDeferred(reason)
-                }
-                error => PayloadError::ParentService(error.to_string()),
-            })?;
+        let original = match parent_service {
+            Some(prepared) => prepared.proposal_original(&view, assembly.parent),
+            None => super::certified_chain::CertifiedChain::new_for_parent_service(&view)
+                .and_then(|reader| reader.parent_service_proposal_original(assembly.parent)),
+        }
+        .map_err(|error| match error {
+            super::certified_chain::ParentServiceError::Deferred(reason) => {
+                PayloadError::RoutingDeferred(reason)
+            }
+            error => PayloadError::ParentService(error.to_string()),
+        })?;
         effects
             .get_or_insert_with(Default::default)
             .parent_service_commit_qc = Some(original);

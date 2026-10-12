@@ -129,6 +129,12 @@ impl WalkStart {
 }
 
 impl<'a> CanonicalHistorySource<'a> {
+    /// Borrow this exact captured source's physical allocation owner.
+    /// No pool is created, replaced or inferred from a later State view.
+    pub(crate) fn allocation_budget(&self) -> &AllocationBudget {
+        &self.budget
+    }
+
     /// Bind an off-chain walk to the actual caller's original source backing.
     /// The caller keeps this same budget's synchronous codec scope installed.
     pub(crate) fn with_read_budget(mut self, budget: &CanonicalHistoryReadBudget) -> Self {
@@ -559,11 +565,7 @@ impl<'a> CanonicalHistorySource<'a> {
             .map_err(|error| {
                 error.map_rejection(|error| QueryExecutionFail::Conversion(error.to_string()))
             })?;
-            if receipt.core_hash() != expected_core || receipt.result() != expected_result {
-                return Err(invalid(format!(
-                    "native header or R differs from authenticated execution ancestry at {source_height}"
-                )));
-            }
+            Self::require_native_execution_link(&receipt, expected_core, expected_result)?;
             checkpoints.record(
                 source_height,
                 HistoryCheckpoint {
@@ -705,3 +707,22 @@ impl std::iter::FusedIterator for CanonicalHistoryCursor<'_> {}
 
 #[cfg(test)]
 mod admission_tests;
+
+impl CanonicalHistorySource<'_> {
+    /// The shared receipt-to-original-ancestry relation, after canonical hash/height admission.
+    /// These expected values come only from an opaque native tip or its verified child header.
+    pub(crate) fn require_native_execution_link(
+        receipt: &crate::sumeragi::certified_chain::CommittedBlock,
+        expected_core: iroha_sumeragi::types::Hash32,
+        expected_result: iroha_sumeragi::types::Hash32,
+    ) -> Result<(), ExecutionAttemptError<QueryExecutionFail>> {
+        if receipt.core_hash() != expected_core || receipt.result() != expected_result {
+            return Err(QueryExecutionFail::Conversion(format!(
+                "native header or R differs from authenticated execution ancestry at {}",
+                receipt.height()
+            ))
+            .into());
+        }
+        Ok(())
+    }
+}

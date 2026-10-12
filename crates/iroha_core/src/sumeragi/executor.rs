@@ -719,6 +719,16 @@ struct ScheduledAuthority {
     schedule: schedule::RetainedConsensusSchedule,
     height: u64,
 }
+impl ScheduledAuthority {
+    fn from_view(view: &(impl StateReadOnly + ?Sized), height: u64) -> Option<Self> {
+        let schedule = view.world().consensus_schedule();
+        schedule.ready(height).ok()?;
+        Some(Self {
+            schedule: schedule.clone(),
+            height,
+        })
+    }
+}
 impl std::ops::Deref for ScheduledAuthority {
     type Target = schedule::ScheduledConfig;
     fn deref(&self) -> &Self::Target {
@@ -903,6 +913,7 @@ struct SignatureDecodeAttempt {
     returned_refusal: Option<ReturnedDecodedRefusal>,
     /// Completed leg graphs and decoder controls from this exact original proposal.
     amx_legs: Option<super::amx::NativeAmxLegPreparations>,
+    parent_service: super::certified_chain::ParentServicePreparation,
 }
 
 /// Original failure retained beside the same graph after the validator returned ownership.
@@ -1032,6 +1043,10 @@ impl SignatureDecodeAttempt {
 
 struct Worker<'s> {
     payload_build: Option<GlobalPayloadBuild>,
+    assembly_parent_service: Option<(
+        OriginalPayloadScope,
+        super::certified_chain::ParentServicePreparation,
+    )>,
     signature_decode: Option<SignatureDecodeAttempt>,
     /// Exact latest unfinished local execution refusal, kept outside deterministic verdicts.
     routing_refusal: Option<crate::execution_attempt::ExecutionDeferred>,
@@ -1069,6 +1084,7 @@ fn run(context: &ExecutorContext, requests: &mpsc::Receiver<Request>) {
     let state = Arc::clone(&context.state);
     let mut worker = Worker {
         payload_build: None,
+        assembly_parent_service: None,
         signature_decode: None,
         routing_refusal: None,
         payload_refusal: None,
@@ -1525,6 +1541,7 @@ impl<'s> Worker<'s> {
                 decoded: None,
                 returned_refusal: None,
                 amx_legs: None,
+                parent_service: Default::default(),
             });
         }
         let attempt = self
@@ -1551,7 +1568,13 @@ impl<'s> Worker<'s> {
                 return invalid_attempt(height, &error);
             }
         }
-        match self.state.view().latest_block() {
+        // One original nonblocking cut supplies the parent, scheduled authority and
+        // retained parent-service preparation. Busy keeps the original decoded source.
+        let original_view = self.state.try_view_once().map_err(|error| {
+            preparation::validation_failure(&BlockValidationError::StateView(error))
+                .expect("every State reader refusal has an explicit classification")
+        })?;
+        match original_view.latest_block() {
             Ok(Some(_)) => {}
             Ok(None) => {
                 return Err(PublicationError::Retryable(
@@ -1563,10 +1586,12 @@ impl<'s> Worker<'s> {
                 {
                     self.routing_refusal = Some(original.clone());
                 }
-                return Err(error.map_rejection(|error| error.to_string()).into());
+                return Err(parent_history_error(error.map_rejection(
+                    iroha_data_model::query::error::QueryExecutionFail::CanonicalHistory,
+                )));
             }
         }
-        let Some(scheduled) = self.scheduled(height) else {
+        let Some(scheduled) = ScheduledAuthority::from_view(&original_view, height) else {
             return Err(PublicationError::Retryable(format!(
                 "no scheduled configuration for height {height}"
             )));
@@ -1600,6 +1625,30 @@ impl<'s> Worker<'s> {
                 &"the payload's height or view differs from the header",
             );
         }
+        if height > 2 {
+            let prepared = self
+                .signature_decode
+                .as_mut()
+                .expect("original signed proposal")
+                .parent_service
+                .prepare(&original_view, height - 1);
+            #[cfg(all(test, sumeragi_core_mutation = "HC248"))]
+            if prepared.is_err() {
+                self.signature_decode
+                    .as_mut()
+                    .expect("original signed proposal")
+                    .parent_service = Default::default();
+            }
+            prepared.map_err(|error| {
+                parent_service_preparation_error(error, &mut self.routing_refusal)
+            })?;
+        }
+        drop(original_view);
+        let iroha_block = self
+            .signature_decode
+            .as_ref()
+            .and_then(|attempt| attempt.decoded.as_ref())
+            .expect("the same original proposal after parent preparation");
         // Merged lane blocks execute after the block's own transactions (§4.3 of
         // `specs/sumeragi_lanes.md`); the node waits for its lane stores within `E_max`.
         let expansion = match lanes::merge::expand(
@@ -1705,6 +1754,7 @@ impl<'s> Worker<'s> {
                 block.payload().as_slice(),
                 state,
                 amx_legs,
+                (height > 2).then_some(&attempt.parent_service),
             )
         }));
         let validated = match validation_result(validated) {
@@ -2159,13 +2209,7 @@ impl<'s> Worker<'s> {
     }
 
     fn scheduled(&self, height: u64) -> Option<ScheduledAuthority> {
-        let view = self.state.view();
-        let schedule = view.world().consensus_schedule();
-        schedule.ready(height).ok()?;
-        Some(ScheduledAuthority {
-            schedule: schedule.clone(),
-            height,
-        })
+        ScheduledAuthority::from_view(&self.state.view(), height)
     }
 
     fn discard(&mut self, height: u64, keep: &[Hash32]) {
@@ -2827,6 +2871,7 @@ impl<'s> Worker<'s> {
         let height = pending.header.height;
         self.completed_replay = None;
         self.applied = (height, pending.qc.block_hash);
+        self.assembly_parent_service = None;
         self.context
             .applied_watch
             .publish(height, pending.state_hash);
@@ -2868,6 +2913,7 @@ impl<'s> Worker<'s> {
         exec_budget_ms: u32,
     ) -> Result<Option<PayloadBytes>, PublicationError> {
         if let Some(reason) = &self.recovery {
+            self.assembly_parent_service = None;
             self.completed_payload = None;
             return Err(PublicationError::RecoveryRequired(reason.clone()));
         }
@@ -2875,6 +2921,7 @@ impl<'s> Worker<'s> {
             || self.publication_pending()
             || height != self.applied.0.saturating_add(1)
         {
+            self.assembly_parent_service = None;
             self.completed_payload = None;
             iroha_logger::debug!(
                 height,
@@ -2885,6 +2932,15 @@ impl<'s> Worker<'s> {
                 "sumeragi: payload selection awaits its original applied parent"
             );
             return Ok(None);
+        }
+        if self
+            .assembly_parent_service
+            .as_ref()
+            .is_some_and(|(scope, _)| {
+                !scope.matches_request(height, view, max_bytes, exec_budget_ms)
+            })
+        {
+            self.assembly_parent_service = None;
         }
         if self.payload_build.as_ref().is_some_and(|build| {
             !build
@@ -2898,18 +2954,16 @@ impl<'s> Worker<'s> {
         self.partial_payload_expiry_wait();
         self.payload_refusal = None;
         let original_generation = self.state.state_view_generation();
-        let current_view = match self.state.try_view_once() {
-            Ok(view) => view,
-            Err(crate::state::StateViewError::Busy(release)) => {
-                return Err(PublicationError::Deferred(
-                    PublicationDeferral::StateViewBusy(release),
-                ));
-            }
-            Err(error) => {
+        let current_view = self.state.try_view_once().map_err(|error| {
+            let classified =
+                preparation::validation_failure(&BlockValidationError::StateView(error))
+                    .expect("every State reader refusal has an explicit classification");
+            if matches!(classified, PublicationError::RecoveryRequired(_)) {
                 self.completed_payload = None;
-                return Err(PublicationError::Retryable(error.to_string()));
+                self.assembly_parent_service = None;
             }
-        };
+            classified
+        })?;
         // Certified lane blocks come first: they reserve their share of the block's capacity
         // (`specs/sumeragi_lanes.md` §4.2).
         let merges = match lanes::merge::propose(&current_view, &*self.context.lane_blocks, height)
@@ -2934,9 +2988,33 @@ impl<'s> Worker<'s> {
                 return Err(PublicationError::RecoveryRequired(reason));
             }
         };
+        let parent_scope = OriginalPayloadScope::capture(
+            &current_view,
+            original_generation,
+            height,
+            view,
+            max_bytes,
+            exec_budget_ms,
+        );
+        if self
+            .assembly_parent_service
+            .as_ref()
+            .is_some_and(|(scope, _)| *scope != parent_scope)
+        {
+            self.assembly_parent_service = None;
+        }
         // Original lane policy/refusal custody is resolved before the canonical read.
         // Every successful build and lend then authenticates the complete physical parent.
-        let parent = {
+        let retained_parent = self
+            .assembly_parent_service
+            .as_ref()
+            .map(|(_, preparation)| preparation.assembly_parent(&current_view))
+            .transpose()
+            .map_err(|error| parent_service_preparation_error(error, &mut self.routing_refusal))?
+            .flatten();
+        let parent = if retained_parent.is_some() {
+            Ok(retained_parent)
+        } else {
             match std::num::NonZeroUsize::new(current_view.height()) {
                 Some(height) => current_view
                     .canonical_history()
@@ -2945,16 +3023,14 @@ impl<'s> Worker<'s> {
                 None => Ok(None),
             }
         }
-        .map_err(|error| match error {
-            crate::execution_attempt::ExecutionAttemptError::Deferred(original) => {
+        .map_err(|error| {
+            if let crate::execution_attempt::ExecutionAttemptError::Deferred(original) = &error {
                 self.payload_refusal =
                     Some(payload::PayloadError::RoutingDeferred(original.clone()));
-                PublicationError::Deferred(original.into())
-            }
-            crate::execution_attempt::ExecutionAttemptError::Rejected(error) => {
+            } else {
                 self.completed_payload = None;
-                PublicationError::Retryable(error.to_string())
             }
+            parent_history_error(error)
         })?;
         let Some(parent) = parent else {
             self.completed_payload = None;
@@ -2980,6 +3056,7 @@ impl<'s> Worker<'s> {
             height,
         };
         if self.queue.is_none() {
+            self.assembly_parent_service = None;
             self.completed_payload = None;
             return Ok(None);
         }
@@ -3032,9 +3109,28 @@ impl<'s> Worker<'s> {
         );
         // Only real work may activate the pulse signer. A pulse cannot create a block.
         if selected.is_empty() && merges.merges.is_empty() {
+            self.assembly_parent_service = None;
             #[cfg(test)]
             queue.record_empty_native_payload();
             return Ok(None);
+        }
+        if height > 2 {
+            let (_, preparation) = self
+                .assembly_parent_service
+                .get_or_insert_with(|| (parent_scope, Default::default()));
+            preparation
+                .retain_assembly_parent(parent.clone())
+                .map_err(|error| {
+                    parent_service_preparation_error(error, &mut self.routing_refusal)
+                })?;
+            let prepared = preparation.prepare(&current_view, height - 1);
+            #[cfg(all(test, sumeragi_core_mutation = "HC248"))]
+            if prepared.is_err() {
+                self.assembly_parent_service = None;
+            }
+            prepared.map_err(|error| {
+                parent_service_preparation_error(error, &mut self.routing_refusal)
+            })?;
         }
         let assembly = Assembly {
             parent: &parent,
@@ -3057,39 +3153,46 @@ impl<'s> Worker<'s> {
                     .map_err(payload_owner::lease_admission_error)?,
                 None => None,
             };
-            let block =
-                match payload::assemble_with_merges(self.state, assembly, &selected, &merges) {
-                    Ok(block) => {
-                        self.routing_refusal = None;
-                        block
-                    }
-                    Err(error) => {
-                        match &error {
-                            payload::PayloadError::RoutingDeferred(reason)
-                            | payload::PayloadError::DecodeResource(reason) => {
-                                self.routing_refusal = Some(reason.clone());
-                            }
-                            payload::PayloadError::StakingPreparation(
-                                crate::state::EvidencePreparationError::Admission(refusal),
-                            ) => {
-                                self.routing_refusal = Some(refusal.clone().into());
-                                self.payload_refusal = Some(error.clone());
-                            }
-                            payload::PayloadError::StakingPreparation(_)
-                            | payload::PayloadError::StakingAdmission(_) => {
-                                self.payload_refusal = Some(error.clone());
-                            }
-                            _ => {}
+            let block = match payload::assemble_with_parent_service(
+                self.state,
+                assembly,
+                &selected,
+                &merges,
+                self.assembly_parent_service
+                    .as_ref()
+                    .map(|(_, prepared)| prepared),
+            ) {
+                Ok(block) => {
+                    self.routing_refusal = None;
+                    block
+                }
+                Err(error) => {
+                    match &error {
+                        payload::PayloadError::RoutingDeferred(reason)
+                        | payload::PayloadError::DecodeResource(reason) => {
+                            self.routing_refusal = Some(reason.clone());
                         }
-                        if let Some(original) = preparation::payload_failure(&error) {
-                            return Err(original);
+                        payload::PayloadError::StakingPreparation(
+                            crate::state::EvidencePreparationError::Admission(refusal),
+                        ) => {
+                            self.routing_refusal = Some(refusal.clone().into());
+                            self.payload_refusal = Some(error.clone());
                         }
-                        iroha_logger::warn!(height, %error, "sumeragi: payload assembly failed");
-                        return Err(PublicationError::Retryable(format!(
-                            "payload assembly: {error}"
-                        )));
+                        payload::PayloadError::StakingPreparation(_)
+                        | payload::PayloadError::StakingAdmission(_) => {
+                            self.payload_refusal = Some(error.clone());
+                        }
+                        _ => {}
                     }
-                };
+                    if let Some(original) = preparation::payload_failure(&error) {
+                        return Err(original);
+                    }
+                    iroha_logger::warn!(height, %error, "sumeragi: payload assembly failed");
+                    return Err(PublicationError::Retryable(format!(
+                        "payload assembly: {error}"
+                    )));
+                }
+            };
             match block.resultless_proposal_wire_len() {
                 Ok(length) if length <= max_bytes => {
                     let source = GlobalPayloadSource {
@@ -3254,6 +3357,13 @@ impl<'s> Worker<'s> {
     /// Retain queue ownership after a rejected proposal until the offending original
     /// transaction can be proved without forging a replacement native source header.
     fn reject(&mut self, height: u64, view: u64, block_hash: Hash32) {
+        if self
+            .assembly_parent_service
+            .as_ref()
+            .is_some_and(|(scope, _)| scope.height == height && scope.view == view)
+        {
+            self.assembly_parent_service = None;
+        }
         if self
             .completed_payload
             .as_ref()
@@ -3600,3 +3710,71 @@ mod shutdown_tests;
 #[cfg(test)]
 #[path = "executor_amx_intent_tests.rs"]
 mod amx_intent_tests;
+
+/// Preserve the exact original allocation observation before any diagnostic formatting.
+fn parent_service_preparation_error(
+    error: super::certified_chain::ParentServiceError,
+    retained: &mut Option<crate::execution_attempt::ExecutionDeferred>,
+) -> PublicationError {
+    match error {
+        super::certified_chain::ParentServiceError::Deferred(original) => {
+            *retained = Some(original.clone());
+            preparation::producer_deferral(original.into())
+        }
+        super::certified_chain::ParentServiceError::NativeSource(original) => {
+            parent_native_source_error(original)
+        }
+        error => PublicationError::RecoveryRequired(error.to_string()),
+    }
+}
+
+/// Exercise the actual parent-service refusal boundary from sibling ownership tests.
+#[cfg(test)]
+pub(super) fn classify_parent_service_deferral_for_test(
+    original: crate::execution_attempt::ExecutionDeferred,
+) -> PublicationError {
+    parent_service_preparation_error(
+        super::certified_chain::ParentServiceError::Deferred(original),
+        &mut None,
+    )
+}
+
+/// Preserve the native loader's exact unavailable/corrupt distinction.
+fn parent_native_source_error(
+    original: super::certified_chain::ChainReadError,
+) -> PublicationError {
+    use super::certified_chain::ChainReadError;
+    match original {
+        ChainReadError::NotCommitted { .. } | ChainReadError::NotInView { .. } => {
+            PublicationError::Retryable(original.to_string())
+        }
+        _ => PublicationError::RecoveryRequired(original.to_string()),
+    }
+}
+
+/// Parent bodies may arrive later; contradictory original history requires recovery.
+fn parent_history_error(
+    error: crate::execution_attempt::ExecutionAttemptError<
+        iroha_data_model::query::error::QueryExecutionFail,
+    >,
+) -> PublicationError {
+    use crate::execution_attempt::ExecutionAttemptError;
+    use iroha_data_model::query::error::QueryExecutionFail;
+    match error {
+        ExecutionAttemptError::Deferred(original) => {
+            preparation::producer_deferral(original.into())
+        }
+        ExecutionAttemptError::Rejected(error) => {
+            if matches!(&error, QueryExecutionFail::CanonicalHistory(original) if original.is_unavailable())
+            {
+                PublicationError::Retryable(error.to_string())
+            } else {
+                PublicationError::RecoveryRequired(error.to_string())
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "executor_parent_service_custody_tests.rs"]
+mod parent_service_custody_tests;

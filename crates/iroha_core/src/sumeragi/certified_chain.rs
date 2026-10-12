@@ -1029,6 +1029,18 @@ fn verification_codec_error(height: u64, error: norito::Error) -> VerificationRe
     }
 }
 
+mod funded_authority;
+
+/// A borrowed projection of one already established native authority owner.
+/// Construction is private; this type creates neither keys nor authority.
+#[derive(Clone, Copy)]
+struct AuthorityRef<'a> {
+    material: &'a ValidatorEpochContextV1,
+    epoch: EpochId,
+    committee: &'a Committee,
+    crypto: &'a dyn iroha_sumeragi::crypto::Crypto,
+}
+
 /// One complete epoch authority. Its crypto owner admits only this roster's original proofs.
 struct VerifiedAuthority {
     material: ValidatorEpochContextV1,
@@ -1038,6 +1050,15 @@ struct VerifiedAuthority {
 }
 
 impl VerifiedAuthority {
+    fn projection(&self) -> AuthorityRef<'_> {
+        AuthorityRef {
+            material: &self.material,
+            epoch: self.epoch,
+            committee: &self.committee,
+            crypto: &self.crypto,
+        }
+    }
+
     fn new(
         material: ValidatorEpochContextV1,
         height: u64,
@@ -1207,7 +1228,7 @@ impl PrefixVerifierContext {
             .map_err(|error| malformed(error.to_string()))?;
         let certificate =
             self.prepare_certificate(committed, &authority, Some(&config), artifacts)?;
-        verify_boundary_source(committed, &prefix.tip, &authority)?;
+        verify_boundary_source(committed, &prefix.tip, authority.projection())?;
         let schedule = prefix
             .schedule
             .advanced_with_validation(&committed.commitment().schedule, &mut prefix.validation)
@@ -1254,7 +1275,7 @@ impl PrefixVerifierContext {
         // graph or provide an independent physical scratch owner for AMX relaying.
         self.prepare_certificate_with_scratch_admission(
             committed,
-            authority,
+            authority.projection(),
             config,
             artifacts,
             &mut state_certificate::query_scratch_admission,
@@ -1273,7 +1294,7 @@ impl PrefixVerifierContext {
     fn verify_commit_qc_original(
         &self,
         committed: &CommittedBlock,
-        authority: &VerifiedAuthority,
+        authority: AuthorityRef<'_>,
         commit_qc: &Qc,
     ) -> Result<(), ChainReadError> {
         let height = committed.height;
@@ -1303,10 +1324,10 @@ impl PrefixVerifierContext {
         #[cfg(test)]
         relation_counts::qc(height);
         let checked = iroha_sumeragi::crypto::Verifier::new(
-            &authority.crypto,
+            authority.crypto,
             &self.instance,
             &authority.epoch,
-            &authority.committee,
+            authority.committee,
         )
         .verify_qc(commit_qc);
         checked.map_err(|error| ChainReadError::Certificate { height, error })?;
@@ -1323,7 +1344,7 @@ impl PrefixVerifierContext {
     ) -> Result<CertifiedBlock, VerificationReadError> {
         let certificate = self.prepare_certificate_with_scratch_admission(
             &committed,
-            authority,
+            authority.projection(),
             config,
             artifacts,
             admit_scratch,
@@ -1334,7 +1355,7 @@ impl PrefixVerifierContext {
     fn prepare_certificate_with_scratch_admission(
         &self,
         committed: &CommittedBlock,
-        authority: &VerifiedAuthority,
+        authority: AuthorityRef<'_>,
         config: Option<&iroha_sumeragi::types::HeightConfig>,
         artifacts: Option<PrefixArtifacts>,
         admit_scratch: &mut dyn FnMut(usize) -> Result<(), norito::core::DecodeResourceError>,
@@ -1371,7 +1392,7 @@ impl PrefixVerifierContext {
         verify_availability(
             committed,
             config,
-            &authority.crypto,
+            authority.crypto,
             availability,
             admit_scratch,
         )?;
@@ -1386,7 +1407,7 @@ impl PrefixVerifierContext {
 fn verify_boundary_source(
     certified: &CommittedBlock,
     parent: &CommittedBlock,
-    authority: &VerifiedAuthority,
+    authority: AuthorityRef<'_>,
 ) -> Result<(), ChainReadError> {
     let height = certified.height();
     let malformed = |reason: String| ChainReadError::Committee { height, reason };
@@ -1429,7 +1450,7 @@ fn verify_boundary_source(
 fn verify_availability(
     committed: &CommittedBlock,
     config: &iroha_sumeragi::types::HeightConfig,
-    crypto: &BlsCrypto,
+    crypto: &dyn iroha_sumeragi::crypto::Crypto,
     prepared: Option<(
         iroha_sumeragi::availability::AvailabilityFrame,
         iroha_sumeragi::availability::PayloadBytes,
@@ -2822,7 +2843,9 @@ pub use execution_read::{
     AuthenticatedExecutionBlock, NativeExecutionRead, NativeExecutionReadError,
     NativeExecutionReadLimits, NativeExecutionReadResource, read_authenticated_execution,
 };
-pub(crate) use state_certificate::{ParentServiceError, VerifiedParentService};
+pub(crate) use state_certificate::{
+    ParentServiceError, ParentServicePreparation, VerifiedParentService,
+};
 
 #[cfg(test)]
 pub(crate) mod relation_counts;
@@ -2848,3 +2871,6 @@ fn fixture_result_preimage(
     bytes.extend_from_slice(&norito::encode_canonical(body).unwrap());
     bytes
 }
+
+#[cfg(test)]
+pub(crate) use state_certificate::{ParentServiceAdmissionProbe, observe_parent_service_admission};

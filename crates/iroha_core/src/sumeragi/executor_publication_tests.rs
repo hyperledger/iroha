@@ -167,6 +167,7 @@ fn with_worker_chain_erased(
         finishing: None,
         results: BTreeMap::new(),
         completed_payload: None,
+        assembly_parent_service: None,
         queue: None,
         recovery: None,
         beacon: None,
