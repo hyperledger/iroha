@@ -251,22 +251,18 @@ fn validate_peer_selection(
 }
 
 impl Authority {
+    fn root_scope(&self) -> Result<iroha_data_model::block::consensus::SumeragiRootScope> {
+        Ok(
+            iroha_genesis::signed_genesis_consensus_metadata(&self.trusted_genesis)?
+                .sumeragi_context
+                .root_scope,
+        )
+    }
+
     fn roster(&self, proof: &SumeragiFinalityProof) -> Result<()> {
         require(
             proof.committee == self.validators,
             "proof differs from the independently authenticated four-validator genesis roster",
-        )
-    }
-
-    fn result_scope(&self) -> Result<iroha_data_model::sumeragi_finality::CertifiedResultScope> {
-        Ok(
-            iroha_data_model::sumeragi_finality::CertifiedResultScope::from_root_scope(
-                iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(
-                    &self.trusted_genesis,
-                )?
-                .sumeragi_context
-                .root_scope,
-            ),
         )
     }
 
@@ -296,7 +292,7 @@ fn validate_attestation(
     challenge: [u8; 32],
     attestation: &SumeragiFinalityAttestation,
 ) -> Result<()> {
-    attestation.verify(authority.result_scope()?)?;
+    attestation.verify(authority.root_scope()?.into())?;
     let body = &attestation.body;
     require(
         body.challenge == challenge
@@ -568,7 +564,7 @@ impl<'a> Preflight<'a> {
                     height,
                     challenge,
                     &peer.peer_id,
-                    self.authority.result_scope()?,
+                    self.authority.root_scope()?,
                 )?
                 .into_attestation();
             validate_attestation(&self.authority, peer, challenge, &attestation)?;
@@ -1115,7 +1111,7 @@ fn verify_peer_state(
         height,
         challenge,
         &peer.peer_id,
-        authority.result_scope()?,
+        verifier.root_scope(),
     ))? {
         PeerRead::Verified(attestation) => attestation.into_attestation(),
         PeerRead::Pending => {
@@ -1351,7 +1347,7 @@ fn complete<C: RunContext>(
             height,
             challenge,
             &peer.peer_id,
-            authority.result_scope()?,
+            authority.root_scope()?,
         ))? {
             PeerRead::Verified(attestation) => attestation.into_attestation(),
             PeerRead::Pending => {

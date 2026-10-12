@@ -8,6 +8,61 @@ use crate::{DeriveJsonDeserialize, DeriveJsonSerialize, bridge::SccpNetworkV1};
 use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
 
+/// A destination's initial native committee generation (§4.14.3 P1).
+///
+/// This record carries a pin, not its authentication. Registration must bind it to the
+/// original retained native generation and enforce every deployment and launch check.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(no_fast_from_json)]
+#[norito(decode_from_slice)]
+#[norito(deny_unknown_fields)]
+#[norito_schema(name = "iroha_data_model::sccp::deployment::SccpCommitteePinV1")]
+pub struct SccpCommitteePinV1 {
+    /// Retained native generation, starting at one.
+    pub generation: u64,
+    /// Root of the original canonical BLS committee keys.
+    pub committee_root: [u8; 32],
+    /// First native height signed under the generation.
+    pub start_height: u64,
+    /// Original generation deadline in Unix milliseconds.
+    pub until_ms: u64,
+}
+
+impl SccpCommitteePinV1 {
+    /// Check the pin's state-independent shape without granting committee authority.
+    pub fn validate_shape(&self) -> Result<(), super::native::SccpNativeDataError> {
+        use super::native::SccpNativeDataError;
+        if self.generation == 0 || self.start_height == 0 || self.until_ms == 0 {
+            return Err(SccpNativeDataError::ZeroPinCoordinate);
+        }
+        if self.committee_root == [0; 32] {
+            return Err(SccpNativeDataError::ZeroCommitteeRoot);
+        }
+        Ok(())
+    }
+
+    /// Whether all fixed pin coordinates have their required nonzero shape.
+    #[must_use]
+    pub fn is_well_formed(&self) -> bool {
+        self.validate_shape().is_ok()
+    }
+}
+
 /// Cell reference of TON contract code: representation hash and depth.
 #[derive(
     Debug,
@@ -173,6 +228,63 @@ fn evm_word(address: &[u8; 20]) -> [u8; 32] {
 mod tests {
     use super::*;
     use norito::codec::DecodeAll as _;
+
+    #[test]
+    fn committee_pin_roundtrips_only_the_current_declared_layout() {
+        let pin = SccpCommitteePinV1 {
+            generation: 7,
+            committee_root: [0x31; 32],
+            start_height: 7000,
+            until_ms: 1_791_209_600_000,
+        };
+        assert!(pin.is_well_formed());
+        assert_eq!(
+            SccpCommitteePinV1::decode_all(&mut pin.encode().as_slice()).unwrap(),
+            pin
+        );
+        let json = norito::json::to_json(&pin).unwrap();
+        assert_eq!(
+            norito::json::from_str::<SccpCommitteePinV1>(&json).unwrap(),
+            pin
+        );
+        for field in ["generation", "committee_root", "start_height", "until_ms"] {
+            let mut missing: norito::json::Value = norito::json::from_str(&json).unwrap();
+            missing.as_object_mut().unwrap().remove(field);
+            assert!(
+                norito::json::from_json::<SccpCommitteePinV1>(
+                    &norito::json::to_json(&missing).unwrap()
+                )
+                .is_err(),
+                "missing {field}"
+            );
+        }
+        let mut fields: norito::json::Value = norito::json::from_str(&json).unwrap();
+        fields.as_object_mut().unwrap().insert(
+            "roster_digest".into(),
+            norito::json::Value::String("retired".into()),
+        );
+        assert!(
+            norito::json::from_json::<SccpCommitteePinV1>(&norito::json::to_json(&fields).unwrap())
+                .is_err()
+        );
+        for invalid in [
+            SccpCommitteePinV1 {
+                generation: 0,
+                ..pin
+            },
+            SccpCommitteePinV1 {
+                committee_root: [0; 32],
+                ..pin
+            },
+            SccpCommitteePinV1 {
+                start_height: 0,
+                ..pin
+            },
+            SccpCommitteePinV1 { until_ms: 0, ..pin },
+        ] {
+            assert!(!invalid.is_well_formed());
+        }
+    }
 
     const NETWORKS: [SccpNetworkV1; 4] = [
         SccpNetworkV1::SoraTaira,

@@ -7,10 +7,14 @@
 //! exclude their caller's directory/tree entry and exit. Inventory subphases surround only
 //! the original `entries` calls: ordinary calls include full ancestry checks, scoped calls
 //! include native census work under the caller's separate entry/exit fences. No interval
-//! measures wallet decoding. GraphValidate covers every full retained-graph call during the
+//! measures wallet decoding. GraphValidate covers every retained-graph traversal call during the
 //! capture, including calls outside prepare/finish closures. SnapshotRevalidate brackets only
 //! the full snapshot entry, including its recursive walk and native entry/exit checks, without
-//! recursively sampling each node. These intervals overlap and must not be added together.
+//! recursively sampling each node. SuccessorBuild includes SelectionDigest and ReservationDigest
+//! calls made during successor construction; the digest phases also count their other original
+//! callers. EpochRecordDecode surrounds only an actual canonical epoch/claim decoder, excluding
+//! native reads, exact-image reuse, semantic checks and memoized digest work. These intervals
+//! overlap and must not be added together.
 
 use std::{cell::Cell, fmt, time::Instant};
 
@@ -43,8 +47,12 @@ pub(in crate::managed) enum Phase {
     AttemptScopedInventory,
     GraphValidate,
     SnapshotRevalidate,
+    SuccessorBuild,
+    SelectionDigest,
+    ReservationDigest,
+    EpochRecordDecode,
 }
-const PHASES: [Phase; 26] = [
+const PHASES: [Phase; 30] = [
     Phase::Finish,
     Phase::Reopen,
     Phase::ReadRecords,
@@ -71,6 +79,10 @@ const PHASES: [Phase; 26] = [
     Phase::AttemptScopedInventory,
     Phase::GraphValidate,
     Phase::SnapshotRevalidate,
+    Phase::SuccessorBuild,
+    Phase::SelectionDigest,
+    Phase::ReservationDigest,
+    Phase::EpochRecordDecode,
 ];
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -189,11 +201,27 @@ mod tests {
         assert!(!CLOSURE_ACTIVE.get());
         assert!(phase_in_closure(Phase::ClosureFullGraph).started.is_none());
         drop(disabled);
-        for measured in [Phase::GraphValidate, Phase::SnapshotRevalidate] {
+        for measured in [
+            Phase::GraphValidate,
+            Phase::SnapshotRevalidate,
+            Phase::SuccessorBuild,
+            Phase::SelectionDigest,
+            Phase::ReservationDigest,
+            Phase::EpochRecordDecode,
+        ] {
             assert!(phase(measured).started.is_none());
         }
 
         let capture = Capture::start();
+        for measured in [
+            Phase::SuccessorBuild,
+            Phase::SelectionDigest,
+            Phase::ReservationDigest,
+            Phase::EpochRecordDecode,
+        ] {
+            drop(phase(measured));
+            assert!(!CLOSURE_ACTIVE.get());
+        }
         assert!(phase_in_closure(Phase::ClosureFullGraph).started.is_none());
         {
             let _graph = phase(Phase::GraphValidate);
@@ -219,6 +247,14 @@ mod tests {
         assert_eq!(stats.0[Phase::ClosureFinish as usize].calls, 1);
         assert_eq!(stats.0[Phase::ClosureFullGraph as usize].calls, 2);
         assert_eq!(stats.0[Phase::ClosureRetainedRead as usize].calls, 1);
+        for measured in [
+            Phase::SuccessorBuild,
+            Phase::SelectionDigest,
+            Phase::ReservationDigest,
+            Phase::EpochRecordDecode,
+        ] {
+            assert_eq!(stats.sample(measured).0, 1);
+        }
         assert_eq!(stats.sample(Phase::GraphValidate).0, 2);
         assert_eq!(stats.sample(Phase::SnapshotRevalidate).0, 2);
         assert!(snapshot().is_none());

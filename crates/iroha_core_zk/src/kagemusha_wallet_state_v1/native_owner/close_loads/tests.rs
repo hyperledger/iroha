@@ -259,3 +259,35 @@ fn preissued_load_then_complete_consumer_can_select_new_closure_and_replay_both_
     assert_eq!(w.retained_close_loads(&first).unwrap(), Some(first_bytes));
     assert_eq!(w.retained_close_loads(&second).unwrap(), Some(second_bytes));
 }
+
+#[test]
+fn close_loads_read_refusal_preserves_nonce_and_exact_publication_retry() {
+    let mut w = retiring();
+    let plan = w.close_loads_plan([1; 32]).unwrap();
+    let exact = output(&plan);
+    let root = w.manifest().unwrap().0;
+    let signatures = w.custody.signatures;
+    for limits in [
+        norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+    ] {
+        let direct = norito::with_decode_limits_scope(limits, || plan.output(&exact));
+        assert!(matches!(direct, Err(Error::DecodeResource(ref cause))
+            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        let public =
+            norito::with_decode_limits_scope(limits, || w.finish_close_loads(&plan, &exact));
+        assert!(matches!(public, Err(Error::DecodeResource(ref cause))
+            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        assert_eq!(w.manifest().unwrap().0, root);
+        assert_eq!(
+            archive::encode(&w.close_loads_plan([1; 32]).unwrap()).unwrap(),
+            archive::encode(&plan).unwrap()
+        );
+        assert_eq!(w.custody.signatures, signatures);
+    }
+    w.finish_close_loads(&plan, &exact).unwrap();
+    let selected = w.close_loads_plan([1; 32]).unwrap();
+    assert_eq!(selected.nonce, plan.nonce);
+    assert_eq!(w.retained_close_loads(&selected).unwrap(), Some(exact));
+    assert_eq!(w.custody.signatures, signatures);
+}

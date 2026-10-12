@@ -14,13 +14,14 @@
 //! attempt creation and enactment.
 
 use super::{
+    deployment::SccpCommitteePinV1,
     deployment::SccpDeploymentV1,
     light_client::{
         SCCP_LC_BOOTSTRAP_MAX_BYTES_V1, SCCP_LC_GENESIS_PROFILE_VERSION_V1, SccpLcBootstrapV1,
         SccpLcCheckpointDataV1, SccpLcInitExpectationV1, SccpLightClientParamsError,
         SccpLightClientParamsV1,
     },
-    native::{SccpCommitteePinV1, SccpNativeDataError},
+    native::SccpNativeDataError,
     params::{SccpParametersError, SccpParametersV1},
 };
 use crate::{

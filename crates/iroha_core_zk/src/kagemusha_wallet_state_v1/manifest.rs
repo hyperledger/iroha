@@ -154,18 +154,18 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         let package = if header.schema
             == norito::schema::identity::frame_hash::<KagemushaWalletPaymentV1>()
         {
-            valid(KagemushaWalletPaymentV1::decode_canonical(
-                &record.output,
-                &self.scheme_id,
-            ))?
+            read_model_original(
+                || KagemushaWalletPaymentV1::decode_canonical(&record.output, &self.scheme_id),
+                Error::Invalid("G1 validation"),
+            )?
             .send
         } else if header.schema
             == norito::schema::identity::frame_hash::<KagemushaWalletPackageV1>()
         {
-            let package = valid(KagemushaWalletPackageV1::decode_canonical(
-                &record.output,
-                &self.scheme_id,
-            ))?;
+            let package = read_model_original(
+                || KagemushaWalletPackageV1::decode_canonical(&record.output, &self.scheme_id),
+                Error::Invalid("G1 validation"),
+            )?;
             if package.statement.effect.kind() == KagemushaWalletOperationKindV1::Send {
                 return Err(Error::WitnessLost("retry Send output type"));
             }

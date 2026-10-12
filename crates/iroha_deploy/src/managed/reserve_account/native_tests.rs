@@ -7,6 +7,9 @@
 
 use super::*;
 use crate::managed::native_operation::Fees;
+use crate::managed::native_operation::test_support::native_fixture::signed_recovery_http::{
+    assert_recovery_reads, with_recovery_http,
+};
 use crate::managed::native_operation::{
     retained_carrier,
     test_support::{
@@ -329,6 +332,55 @@ fn generated_native_registration_retains_exact_reserve_operator_wallet_and_disti
     let committed = native.observe(&coordinator.authority);
     assert_original_carrier(&committed, &signed, 4);
     let finalized = verify_carrier(&committed, &signed).unwrap();
+    let authorization_bytes = original
+        .directory()
+        .read("authorization.nrt", 64 * 1024)
+        .unwrap();
+    for permit_finality in [false, true] {
+        let recovered =
+            with_recovery_http(&native, &prepared, &signed, permit_finality, |requests| {
+                let recovered = coordinator
+                    .recover_selected_if_present(
+                        &policy,
+                        &underwriting,
+                        &Fees::from_options(&options).unwrap(),
+                        options.deadline,
+                    )
+                    .unwrap()
+                    .unwrap();
+                assert_recovery_reads(requests, permit_finality);
+                assert!(
+                    Instant::now() < options.deadline,
+                    "recovery retains its original deadline"
+                );
+                recovered
+            });
+        assert_eq!(recovered.transaction_status, OperationStatus::Applied);
+        assert_eq!(recovered.finalized, permit_finality.then_some(finalized));
+        assert!(recovered.current.is_none());
+        assert_eq!(
+            original
+                .directory()
+                .read("authorization.nrt", 64 * 1024)
+                .unwrap(),
+            authorization_bytes,
+        );
+        assert_eq!(
+            coordinator
+                .verify_wallet(original.directory(), &original, options.deadline)
+                .unwrap()
+                .encode_wire_v1()
+                .unwrap(),
+            wire,
+        );
+        assert!(!path.join("submission.json").exists());
+        if permit_finality {
+            original.directory().remove_private("carrier.nrt").unwrap();
+            original.directory().remove_private("replay.nrt").unwrap();
+        } else {
+            assert!(!original.directory().path().join("carrier.nrt").exists());
+        }
+    }
     coordinator.validate_carrier(&original, &finalized).unwrap();
     assert_eq!(finalized.height, 4);
     assert!(verify_carrier(&before, &signed).is_err());

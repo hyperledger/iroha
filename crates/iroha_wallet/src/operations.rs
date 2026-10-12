@@ -199,15 +199,15 @@ pub enum NativeOperationKind {
     PrivateRootRegistration,
     /// Exact next compact private-root certificate against retained parent cursor state.
     PrivateRootAnchor,
-    /// One exact governed StreamToken custody policy configuration.
+    /// One exact governed `StreamToken` custody policy configuration.
     StreamTokenCustodyConfigure,
-    /// One independently attested StreamToken custody enrollment.
+    /// One independently attested `StreamToken` custody enrollment.
     StreamTokenCustodyEnroll,
     /// One exact initial revision-one reserve governance policy.
     InitialReservePolicy,
     /// One exact initial provider reserve partition under its selected policy.
     ReserveAccountRegistration,
-    /// One provider-owned TopUp movement request; approval and asset transfer are separate.
+    /// One provider-owned `TopUp` movement request; approval and asset transfer are separate.
     ReserveTopUpRequest,
     /// One generic manager decision; movement provider, kind and amount are resolved natively.
     ReserveMovementDecision,
@@ -225,6 +225,8 @@ pub enum NativeOperationKind {
     MusubiNamespaceBinding,
 }
 
+/// Borrowed request equality inputs; copying these references grants no journal custody.
+#[derive(Clone, Copy)]
 enum OperationExpectation<'a> {
     AmxRegistration(amx_registration::AmxRegistrationExpectation<'a>),
     MusubiNamespace(musubi_namespace::MusubiNamespaceExpectation<'a>),
@@ -815,8 +817,8 @@ impl NativeOperation {
         match self {
             Self::AmxDataspaceRegistration { terms, .. }
             | Self::PrivateRootRegistration { terms, .. }
-            | Self::PrivateRootAnchor { terms, .. } => Some(terms),
-            Self::MusubiNamespaceBinding { terms, .. }
+            | Self::PrivateRootAnchor { terms, .. }
+            | Self::MusubiNamespaceBinding { terms, .. }
             | Self::StreamTokenCustodyConfigure { terms, .. }
             | Self::StreamTokenCustodyEnroll { terms, .. }
             | Self::InitialReservePolicy { terms, .. }
@@ -827,8 +829,8 @@ impl NativeOperation {
             | Self::ProviderCapacityDeclaration { terms, .. }
             | Self::InitialGatewaySetup { terms, .. }
             | Self::InitialReputationPolicy { terms, .. }
-            | Self::InitialProviderIngestAuthority { terms, .. } => Some(terms),
-            Self::AliasSetup {
+            | Self::InitialProviderIngestAuthority { terms, .. }
+            | Self::AliasSetup {
                 bounds: AliasFeeBounds::Bounded(terms),
                 ..
             } => Some(terms),

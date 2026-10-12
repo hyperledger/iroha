@@ -157,11 +157,12 @@ fn rotations(query: &RotationsQuery) -> Result<Selection, Response> {
 fn source_error(error: SccpNativeReadError) -> Response {
     use iroha_core::sumeragi::finality::NativeCommitCertificateReadErrorV1;
     use iroha_data_model::sumeragi_finality::{
-        certified_result::CertifiedResultError, commitment::CommitmentError,
+        CommitmentError, certified_result::CertifiedResultError,
     };
     let (status, code) = match &error {
         SccpNativeReadError::Request(_) => (StatusCode::BAD_REQUEST, "sccp_invalid_query"),
         SccpNativeReadError::NotFound(_) => (StatusCode::NOT_FOUND, "sccp_not_found"),
+        SccpNativeReadError::Pruned(_) => (StatusCode::GONE, "sccp_pruned"),
         SccpNativeReadError::UnsupportedScope => {
             (StatusCode::SERVICE_UNAVAILABLE, "route_unavailable")
         }
@@ -309,10 +310,10 @@ async fn serve(
                 let budget = owner.cold_frames();
                 // Encode while original response DATA and its reservation are still retained.
                 Ok(match selection {
-                    Selection::Committee(generation) => encode(
-                        match generation {
-                            None => read::current_committee(view, budget, control)?,
-                            Some(generation) => read::committee(view, generation, budget, control)?,
+                    Selection::Committee(generation) => encode_value(
+                        &match generation {
+                            None => read::current_committee(view, control)?,
+                            Some(generation) => read::committee(view, generation, control)?,
                         },
                         &owner,
                         format,
@@ -486,7 +487,7 @@ pub(crate) async fn handler_control_proof(
 }
 
 /// Ordered original certificates for the destination's current generation catch-up.
-pub(crate) async fn handler_committee_rotations(
+pub(crate) async fn handler_rotations(
     State(app): State<SharedAppState>,
     NoritoStringQuery(query): NoritoStringQuery<RotationsQuery>,
     Extension(RouteExecutionDeadline(deadline)): Extension<RouteExecutionDeadline>,

@@ -471,23 +471,14 @@ fn zk_x509_network_envelope_v1(
     proof: Vec<u8>,
 ) -> Result<PrivacyProofEnvelopeV1, PrivacyReleaseEvidenceErrorClassV1> {
     let typed_statement = PrivacyStatementV1::IrohaZkX509StarkP256V1(statement.clone());
-    let envelope = PrivacyProofEnvelopeV1 {
-        wire_magic: Default::default(),
-        catalog_commitment: Default::default(),
-        protocol_id: profile.protocol_id,
-        proof_system_id: profile.proof_system_id,
-        engine_id: profile.engine_id,
-        parameter_id: profile.parameter_id,
-        parameter_digest: profile.parameter_digest,
-        verifier_digest: profile.verifier_digest,
-        statement_schema_digest: profile.statement_schema_digest,
-        engine_manifest_digest: profile.engine_manifest_digest,
-        statement_digest: typed_statement
-            .digest()
-            .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?,
-        statement: typed_statement,
-        proof: PrivacyProofV1::IrohaZkX509StarkP256V1(PrivacyProofBytesV1::new(proof)),
-    };
+    let envelope = PrivacyProofEnvelopeV1::bind_v1(
+        typed_statement,
+        PrivacyProofV1::IrohaZkX509StarkP256V1(PrivacyProofBytesV1::new(proof)),
+    )
+    .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?;
+    if !profile.matches_envelope_v1(&envelope) {
+        return Err(PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant);
+    }
     envelope
         .validate_with_limits(&PrivacyConsensusLimitsV1::taira_default())
         .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?;
@@ -660,22 +651,16 @@ fn zk_x509_network_statement_context_v1(
 fn zk_x509_network_draft_envelope_v1(
     profile: CompiledPrivacyProfileV1,
     statement: &IrohaZkX509StarkP256StatementV1,
-) -> PrivacyProofEnvelopeV1 {
-    PrivacyProofEnvelopeV1 {
-        wire_magic: Default::default(),
-        catalog_commitment: Default::default(),
-        protocol_id: profile.protocol_id,
-        proof_system_id: profile.proof_system_id,
-        engine_id: profile.engine_id,
-        parameter_id: profile.parameter_id,
-        parameter_digest: profile.parameter_digest,
-        verifier_digest: profile.verifier_digest,
-        statement_schema_digest: profile.statement_schema_digest,
-        engine_manifest_digest: profile.engine_manifest_digest,
-        statement_digest: PrivacyStatementDigestV1::new([0; 32]),
-        statement: PrivacyStatementV1::IrohaZkX509StarkP256V1(statement.clone()),
-        proof: PrivacyProofV1::IrohaZkX509StarkP256V1(PrivacyProofBytesV1::new(Vec::new())),
+) -> Result<PrivacyProofEnvelopeV1, PrivacyReleaseEvidenceErrorClassV1> {
+    let envelope = PrivacyProofEnvelopeV1::bind_v1(
+        PrivacyStatementV1::IrohaZkX509StarkP256V1(statement.clone()),
+        PrivacyProofV1::IrohaZkX509StarkP256V1(PrivacyProofBytesV1::new(Vec::new())),
+    )
+    .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?;
+    if !profile.matches_envelope_v1(&envelope) {
+        return Err(PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant);
     }
+    Ok(envelope)
 }
 /// Build one genuine canonical X.509 action and a corruption control.
 ///
@@ -840,7 +825,7 @@ fn prepare_zk_x509_network_action_v1(
     }
     let intent = zk_x509_network_transaction_payload_v1(
         transaction_context,
-        zk_x509_network_draft_envelope_v1(profile, &draft_fixture.statement),
+        zk_x509_network_draft_envelope_v1(profile, &draft_fixture.statement)?,
     )?
     .privacy_transaction_intent_digest_v1()
     .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::FixtureConstructionFailed)?;
@@ -1469,25 +1454,15 @@ fn verify_zk_x509_release_production_envelope_with_mutations_v1<
     let statement_digest = typed_statement
         .digest()
         .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?;
-    let mut envelope = PrivacyProofEnvelopeV1 {
-        wire_magic: Default::default(),
-        catalog_commitment: Default::default(),
-        protocol_id: profile.protocol_id,
-        proof_system_id: profile.proof_system_id,
-        engine_id: profile.engine_id,
-        parameter_id: profile.parameter_id,
-        parameter_digest: profile.parameter_digest,
-        verifier_digest: profile.verifier_digest,
-        statement_schema_digest: profile.statement_schema_digest,
-        engine_manifest_digest: profile.engine_manifest_digest,
-        statement_digest,
-        statement: typed_statement,
-        proof: PrivacyProofV1::IrohaZkX509StarkP256V1(PrivacyProofBytesV1::new(proof.to_vec())),
-    };
+    let mut envelope = PrivacyProofEnvelopeV1::bind_v1(
+        typed_statement,
+        PrivacyProofV1::IrohaZkX509StarkP256V1(PrivacyProofBytesV1::new(proof.to_vec())),
+    )
+    .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::ProductionEnvelopeRejected)?;
     mutate_envelope(&mut envelope);
-    let expected_encoded_action_bytes = norito::to_bytes(&envelope)
+    let expected_encoded_action_bytes = norito::canonical_frame_len(&envelope)
         .ok()
-        .and_then(|encoded| u64::try_from(encoded.len()).ok())
+        .and_then(|length| u64::try_from(length).ok())
         .ok_or(PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?;
     let limits = PrivacyConsensusLimitsV1::taira_default();
     let effects = verify_privacy_envelope_v1(

@@ -653,3 +653,152 @@ fn genuine_signed_large_full_list_is_retained_only_by_bounded_reference() {
         Some(original)
     );
 }
+
+#[test]
+fn every_retained_original_digest_preserves_actual_read_refusal_and_exact_retry() {
+    let (mut store, state, source) = setup();
+    let credential = source
+        .original(&mut store, &state, R::CurrentCredential)
+        .unwrap()
+        .unwrap();
+    let certificates = source
+        .original(&mut store, &state, R::EnrollmentCertificates)
+        .unwrap()
+        .unwrap();
+    let originals = [
+        (R::CurrentCredential, credential.clone()),
+        (R::EnrollmentCertificates, certificates),
+        (
+            R::SchemePolicy,
+            fixture::<KagemushaWalletSchemePolicyV1>("KagemushaWalletSchemePolicyV1")
+                .to_canonical_bytes()
+                .unwrap(),
+        ),
+        (
+            R::Blacklist,
+            fixture::<KagemushaWalletBlacklistV1>("KagemushaWalletBlacklistV1")
+                .to_canonical_bytes()
+                .unwrap(),
+        ),
+        (
+            R::QuotaShare,
+            fixture::<KagemushaWalletQuotaShareV1>("KagemushaWalletQuotaShareV1")
+                .to_canonical_bytes()
+                .unwrap(),
+        ),
+        (
+            R::TimeAnchor,
+            fixture::<KagemushaWalletTimeAnchorV1>("KagemushaWalletTimeAnchorV1")
+                .to_canonical_bytes()
+                .unwrap(),
+        ),
+    ];
+    for (role, original) in originals {
+        let expected = role.digest(&original, &state.core.scheme_id).unwrap();
+        let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+        let refused = norito::with_decode_limits_scope(limits, || {
+            role.digest(&original, &state.core.scheme_id)
+        });
+        assert!(
+            matches!(refused, Err(Error::DecodeResource(ref cause))
+            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit),
+            "{role:?}"
+        );
+        assert_eq!(
+            role.digest(&original, &state.core.scheme_id).unwrap(),
+            expected
+        );
+    }
+    let selected = archive::encode(&source).unwrap();
+    let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+    let refused = norito::with_decode_limits_scope(limits, || {
+        source.original(&mut store, &state, R::CurrentCredential)
+    });
+    assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+    assert_eq!(archive::encode(&source).unwrap(), selected);
+    assert_eq!(
+        source
+            .original(&mut store, &state, R::CurrentCredential)
+            .unwrap(),
+        Some(credential)
+    );
+}
+
+#[test]
+fn successor_original_refusal_leaves_the_unpublished_draft_unmodified() {
+    let (mut store, state, source) = setup();
+    let policy: KagemushaWalletSchemePolicyV1 = fixture("KagemushaWalletSchemePolicyV1");
+    let original = policy.to_canonical_bytes().unwrap();
+    let mut draft = PreparationCustodyV1::new(
+        &mut store,
+        &source,
+        &state,
+        K::RefreshPolicy,
+        Some(U::SchemePolicy),
+        IndexRoot::default(),
+        IndexRoot::default(),
+        IndexRoot::default(),
+    )
+    .unwrap();
+    let before = archive::encode(&draft.snapshot()).unwrap();
+    let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+    let refused = norito::with_decode_limits_scope(limits, || {
+        draft.retain_successor_original(R::SchemePolicy, &original)
+    });
+    assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+    assert_eq!(archive::encode(&draft.snapshot()).unwrap(), before);
+    assert!(!draft.updated[R::SchemePolicy.index()]);
+    draft
+        .retain_successor_original(R::SchemePolicy, &original)
+        .unwrap();
+    let mut next = state;
+    next.rest.scheme_policy = policy.scheme_policy_digest();
+    next.core.policy_epoch = policy.body.policy_epoch;
+    let updated = draft.finish(&next).unwrap();
+    assert_eq!(
+        updated
+            .original(&mut store, &next, R::SchemePolicy)
+            .unwrap(),
+        Some(original)
+    );
+}
+
+#[test]
+fn unload_identity_refusal_preserves_exact_credential_and_package_binding() {
+    let claim: KagemushaWalletUnloadClaimV1 = fixture("KagemushaWalletUnloadClaimV1");
+    let credential = claim.credential.to_canonical_bytes().unwrap();
+    let certificates = archive::encode(&claim.certificates).unwrap();
+    let state = KagemushaWalletStateV1::bootstrap(
+        &claim.credential,
+        kagemusha_wallet_field_from_u128_v1(8),
+    )
+    .unwrap();
+    let mut store = MemoryArchive::new();
+    let source =
+        SourceCustodyV1::bootstrap(&mut store, &state, &credential, &certificates).unwrap();
+    let read = |store: &mut MemoryArchive| {
+        source.unload_identity(
+            store,
+            &claim.package,
+            &state.core.scheme_id,
+            &claim.credential.body.wallet_id,
+        )
+    };
+    let expected = read(&mut store).unwrap();
+    let selected = archive::encode(&source).unwrap();
+    let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+    let refused = norito::with_decode_limits_scope(limits, || read(&mut store));
+    assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+    assert_eq!(archive::encode(&source).unwrap(), selected);
+    let retried = read(&mut store).unwrap();
+    assert_eq!(retried, expected);
+    assert_eq!(retried.0.to_canonical_bytes().unwrap(), credential);
+    assert_eq!(archive::encode(&retried.1).unwrap(), certificates);
+    assert!(matches!(
+        source.unload_identity(&mut store, &claim.package, &state.core.scheme_id, &[0; 32]),
+        Err(Error::WitnessLost(_))
+    ));
+}

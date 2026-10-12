@@ -2255,7 +2255,9 @@ pub struct Network {
     pub low_priority_burst: Option<std::num::NonZeroU32>,
     /// Optional per-peer Low-priority bytes budget (bytes/sec). When None, disabled.
     pub low_priority_bytes_per_sec: Option<std::num::NonZeroU32>,
-    /// Optional burst in bytes for Low-priority bytes token bucket.
+    /// Optional burst in complete canonical plaintext-frame bytes.
+    /// When omitted, P2P uses the larger of one second's rate and the largest eligible
+    /// Low-priority topic frame. An explicit burst smaller than that frame is invalid.
     pub low_priority_bytes_burst: Option<std::num::NonZeroU32>,
     /// Optional: Only allow connections (outbound/inbound) to peers whose public keys are explicitly listed.
     pub allowlist_only: bool,
@@ -2662,9 +2664,16 @@ impl_default!(ParliamentTleKeyLifecycle => {
 /// Governance configuration (actual layer).
 #[derive(Debug, Clone)]
 pub struct Governance {
-    /// Optional default verifying key for ZK ballots (backend + name).
+    /// Unused default verifying key for ZK ballots: always `None` on a node.
+    ///
+    /// Each election commits its own ballot key and validation reads only
+    /// that; the node schema has no key for this field.
+    // TODO(F.4): delete this field and `vk_tally` together with their terms of
+    // `execution_policy_digest_v1` and of the State governance projection.
+    // Removing the terms changes the certified State root, so it belongs to the
+    // declared cutover that regenerates the pinned first-release history.
     pub vk_ballot: Option<VerifyingKeyRef>,
-    /// Optional default verifying key for ZK tallies (backend + name).
+    /// Unused default verifying key for ZK tallies: always `None` on a node.
     pub vk_tally: Option<VerifyingKeyRef>,
     /// Asset definition used to denominate governance bonds and voting locks.
     pub voting_asset_id: AssetDefinitionId,
@@ -4318,6 +4327,13 @@ fn execution_policy_canonical_set<'a, T: Encode + 'a>(
 /// host time.
 #[must_use]
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+// The pipeline execution limits hashed here are the committed `pipeline_validity_policy_v1`
+// parameter or its protocol default; pipeline fee fields are also a validated
+// committed projection (State passes its effective settings).
+// TODO(F.4): the other fields are still read from node configuration ([crypto], [gov], oracle, fraud, content, settlement router and the Nexus policy digest).
+// Move each family into a typed committed parameter, as `zk_validity_policy_v1` and
+// `pipeline_validity_policy_v1` did (census entries `cfg.*` of
+// specs/zk_runtime_validity_census.json), then remove this digest from genesis metadata.
 pub fn execution_policy_digest_v1(
     pipeline: &Pipeline,
     oracle: &Oracle,
@@ -5031,7 +5047,10 @@ pub struct GovernanceModule {
     /// Additional parameters defined by the module.
     pub params: BTreeMap<String, String>,
 }
-/// Confidential asset and verifier configuration.
+/// Node-local confidential settings.
+///
+/// Confidential proof limits, windows, registry caps and the verification gas
+/// schedule are chain policy and are not held here.
 #[derive(Debug, Clone)]
 pub struct Confidential {
     /// Enables confidential asset features for this node.
@@ -5040,46 +5059,8 @@ pub struct Confidential {
     pub assume_valid: bool,
     /// Preferred verifier backend identifier.
     pub verifier_backend: String,
-    /// Maximum proof size accepted from a single confidential operation.
-    pub max_proof_size_bytes: u32,
-    /// Maximum number of nullifiers per transaction.
-    pub max_nullifiers_per_tx: u32,
-    /// Maximum number of commitments per transaction.
-    pub max_commitments_per_tx: u32,
-    /// Maximum confidential operations per block.
-    pub max_confidential_ops_per_block: u32,
-    /// Verifier timeout.
+    /// Local wall-clock budget of one verification attempt.
     pub verify_timeout: Duration,
-    /// Maximum anchor age in blocks.
-    pub max_anchor_age_blocks: u64,
-    /// Aggregate proof bytes allowed per block.
-    pub max_proof_bytes_block: u64,
-    /// Maximum verification calls per transaction.
-    pub max_verify_calls_per_tx: u32,
-    /// Maximum verification calls per block.
-    pub max_verify_calls_per_block: u32,
-    /// Maximum public inputs per proof.
-    pub max_public_inputs: u32,
-    /// Configured reorg depth bound.
-    pub reorg_depth_bound: u64,
-    /// Minimum delay between policy change request and activation.
-    pub policy_transition_delay_blocks: u64,
-    /// Grace window around policy activation.
-    pub policy_transition_window_blocks: u64,
-    /// Maximum confidential-policy transitions that may share one effective height.
-    pub policy_transition_max_per_height: NonZeroU32,
-    /// Non-zero commitment tree root history length.
-    pub tree_roots_history_len: NonZeroUsize,
-    /// Frontier checkpoint interval.
-    pub tree_frontier_checkpoint_interval: u64,
-    /// Maximum verifier entries allowed in registry.
-    pub registry_max_vk_entries: u32,
-    /// Maximum parameter entries allowed in registry.
-    pub registry_max_params_entries: u32,
-    /// Maximum registry mutations per block.
-    pub registry_max_delta_per_block: u32,
-    /// Gas schedule applied to confidential proof verification.
-    pub gas: ConfidentialGas,
 }
 /// Confidential verification gas schedule parameters.
 #[derive(Debug, Clone, Copy)]
@@ -5687,7 +5668,7 @@ pub struct Pipeline {
     pub overlay_max_bytes: u64,
     /// Execute overlay instructions in chunks of this size (at least 1).
     pub overlay_chunk_instructions: usize,
-    /// Gas fees configuration.
+    /// Committed pipeline fee projection; node configuration cannot set it.
     pub gas: Gas,
     /// Mandatory admission-time ceiling for `ProgramMetadata.max_cycles`.
     pub ivm_max_cycles_upper_bound: NonZeroU64,
@@ -5740,11 +5721,7 @@ impl_default!(Pipeline => {
             overlay_max_instructions: defaults::pipeline::OVERLAY_MAX_INSTRUCTIONS,
             overlay_max_bytes: defaults::pipeline::OVERLAY_MAX_BYTES,
             overlay_chunk_instructions: defaults::pipeline::OVERLAY_CHUNK_INSTRUCTIONS,
-            gas: Gas {
-                tech_account_id: defaults::pipeline::GAS_TECH_ACCOUNT_ID.to_owned(),
-                accepted_assets: Vec::new(),
-                units_per_gas: Vec::new(),
-            },
+            gas: Gas::default(),
             ivm_max_cycles_upper_bound: defaults::pipeline::IVM_MAX_CYCLES_UPPER_BOUND,
             ivm_max_decoded_instructions: defaults::pipeline::IVM_MAX_DECODED_INSTRUCTIONS,
             ivm_max_decoded_bytes: defaults::pipeline::IVM_MAX_DECODED_BYTES,
@@ -6450,8 +6427,8 @@ pub enum QueryCursorMode {
     /// Store a cursor in the LiveQueryStore and allow continuation.
     Stored,
 }
-/// Gas fees configuration: accepted assets, conversion mapping, and tech account.
-#[derive(Debug, Clone)]
+/// Committed gas fee projection: accepted assets, conversion mapping, and receiver.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Gas {
     /// System-owned technical account that receives gas fee transfers.
     pub tech_account_id: String,
@@ -6460,6 +6437,15 @@ pub struct Gas {
     /// Deterministic conversion mapping (asset minimal units per one gas unit).
     #[allow(clippy::struct_field_names)]
     pub units_per_gas: Vec<GasRate>,
+}
+impl Default for Gas {
+    fn default() -> Self {
+        Self {
+            tech_account_id: defaults::pipeline::GAS_TECH_ACCOUNT_ID.to_owned(),
+            accepted_assets: Vec::new(),
+            units_per_gas: Vec::new(),
+        }
+    }
 }
 /// Governance-defined liquidity tiers for gas settlement routes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -6506,7 +6492,7 @@ impl FromStr for GasVolatility {
     }
 }
 /// Deterministic gas conversion entry mapping an accepted asset to units per gas.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GasRate {
     /// Asset ID string
     pub asset: String,
@@ -7221,6 +7207,8 @@ pub struct Torii {
     pub query_fanout_max_retained_bytes: Bytes,
     /// Maximum complete working set for one query, independent of aggregate capacity.
     pub query_fanout_max_working_set_bytes: Bytes,
+    /// Bytes retained by this node's authenticated SCCP history-node cache.
+    pub sccp_history_cache_max_bytes: Bytes,
     /// Absolute deadline for one admitted App routed-read body.
     pub app_api_routed_read_body_read_timeout: Duration,
     /// Maximum time a query waits for execution capacity before Torii rejects it.
@@ -7435,6 +7423,10 @@ impl fmt::Debug for Torii {
             .field(
                 "query_fanout_max_working_set_bytes",
                 &self.query_fanout_max_working_set_bytes,
+            )
+            .field(
+                "sccp_history_cache_max_bytes",
+                &self.sccp_history_cache_max_bytes,
             )
             .field("require_api_token", &self.require_api_token)
             .field("api_tokens", &self.api_tokens)

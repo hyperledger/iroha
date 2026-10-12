@@ -85,6 +85,10 @@ impl CheckpointTransport {
             ))?
             .parse()
             .map_err(|_| BootstrapError::Invalid("invalid approved AMX parent endpoint"))?;
+        let root_scope = bootstrap
+            .verifier
+            .root_scope()
+            .map_err(|_| BootstrapError::Invalid("authenticated AMX parent scope"))?;
         let read = |height: u64| -> Result<Vec<u8>, CheckpointReadError> {
             let route = iroha_torii_shared::route_catalog::sumeragi::BRIDGE_FINALITY
                 .path()
@@ -107,13 +111,9 @@ impl CheckpointTransport {
                 )
                 .into());
             }
-            proof
-                .decode_checked(
-                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
-                )
-                .map_err(|_| {
-                    BootstrapError::Invalid("invalid AMX source framing or certificate")
-                })?;
+            proof.decode_checked(root_scope.into()).map_err(|_| {
+                BootstrapError::Invalid("invalid AMX source framing or certificate")
+            })?;
             if Instant::now() >= deadline {
                 return Err(PublicHttpError::Deadline.into());
             }

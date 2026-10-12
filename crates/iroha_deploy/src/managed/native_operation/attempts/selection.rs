@@ -186,6 +186,87 @@ pub(in crate::managed) fn generated(
     deadline: Instant,
     body_expiry: Option<u64>,
     mut inspect: impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
+    retire: impl FnMut(&Attempt) -> Result<RetiredNativeRequest>,
+    retain_request: impl FnMut(&Attempt, Observation, Instant) -> Result<VerifiedNativePreparation>,
+    fresh: impl FnMut(GeneratedPrerequisite<'_>, Instant) -> Result<Observation>,
+    observation_usable: impl FnMut(&Attempt) -> Result<bool>,
+) -> Result<()> {
+    generated_with_inspection(
+        operation,
+        purpose,
+        semantic,
+        scope,
+        authorization,
+        deadline,
+        body_expiry,
+        GeneratedInspection::Generic(&mut inspect),
+        retire,
+        retain_request,
+        fresh,
+        observation_usable,
+    )
+}
+
+/// Concrete enrollment inspector may consolidate only the empty read-only prefix.
+/// Every existing-attempt callback and effect remains in the shared generated owner.
+pub(in crate::managed) fn generated_native(
+    operation: &PrivateDirectory,
+    purpose: Purpose,
+    semantic: [u8; 32],
+    scope: &HistoryScope,
+    authorization: &dyn DispatchAuthorization,
+    deadline: Instant,
+    body_expiry: Option<u64>,
+    native: &crate::managed::stream_token_custody::body_history::NativeClosureInspector<'_>,
+    mut inspect: impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
+    retire: impl FnMut(&Attempt) -> Result<RetiredNativeRequest>,
+    retain_request: impl FnMut(&Attempt, Observation, Instant) -> Result<VerifiedNativePreparation>,
+    fresh: impl FnMut(GeneratedPrerequisite<'_>, Instant) -> Result<Observation>,
+    observation_usable: impl FnMut(&Attempt) -> Result<bool>,
+) -> Result<()> {
+    generated_with_inspection(
+        operation,
+        purpose,
+        semantic,
+        scope,
+        authorization,
+        deadline,
+        body_expiry,
+        GeneratedInspection::Native(native, &mut inspect),
+        retire,
+        retain_request,
+        fresh,
+        observation_usable,
+    )
+}
+
+enum GeneratedInspection<'borrow, 'source> {
+    Generic(&'borrow mut dyn FnMut(&Attempt) -> Result<VerifiedNativePreparation>),
+    Native(
+        &'borrow crate::managed::stream_token_custody::body_history::NativeClosureInspector<
+            'source,
+        >,
+        &'borrow mut dyn FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
+    ),
+}
+impl GeneratedInspection<'_, '_> {
+    fn inspect(&mut self, attempt: &Attempt) -> Result<VerifiedNativePreparation> {
+        match self {
+            Self::Generic(inspect) => inspect(attempt),
+            Self::Native(_, inspect) => inspect(attempt),
+        }
+    }
+}
+
+fn generated_with_inspection(
+    operation: &PrivateDirectory,
+    purpose: Purpose,
+    semantic: [u8; 32],
+    scope: &HistoryScope,
+    authorization: &dyn DispatchAuthorization,
+    deadline: Instant,
+    body_expiry: Option<u64>,
+    mut inspection: GeneratedInspection<'_, '_>,
     mut retire: impl FnMut(&Attempt) -> Result<RetiredNativeRequest>,
     mut retain_request: impl FnMut(&Attempt, Observation, Instant) -> Result<VerifiedNativePreparation>,
     mut fresh: impl FnMut(GeneratedPrerequisite<'_>, Instant) -> Result<Observation>,
@@ -195,15 +276,36 @@ pub(in crate::managed) fn generated(
     scope.require_active()?;
     let history = History::read(operation, purpose, semantic, scope)?;
     history.require_fees(authorization.fees())?;
-    history.verify_wallets(&mut inspect)?;
-    if history.reservation_pending() {
-        authorization.check(purpose, deadline)?;
-        history.finish_reserved(operation, false)?;
-    }
-    let history = history.reread()?;
-    history.verify_wallets(&mut inspect)?;
-    let origin = authorization.origin()?;
-    if let Some(last) = history.last() {
+    let (history, progress) = match &inspection {
+        GeneratedInspection::Native(inspector, _) => {
+            generated_read_phase::read_empty_prefix(history, authorization, inspector)?
+        }
+        GeneratedInspection::Generic(_) => (history, generated_read_phase::Progress::Initial),
+    };
+    let mut inspect = |attempt: &Attempt| inspection.inspect(attempt);
+    let (history, origin, ready) = match progress {
+        generated_read_phase::Progress::BeforeFinalWallet(origin) => {
+            history.verify_wallets(&mut inspect)?;
+            (history, origin, true)
+        }
+        generated_read_phase::Progress::Complete(origin) => (history, origin, true),
+        progress @ (generated_read_phase::Progress::Initial
+        | generated_read_phase::Progress::BeforeFirstWallet) => {
+            let history = if matches!(progress, generated_read_phase::Progress::Initial) {
+                history.verify_wallets(&mut inspect)?;
+                if history.reservation_pending() {
+                    authorization.check(purpose, deadline)?;
+                    history.finish_reserved(operation, false)?;
+                }
+                history.reread()?
+            } else {
+                history
+            };
+            history.verify_wallets(&mut inspect)?;
+            (history, authorization.origin()?, false)
+        }
+    };
+    if !ready && let Some(last) = history.last() {
         if last.is_committed() {
             let preparation = inspect(last)?;
             match preparation.phase() {
@@ -279,8 +381,13 @@ pub(in crate::managed) fn generated(
     }
     // Retirement or root publication may have completed an interrupted local prefix. Re-read
     // all metadata and inspect all canonical wallets before adding the next authorization.
-    let history = history.reread()?;
-    history.verify_wallets(&mut inspect)?;
+    let history = if ready {
+        history
+    } else {
+        let history = history.reread()?;
+        history.verify_wallets(&mut inspect)?;
+        history
+    };
     authorization.check(purpose, deadline)?;
     let terms = authorization.terms(deadline, body_expiry)?;
     let successor = history.reserve(operation, origin, terms)?;

@@ -69,7 +69,7 @@ Implementation status (current node)
 - Deterministic scheduler: per‑wave stable order with conflict‑free layers; parallel apply path guarded by `pipeline.parallel_apply` (feature complete, parity‑tested).
 - Recovery sidecars: Core persists admission sets and a stable DAG fingerprint per block; startup scan recomputes and logs mismatches.
 - Warning events: a `PipelineEvent::Warning` is emitted on DAG fingerprint mismatches (non‑forking); Torii streams warning events and exposes a recovery sidecar endpoint.
-- Overlay bounds/chunking: enforced via `pipeline.overlay_max_*` and `pipeline.overlay_chunk_instructions`; negative tests cover bounds.
+- Overlay bounds/chunking: enforced via `overlay_max_*` and `overlay_chunk_instructions` of the committed `pipeline_validity_policy_v1` parameter (not node configuration); negative tests cover bounds.
 
 Data flow (leader and validator nodes)
 1) Admission → 2) Gossip → 3) Pre‑decode + Stateless validation → 4) Route:
@@ -102,7 +102,7 @@ Verification status
 - Stateless ZK pre‑verification and non‑forking diagnostic consistency checks of traces are implemented and gated by config/feature flags. Background proving and attachments remain out‑of‑pipeline and are optional.
 
 Acceptance (ZK verification)
-- Native PIPA-R and STARK admission use their exact compiled relations and `zk.pipa_r` / `zk.stark` bounds. `zk-preverify` controls advisory pre-verification; `zk.trace` independently controls local diagnostic trace scheduling. Diagnostics never grant ledger authority.
+- Native PIPA-R and STARK admission use their exact compiled relations and the `pipa_r` / `stark` bounds of the committed `zk_validity_policy_v1` parameter. `zk-preverify` controls advisory pre-verification; node-local `zk.trace` controls diagnostic scheduling. Diagnostics never grant ledger authority.
 - Authority boundary: pre‑verification and deduplication are advisory diagnostics only. Their results cannot be installed into execution state or substitute for the normal guarded cryptographic verifier.
 - Determinism: ordering and proposal selection remain unaffected; pre‑verification failures do not reorder transactions. Diagnostic trace checks report via Pipeline warnings and do not persist artifacts in block sidecars.
 - Safety: proofs and envelopes are bounded (size, k) and verified deterministically; accelerators must produce bit‑exact results to scalar.
@@ -434,7 +434,8 @@ Quarantine lane bounds (normative)
   is a pure consensus rule over authenticated transaction metadata: only an
   exact Norito JSON boolean `true` at the `quarantine` key enters the lane.
   Missing values, `false`, and string or numeric lookalikes do not classify.
-  There is no process-local classifier hook. Limits:
+  There is no process-local classifier hook. Limits (fields of the committed
+  `pipeline_validity_policy_v1` parameter, not node configuration):
   - `quarantine_max_txs_per_block` (default: 0; a zero cap disables the lane
     and rejects transactions explicitly marked for quarantine)
   - `quarantine_tx_max_cycles` (default: 0; otherwise bounded by the ordinary

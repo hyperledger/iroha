@@ -1,0 +1,774 @@
+{
+  "authority": "fixture-authority",
+  "identity": {
+    "authority": "fixture-authority",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "instance": "vector",
+    "kind": "dkg",
+    "network": "fixture-network",
+    "plan_digest": "68752587c40e9c0e895a53c89300ac9ff8bb453f450ebf8124581fc02155be4d",
+    "request_context_digest": "7f2f8a3b4f94679f3d0864eff64cfccf1e36bcbef68b6d36614b89ba7f8eee1b"
+  },
+  "identity_hex": "4e52543000003e6c344500af2ad2063ad6d57091316d00c9000000000000000e781be4268f0891020401000000100f666978747572652d6e6574776f726b1211666978747572652d617574686f726974790706766563746f72150f0e666978747572652d647269766572040100000040017f012f018a013b014f01940167019f013d0108016401ef01f6014c01fc01cf011e013601bc01be01f6018b016d01360161014b018901ba017f018e01ee011b40016801750125018701c4010e019c010e0189015a015301c80193010001ac019f01f801bb0145013f0145010e01bf018101240158011f01c00121015501be014d",
+  "network": "fixture-network",
+  "plan": {
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "instance": "vector",
+    "kind": "dkg",
+    "request_context_digest": "7f2f8a3b4f94679f3d0864eff64cfccf1e36bcbef68b6d36614b89ba7f8eee1b",
+    "steps": [
+      {
+        "custody_handles_required": 0,
+        "intent_digest": "3ba977244f3fc5a37b8e7d43745f0c0467b12618824b6bcfcaf5d54efb635a65",
+        "irreversible": true,
+        "kind": "transaction",
+        "label": "register",
+        "max_transaction_identities": 2,
+        "max_transcript_bytes": 0,
+        "participants_required": 0
+      },
+      {
+        "custody_handles_required": 1,
+        "intent_digest": "3776a7d98b1e64f60bcbf871c60c57ab54cd740dc9efa991e9031d056313af71",
+        "irreversible": true,
+        "kind": "offchain_round",
+        "label": "deal",
+        "max_transaction_identities": 0,
+        "max_transcript_bytes": 1048576,
+        "participants_required": 2
+      },
+      {
+        "custody_handles_required": 0,
+        "intent_digest": "e6ff92d3c0d8f292654991ec29df0ca5690d4c3cd546472c9111a04adf7596ff",
+        "irreversible": true,
+        "kind": "transaction",
+        "label": "publish",
+        "max_transaction_identities": 1,
+        "max_transcript_bytes": 0,
+        "participants_required": 0
+      }
+    ]
+  },
+  "plan_digest": "68752587c40e9c0e895a53c89300ac9ff8bb453f450ebf8124581fc02155be4d",
+  "plan_hex": "4e5254300000178e2deec30378cb299f338c9bd62d20009501000000000000c2972a4d524455650204010000000706766563746f72150f0e666978747572652d647269766572040100000040017f012f018a013b014f01940167019f013d0108016401ef01f6014c01fc01cf011e013601bc01be01f6018b016d01360161014b018901ba017f018e01ee011baf0203000000000000006309087265676973746572040000000040013b01a901770124014f013f01c501a3017b018e017d01430174015f010c0104016701b1012601180182014b016b01cf01ca01f501d5014e01fb0163015a0165010101020400000000040000000004000000005f05046465616c0401000000400137017601a701d9018b011e016401f6010b01cb01f8017101c6010c015701ab015401cd0174010d01c901ef01a9019101e90103011d01050163011301af0171010101000402000000040100000004000010006208077075626c69736804000000004001e601ff019201d301c001d801f2019201650149019101ec012901df010c01a50169010d014c013c01d501460147012c0191011101a0014a01df0175019601ff01010101040000000004000000000400000000",
+  "records": [
+    {
+      "journal": {
+        "cancel_requested": false,
+        "created_at_ms": 1000000,
+        "failure_code": null,
+        "failure_step": null,
+        "identity": {
+          "authority": "fixture-authority",
+          "driver": {
+            "id": "fixture-driver",
+            "schema_version": 1
+          },
+          "instance": "vector",
+          "kind": "dkg",
+          "network": "fixture-network",
+          "plan_digest": "68752587c40e9c0e895a53c89300ac9ff8bb453f450ebf8124581fc02155be4d",
+          "request_context_digest": "7f2f8a3b4f94679f3d0864eff64cfccf1e36bcbef68b6d36614b89ba7f8eee1b"
+        },
+        "sequence": 1,
+        "status": "in_progress",
+        "steps": [
+          {
+            "descriptor": {
+              "custody_handles_required": 0,
+              "intent_digest": "3ba977244f3fc5a37b8e7d43745f0c0467b12618824b6bcfcaf5d54efb635a65",
+              "irreversible": true,
+              "kind": "transaction",
+              "label": "register",
+              "max_transaction_identities": 2,
+              "max_transcript_bytes": 0,
+              "participants_required": 0
+            },
+            "round": null,
+            "transaction": {
+              "attempts": [],
+              "signed_transaction": null,
+              "state": "planned",
+              "unsigned_payload": null
+            }
+          },
+          {
+            "descriptor": {
+              "custody_handles_required": 1,
+              "intent_digest": "3776a7d98b1e64f60bcbf871c60c57ab54cd740dc9efa991e9031d056313af71",
+              "irreversible": true,
+              "kind": "offchain_round",
+              "label": "deal",
+              "max_transaction_identities": 0,
+              "max_transcript_bytes": 1048576,
+              "participants_required": 2
+            },
+            "round": {
+              "custody_handles": [],
+              "failure": null,
+              "participants": [],
+              "round_id": null,
+              "start_ordinal": 0,
+              "state": "planned",
+              "transcript": null,
+              "transcript_digest": null
+            },
+            "transaction": null
+          },
+          {
+            "descriptor": {
+              "custody_handles_required": 0,
+              "intent_digest": "e6ff92d3c0d8f292654991ec29df0ca5690d4c3cd546472c9111a04adf7596ff",
+              "irreversible": true,
+              "kind": "transaction",
+              "label": "publish",
+              "max_transaction_identities": 1,
+              "max_transcript_bytes": 0,
+              "participants_required": 0
+            },
+            "round": null,
+            "transaction": {
+              "attempts": [],
+              "signed_transaction": null,
+              "state": "planned",
+              "unsigned_payload": null
+            }
+          }
+        ],
+        "updated_at_ms": 1000000,
+        "version": 1,
+        "workflow_id": "ddfbde6171f13ced522b5c1e4f54df7a4232de4603141c8936832d637b590a71"
+      },
+      "journal_digest": "232b47057b8c29e082c5169c58df2980b11efc27619041d3b9c7aebff4fcb5b1",
+      "journal_hex": "4e5254300000272a96493648bbe1e5c09a7c1c1e402e00c10200000000000014e5835bb0a4dfc5020201000801000000000000004001dd01fb01de0161017101f1013c01ed0152012b015c011e014f015401df017a0142013201de014601030114011c018901360183012d0163017b0159010a0171c9010401000000100f666978747572652d6e6574776f726b1211666978747572652d617574686f726974790706766563746f72150f0e666978747572652d647269766572040100000040017f012f018a013b014f01940167019f013d0108016401ef01f6014c01fc01cf011e013601bc01be01f6018b016d01360161014b018901ba017f018e01ee011b40016801750125018701c4010e019c010e0189015a015301c80193010001ac019f01f801bb0145013f0145010e01bf018101240158011f01c00121015501be014d04000000000100010001000840420f00000000000840420f00000000008a0303000000000000007b6309087265676973746572040000000040013b01a901770124014f013f01c501a3017b018e017d01430174015f010c0104016701b1012601180182014b016b01cf01ca01f501d5014e01fb0163015a016501010102040000000004000000000400000000140112040000000008000000000000000001000100010089015f05046465616c0401000000400137017601a701d9018b011e016401f6010b01cb01f8017101c6010c015701ab015401cd0174010d01c901ef01a9019101e90103011d01050163011301af01710101010004020000000401000000040000100001002601240400000000010004000000000800000000000000000100010008000000000000000001007a6208077075626c69736804000000004001e601ff019201d301c001d801f2019201650149019101ec012901df010c01a50169010d014c013c01d501460147012c0191011101a0014a01df0175019601ff010101010400000000040000000004000000001401120400000000080000000000000000010001000100",
+      "name": "created",
+      "progress": {
+        "atomicity": "per_transaction_only",
+        "cancel_requested": false,
+        "current_step": 0,
+        "failure_code": null,
+        "kind": "dkg",
+        "partial_completion": {
+          "confirmed_steps": [],
+          "failed_steps": [],
+          "irreversible_steps": [],
+          "not_started_steps": [
+            0,
+            1,
+            2
+          ],
+          "rolled_back_steps": [],
+          "unresolved_steps": []
+        },
+        "partially_complete": false,
+        "sequence": 1,
+        "status": "in_progress",
+        "steps": [
+          {
+            "custody_handles": 0,
+            "identities": [],
+            "index": 0,
+            "irreversible": true,
+            "kind": "transaction",
+            "label": "register",
+            "participants_received": 0,
+            "participants_required": 0,
+            "round_start_intents": 0,
+            "state": "planned",
+            "transcript_digest": null
+          },
+          {
+            "custody_handles": 0,
+            "identities": [],
+            "index": 1,
+            "irreversible": true,
+            "kind": "offchain_round",
+            "label": "deal",
+            "participants_received": 0,
+            "participants_required": 2,
+            "round_start_intents": 0,
+            "state": "planned",
+            "transcript_digest": null
+          },
+          {
+            "custody_handles": 0,
+            "identities": [],
+            "index": 2,
+            "irreversible": true,
+            "kind": "transaction",
+            "label": "publish",
+            "participants_received": 0,
+            "participants_required": 0,
+            "round_start_intents": 0,
+            "state": "planned",
+            "transcript_digest": null
+          }
+        ],
+        "workflow_id": "ddfbde6171f13ced522b5c1e4f54df7a4232de4603141c8936832d637b590a71"
+      },
+      "record_digest": "4c2791bef09569873439efdcc3accd4616789b44c57540972e2e1b1ba0178f13",
+      "record_hex": "4e5254300000e9129c7f91ef51f3b076c83bc13cfd5400040300000000000037d234198040835d02c1050201000801000000000000004001dd01fb01de0161017101f1013c01ed0152012b015c011e014f015401df017a0142013201de014601030114011c018901360183012d0163017b0159010a0171c9010401000000100f666978747572652d6e6574776f726b1211666978747572652d617574686f726974790706766563746f72150f0e666978747572652d647269766572040100000040017f012f018a013b014f01940167019f013d0108016401ef01f6014c01fc01cf011e013601bc01be01f6018b016d01360161014b018901ba017f018e01ee011b40016801750125018701c4010e019c010e0189015a015301c80193010001ac019f01f801bb0145013f0145010e01bf018101240158011f01c00121015501be014d04000000000100010001000840420f00000000000840420f00000000008a0303000000000000007b6309087265676973746572040000000040013b01a901770124014f013f01c501a3017b018e017d01430174015f010c0104016701b1012601180182014b016b01cf01ca01f501d5014e01fb0163015a016501010102040000000004000000000400000000140112040000000008000000000000000001000100010089015f05046465616c0401000000400137017601a701d9018b011e016401f6010b01cb01f8017101c6010c015701ab015401cd0174010d01c901ef01a9019101e90103011d01050163011301af01710101010004020000000401000000040000100001002601240400000000010004000000000800000000000000000100010008000000000000000001007a6208077075626c69736804000000004001e601ff019201d301c001d801f2019201650149019101ec012901df010c01a50169010d014c013c01d501460147012c0191011101a0014a01df0175019601ff010101010400000000040000000004000000001401120400000000080000000000000000010001000100400123012b01470105017b018c012901e0018201c50116019c015801df0129018001b1011e01fc012701610190014101d301b901c701ae01bf01f401fc01b501b1",
+      "sequence": 1
+    },
+    {
+      "journal": {
+        "cancel_requested": false,
+        "created_at_ms": 1000000,
+        "failure_code": null,
+        "failure_step": null,
+        "identity": {
+          "authority": "fixture-authority",
+          "driver": {
+            "id": "fixture-driver",
+            "schema_version": 1
+          },
+          "instance": "vector",
+          "kind": "dkg",
+          "network": "fixture-network",
+          "plan_digest": "68752587c40e9c0e895a53c89300ac9ff8bb453f450ebf8124581fc02155be4d",
+          "request_context_digest": "7f2f8a3b4f94679f3d0864eff64cfccf1e36bcbef68b6d36614b89ba7f8eee1b"
+        },
+        "sequence": 7,
+        "status": "in_progress",
+        "steps": [
+          {
+            "descriptor": {
+              "custody_handles_required": 0,
+              "intent_digest": "3ba977244f3fc5a37b8e7d43745f0c0467b12618824b6bcfcaf5d54efb635a65",
+              "irreversible": true,
+              "kind": "transaction",
+              "label": "register",
+              "max_transaction_identities": 2,
+              "max_transcript_bytes": 0,
+              "participants_required": 0
+            },
+            "round": null,
+            "transaction": {
+              "attempts": [
+                {
+                  "dispatch_ordinal": 1,
+                  "evidence": null,
+                  "identity": {
+                    "entrypoint_hash": "d2e69767113de6a93fc224b1a41e06a1cffacb66f170d1cb56b879c6d29f3b69",
+                    "signed_transaction_hash": "995de95487a07047621c6026b69fb225e143e393129471d60f61d53e596e2027"
+                  },
+                  "ordinal": 1,
+                  "possible_admissions": 1
+                }
+              ],
+              "signed_transaction": "7369676e65643a302331",
+              "state": "pending",
+              "unsigned_payload": null
+            }
+          },
+          {
+            "descriptor": {
+              "custody_handles_required": 1,
+              "intent_digest": "3776a7d98b1e64f60bcbf871c60c57ab54cd740dc9efa991e9031d056313af71",
+              "irreversible": true,
+              "kind": "offchain_round",
+              "label": "deal",
+              "max_transaction_identities": 0,
+              "max_transcript_bytes": 1048576,
+              "participants_required": 2
+            },
+            "round": {
+              "custody_handles": [],
+              "failure": null,
+              "participants": [],
+              "round_id": null,
+              "start_ordinal": 0,
+              "state": "planned",
+              "transcript": null,
+              "transcript_digest": null
+            },
+            "transaction": null
+          },
+          {
+            "descriptor": {
+              "custody_handles_required": 0,
+              "intent_digest": "e6ff92d3c0d8f292654991ec29df0ca5690d4c3cd546472c9111a04adf7596ff",
+              "irreversible": true,
+              "kind": "transaction",
+              "label": "publish",
+              "max_transaction_identities": 1,
+              "max_transcript_bytes": 0,
+              "participants_required": 0
+            },
+            "round": null,
+            "transaction": {
+              "attempts": [],
+              "signed_transaction": null,
+              "state": "planned",
+              "unsigned_payload": null
+            }
+          }
+        ],
+        "updated_at_ms": 1000000,
+        "version": 1,
+        "workflow_id": "ddfbde6171f13ced522b5c1e4f54df7a4232de4603141c8936832d637b590a71"
+      },
+      "journal_digest": "9b586f0d56953926ef4dcb6e638420f5c4b6298bfc6165691d60881cd86338af",
+      "journal_hex": "4e5254300000272a96493648bbe1e5c09a7c1c1e402e00690300000000000091b018ceffb5be7b020201000807000000000000004001dd01fb01de0161017101f1013c01ed0152012b015c011e014f015401df017a0142013201de014601030114011c018901360183012d0163017b0159010a0171c9010401000000100f666978747572652d6e6574776f726b1211666978747572652d617574686f726974790706766563746f72150f0e666978747572652d647269766572040100000040017f012f018a013b014f01940167019f013d0108016401ef01f6014c01fc01cf011e013601bc01be01f6018b016d01360161014b018901ba017f018e01ee011b40016801750125018701c4010e019c010e0189015a015301c80193010001ac019f01f801bb0145013f0145010e01bf018101240158011f01c00121015501be014d04000000000100010001000840420f00000000000840420f0000000000b2040300000000000000a2026309087265676973746572040000000040013b01a901770124014f013f01c501a3017b018e017d01430174015f010c0104016701b1012601180182014b016b01cf01ca01f501d5014e01fb0163015a016501010102040000000004000000000400000000ba0101b7010407000000990101000000000000008f0101018501018201400199015d01e90154018701a0017001470162011c0160012601b6019f01b2012501e1014301e3019301120194017101d6010f016101d5013e0159016e012001274001d201e6019701670111013d01e601a9013f01c2012401b101a4011e010601a101cf01fa01cb016601f1017001d101cb015601b8017901c601d2019f013b016901010101010001001401120a000000000000007369676e65643a302331010089015f05046465616c0401000000400137017601a701d9018b011e016401f6010b01cb01f8017101c6010c015701ab015401cd0174010d01c901ef01a9019101e90103011d01050163011301af01710101010004020000000401000000040000100001002601240400000000010004000000000800000000000000000100010008000000000000000001007a6208077075626c69736804000000004001e601ff019201d301c001d801f2019201650149019101ec012901df010c01a50169010d014c013c01d501460147012c0191011101a0014a01df0175019601ff010101010400000000040000000004000000001401120400000000080000000000000000010001000100",
+      "name": "step_0_pending",
+      "progress": {
+        "atomicity": "per_transaction_only",
+        "cancel_requested": false,
+        "current_step": 0,
+        "failure_code": null,
+        "kind": "dkg",
+        "partial_completion": {
+          "confirmed_steps": [],
+          "failed_steps": [],
+          "irreversible_steps": [],
+          "not_started_steps": [
+            1,
+            2
+          ],
+          "rolled_back_steps": [],
+          "unresolved_steps": [
+            0
+          ]
+        },
+        "partially_complete": true,
+        "sequence": 7,
+        "status": "in_progress",
+        "steps": [
+          {
+            "custody_handles": 0,
+            "identities": [
+              {
+                "dispatches": 1,
+                "evidence": null,
+                "ordinal": 1,
+                "possible_admissions": 1,
+                "signed_transaction_hash": "995de95487a07047621c6026b69fb225e143e393129471d60f61d53e596e2027"
+              }
+            ],
+            "index": 0,
+            "irreversible": true,
+            "kind": "transaction",
+            "label": "register",
+            "participants_received": 0,
+            "participants_required": 0,
+            "round_start_intents": 0,
+            "state": "pending",
+            "transcript_digest": null
+          },
+          {
+            "custody_handles": 0,
+            "identities": [],
+            "index": 1,
+            "irreversible": true,
+            "kind": "offchain_round",
+            "label": "deal",
+            "participants_received": 0,
+            "participants_required": 2,
+            "round_start_intents": 0,
+            "state": "planned",
+            "transcript_digest": null
+          },
+          {
+            "custody_handles": 0,
+            "identities": [],
+            "index": 2,
+            "irreversible": true,
+            "kind": "transaction",
+            "label": "publish",
+            "participants_received": 0,
+            "participants_required": 0,
+            "round_start_intents": 0,
+            "state": "planned",
+            "transcript_digest": null
+          }
+        ],
+        "workflow_id": "ddfbde6171f13ced522b5c1e4f54df7a4232de4603141c8936832d637b590a71"
+      },
+      "record_digest": "128db03b48bae9656506f38039704781e037b7d88d1036138cc7f99f17bbd077",
+      "record_hex": "4e5254300000e9129c7f91ef51f3b076c83bc13cfd5400ac03000000000000c5e1a61a5a33d31402e9060201000807000000000000004001dd01fb01de0161017101f1013c01ed0152012b015c011e014f015401df017a0142013201de014601030114011c018901360183012d0163017b0159010a0171c9010401000000100f666978747572652d6e6574776f726b1211666978747572652d617574686f726974790706766563746f72150f0e666978747572652d647269766572040100000040017f012f018a013b014f01940167019f013d0108016401ef01f6014c01fc01cf011e013601bc01be01f6018b016d01360161014b018901ba017f018e01ee011b40016801750125018701c4010e019c010e0189015a015301c80193010001ac019f01f801bb0145013f0145010e01bf018101240158011f01c00121015501be014d04000000000100010001000840420f00000000000840420f0000000000b2040300000000000000a2026309087265676973746572040000000040013b01a901770124014f013f01c501a3017b018e017d01430174015f010c0104016701b1012601180182014b016b01cf01ca01f501d5014e01fb0163015a016501010102040000000004000000000400000000ba0101b7010407000000990101000000000000008f0101018501018201400199015d01e90154018701a0017001470162011c0160012601b6019f01b2012501e1014301e3019301120194017101d6010f016101d5013e0159016e012001274001d201e6019701670111013d01e601a9013f01c2012401b101a4011e010601a101cf01fa01cb016601f1017001d101cb015601b8017901c601d2019f013b016901010101010001001401120a000000000000007369676e65643a302331010089015f05046465616c0401000000400137017601a701d9018b011e016401f6010b01cb01f8017101c6010c015701ab015401cd0174010d01c901ef01a9019101e90103011d01050163011301af01710101010004020000000401000000040000100001002601240400000000010004000000000800000000000000000100010008000000000000000001007a6208077075626c69736804000000004001e601ff019201d301c001d801f2019201650149019101ec012901df010c01a50169010d014c013c01d501460147012c0191011101a0014a01df0175019601ff01010101040000000004000000000400000000140112040000000008000000000000000001000100010040019b0158016f010d015601950139012601ef014d01cb016e01630184012001f501c401b60129018b01fc016101650169011d01600188011c01d80163013801af",
+      "sequence": 7
+    },
+    {
+      "journal": {
+        "cancel_requested": false,
+        "created_at_ms": 1000000,
+        "failure_code": null,
+        "failure_step": null,
+        "identity": {
+          "authority": "fixture-authority",
+          "driver": {
+            "id": "fixture-driver",
+            "schema_version": 1
+          },
+          "instance": "vector",
+          "kind": "dkg",
+          "network": "fixture-network",
+          "plan_digest": "68752587c40e9c0e895a53c89300ac9ff8bb453f450ebf8124581fc02155be4d",
+          "request_context_digest": "7f2f8a3b4f94679f3d0864eff64cfccf1e36bcbef68b6d36614b89ba7f8eee1b"
+        },
+        "sequence": 10,
+        "status": "in_progress",
+        "steps": [
+          {
+            "descriptor": {
+              "custody_handles_required": 0,
+              "intent_digest": "3ba977244f3fc5a37b8e7d43745f0c0467b12618824b6bcfcaf5d54efb635a65",
+              "irreversible": true,
+              "kind": "transaction",
+              "label": "register",
+              "max_transaction_identities": 2,
+              "max_transcript_bytes": 0,
+              "participants_required": 0
+            },
+            "round": null,
+            "transaction": {
+              "attempts": [
+                {
+                  "dispatch_ordinal": 1,
+                  "evidence": {
+                    "block_height": 42,
+                    "detail": "",
+                    "kind": "applied"
+                  },
+                  "identity": {
+                    "entrypoint_hash": "d2e69767113de6a93fc224b1a41e06a1cffacb66f170d1cb56b879c6d29f3b69",
+                    "signed_transaction_hash": "995de95487a07047621c6026b69fb225e143e393129471d60f61d53e596e2027"
+                  },
+                  "ordinal": 1,
+                  "possible_admissions": 1
+                }
+              ],
+              "signed_transaction": null,
+              "state": "finalized",
+              "unsigned_payload": null
+            }
+          },
+          {
+            "descriptor": {
+              "custody_handles_required": 1,
+              "intent_digest": "3776a7d98b1e64f60bcbf871c60c57ab54cd740dc9efa991e9031d056313af71",
+              "irreversible": true,
+              "kind": "offchain_round",
+              "label": "deal",
+              "max_transaction_identities": 0,
+              "max_transcript_bytes": 1048576,
+              "participants_required": 2
+            },
+            "round": {
+              "custody_handles": [
+                {
+                  "label": "share-0",
+                  "reference": "637573746f64792d7265663a30"
+                }
+              ],
+              "failure": null,
+              "participants": [
+                "4508acd7c0102dae8ea16f8520f02fdc0c1d85c6890eec1efdfdefd7d7aa36b7",
+                "d6f5b1c3373d496969b4dcc0b93a451ec62616ffaa99b93029287305eca5026f"
+              ],
+              "round_id": "256b983fd0788a3f04d80b488260cb3ea9dfccbaa095a9f87025f8e5c6bca46f",
+              "start_ordinal": 1,
+              "state": "round_completed",
+              "transcript": "7472616e7363726970743a6465616c",
+              "transcript_digest": "d3a7be627ba3d8804200026b0aec10f0600bbdd538ba8ede6b59e92b3dc32b5f"
+            },
+            "transaction": null
+          },
+          {
+            "descriptor": {
+              "custody_handles_required": 0,
+              "intent_digest": "e6ff92d3c0d8f292654991ec29df0ca5690d4c3cd546472c9111a04adf7596ff",
+              "irreversible": true,
+              "kind": "transaction",
+              "label": "publish",
+              "max_transaction_identities": 1,
+              "max_transcript_bytes": 0,
+              "participants_required": 0
+            },
+            "round": null,
+            "transaction": {
+              "attempts": [],
+              "signed_transaction": null,
+              "state": "planned",
+              "unsigned_payload": null
+            }
+          }
+        ],
+        "updated_at_ms": 1000000,
+        "version": 1,
+        "workflow_id": "ddfbde6171f13ced522b5c1e4f54df7a4232de4603141c8936832d637b590a71"
+      },
+      "journal_digest": "3df24636935b28298802e88fd7340584a3b6ab984b3dd8dab8d8cdc63d8d94ed",
+      "journal_hex": "4e5254300000272a96493648bbe1e5c09a7c1c1e402e00a8040000000000001447cadb5c51f81302020100080a000000000000004001dd01fb01de0161017101f1013c01ed0152012b015c011e014f015401df017a0142013201de014601030114011c018901360183012d0163017b0159010a0171c9010401000000100f666978747572652d6e6574776f726b1211666978747572652d617574686f726974790706766563746f72150f0e666978747572652d647269766572040100000040017f012f018a013b014f01940167019f013d0108016401ef01f6014c01fc01cf011e013601bc01be01f6018b016d01360161014b018901ba017f018e01ee011b40016801750125018701c4010e019c010e0189015a015301c80193010001ac019f01f801bb0145013f0145010e01bf018101240158011f01c00121015501be014d04000000000100010001000840420f00000000000840420f0000000000f1060300000000000000a2026309087265676973746572040000000040013b01a901770124014f013f01c501a3017b018e017d01430174015f010c0104016701b1012601180182014b016b01cf01ca01f501d5014e01fb0163015a016501010102040000000004000000000400000000ba0101b7010408000000ac010100000000000000a20101018501018201400199015d01e90154018701a0017001470162011c0160012601b6019f01b2012501e1014301e3019301120194017101d6010f016101d5013e0159016e012001274001d201e6019701670111013d01e601a9013f01c2012401b101a4011e010601a101cf01fa01cb016601f1017001d101cb015601b8017901c601d2019f013b01690101010114011204000000000a01082a000000000000000100010001000100c8035f05046465616c0401000000400137017601a701d9018b011e016401f6010b01cb01f8017101c6010c015701ab015401cd0174010d01c901ef01a9019101e90103011d01050163011301af0171010101000402000000040100000004000010000100e40201e10204030000004201400125016b0198013f01d00178018a013f010401d8010b01480182016001cb013e01a901df01cc01ba01a0019501a901f80170012501f801e501c601bc01a4016f04010000008a010200000000000000400145010801ac01d701c00110012d01ae018e01a1016f0185012001f0012f01dc010c011d018501c60189010e01ec011e01fd01fd01ef01d701d701aa013601b74001d601f501b101c30137013d01490169016901b401dc01c001b9013a0145011e01c60126011601ff01aa019901b90130012901280173010501ec01a50102016f1901170f000000000000007472616e7363726970743a6465616c42014001d301a701be0162017b01a301d80180014201000102016b010a01ec011001f00160010b01bd01d5013801ba018e01de016b015901e9012b013d01c3012b015f2801000000000000001f080773686172652d30150d00000000000000637573746f64792d7265663a3001007a6208077075626c69736804000000004001e601ff019201d301c001d801f2019201650149019101ec012901df010c01a50169010d014c013c01d501460147012c0191011101a0014a01df0175019601ff010101010400000000040000000004000000001401120400000000080000000000000000010001000100",
+      "name": "step_1_round_completed",
+      "progress": {
+        "atomicity": "per_transaction_only",
+        "cancel_requested": false,
+        "current_step": 2,
+        "failure_code": null,
+        "kind": "dkg",
+        "partial_completion": {
+          "confirmed_steps": [
+            0,
+            1
+          ],
+          "failed_steps": [],
+          "irreversible_steps": [
+            0,
+            1
+          ],
+          "not_started_steps": [
+            2
+          ],
+          "rolled_back_steps": [],
+          "unresolved_steps": []
+        },
+        "partially_complete": true,
+        "sequence": 10,
+        "status": "in_progress",
+        "steps": [
+          {
+            "custody_handles": 0,
+            "identities": [
+              {
+                "dispatches": 1,
+                "evidence": "applied",
+                "ordinal": 1,
+                "possible_admissions": 1,
+                "signed_transaction_hash": "995de95487a07047621c6026b69fb225e143e393129471d60f61d53e596e2027"
+              }
+            ],
+            "index": 0,
+            "irreversible": true,
+            "kind": "transaction",
+            "label": "register",
+            "participants_received": 0,
+            "participants_required": 0,
+            "round_start_intents": 0,
+            "state": "finalized",
+            "transcript_digest": null
+          },
+          {
+            "custody_handles": 1,
+            "identities": [],
+            "index": 1,
+            "irreversible": true,
+            "kind": "offchain_round",
+            "label": "deal",
+            "participants_received": 2,
+            "participants_required": 2,
+            "round_start_intents": 1,
+            "state": "round_completed",
+            "transcript_digest": "d3a7be627ba3d8804200026b0aec10f0600bbdd538ba8ede6b59e92b3dc32b5f"
+          },
+          {
+            "custody_handles": 0,
+            "identities": [],
+            "index": 2,
+            "irreversible": true,
+            "kind": "transaction",
+            "label": "publish",
+            "participants_received": 0,
+            "participants_required": 0,
+            "round_start_intents": 0,
+            "state": "planned",
+            "transcript_digest": null
+          }
+        ],
+        "workflow_id": "ddfbde6171f13ced522b5c1e4f54df7a4232de4603141c8936832d637b590a71"
+      },
+      "record_digest": "71e68394f01be69d5454a66835055eeae9f8a486dd131b431ad7edf559824c77",
+      "record_hex": "4e5254300000e9129c7f91ef51f3b076c83bc13cfd5400eb04000000000000373a22430662bf0b02a809020100080a000000000000004001dd01fb01de0161017101f1013c01ed0152012b015c011e014f015401df017a0142013201de014601030114011c018901360183012d0163017b0159010a0171c9010401000000100f666978747572652d6e6574776f726b1211666978747572652d617574686f726974790706766563746f72150f0e666978747572652d647269766572040100000040017f012f018a013b014f01940167019f013d0108016401ef01f6014c01fc01cf011e013601bc01be01f6018b016d01360161014b018901ba017f018e01ee011b40016801750125018701c4010e019c010e0189015a015301c80193010001ac019f01f801bb0145013f0145010e01bf018101240158011f01c00121015501be014d04000000000100010001000840420f00000000000840420f0000000000f1060300000000000000a2026309087265676973746572040000000040013b01a901770124014f013f01c501a3017b018e017d01430174015f010c0104016701b1012601180182014b016b01cf01ca01f501d5014e01fb0163015a016501010102040000000004000000000400000000ba0101b7010408000000ac010100000000000000a20101018501018201400199015d01e90154018701a0017001470162011c0160012601b6019f01b2012501e1014301e3019301120194017101d6010f016101d5013e0159016e012001274001d201e6019701670111013d01e601a9013f01c2012401b101a4011e010601a101cf01fa01cb016601f1017001d101cb015601b8017901c601d2019f013b01690101010114011204000000000a01082a000000000000000100010001000100c8035f05046465616c0401000000400137017601a701d9018b011e016401f6010b01cb01f8017101c6010c015701ab015401cd0174010d01c901ef01a9019101e90103011d01050163011301af0171010101000402000000040100000004000010000100e40201e10204030000004201400125016b0198013f01d00178018a013f010401d8010b01480182016001cb013e01a901df01cc01ba01a0019501a901f80170012501f801e501c601bc01a4016f04010000008a010200000000000000400145010801ac01d701c00110012d01ae018e01a1016f0185012001f0012f01dc010c011d018501c60189010e01ec011e01fd01fd01ef01d701d701aa013601b74001d601f501b101c30137013d01490169016901b401dc01c001b9013a0145011e01c60126011601ff01aa019901b90130012901280173010501ec01a50102016f1901170f000000000000007472616e7363726970743a6465616c42014001d301a701be0162017b01a301d80180014201000102016b010a01ec011001f00160010b01bd01d5013801ba018e01de016b015901e9012b013d01c3012b015f2801000000000000001f080773686172652d30150d00000000000000637573746f64792d7265663a3001007a6208077075626c69736804000000004001e601ff019201d301c001d801f2019201650149019101ec012901df010c01a50169010d014c013c01d501460147012c0191011101a0014a01df0175019601ff01010101040000000004000000000400000000140112040000000008000000000000000001000100010040013d01f2014601360193015b012801290188010201e8018f01d701340105018401a301b601ab0198014b013d01d801da01b801d801cd01c6013d018d019401ed",
+      "sequence": 10
+    },
+    {
+      "journal": {
+        "cancel_requested": true,
+        "created_at_ms": 1000000,
+        "failure_code": null,
+        "failure_step": null,
+        "identity": {
+          "authority": "fixture-authority",
+          "driver": {
+            "id": "fixture-driver",
+            "schema_version": 1
+          },
+          "instance": "vector",
+          "kind": "dkg",
+          "network": "fixture-network",
+          "plan_digest": "68752587c40e9c0e895a53c89300ac9ff8bb453f450ebf8124581fc02155be4d",
+          "request_context_digest": "7f2f8a3b4f94679f3d0864eff64cfccf1e36bcbef68b6d36614b89ba7f8eee1b"
+        },
+        "sequence": 8,
+        "status": "cancelling",
+        "steps": [
+          {
+            "descriptor": {
+              "custody_handles_required": 0,
+              "intent_digest": "3ba977244f3fc5a37b8e7d43745f0c0467b12618824b6bcfcaf5d54efb635a65",
+              "irreversible": true,
+              "kind": "transaction",
+              "label": "register",
+              "max_transaction_identities": 2,
+              "max_transcript_bytes": 0,
+              "participants_required": 0
+            },
+            "round": null,
+            "transaction": {
+              "attempts": [
+                {
+                  "dispatch_ordinal": 1,
+                  "evidence": null,
+                  "identity": {
+                    "entrypoint_hash": "d2e69767113de6a93fc224b1a41e06a1cffacb66f170d1cb56b879c6d29f3b69",
+                    "signed_transaction_hash": "995de95487a07047621c6026b69fb225e143e393129471d60f61d53e596e2027"
+                  },
+                  "ordinal": 1,
+                  "possible_admissions": 1
+                }
+              ],
+              "signed_transaction": "7369676e65643a302331",
+              "state": "pending",
+              "unsigned_payload": null
+            }
+          },
+          {
+            "descriptor": {
+              "custody_handles_required": 1,
+              "intent_digest": "3776a7d98b1e64f60bcbf871c60c57ab54cd740dc9efa991e9031d056313af71",
+              "irreversible": true,
+              "kind": "offchain_round",
+              "label": "deal",
+              "max_transaction_identities": 0,
+              "max_transcript_bytes": 1048576,
+              "participants_required": 2
+            },
+            "round": {
+              "custody_handles": [],
+              "failure": null,
+              "participants": [],
+              "round_id": null,
+              "start_ordinal": 0,
+              "state": "planned",
+              "transcript": null,
+              "transcript_digest": null
+            },
+            "transaction": null
+          },
+          {
+            "descriptor": {
+              "custody_handles_required": 0,
+              "intent_digest": "e6ff92d3c0d8f292654991ec29df0ca5690d4c3cd546472c9111a04adf7596ff",
+              "irreversible": true,
+              "kind": "transaction",
+              "label": "publish",
+              "max_transaction_identities": 1,
+              "max_transcript_bytes": 0,
+              "participants_required": 0
+            },
+            "round": null,
+            "transaction": {
+              "attempts": [],
+              "signed_transaction": null,
+              "state": "planned",
+              "unsigned_payload": null
+            }
+          }
+        ],
+        "updated_at_ms": 1000000,
+        "version": 1,
+        "workflow_id": "ddfbde6171f13ced522b5c1e4f54df7a4232de4603141c8936832d637b590a71"
+      },
+      "journal_digest": "73ab734fd8469f8a355fc3cdf45ff45edd72dcff2f336326c255fe3a60fdc135",
+      "journal_hex": "4e5254300000272a96493648bbe1e5c09a7c1c1e402e006903000000000000146489246cd63902020201000808000000000000004001dd01fb01de0161017101f1013c01ed0152012b015c011e014f015401df017a0142013201de014601030114011c018901360183012d0163017b0159010a0171c9010401000000100f666978747572652d6e6574776f726b1211666978747572652d617574686f726974790706766563746f72150f0e666978747572652d647269766572040100000040017f012f018a013b014f01940167019f013d0108016401ef01f6014c01fc01cf011e013601bc01be01f6018b016d01360161014b018901ba017f018e01ee011b40016801750125018701c4010e019c010e0189015a015301c80193010001ac019f01f801bb0145013f0145010e01bf018101240158011f01c00121015501be014d04020000000101010001000840420f00000000000840420f0000000000b2040300000000000000a2026309087265676973746572040000000040013b01a901770124014f013f01c501a3017b018e017d01430174015f010c0104016701b1012601180182014b016b01cf01ca01f501d5014e01fb0163015a016501010102040000000004000000000400000000ba0101b7010407000000990101000000000000008f0101018501018201400199015d01e90154018701a0017001470162011c0160012601b6019f01b2012501e1014301e3019301120194017101d6010f016101d5013e0159016e012001274001d201e6019701670111013d01e601a9013f01c2012401b101a4011e010601a101cf01fa01cb016601f1017001d101cb015601b8017901c601d2019f013b016901010101010001001401120a000000000000007369676e65643a302331010089015f05046465616c0401000000400137017601a701d9018b011e016401f6010b01cb01f8017101c6010c015701ab015401cd0174010d01c901ef01a9019101e90103011d01050163011301af01710101010004020000000401000000040000100001002601240400000000010004000000000800000000000000000100010008000000000000000001007a6208077075626c69736804000000004001e601ff019201d301c001d801f2019201650149019101ec012901df010c01a50169010d014c013c01d501460147012c0191011101a0014a01df0175019601ff010101010400000000040000000004000000001401120400000000080000000000000000010001000100",
+      "name": "cancelling_while_pending",
+      "progress": {
+        "atomicity": "per_transaction_only",
+        "cancel_requested": true,
+        "current_step": 0,
+        "failure_code": null,
+        "kind": "dkg",
+        "partial_completion": {
+          "confirmed_steps": [],
+          "failed_steps": [],
+          "irreversible_steps": [],
+          "not_started_steps": [
+            1,
+            2
+          ],
+          "rolled_back_steps": [],
+          "unresolved_steps": [
+            0
+          ]
+        },
+        "partially_complete": true,
+        "sequence": 8,
+        "status": "cancelling",
+        "steps": [
+          {
+            "custody_handles": 0,
+            "identities": [
+              {
+                "dispatches": 1,
+                "evidence": null,
+                "ordinal": 1,
+                "possible_admissions": 1,
+                "signed_transaction_hash": "995de95487a07047621c6026b69fb225e143e393129471d60f61d53e596e2027"
+              }
+            ],
+            "index": 0,
+            "irreversible": true,
+            "kind": "transaction",
+            "label": "register",
+            "participants_received": 0,
+            "participants_required": 0,
+            "round_start_intents": 0,
+            "state": "pending",
+            "transcript_digest": null
+          },
+          {
+            "custody_handles": 0,
+            "identities": [],
+            "index": 1,
+            "irreversible": true,
+            "kind": "offchain_round",
+            "label": "deal",
+            "participants_received": 0,
+            "participants_required": 2,
+            "round_start_intents": 0,
+            "state": "planned",
+            "transcript_digest": null
+          },
+          {
+            "custody_handles": 0,
+            "identities": [],
+            "index": 2,
+            "irreversible": true,
+            "kind": "transaction",
+            "label": "publish",
+            "participants_received": 0,
+            "participants_required": 0,
+            "round_start_intents": 0,
+            "state": "planned",
+            "transcript_digest": null
+          }
+        ],
+        "workflow_id": "ddfbde6171f13ced522b5c1e4f54df7a4232de4603141c8936832d637b590a71"
+      },
+      "record_digest": "79d1058d69b42ba0c16341a685b3b35f4752925a0d03d1efca7677d5403064d9",
+      "record_hex": "4e5254300000e9129c7f91ef51f3b076c83bc13cfd5400ac03000000000000b59bd3368bed574c02e9060201000808000000000000004001dd01fb01de0161017101f1013c01ed0152012b015c011e014f015401df017a0142013201de014601030114011c018901360183012d0163017b0159010a0171c9010401000000100f666978747572652d6e6574776f726b1211666978747572652d617574686f726974790706766563746f72150f0e666978747572652d647269766572040100000040017f012f018a013b014f01940167019f013d0108016401ef01f6014c01fc01cf011e013601bc01be01f6018b016d01360161014b018901ba017f018e01ee011b40016801750125018701c4010e019c010e0189015a015301c80193010001ac019f01f801bb0145013f0145010e01bf018101240158011f01c00121015501be014d04020000000101010001000840420f00000000000840420f0000000000b2040300000000000000a2026309087265676973746572040000000040013b01a901770124014f013f01c501a3017b018e017d01430174015f010c0104016701b1012601180182014b016b01cf01ca01f501d5014e01fb0163015a016501010102040000000004000000000400000000ba0101b7010407000000990101000000000000008f0101018501018201400199015d01e90154018701a0017001470162011c0160012601b6019f01b2012501e1014301e3019301120194017101d6010f016101d5013e0159016e012001274001d201e6019701670111013d01e601a9013f01c2012401b101a4011e010601a101cf01fa01cb016601f1017001d101cb015601b8017901c601d2019f013b016901010101010001001401120a000000000000007369676e65643a302331010089015f05046465616c0401000000400137017601a701d9018b011e016401f6010b01cb01f8017101c6010c015701ab015401cd0174010d01c901ef01a9019101e90103011d01050163011301af01710101010004020000000401000000040000100001002601240400000000010004000000000800000000000000000100010008000000000000000001007a6208077075626c69736804000000004001e601ff019201d301c001d801f2019201650149019101ec012901df010c01a50169010d014c013c01d501460147012c0191011101a0014a01df0175019601ff01010101040000000004000000000400000000140112040000000008000000000000000001000100010040017301ab0173014f01d80146019f018a0135015f01c301cd01f4015f01f4015e01dd017201dc01ff012f01330163012601c2015501fe013a016001fd01c10135",
+      "sequence": 8
+    }
+  ],
+  "round_identity_step_1": "256b983fd0788a3f04d80b488260cb3ea9dfccbaa095a9f87025f8e5c6bca46f",
+  "schema": "iroha.durable_workflow.vectors.v1",
+  "transcript_digest_step_1": "d3a7be627ba3d8804200026b0aec10f0600bbdd538ba8ede6b59e92b3dc32b5f",
+  "what": "Canonical Norito records and their complete semantic inputs. All byte arrays are lowercase hexadecimal; optional fields are null when absent. Enum names use state_machine.json. plan_hex, identity_hex and journal_hex are canonical Norito frames, including their headers, before the corresponding digest domain is prepended.",
+  "workflow_id": "ddfbde6171f13ced522b5c1e4f54df7a4232de4603141c8936832d637b590a71"
+}

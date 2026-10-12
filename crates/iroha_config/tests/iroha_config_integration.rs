@@ -69,3 +69,5 @@ mod transaction_gossip_config;
 mod transaction_ingress_limits;
 #[path = "trusted_peers_pop_validation.rs"]
 mod trusted_peers_pop_validation;
+#[path = "zk_validity_env_independence.rs"]
+mod zk_validity_env_independence;

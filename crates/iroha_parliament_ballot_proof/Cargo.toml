@@ -1,0 +1,22 @@
+[package]
+name = "iroha_parliament_ballot_proof"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "State-free experimental Parliament anonymous-ballot relations (registration and vote) over the VOLE-in-the-head backend"
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# Forwards hardware acceleration to the backend; outputs are unchanged.
+accel = ["iroha_zkp_vole/accel"]
+
+[dependencies]
+iroha_zkp_vole = { workspace = true }
+sha3 = { version = "0.10.8", default-features = false, features = ["std", "zeroize"] }
+thiserror = { workspace = true }
+zeroize = { workspace = true }

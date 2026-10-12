@@ -4,7 +4,6 @@
 //! [sccp]
 //! request_timeout_ms = 10000          # one public-RPC request, then fail over
 //! poll_interval_ms = 2000             # Torii and destination polling cadence
-//! attestation_timeout_ms = 900000     # give up waiting for an attestation
 //! confirmation_timeout_ms = 900000    # give up waiting for a destination receipt
 //! journal_dir = ""                    # empty: `sccp-journal` next to this file
 //!
@@ -46,9 +45,10 @@
 //! sources, `extends` handling and unknown-key rejection), never from environment variables.
 //! Every field has a default, so a file with an empty or absent `[sccp]` works: the endpoint
 //! lists fall back to `iroha_config::parameters::defaults::sccp::endpoints` and the request
-//! timeout to the keeper's default. Pinned deployments are the wallet's trust anchor for
-//! `GET /v1/sccp/registry` (§7.1 step 1): a flow refuses a Taira network or a deployment that is
-//! not pinned here.
+//! timeout to the keeper's default. Native proof availability follows committed record
+//! height; there is no separate attestation wait setting. Pinned deployments are the
+//! wallet's trust anchor for `GET /v1/sccp/registry` (§7.1 step 1): a flow refuses a
+//! Taira network or a deployment that is not pinned here.
 //!
 //! TODO(ws35): nest `[sccp]` in the `iroha` client config (this needs `crates/iroha/src/config/
 //! user.rs`, which no SCCP workstream owns yet). `iroha` cannot depend on this crate
@@ -92,8 +92,6 @@ pub mod defaults {
         iroha_config::parameters::defaults::sccp::light_client_keeper::REQUEST_TIMEOUT_MS;
     /// Polling cadence of Torii statuses and destination receipts.
     pub const POLL_INTERVAL_MS: u64 = 2_000;
-    /// Longest wait for an attestation (§7.1 step 4 expects about 8–12 s).
-    pub const ATTESTATION_TIMEOUT_MS: u64 = 900_000;
     /// Longest wait for a destination transaction receipt.
     pub const CONFIRMATION_TIMEOUT_MS: u64 = 900_000;
     /// Journal directory name next to the `[sccp]` file when `journal_dir` is empty.
@@ -117,9 +115,6 @@ pub struct SccpClientConfigUser {
     /// Polling cadence in milliseconds (nonzero).
     #[config(default = "ms(defaults::POLL_INTERVAL_MS)")]
     pub poll_interval_ms: DurationMs,
-    /// Longest wait for an attestation in milliseconds (nonzero).
-    #[config(default = "ms(defaults::ATTESTATION_TIMEOUT_MS)")]
-    pub attestation_timeout_ms: DurationMs,
     /// Longest wait for a destination receipt in milliseconds (nonzero).
     #[config(default = "ms(defaults::CONFIRMATION_TIMEOUT_MS)")]
     pub confirmation_timeout_ms: DurationMs,
@@ -252,8 +247,6 @@ pub struct SccpClientConfig {
     pub request_timeout: Duration,
     /// Polling cadence.
     pub poll_interval: Duration,
-    /// Longest wait for an attestation.
-    pub attestation_timeout: Duration,
     /// Longest wait for a destination receipt.
     pub confirmation_timeout: Duration,
     /// Journal directory.
@@ -396,11 +389,6 @@ impl SccpClientConfigUser {
             "poll_interval_ms",
             defaults::POLL_INTERVAL_MS,
         );
-        let attestation_timeout = nonzero(
-            self.attestation_timeout_ms,
-            "attestation_timeout_ms",
-            defaults::ATTESTATION_TIMEOUT_MS,
-        );
         let confirmation_timeout = nonzero(
             self.confirmation_timeout_ms,
             "confirmation_timeout_ms",
@@ -420,7 +408,6 @@ impl SccpClientConfigUser {
         Ok(SccpClientConfig {
             request_timeout,
             poll_interval,
-            attestation_timeout,
             confirmation_timeout,
             journal_dir,
             endpoints,
@@ -910,6 +897,16 @@ bucket_code = {{ hash = "0x{h}", depth = 3 }}
         assert_eq!(
             config.check_deployment(&foreign, SccpNetworkV1::EthereumMainnet, 1, evm),
             Err(PinError::UnknownNetwork)
+        );
+    }
+
+    #[test]
+    fn retired_attestation_wait_setting_is_rejected() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = write_config(dir.path(), "[sccp]\nattestation_timeout_ms = 900000\n");
+        assert!(
+            matches!(SccpClientConfig::load(&path), Err(ConfigError::Read(_))),
+            "native SCCP proofs have no attestation wait or compatibility setting"
         );
     }
 

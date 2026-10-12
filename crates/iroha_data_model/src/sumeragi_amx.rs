@@ -72,7 +72,7 @@ pub const MAX_AMX_DATASPACES: usize = 256;
 pub const AMX_RECORD_WITNESS_KEY_BYTES: usize = 34;
 
 /// An invalid AMX input/transition or a local decoder resource refusal.
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum AmxError {
     /// The transaction `X` is malformed.
     #[error("malformed AMX transaction: {0}")]
@@ -102,34 +102,30 @@ pub enum AmxError {
     Encoding(String),
     /// The original codec scope or allocator refused; no protocol verdict was produced.
     #[error("local AMX codec resource refusal: {0}")]
-    Resource(norito::core::DecodeResourceError),
+    Resource(#[source] norito::core::DecodeAttemptError),
 }
 
-fn proof_codec_error(error: &norito::Error, part: &str, outer_scope: bool) -> AmxError {
-    if (outer_scope || matches!(error, norito::Error::AllocationFailed { .. }))
-        && let Some(resource) = error.decode_resource_error()
-    {
-        return AmxError::Resource(resource);
+fn proof_codec_error(error: norito::core::DecodeAttemptError, part: &str) -> AmxError {
+    if error.kind() != norito::core::DecodeAttemptErrorKind::Invalid {
+        return AmxError::Resource(error);
     }
     AmxError::Proof(format!("{part}: {error}"))
 }
 
-fn commitment_error(error: &crate::sumeragi_finality::CertifiedResultError) -> AmxError {
+fn certified_result_error(error: crate::sumeragi_finality::CertifiedResultError) -> AmxError {
     match error {
         crate::sumeragi_finality::CertifiedResultError::Body(
             crate::sumeragi_finality::CommitmentError::Resource(resource),
-        ) => AmxError::Resource(*resource),
+        ) => AmxError::Resource(resource),
         other => AmxError::Proof(format!("result preimage: {other}")),
     }
 }
 
-fn encoding(error: impl std::borrow::Borrow<norito::Error>) -> AmxError {
-    let error = error.borrow();
+fn encoding(error: norito::core::DecodeAttemptError) -> AmxError {
     if !cfg!(all(test, sumeragi_model_mutation = "DM9"))
-        && matches!(error, norito::Error::AllocationFailed { .. })
-        && let Some(resource) = error.decode_resource_error()
+        && error.kind() != norito::core::DecodeAttemptErrorKind::Invalid
     {
-        return AmxError::Resource(resource);
+        return AmxError::Resource(error);
     }
     AmxError::Encoding(error.to_string())
 }
@@ -234,15 +230,12 @@ impl AmxTransactionV1 {
         // DM5 restores only the retired canonical-frame scratch in this public API.
         #[cfg(all(test, sumeragi_model_mutation = "DM5"))]
         {
-            let bytes = norito::encode_canonical(self).map_err(encoding)?;
+            let bytes = norito::core::classify_decode_attempt(|| norito::encode_canonical(self))
+                .map_err(encoding)?;
             return Ok(Hash::new_from_chunks(&[AMX_TRANSACTION_DOMAIN, &bytes]).into());
         }
         #[cfg(not(all(test, sumeragi_model_mutation = "DM5")))]
-        streamed_transaction_id(self).map_err(|error| {
-            error
-                .decode_resource_error()
-                .map_or_else(|| encoding(&error), AmxError::Resource)
-        })
+        norito::core::classify_decode_attempt(|| streamed_transaction_id(self)).map_err(encoding)
     }
 
     /// The participant set, ascending.
@@ -579,7 +572,7 @@ impl AmxRecordV1 {
     /// # Errors
     /// A Norito encoding failure.
     pub fn witness_value(&self) -> Result<Vec<u8>, AmxError> {
-        norito::encode_canonical(self).map_err(encoding)
+        norito::core::classify_decode_attempt(|| norito::encode_canonical(self)).map_err(encoding)
     }
 
     /// Decode a witness value, checking that it is canonical and belongs under `key`.
@@ -587,15 +580,9 @@ impl AmxRecordV1 {
     /// # Errors
     /// The value is not one canonical, valid record of the key's kind and transaction.
     pub fn from_witness(key: &[u8], value: &[u8]) -> Result<Self, AmxError> {
-        let outer_scope = norito::core::decode_limits_active();
-        let record: Self = norito::decode_canonical(value).map_err(|error| {
-            if (outer_scope || matches!(error, norito::Error::AllocationFailed { .. }))
-                && let Some(resource) = error.decode_resource_error()
-            {
-                return AmxError::Resource(resource);
-            }
-            encoding(&error)
-        })?;
+        let record: Self =
+            norito::core::classify_decode_attempt(|| norito::decode_canonical(value))
+                .map_err(encoding)?;
         record.validate()?;
         if record.witness_key().as_slice() != key {
             return Err(AmxError::Record("witness key differs from the record"));

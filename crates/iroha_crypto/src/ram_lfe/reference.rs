@@ -6,6 +6,11 @@
 //! evaluator never holds the plaintext input and never runs it on client data.
 //! It is not constant time.
 //!
+//! The interpreter executes a tape instruction by instruction. The normalizing
+//! lowering does not: its plaintext definition is the sibling `normal_form`
+//! module, which shares the field arithmetic and the selection formula below
+//! and is tested for exact equality with this interpreter.
+//!
 //! Registers and state lanes are created inside each call and dropped at its
 //! end. No call receives state from an earlier call.
 //!
@@ -88,6 +93,20 @@ impl RamLfeReferenceInputV1 {
             return Err(invalid("input slot after the declared length is not zero"));
         }
         Ok(Self(ClearingArray::copy_of(slots)))
+    }
+
+    /// Use 64 arbitrary scalars of the field as the input slots.
+    ///
+    /// This is not an admitted input. It exists so tests can compare the
+    /// normal form with this interpreter on every slot vector of the field,
+    /// which no public constructor admits.
+    #[cfg(test)]
+    pub(super) fn from_field_slots(slots: &[u16; RAM_LFE_V1_INPUT_SLOTS]) -> Self {
+        assert!(
+            slots.iter().copied().all(canonical_scalar),
+            "input slot exceeds 256"
+        );
+        Self(ClearingArray::copy_of(slots))
     }
 
     /// Borrow the 64 scalar slots.
@@ -191,6 +210,32 @@ impl RamLfeOrderedOutputV1 {
     #[must_use]
     pub fn scalars(&self) -> &[u16] {
         &self.0
+    }
+
+    /// The 64 output slots an opening commits: the scalars in emission order
+    /// followed by zeros.
+    ///
+    /// The encrypted evaluation pads the output to the 64 slots of the class
+    /// maximum, and an opener never holds the tape, so it cannot tell a
+    /// trailing zero the tape emitted from padding. Every V1 opening therefore
+    /// commits these 64 slots, and the ordered-output frame of an opening has
+    /// `output_count` 64. The number of scalars the tape emitted is conveyed to
+    /// nobody.
+    ///
+    /// This is an acceptance rule for openings, not an invariant of this type:
+    /// the cleartext reference keeps exactly the scalars the tape emitted, and
+    /// a differential check compares an opened output with the reference
+    /// output padded by this function.
+    // TODO(R.8): nothing enforces the rule yet. The output commitment hides the
+    // count from validators, so the decryption proof of R.8 must bind these 64
+    // slots to the output ciphertext, to the output commitment and to the
+    // output component of the identifier-PRF derivation.
+    #[must_use]
+    pub fn padded_for_opening(&self) -> Self {
+        let mut slots = Zeroizing::new(Vec::with_capacity(RAM_LFE_V1_MAX_OUTPUTS));
+        slots.extend_from_slice(&self.0);
+        slots.resize(RAM_LFE_V1_MAX_OUTPUTS, 0);
+        Self(slots)
     }
 }
 
@@ -302,21 +347,21 @@ fn reduce(value: u32) -> u16 {
     u16::try_from(value % MODULUS).expect("residue below 257")
 }
 
-fn add(lhs: u16, rhs: u16) -> u16 {
+pub(super) fn add(lhs: u16, rhs: u16) -> u16 {
     reduce(u32::from(lhs) + u32::from(rhs))
 }
 
-fn subtract(lhs: u16, rhs: u16) -> u16 {
+pub(super) fn subtract(lhs: u16, rhs: u16) -> u16 {
     reduce(u32::from(lhs) + MODULUS - u32::from(rhs) % MODULUS)
 }
 
-fn multiply(lhs: u16, rhs: u16) -> u16 {
+pub(super) fn multiply(lhs: u16, rhs: u16) -> u16 {
     reduce(u32::from(lhs) * u32::from(rhs))
 }
 
 /// `nonzero + (1 - condition^256) * (zero - nonzero)` with the tape's own schedule:
 /// eight squarings, one multiplication by one and one selection multiplication.
-fn select_eq_zero(condition: u16, if_zero: u16, if_non_zero: u16) -> u16 {
+pub(super) fn select_eq_zero(condition: u16, if_zero: u16, if_non_zero: u16) -> u16 {
     let mut power = condition;
     for _ in 0..8 {
         power = multiply(power, power);
@@ -395,6 +440,8 @@ impl Machine<'_> {
     }
 }
 
+// TODO(R.3, R.12): only tests call this oracle. No execution relation (R.3) and no
+// encrypted evaluator (R.12) is compared with it yet.
 /// Execute a hidden program on plaintext with explicit initialized lanes.
 ///
 /// The program must be a member of `class`. Registers start at zero and the

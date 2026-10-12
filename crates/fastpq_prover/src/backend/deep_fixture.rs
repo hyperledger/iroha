@@ -49,3 +49,7 @@ pub(super) fn engine_verification_limits() -> VerifierLimits {
 #[cfg(test)]
 #[path = "deep_fixture/retirement_tests.rs"]
 mod retirement_tests;
+
+#[cfg(test)]
+#[path = "deep_fixture/frozen_tests.rs"]
+mod frozen_tests;

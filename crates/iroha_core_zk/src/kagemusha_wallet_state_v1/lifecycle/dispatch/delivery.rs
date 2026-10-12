@@ -9,7 +9,10 @@ fn require_bound_payment(
     commitment: &[u8; 32],
     operation: &[u8; 32],
 ) -> Result<(), Error> {
-    let payment = valid(KagemushaWalletPaymentV1::decode_canonical(original, scheme))?;
+    let payment = read_model_original(
+        || KagemushaWalletPaymentV1::decode_canonical(original, scheme),
+        Error::Invalid("G1 validation"),
+    )?;
     if payment.send.receipt.capsule_commitment != *commitment
         || valid(payment.send.statement.operation_id(wallet))? != *operation
     {

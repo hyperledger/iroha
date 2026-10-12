@@ -2,8 +2,8 @@
 # Merge with a complete, reviewed four-validator runtime configuration.
 # This does not qualify a proof profile or enable staked game sessions.
 [network]
-# Whole signed transactions still contain their typed execution proof bytes.
-max_frame_bytes_tx_gossip = 8388608
+# Whole signed transactions and relay metadata fit the 17 MiB plaintext ceiling.
+max_frame_bytes_tx_gossip = 17825792
 # Connect has its own reliable low-priority topic; health remains at its default cap.
 max_frame_bytes_connect = 8388608
 

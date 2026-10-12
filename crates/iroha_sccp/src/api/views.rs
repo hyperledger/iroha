@@ -28,7 +28,7 @@ use iroha_data_model::{
 };
 use norito::codec::{Decode, Encode};
 
-use super::SccpHistoryProofV1;
+use super::SccpBlockRefV1;
 
 /// Largest `GET /v1/sccp/messages/recent` page (§6).
 pub const MAX_RECENT_MESSAGES: usize = 50;
@@ -43,8 +43,8 @@ pub const MAX_CONTROLS_PAGE: usize = 64;
 
 /// Payload of [`SccpOutboundStateV1::Recorded`].
 ///
-/// TODO: Torii work package (TT-A1): add `provable`, set once a certificate covers the record
-/// height (§6).
+/// TODO: Torii work package (TT-A1): add `provable` once the request-funded native proof
+/// producer can serve a certificate covering the record height (§6).
 #[derive(
     Debug,
     Clone,
@@ -68,9 +68,6 @@ pub struct SccpRecordedStateV1 {
 }
 
 /// Wallet-facing state of an outbound record (§6, §7.1 step 4, §7.3).
-///
-/// Codec index 1 belonged to the attested state of the attestation transport and stays
-/// unassigned.
 #[derive(
     Debug,
     Clone,
@@ -95,15 +92,15 @@ pub enum SccpOutboundStateV1 {
     #[norito(rename = "recorded")]
     Recorded(SccpRecordedStateV1),
     /// Voided on the destination and proven on Taira.
-    #[codec(index = 2)]
+    #[codec(index = 1)]
     #[norito(rename = "voided")]
     Voided(SccpVoidStatusV1),
     /// Refunded to the sender.
-    #[codec(index = 3)]
+    #[codec(index = 2)]
     #[norito(rename = "refunded")]
     Refunded(SccpStatusHeightV1),
     /// Moved to the route's stranded balance.
-    #[codec(index = 4)]
+    #[codec(index = 3)]
     #[norito(rename = "stranded")]
     Stranded(SccpStatusHeightV1),
 }
@@ -319,7 +316,7 @@ pub struct SccpRecentMessagesV1 {
 pub struct SccpControlViewV1 {
     /// Control nonce (`≥ 1`, strictly increasing per revision).
     pub control_nonce: u64,
-    /// The stored record (pause state, height, commitment index, leaf, enacting proposal).
+    /// The stored combined pause state, certificate cause and committed leaf location.
     pub record: SccpControlRecordV1,
 }
 
@@ -629,7 +626,7 @@ pub struct SccpHistoryPathViewV1 {
     /// `history_root(S)`.
     pub history_root: [u8; 32],
     /// The block, its history leaf index and the path.
-    pub proof: SccpHistoryProofV1,
+    pub proof: SccpBlockRefV1,
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -687,6 +684,8 @@ pub struct SccpReadLimitsV1 {
     pub outbound_page: u32,
     /// `GET /v1/sccp/controls/{network}/{revision}`.
     pub controls_page: u32,
+    /// `GET /v1/sccp/committees/rotations`.
+    pub rotations_page: u32,
 }
 
 impl SccpReadLimitsV1 {
@@ -698,6 +697,7 @@ impl SccpReadLimitsV1 {
             recent_messages: 50,
             outbound_page: 256,
             controls_page: 64,
+            rotations_page: 16,
         }
     }
 }
@@ -888,10 +888,13 @@ mod tests {
         );
         assert_eq!(u32::try_from(MAX_OUTBOUND_PAGE), Ok(limits.outbound_page));
         assert_eq!(u32::try_from(MAX_CONTROLS_PAGE), Ok(limits.controls_page));
-        // The rotations page of the attestation transport has no limit entry.
+        assert_eq!(
+            usize::try_from(limits.rotations_page),
+            Ok(crate::v1::destination::MAX_CERTIFICATES_PER_CALL)
+        );
         let json = norito::json::to_value(&limits).expect("JSON");
         assert!(json.get("rotation_steps").is_none());
-        assert_eq!(json.as_object().expect("object").len(), 3);
+        assert_eq!(json.as_object().expect("object").len(), 4);
     }
 
     #[test]
@@ -910,12 +913,11 @@ mod tests {
     }
 
     #[test]
-    fn outbound_state_keeps_its_codec_indices_and_has_no_attested_state() {
-        // Index 1 was the attested state; it stays unassigned and the survivors do not shift.
-        for (state, index) in states().iter().zip([0_u32, 2, 3, 4]) {
+    fn outbound_state_has_four_contiguous_indices_and_no_attested_state() {
+        for (state, index) in states().iter().zip([0_u32, 1, 2, 3]) {
             assert!(state.encode().starts_with(&index.encode()), "{state:?}");
         }
-        for index in [1_u32, 5, u32::MAX] {
+        for index in [4_u32, 5, u32::MAX] {
             let mut encoded = index.encode();
             encoded.extend_from_slice(&[0x11; 64]);
             assert!(
@@ -962,6 +964,9 @@ mod tests {
 
     #[test]
     fn views_roundtrip_in_every_codec() {
+        let recorded = SccpRecordedStateV1 { deadline_ms: 99 };
+        roundtrip(&recorded);
+        assert_closed(&recorded, "deadline_ms");
         for state in states() {
             roundtrip(&state);
             roundtrip(&SccpMessageStatusV1::Outbound(outbound(state)));
@@ -996,7 +1001,7 @@ mod tests {
                     commitment_index: 0,
                     leaf: [1; 32],
                     certificate_id: [2; 32],
-                    effect_hash: [0x45; 32],
+                    effect_hash: [5; 32],
                 },
             }],
             next_after_nonce: None,
@@ -1012,12 +1017,12 @@ mod tests {
         roundtrip(&SccpHistoryPathViewV1 {
             history_size: 3,
             history_root: [4; 32],
-            proof: SccpHistoryProofV1 {
+            proof: SccpBlockRefV1 {
                 height: 10,
                 sccp_root: [5; 32],
                 message_count: 1,
-                leaf_index: 0,
-                path: vec![[6; 32]],
+                history_index: 0,
+                history_path: vec![[6; 32]],
             },
         });
         for phase in [
@@ -1071,7 +1076,7 @@ mod tests {
                 commitment_index: 0,
                 leaf: [1; 32],
                 certificate_id: [2; 32],
-                effect_hash: [0x45; 32],
+                effect_hash: [5; 32],
             },
         };
         assert_closed(&control, "record");

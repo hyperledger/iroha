@@ -15,17 +15,22 @@ use norito::codec::{Decode, Encode};
 /// The canonical encoding cannot complete under the executing codec limits.
 pub fn native_transfer_effects_hash(leg: &AmxTransferLegV1) -> Result<[u8; 32], AmxError> {
     // DM7 restores only the original encoded-frame scratch, with the same bytes and errors.
-    #[cfg(all(test, sumeragi_model_mutation = "DM7"))]
-    let result = norito::encode_canonical(leg).map(|bytes| {
-        iroha_crypto::Hash::new_from_chunks(&[b"iroha:native-amx-transfer:v1", &[0], &bytes]).into()
-    });
-    #[cfg(not(all(test, sumeragi_model_mutation = "DM7")))]
-    let result = streamed_native_transfer_effects_hash(leg);
-    result.map_err(|error| {
-        error
-            .decode_resource_error()
-            .map_or_else(|| AmxError::Proof(error.to_string()), AmxError::Resource)
+    norito::core::classify_decode_attempt(|| {
+        #[cfg(all(test, sumeragi_model_mutation = "DM7"))]
+        {
+            norito::encode_canonical(leg).map(|bytes| {
+                iroha_crypto::Hash::new_from_chunks(&[
+                    b"iroha:native-amx-transfer:v1",
+                    &[0],
+                    &bytes,
+                ])
+                .into()
+            })
+        }
+        #[cfg(not(all(test, sumeragi_model_mutation = "DM7")))]
+        streamed_native_transfer_effects_hash(leg)
     })
+    .map_err(|error| super::proof_codec_error(error, "native transfer effects"))
 }
 
 #[cfg(not(all(test, sumeragi_model_mutation = "DM7")))]
@@ -71,9 +76,12 @@ mod tests {
             .unwrap()
             .into_parts()
             .0;
-        let global =
-            super::super::AmxForeignInstanceV1::new(fixture.verifier().instance().0, epoch)
-                .unwrap();
+        let global = super::super::AmxForeignInstanceV1::new(
+            fixture.verifier().instance().0,
+            epoch,
+            crate::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        )
+        .unwrap();
         let genesis = fixture.genesis().encode_wire().unwrap();
         // This is a shape-validator parity control. Authentication is independently
         // exercised through genuine H2 in the Core returned-context tests.
@@ -114,19 +122,33 @@ mod tests {
                 &global, &genesis, &successor, &label,
             );
             let expected = canonical(global.clone(), genesis, successor, label).validate();
-            assert_eq!(actual, expected);
+            match (actual, expected) {
+                (Ok(()), Ok(())) => {}
+                (Err(actual), Err(expected)) => {
+                    assert_eq!(
+                        std::mem::discriminant(&actual),
+                        std::mem::discriminant(&expected)
+                    );
+                    assert_eq!(actual.to_string(), expected.to_string());
+                    assert!(!matches!(actual, AmxError::Resource(_)));
+                }
+                pair => panic!("source validation differs from the canonical state: {pair:?}"),
+            }
         }
         let mut malformed = global.clone();
         malformed.current.version = 0;
         let original = malformed.validate().unwrap_err();
-        assert_eq!(
+        let AmxError::Anchor(original) = original else {
+            panic!("the malformed context must fail before source validation");
+        };
+        assert!(matches!(
             NativeAmxParticipantStateV1::validate_initial_sources(&malformed, &[], &[], &[0xff]),
-            Err(original.clone())
-        );
-        assert_eq!(
+            Err(AmxError::Anchor(actual)) if actual == original
+        ));
+        assert!(matches!(
             canonical(malformed, Vec::new(), Vec::new(), vec![0xff]).validate(),
-            Err(original)
-        );
+            Err(AmxError::Anchor(actual)) if actual == original
+        ));
     }
 
     #[test]
@@ -315,6 +337,11 @@ impl NativeAmxParticipantStateV1 {
         label: &[u8],
     ) -> Result<(), AmxError> {
         global.validate()?;
+        if global.result_scope != crate::sumeragi_finality::CertifiedResultScope::TairaGlobal {
+            return Err(AmxError::State(
+                "coordinator tracker must name the global root",
+            ));
+        }
         validate_original_sources(genesis, successor, label)
     }
     /// Check local scope, canonical order and consistency with every unsettled Yes vote.

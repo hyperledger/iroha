@@ -10,9 +10,11 @@ fn registered_world(context: &iroha_data_model::sumeragi::epoch::ValidatorEpochC
     let mut world = World::new();
     {
         let mut parameters = world.parameters.block();
-        parameters.set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
-            iroha_data_model::block::consensus::SumeragiRootScope::Global,
-        ));
+        parameters
+            .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+                iroha_data_model::block::consensus::SumeragiRootScope::Global,
+            ))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
     for member in &context.committee {

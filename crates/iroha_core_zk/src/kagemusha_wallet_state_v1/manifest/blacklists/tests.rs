@@ -344,3 +344,76 @@ fn partial_certificate_or_index_publication_keeps_old_source_and_retry_reads_exa
         );
     }
 }
+
+#[test]
+fn selected_full_list_decoder_keeps_local_refusal_and_exact_original_retry() {
+    let (scheme, state, full, certificates) = inputs();
+    let expected = decode_selected_list(&full, &scheme.scheme_id()).unwrap();
+    let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+    let refused = norito::with_decode_limits_scope(limits, || {
+        decode_selected_list(&full, &scheme.scheme_id())
+    });
+    assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+    assert_eq!(
+        decode_selected_list(&full, &scheme.scheme_id()).unwrap(),
+        expected
+    );
+    assert_eq!(expected.to_canonical_bytes().unwrap(), full);
+    assert_eq!(
+        authenticate(&scheme, &state, &full, &certificates).unwrap(),
+        state.rest.blacklist
+    );
+    assert!(matches!(
+        decode_selected_list(&[0], &scheme.scheme_id()),
+        Err(Error::WitnessLost(_))
+    ));
+    assert!(matches!(
+        decode_selected_list(&full, &[0; 32]),
+        Err(Error::WitnessLost(_))
+    ));
+}
+
+#[test]
+fn selected_policy_refusal_keeps_index_and_published_originals_unchanged() {
+    let (scheme, state, full, certificates) = inputs();
+    let mut objects = Probe::new();
+    let reference = publish_blacklist_original(&mut objects, &scheme.scheme_id(), &full).unwrap();
+    let empty = IndexRoot::default();
+    let writes = objects.writes;
+    let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+    let refused = norito::with_decode_limits_scope(limits, || {
+        retain(
+            &mut objects,
+            empty,
+            &scheme,
+            &state,
+            &reference,
+            &certificates,
+        )
+    });
+    assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+    assert_eq!(objects.writes, writes);
+    assert_eq!(empty, IndexRoot::default());
+    let selected = retain(
+        &mut objects,
+        empty,
+        &scheme,
+        &state,
+        &reference,
+        &certificates,
+    )
+    .unwrap();
+    let writes = objects.writes;
+    let refused = norito::with_decode_limits_scope(limits, || {
+        selected_originals(&mut objects, selected, &scheme, &state)
+    });
+    assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+    assert_eq!(objects.writes, writes);
+    assert_eq!(
+        selected_originals(&mut objects, selected, &scheme, &state).unwrap(),
+        Some((full, certificates))
+    );
+}

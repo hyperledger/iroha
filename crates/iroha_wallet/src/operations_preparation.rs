@@ -116,6 +116,7 @@ impl RetiredNativeRequest {
     }
 }
 
+#[derive(Clone, Copy)]
 pub(super) struct Selection<'a> {
     pub(super) operation: &'a NativeOperation,
     pub(super) requested_fee: &'a FeePaymentIntent,
@@ -225,13 +226,13 @@ impl Request {
 
 #[derive(JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-struct Payload {
+struct EncodedPayload {
     schema: String,
     request_sha256: String,
     payload_hex: String,
     quote: FeeQuoteResponse,
 }
-impl Payload {
+impl EncodedPayload {
     fn new(
         request: &Request,
         payload: &TransactionPayload,
@@ -275,10 +276,12 @@ struct ObservedRecord<T> {
 struct TerminalRecords {
     request: ObservedRecord<Request>,
     retirement: ObservedRecord<Retirement>,
+    custody_plan: Option<stream_token_custody::RetainedPlanTimestamp>,
 }
 struct TerminalRead {
     request: NativeRecordObservation,
     retirement: Option<ObservedRecord<Retirement>>,
+    custody_plan: Option<stream_token_custody::RetainedPlanTimestamp>,
 }
 enum ReadRecipe {
     Original,
@@ -304,7 +307,7 @@ fn observed_record<T: norito::json::JsonDeserialize + norito::json::JsonSerializ
 
 pub(super) struct Retained {
     request: Request,
-    payload: Option<Payload>,
+    payload: Option<EncodedPayload>,
     record: Option<TransactionJournal>,
     signed: Option<SignedTransaction>,
     retired: bool,
@@ -326,14 +329,18 @@ impl Retained {
     ) -> Result<(Self, Option<TerminalRead>)> {
         journal.verify_native_inventory()?;
         journal.read_native_scope(|reader| {
-            let (retain, previous_request, previous_retirement) = match recipe {
-                ReadRecipe::Original => (false, None, None),
-                ReadRecipe::Terminal(Some(previous)) => {
-                    (true, Some(previous.request), Some(previous.retirement))
-                }
-                ReadRecipe::Terminal(None) => (true, None, None),
-            };
-            let (request, request_observation) = if retain {
+            let (retain, previous_request, previous_retirement, previous_custody_plan) =
+                match recipe {
+                    ReadRecipe::Original => (false, None, None, None),
+                    ReadRecipe::Terminal(Some(previous)) => (
+                        true,
+                        Some(previous.request),
+                        Some(previous.retirement),
+                        previous.custody_plan,
+                    ),
+                    ReadRecipe::Terminal(None) => (true, None, None, None),
+                };
+            let (request, request_observation, custody_plan) = if retain {
                 let (request, unchanged) =
                     observed_record(reader, NativeRecord::Request, previous_request)?.ok_or_else(
                         || eyre!("native journal requires its original preparation record"),
@@ -343,16 +350,26 @@ impl Retained {
                 if !unchanged {
                     request.value.verify(config)?;
                 }
-                (request.value, Some(request.observation))
+                // The observed record admits reuse only after fresh native identity and
+                // exact byte checks. Changed requests discard their old Plan metadata.
+                (
+                    request.value,
+                    Some(request.observation),
+                    if unchanged {
+                        previous_custody_plan
+                    } else {
+                        None
+                    },
+                )
             } else {
                 let request: Request =
                     reader.read_native(NativeRecord::Request)?.ok_or_else(|| {
                         eyre!("native journal requires its original preparation record")
                     })?;
                 request.verify(config)?;
-                (request, None)
+                (request, None, None)
             };
-            let payload: Option<Payload> = reader.read_native(NativeRecord::Payload)?;
+            let payload: Option<EncodedPayload> = reader.read_native(NativeRecord::Payload)?;
             let record: Option<TransactionJournal> = reader.read_native(NativeRecord::Operation)?;
             let (retirement, retirement_observation) = if retain {
                 match observed_record(reader, NativeRecord::Retired, previous_retirement)? {
@@ -380,35 +397,32 @@ impl Retained {
                 .as_ref()
                 .map(|value| value.verify(&request, config))
                 .transpose()?;
-            let signed = match &record {
-                Some(record) => {
-                    let payload = payload
-                        .as_ref()
-                        .ok_or_else(|| eyre!("signed journal is missing its original payload"))?;
-                    eyre::ensure!(
-                        canonical_bytes(&record.operation)? == canonical_bytes(&request.operation)?
-                            && record.requested_fee == request.requested_fee
-                            && record.deadline_ms <= request.deadline_ms
-                            && canonical_bytes(&record.quote)? == canonical_bytes(&payload.quote)?,
-                        "signed journal changed original request or quote"
-                    );
-                    let signed = record.verify(config)?;
-                    eyre::ensure!(
-                        Some(signed.payload()) == decoded.as_ref(),
-                        "signed journal changed original retained payload"
-                    );
-                    // A marker must identify this exact retained signed operation even during inspection.
-                    let marked = reader.submission_recorded(record)?;
-                    eyre::ensure!(
-                        !has_dispatch || marked,
-                        "applied evidence has no original submission marker"
-                    );
-                    Some(signed)
-                }
-                None => {
-                    eyre::ensure!(!has_dispatch, "dispatch evidence has no signed operation");
-                    None
-                }
+            let signed = if let Some(record) = &record {
+                let payload = payload
+                    .as_ref()
+                    .ok_or_else(|| eyre!("signed journal is missing its original payload"))?;
+                eyre::ensure!(
+                    canonical_bytes(&record.operation)? == canonical_bytes(&request.operation)?
+                        && record.requested_fee == request.requested_fee
+                        && record.deadline_ms <= request.deadline_ms
+                        && canonical_bytes(&record.quote)? == canonical_bytes(&payload.quote)?,
+                    "signed journal changed original request or quote"
+                );
+                let signed = record.verify(config)?;
+                eyre::ensure!(
+                    Some(signed.payload()) == decoded.as_ref(),
+                    "signed journal changed original retained payload"
+                );
+                // A marker must identify this exact retained signed operation even during inspection.
+                let marked = reader.submission_recorded(record)?;
+                eyre::ensure!(
+                    !has_dispatch || marked,
+                    "applied evidence has no original submission marker"
+                );
+                Some(signed)
+            } else {
+                eyre::ensure!(!has_dispatch, "dispatch evidence has no signed operation");
+                None
             };
             let authorization_deadline_ms = decoded
                 .as_ref()
@@ -419,6 +433,7 @@ impl Retained {
             let retired = retirement.is_some();
             let retained = request_observation.map(|request| TerminalRead {
                 request,
+                custody_plan,
                 retirement: retirement
                     .zip(retirement_observation)
                     .map(|(value, observation)| ObservedRecord { value, observation }),
@@ -656,7 +671,7 @@ impl AccountService {
             };
             let retained = Retained::read(&journal, &self.config)?;
             retained.verify_selection(kind, expected.as_ref())?;
-            self.finish_preparation(journal, retained).map(Some)
+            self.finish_preparation(&journal, retained).map(Some)
         })
     }
 
@@ -669,13 +684,13 @@ impl AccountService {
         norito::core::with_decode_limits_scope(LIMITS, || {
             let (journal, retained) =
                 self.publish_native_request(operation, requested_fee, path)?;
-            self.finish_preparation(journal, retained)
+            self.finish_preparation(&journal, retained)
         })
     }
 
     fn finish_preparation(
         &self,
-        journal: Journal,
+        journal: &Journal,
         mut retained: Retained,
     ) -> Result<OperationReport> {
         eyre::ensure!(!retained.retired, "native preparation was retired");
@@ -685,7 +700,7 @@ impl AccountService {
             } else {
                 OperationStatus::Prepared
             };
-            return Ok(transfer_report(&journal, record, status, None));
+            return Ok(transfer_report(journal, record, status, None));
         }
         self.ensure_deadline()?;
         retained.request.ensure_live()?;
@@ -726,7 +741,7 @@ impl AccountService {
             )?;
             payload.fee_payment = quote.intent.clone();
             verify_payload(retained.request.selection(), &quote, &payload, &self.config)?;
-            let original = Payload::new(&retained.request, &payload, quote)?;
+            let original = EncodedPayload::new(&retained.request, &payload, quote)?;
             self.ensure_deadline()?;
             retained.request.ensure_live()?;
             journal.write_native(NativeRecord::Payload, &original)?;
@@ -763,7 +778,7 @@ impl AccountService {
         record.verify(&self.config)?;
         journal.write_operation(&record)?;
         Ok(transfer_report(
-            &journal,
+            journal,
             &record,
             OperationStatus::Prepared,
             None,
@@ -853,7 +868,7 @@ fn bounded_hex(bytes: &[u8]) -> Result<String> {
 pub(super) fn decode_hex(value: &str, max: usize) -> Result<Vec<u8>> {
     eyre::ensure!(
         !value.is_empty()
-            && value.len() % 2 == 0
+            && value.len().is_multiple_of(2)
             && value.len() / 2 <= max
             && value
                 .bytes()
@@ -891,7 +906,7 @@ pub(super) fn retain_signed_fixture(path: &Path, record: &TransactionJournal) ->
         requested_fee: record.requested_fee.clone(),
         deadline_ms: record.deadline_ms,
     };
-    let payload = Payload::new(&request, signed.payload(), record.quote.clone())?;
+    let payload = EncodedPayload::new(&request, signed.payload(), record.quote.clone())?;
     let journal = Journal::create_preparation(path, &request)?;
     journal.write_native(NativeRecord::Payload, &payload)?;
     journal.write_operation(record)?;

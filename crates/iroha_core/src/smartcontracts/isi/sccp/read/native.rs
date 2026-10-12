@@ -27,15 +27,14 @@ use iroha_data_model::{
 };
 use iroha_sccp::{
     api::{
-        SccpBlockRefV1, SccpCertificateV1, SccpControlProofBundleV1, SccpGenerationCauseV1,
-        SccpGenerationEndV1, SccpGenerationMemberV1, SccpGenerationV1, SccpMessageProofBundleV1,
+        SccpBlockRefV1, SccpCertificateV1, SccpControlProofBundleV1, SccpMessageProofBundleV1,
         SccpRotationV1,
     },
     v1::{
         control::{ControlLeafV1, control_leaf},
         finality::{QcFixedV1, check_signers, signers_from_bitmap},
         hashes::{history_leaf, message_id, node, payload_hash, transfer_leaf},
-        network::lane_bytes,
+        payload::SccpTransferPayloadRefV1,
     },
 };
 use iroha_sumeragi::{
@@ -43,10 +42,7 @@ use iroha_sumeragi::{
     types::Hash32,
 };
 
-use super::super::{
-    generation::{SccpCommitteeGenerationV1, SccpGenerationCauseV1 as StoredGenerationCause},
-    store,
-};
+use super::super::{generation_record::RetainedSccpGeneration, store};
 use crate::{
     state::{State, StateReadOnly, StateView, StateViewError, WorldReadOnly},
     sumeragi::{
@@ -82,6 +78,9 @@ pub enum SccpNativeReadError {
     /// A requested retained record does not exist. This does not mean it was pruned.
     #[error("native SCCP record not found: {0}")]
     NotFound(&'static str),
+    /// A prior generation is no longer retained under the committed retention policy.
+    #[error("native SCCP record pruned: {0}")]
+    Pruned(&'static str),
     /// The requested certificate's original header is inactive.
     #[error("the selected original native result is inactive")]
     Inactive,
@@ -148,7 +147,7 @@ pub fn with_state_view<T>(
 /// retaining the DTO. The transport must separately admit its encoded response buffer.
 pub struct SccpNativeDataV1<T> {
     data: T,
-    charge: AllocationReservation,
+    _charge: AllocationReservation,
 }
 
 impl<T> SccpNativeDataV1<T> {
@@ -156,12 +155,6 @@ impl<T> SccpNativeDataV1<T> {
     #[must_use]
     pub const fn data(&self) -> &T {
         &self.data
-    }
-
-    /// Transfer the DTO and its admission together to the response serialization owner.
-    #[must_use]
-    pub fn into_parts(self) -> (T, AllocationReservation) {
-        (self.data, self.charge)
     }
 }
 
@@ -254,7 +247,7 @@ fn signing_generation<'a>(
     world: &'a (impl WorldReadOnly + ?Sized),
     height: u64,
     control: SccpNativeReadControl<'_>,
-) -> Result<&'a SccpCommitteeGenerationV1> {
+) -> Result<&'a RetainedSccpGeneration> {
     let mut selected = None;
     for (number, record) in store::committee_generations::iter(world) {
         deadline_check(control)?;
@@ -298,167 +291,62 @@ fn frame_error(error: norito::Error) -> SccpNativeReadError {
     }
 }
 
-/// Read the actual retained current-generation cell from this committed view.
-/// A boundary may have installed the successor for `tip.height + 1`; this intentionally
-/// differs from `finality(latest)`, which selects the generation signing the tip.
+/// Read the current generation from one authenticated committed view while sharing its
+/// original funded key/member graph. A boundary may already have installed the successor.
 ///
 /// # Errors
-/// Preserves original scope, missing source, cancellation and resource refusals.
+/// Preserves original scope, missing source, cancellation and deadline refusals.
 pub fn current_committee(
     view: &impl StateReadOnly,
-    budget: &AllocationBudget,
     control: SccpNativeReadControl<'_>,
-) -> Result<SccpNativeDataV1<SccpGenerationV1>> {
-    committee_data(view, None, budget, control)
+) -> Result<super::RetainedSccpGenerationView> {
+    committee_data(view, None, control)
 }
 
-/// Read a retained generation and its liability at this same committed view.
-/// This response is DATA, never a destination committee pin or finality capability.
+/// Read a retained generation and its liability at this same authenticated committed view.
+/// This response is DATA, never a destination pin or finality capability.
 ///
 /// # Errors
-/// A missing requested record is `NotFound`; a missing or malformed current authority
-/// source is `Unavailable`. Local allocation and deadline failures remain distinct.
+/// Missing or malformed current authority is unavailable; requested absence and pruning
+/// remain distinct. The retained graph requires no new response-owned committee allocation.
 pub fn committee(
     view: &impl StateReadOnly,
     generation: NonZeroU64,
-    budget: &AllocationBudget,
     control: SccpNativeReadControl<'_>,
-) -> Result<SccpNativeDataV1<SccpGenerationV1>> {
-    committee_data(view, Some(generation), budget, control)
+) -> Result<super::RetainedSccpGenerationView> {
+    committee_data(view, Some(generation), control)
 }
 
 fn committee_data(
     view: &impl StateReadOnly,
     requested: Option<NonZeroU64>,
-    budget: &AllocationBudget,
     control: SccpNativeReadControl<'_>,
-) -> Result<SccpNativeDataV1<SccpGenerationV1>> {
+) -> Result<super::RetainedSccpGenerationView> {
     let _source = source_identity(view, control)?;
     let world = view.world();
     let current = *store::committee_current::get(world);
-    let current_record = store::committee_generations::get(world, &current)
+    store::committee_generations::get(world, &current)
         .filter(|record| store::committee_generations::valid_entry(&current, record))
         .ok_or(SccpNativeReadError::Unavailable(
             "current generation source is absent or malformed",
         ))?;
     let number = requested.map_or(current, NonZeroU64::get);
-    let record = if number == current {
-        current_record
-    } else {
-        store::committee_generations::get(world, &number)
-            .ok_or(SccpNativeReadError::NotFound("committee generation"))?
-    };
-    if !store::committee_generations::valid_entry(&number, record) {
-        return Err(SccpNativeReadError::Unavailable(
-            "malformed retained generation",
-        ));
+    if let Some(record) = store::committee_generations::get(world, &number) {
+        if !store::committee_generations::valid_entry(&number, record) {
+            return Err(SccpNativeReadError::Unavailable(
+                "malformed retained generation",
+            ));
+        }
     }
-    project_generation(
-        record,
-        current,
-        *store::liability_clock::get(world),
-        budget,
-        control,
-    )
-}
-
-// Allocation-free planning includes every nested AccountId controller/key allocation.
-// The caller's original pool owns the sum until all projected values have been destroyed.
-fn generation_allocation_bytes(
-    record: &SccpCommitteeGenerationV1,
-    control: SccpNativeReadControl<'_>,
-) -> Result<usize> {
+    let response = super::committee(world, number).map_err(|error| match error {
+        super::SccpReadError::NotFound(_) => SccpNativeReadError::NotFound("committee generation"),
+        super::SccpReadError::Pruned(_) => SccpNativeReadError::Pruned("committee generation"),
+        super::SccpReadError::Invalid(_) => {
+            SccpNativeReadError::Request("invalid committee generation")
+        }
+    })?;
     deadline_check(control)?;
-    if !record.is_well_formed() {
-        return Err(SccpNativeReadError::Unavailable(
-            "malformed retained generation",
-        ));
-    }
-    let mut bytes = Some(size_of::<SccpGenerationV1>())
-        .and_then(|n| {
-            record
-                .keys
-                .len()
-                .checked_mul(size_of::<[u8; 48]>())
-                .and_then(|m| n.checked_add(m))
-        })
-        .and_then(|n| {
-            record
-                .members
-                .len()
-                .checked_mul(size_of::<Option<SccpGenerationMemberV1>>())
-                .and_then(|m| n.checked_add(m))
-        });
-    for member in record.members.iter().flatten() {
-        deadline_check(control)?;
-        member
-            .validator
-            .for_each_admission_clone_layout(|layout| {
-                bytes = bytes.and_then(|n| n.checked_add(layout.size()));
-            })
-            .map_err(frame_error)?;
-    }
-    deadline_check(control)?;
-    bytes.ok_or(SccpNativeReadError::PhysicalAllocation)
-}
-
-fn project_generation(
-    record: &SccpCommitteeGenerationV1,
-    current: u64,
-    clock: u64,
-    budget: &AllocationBudget,
-    control: SccpNativeReadControl<'_>,
-) -> Result<SccpNativeDataV1<SccpGenerationV1>> {
-    let charge = budget.try_reserve_bytes(generation_allocation_bytes(record, control)?)?;
-    let keys = copy_slice(&record.keys)?;
-    let mut members = Vec::new();
-    members
-        .try_reserve_exact(record.members.len())
-        .map_err(|_| SccpNativeReadError::PhysicalAllocation)?;
-    for member in &record.members {
-        deadline_check(control)?;
-        members.push(match member {
-            None => None,
-            Some(member) => Some(SccpGenerationMemberV1 {
-                lane_id: member.lane_id.as_u32(),
-                validator: member
-                    .validator
-                    .try_clone_for_admission()
-                    .map_err(frame_error)?,
-                activation_height: member.activation_height,
-            }),
-        });
-    }
-    let data = SccpGenerationV1 {
-        generation: record.generation,
-        committee_root: record.committee_root,
-        cause: match record.cause {
-            StoredGenerationCause::Genesis => SccpGenerationCauseV1::Genesis,
-            StoredGenerationCause::KeyChange => SccpGenerationCauseV1::KeyChange,
-            StoredGenerationCause::Heartbeat => SccpGenerationCauseV1::Heartbeat,
-            StoredGenerationCause::Resync => SccpGenerationCauseV1::Resync,
-        },
-        start_height: record.start_height,
-        start_timestamp_ms: record.start_timestamp_ms,
-        start_lc: record.start_lc,
-        validity_ms: record.validity_ms,
-        deadline_ms: record.deadline_ms,
-        grace_ms: record.grace_ms,
-        progress_cap_ms: record.progress_cap_ms,
-        liable_until_lc: record.liable_until_lc,
-        dest_cleared_lc: record.dest_cleared_lc,
-        liable: record.is_liable(current, clock),
-        end: record.end.map(|end| SccpGenerationEndV1 {
-            end_height: end.end_height,
-            end_timestamp_ms: end.end_timestamp_ms,
-            next_committee_root: end.next_committee_root,
-            successor_validity_ms: end.successor_validity_ms,
-        }),
-        keys,
-        members,
-    };
-    deadline_check(control)?;
-    Ok(SccpNativeDataV1 { data, charge })
+    Ok(response)
 }
 
 /// The caller prepays the bounded returned committee. The original source and all decoder
@@ -592,7 +480,10 @@ pub fn finality(
     let charge =
         budget.try_reserve_bytes(size_of::<SccpCertificateV1>() + CERTIFICATE_HEAP_BYTES)?;
     let data = certificate(view, height, source, budget, control)?;
-    Ok(SccpNativeDataV1 { data, charge })
+    Ok(SccpNativeDataV1 {
+        data,
+        _charge: charge,
+    })
 }
 
 /// Return the transitions starting with `after_generation -> after_generation + 1`.
@@ -676,7 +567,10 @@ pub fn committee_rotations(
         number = next_number;
     }
     deadline_check(control)?;
-    Ok(SccpNativeDataV1 { data, charge })
+    Ok(SccpNativeDataV1 {
+        data,
+        _charge: charge,
+    })
 }
 
 /// Read a retained message and its block/history path under the selected original certificate.
@@ -702,8 +596,20 @@ pub fn message_proof(
     if record.payload.is_empty() || record.payload.len() > MAX_PAYLOAD_BYTES {
         return Err(SccpNativeReadError::Invalid("stored payload length"));
     }
-    let lane = lane_bytes(SccpNetworkV1::SoraTaira, record.network, &source.network)
-        .ok_or(SccpNativeReadError::Invalid("outbound lane"))?;
+    let payload = SccpTransferPayloadRefV1::decode(&record.payload)
+        .map_err(|_| SccpNativeReadError::Invalid("stored transfer payload"))?;
+    if !payload.is_outbound()
+        || payload.target() != Some(record.network)
+        || payload.route_revision != record.revision
+        || payload.nonce != record.nonce
+        || payload.deadline_ms != record.deadline_ms
+        || payload.amount != record.amount
+    {
+        return Err(SccpNativeReadError::Invalid("record payload coordinates"));
+    }
+    let lane = payload
+        .lane_bytes(&source.network)
+        .map_err(|_| SccpNativeReadError::Invalid("outbound lane"))?;
     let route = store::routes::get(view.world(), &record.network)
         .and_then(|route| route.revisions.get(&record.revision))
         .ok_or(SccpNativeReadError::Unavailable(
@@ -762,7 +668,10 @@ pub fn message_proof(
     data.check_shape()
         .map_err(|_| SccpNativeReadError::Invalid("message proof shape"))?;
     deadline_check(control)?;
-    Ok(SccpNativeDataV1 { data, charge })
+    Ok(SccpNativeDataV1 {
+        data,
+        _charge: charge,
+    })
 }
 
 /// Read the retained complete native control and prove its actual recorded leaf.
@@ -793,7 +702,7 @@ pub fn control_proof(
             "control record is outside committed certificate history",
         ));
     }
-    if !record.is_well_formed() {
+    if !record.has_valid_shape() {
         return Err(SccpNativeReadError::Invalid(
             "malformed native control record",
         ));
@@ -867,7 +776,10 @@ pub fn control_proof(
     data.check_shape()
         .map_err(|_| SccpNativeReadError::Invalid("control proof shape"))?;
     deadline_check(control)?;
-    Ok(SccpNativeDataV1 { data, charge })
+    Ok(SccpNativeDataV1 {
+        data,
+        _charge: charge,
+    })
 }
 
 fn block_proof(
@@ -1108,3 +1020,10 @@ impl StreamingPath {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod certificate_producer_tests;
+#[cfg(test)]
+mod control_producer_tests;
+#[cfg(test)]
+mod message_producer_tests;

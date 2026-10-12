@@ -60,10 +60,15 @@ impl Plan {
     }
 
     fn output(&self, bytes: &[u8]) -> Result<KagemushaWalletCloseLoadsV1, Error> {
-        let value = valid(KagemushaWalletCloseLoadsV1::decode_canonical(
-            bytes,
-            &self.credential.body.scheme_id,
-        ))?;
+        let value = read_model_original(
+            || {
+                KagemushaWalletCloseLoadsV1::decode_canonical(
+                    bytes,
+                    &self.credential.body.scheme_id,
+                )
+            },
+            Error::Invalid("G1 validation"),
+        )?;
         if value.control.body != self.body()?
             || value.credential != self.credential
             || value.certificates != self.certificates
@@ -118,10 +123,15 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             credential: source.frozen.credential,
             certificates: archive::decode(&certificates)?,
             package: if source.frozen.capsule.body().kind == KagemushaWalletOperationKindV1::Send {
-                valid(KagemushaWalletPaymentV1::decode_canonical(
-                    &source.retained.record.output,
-                    &self.scheme_id,
-                ))?
+                read_model_original(
+                    || {
+                        KagemushaWalletPaymentV1::decode_canonical(
+                            &source.retained.record.output,
+                            &self.scheme_id,
+                        )
+                    },
+                    Error::Invalid("G1 validation"),
+                )?
                 .send
             } else {
                 archive::decode(&source.retained.record.output)?

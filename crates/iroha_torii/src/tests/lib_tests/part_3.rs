@@ -3018,9 +3018,15 @@ async fn proof_retention_status_reports_counts() {
     {
         let app_mut = Arc::get_mut(&mut app).expect("unique app");
         let state = Arc::get_mut(&mut app_mut.state).expect("unique core state");
-        state.zk.proof_history_cap = cap;
-        state.zk.proof_retention_grace_blocks = grace;
-        state.zk.proof_prune_batch = prune_batch;
+        state
+            .edit_zk_for_testing(|zk| zk.proof_history_cap = cap)
+            .expect("fixture ZK settings install");
+        state
+            .edit_zk_for_testing(|zk| zk.proof_retention_grace_blocks = grace)
+            .expect("fixture ZK settings install");
+        state
+            .edit_zk_for_testing(|zk| zk.proof_prune_batch = prune_batch)
+            .expect("fixture ZK settings install");
     }
     // Seed one record outside the grace window, one on the boundary, and one fresh record.
     let current_height = grace + 5;
@@ -3106,6 +3112,66 @@ async fn proof_retention_status_reports_counts() {
             assert_eq!(app.state.view().world().proofs().len(), 3);
         }
     }
+}
+/// Proof retention is committed ZK validity policy: the status route reports the committed
+/// values, whatever values this node installed.
+#[tokio::test]
+async fn proof_retention_status_reports_the_committed_retention_policy() {
+    use iroha_data_model::{parameter::Parameter, zk_validity_policy::ZkValidityPolicyV1};
+    let mut app = mk_app_state_for_tests();
+    let mut policy = ZkValidityPolicyV1::protocol_default();
+    policy.proofs.proof_history_cap += 7;
+    policy.proofs.proof_retention_grace_blocks += 11;
+    policy.proofs.proof_prune_batch += 13;
+    policy
+        .validate()
+        .expect("a policy that differs in retention is valid");
+    {
+        // The node holds other retention values; they are not what the chain enforces.
+        let app_mut = Arc::get_mut(&mut app).expect("unique app");
+        let state = Arc::get_mut(&mut app_mut.state).expect("unique core state");
+        let mut node = state.installed_zk().clone();
+        node.proof_history_cap = 1;
+        node.proof_retention_grace_blocks = 1;
+        node.proof_prune_batch = 1;
+        let ignored = state
+            .install_node_zk(node)
+            .expect("node ZK resources install");
+        assert!(
+            ignored
+                .iter()
+                .any(|field| field.contains("proof_history_cap"))
+        );
+    }
+    {
+        // Commit the policy in the first block.
+        let header = BlockHeader::new(NonZeroU64::new(1).expect("height>0"), None, None, 0, 0);
+        let mut block = app.state.block(header);
+        let mut stx = block.transaction();
+        stx.world
+            .parameters_mut_for_testing()
+            .get_mut()
+            .set_parameter(Parameter::Custom(policy.clone().into_custom_parameter()))
+            .expect("valid fixture parameters");
+        stx.apply();
+        block
+            .commit_empty_block_for_testing()
+            .expect("policy block commit should succeed");
+    }
+    let status =
+        crate::routing::handle_proof_retention_status(app.state.clone()).expect("retention status");
+    assert_eq!(
+        u64::try_from(status.cap_per_backend).expect("fits u64"),
+        policy.proofs.proof_history_cap
+    );
+    assert_eq!(
+        status.grace_blocks,
+        policy.proofs.proof_retention_grace_blocks
+    );
+    assert_eq!(
+        u64::try_from(status.prune_batch).expect("fits u64"),
+        policy.proofs.proof_prune_batch
+    );
 }
 #[cfg(feature = "telemetry")]
 #[tokio::test]

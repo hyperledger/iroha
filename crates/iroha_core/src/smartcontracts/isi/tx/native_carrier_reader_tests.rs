@@ -965,3 +965,43 @@ fn bounded_native_extent_preserves_original_cumulative_metadata_refusal() {
     assert_eq!(context.consumed_allocated_bytes(), marker_work);
     assert_eq!(pool.reserved_bytes(), charge);
 }
+
+#[test]
+fn completed_retained_carrier_rejects_reentry_without_reclassifying_committed_source() {
+    use crate::execution_attempt::ExecutionAttemptError;
+    let chain = chain();
+    let state = chain.state();
+    let pool = state.ivm_execution_budget();
+    let baseline = pool.reserved_bytes();
+    let height = NonZeroUsize::new(2).unwrap();
+    let expected = chain.committed(2).block_hash();
+    let (work, bytes) = bounds(&chain, 2);
+    let mut original = state
+        .begin_finalized_execution_carrier_read(height, work, bytes)
+        .unwrap();
+    let carrier = original.advance().unwrap();
+    assert_eq!(carrier.block().hash(), expected);
+    assert!(carrier.block().belongs_to(&pool));
+    let retained = pool.reserved_bytes();
+    assert!(retained > baseline);
+    assert!(matches!(original.advance(), Err(
+        ExecutionAttemptError::Rejected(QueryExecutionFail::Conversion(message))
+    ) if message == "finalized carrier read attempt already completed"));
+    assert_eq!(
+        pool.reserved_bytes(),
+        retained,
+        "consumed operation cannot repeat source work or drop its owners"
+    );
+    assert_eq!(
+        state.block_hashes.view().get(1).copied(),
+        Some(expected),
+        "completion does not remove committed history"
+    );
+    drop(original);
+    assert!(
+        pool.reserved_bytes() > baseline,
+        "returned original carrier keeps its charge"
+    );
+    drop(carrier);
+    assert_eq!(pool.reserved_bytes(), baseline);
+}

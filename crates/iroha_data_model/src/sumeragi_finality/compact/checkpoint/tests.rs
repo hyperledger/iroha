@@ -1,7 +1,7 @@
 //! Real BLS checkpoint authority and bounded canonical-record regressions.
 
 use super::*;
-use crate::sumeragi_finality::test_fixtures::NativeFinalityFixture;
+use crate::sumeragi_finality::{SccpFinalityHeaderV1, test_fixtures::NativeFinalityFixture};
 
 fn root(fixture: &NativeFinalityFixture) -> SumeragiFinalityVerifier {
     SumeragiFinalityVerifier::new(
@@ -258,13 +258,9 @@ fn resign(qc: &mut Qc) {
     qc.signers = iroha_sumeragi::types::Bitmap::from_indices(4, [0, 1, 2]).unwrap();
     let shares: Vec<_> = keys[..3]
         .iter()
-        .map(|key| {
-            iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &qc.preimage()).unwrap()
-        })
+        .map(|key| consensus::sign_preimage(key.private_key(), &qc.preimage()).unwrap())
         .collect();
-    let refs: Vec<_> = shares.iter().collect();
-    qc.agg_sig =
-        AggregateSignature(iroha_crypto::bls::consensus::aggregate(refs.iter().copied()).unwrap());
+    qc.agg_sig = AggregateSignature(consensus::aggregate(&shares).unwrap());
 }
 
 /// Produce synthetic execution DATA signed by the genuine four-validator fixture keys.
@@ -319,13 +315,17 @@ fn next_boundary(
     qc.height = height;
     qc.epoch = header.epoch;
     qc.block_hash = header.hash(&crypto);
-    let x =
-        SccpFinalityHeaderV1::inactive(original_x.network_id(), height, original_x.timestamp_ms())
+    let original_x = SccpFinalityHeaderV1::inactive(
+        *current.network_id.as_bytes(),
+        height,
+        original_x.timestamp_ms(),
+    )
+    .unwrap();
+    let result_preimage =
+        CertifiedResultV1::new(original_x, result, CertifiedResultScope::TairaGlobal)
+            .unwrap()
+            .preimage()
             .unwrap();
-    let result_preimage = CertifiedResultV1::new(x, result, CertifiedResultScope::TairaGlobal)
-        .unwrap()
-        .preimage()
-        .unwrap();
     qc.result = result_of_preimage(&result_preimage).unwrap();
     resign(&mut qc);
     SumeragiCommitCertificateV1 {

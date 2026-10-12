@@ -375,9 +375,12 @@ mod governed_sidecar_store_config_tests {
     #[test]
     fn reconciliation_page_runs_retention_pruning_even_without_candidates() {
         let directory = tempfile::tempdir().expect("temporary sidecar directory");
+        // Let the store create its own owner-only directory; the temporary
+        // parent follows the process umask and may allow other users to read it.
+        let store_root = directory.path().join("restricted-sidecars");
         let config = PrivateSettlementSidecarStoreConfigV1::new(4, 1024 * 1024)
             .expect("bounded sidecar configuration");
-        let store = PrivateSettlementFileSidecarStoreV1::open(directory.path(), config)
+        let store = PrivateSettlementFileSidecarStoreV1::open(&store_root, config)
             .expect("open empty sidecar store");
 
         let removed = reconcile_and_prune_private_settlement_page_v1(&store, Vec::new(), 10)

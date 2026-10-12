@@ -3,10 +3,11 @@
 //! This covers these exact allocations only. EBR generations, release controls,
 //! nested values and mutation growth remain separate admission obligations.
 
-use super::{CellAcquisition, OrdinaryAcquisition, WorldFieldAcquisition};
+use super::{CellAcquisition, OrdinaryAcquisition, PrepaidAcquisition, WorldFieldAcquisition};
 use crate::state::{Storage, TriggerSet, WorldBlockFields};
 use iroha_allocation::{
-    AllocationBudget, AllocationReservation, ChargedBuffer, ChargedBufferError, PrepaidBufferError,
+    AllocationBudget, AllocationReservation, ChargedBuffer, ChargedBufferError,
+    OwnedAllocationScope, PrepaidBufferError,
 };
 use mv::{
     Key, Value,
@@ -100,6 +101,7 @@ pub(in crate::state) trait OriginalControlSource {
     fn original_acquisition<'a>(
         &'a self,
         budget: &AllocationBudget,
+        _scope: &OwnedAllocationScope,
         parent: &mut AllocationReservation,
     ) -> Result<Self::Acquisition<'a>, AdmittedStorageError>;
 }
@@ -134,10 +136,11 @@ pub(in crate::state) fn initialize_original_field<'a, S: OriginalControlSource>(
     slot: &mut Option<S::Acquisition<'a>>,
     target: &'a S,
     budget: &AllocationBudget,
+    scope: &OwnedAllocationScope,
     parent: &mut AllocationReservation,
 ) -> Result<(), AdmittedStorageError> {
     assert!(slot.is_none(), "original acquisition slot is one-shot");
-    *slot = Some(target.original_acquisition(budget, parent)?);
+    *slot = Some(target.original_acquisition(budget, scope, parent)?);
     Ok(())
 }
 
@@ -195,6 +198,7 @@ impl<V: Value> OriginalControlSource for Cell<V> {
     fn original_acquisition<'a>(
         &'a self,
         budget: &AllocationBudget,
+        _scope: &OwnedAllocationScope,
         parent: &mut AllocationReservation,
     ) -> Result<Self::Acquisition<'a>, AdmittedStorageError> {
         original_cell(self, budget, parent).map(CellAcquisition)
@@ -215,6 +219,7 @@ impl<V: Value> OriginalControlSource for Cell<V, iroha_allocation::AllocationCha
     fn original_acquisition<'a>(
         &'a self,
         budget: &AllocationBudget,
+        _scope: &OwnedAllocationScope,
         parent: &mut AllocationReservation,
     ) -> Result<Self::Acquisition<'a>, AdmittedStorageError> {
         if !parent.belongs_to(budget) {
@@ -288,6 +293,7 @@ impl<K: Key, V: Value> OriginalControlSource for Storage<K, V> {
     fn original_acquisition<'a>(
         &'a self,
         _: &AllocationBudget,
+        _: &OwnedAllocationScope,
         _: &mut AllocationReservation,
     ) -> Result<Self::Acquisition<'a>, AdmittedStorageError> {
         Ok(OrdinaryAcquisition(self.block_acquisition()))
@@ -305,61 +311,38 @@ impl OriginalControlSource for TriggerSet {
     fn original_acquisition<'a>(
         &'a self,
         _: &AllocationBudget,
+        _: &OwnedAllocationScope,
         _: &mut AllocationReservation,
     ) -> Result<Self::Acquisition<'a>, AdmittedStorageError> {
         Ok(OrdinaryAcquisition(self.block_acquisition()))
     }
 }
 
-impl<K: Key, V: Value, P> OriginalControlSource for Storage<K, V, concread::bptree::Prepaid<P>>
+impl<K, V, P> OriginalControlSource for Storage<K, V, concread::bptree::Prepaid<P>>
 where
+    K: Key,
+    V: Value,
     P: mv::storage::AdmittedStoragePolicy
         + concread::bptree::ClonePlanning<K, V>
         + concread::bptree::ClonePlanning<K, Option<V>>,
 {
     type Acquisition<'a>
-        = super::PrepaidAcquisition<'a, K, V, P>
+        = PrepaidAcquisition<'a, K, V, P>
     where
         Self: 'a;
-    // This store funds its scope and MV writers from its own retained original
-    // pool. The outer World budget funds the enclosing shell, not a new map pool.
     fn successor_layout(&self) -> Option<Layout> {
         None
     }
     fn original_acquisition<'a>(
         &'a self,
-        _: &AllocationBudget,
-        _: &mut AllocationReservation,
+        budget: &AllocationBudget,
+        scope: &OwnedAllocationScope,
+        parent: &mut AllocationReservation,
     ) -> Result<Self::Acquisition<'a>, AdmittedStorageError> {
-        let scope = original_storage_scope(self.allocation_budget())?;
-        self.try_block_acquisition_owned(&scope)
-            .map(super::PrepaidAcquisition)
-    }
-}
-
-/// Retain a fallible original-pool scope before any enclosing writer is acquired.
-pub(in crate::state) fn original_storage_scope(
-    budget: &AllocationBudget,
-) -> Result<iroha_allocation::OwnedAllocationScope, AdmittedStorageError> {
-    use iroha_allocation::{OwnedAllocationScope, OwnedScopeError};
-    let layout = OwnedAllocationScope::allocation_layout();
-    let mut reservation = budget
-        .try_reserve(layout)
-        .map_err(AdmittedStorageError::Allocation)?;
-    let charge = reservation
-        .try_split(layout)
-        .expect("exact original scope layout");
-    OwnedAllocationScope::try_from_charge(budget, charge).map_err(|(charge, error)| {
-        drop(charge);
-        match error {
-            OwnedScopeError::ForeignPool => AdmittedStorageError::ScopeIdentity,
-            OwnedScopeError::LayoutMismatch { expected, actual } => {
-                AdmittedStorageError::PolicyDemand {
-                    expected_bytes: expected.size(),
-                    remaining_bytes: actual.size(),
-                }
-            }
-            OwnedScopeError::Allocator { layout } => AdmittedStorageError::Allocator { layout },
+        if !parent.belongs_to(budget) || !scope.belongs_to(budget) {
+            return Err(AdmittedStorageError::PolicyIdentity);
         }
-    })
+        self.try_block_acquisition_owned(scope)
+            .map(PrepaidAcquisition)
+    }
 }

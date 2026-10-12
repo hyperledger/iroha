@@ -10,7 +10,7 @@
 //! [`DestinationError`] is the error type of the destination model
 //! ([`super::destination`]). Cross-check harnesses compare outcomes by
 //! [`DestinationError::name`], which is the same on every chain.
-
+//!
 use core::fmt;
 
 /// Decode a hex literal of exactly `2 · N` digits at compile time.

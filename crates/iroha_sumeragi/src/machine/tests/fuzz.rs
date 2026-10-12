@@ -99,7 +99,10 @@ fn genuine(h: &mut H, rng: &mut Rng) -> WireMessage {
                     epoch: crate::testing::TEST_EPOCH.id,
                     nonce,
                     key: h.key_at(from),
-                    sig: h.signer_of(&h.key_at(member(h, rng))).sign(&msg),
+                    sig: h
+                        .signer_of(&h.key_at(member(h, rng)))
+                        .sign(&msg)
+                        .expect("fixture signing succeeds"),
                 }
             });
             WireMessage::Status(Box::new(Status {

@@ -1,0 +1,108 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "uncertain_write_that_was_lost_repeats_the_transition",
+  "category": "uncertain_write",
+  "rules": [
+    "persist_before_effect"
+  ],
+  "description": "The write of the dispatch ordinal fails and was not published. Nothing was sent; the next run persists the ordinal and dispatches the signed identity for the first time.",
+  "plan": {
+    "kind": "issuer_bootstrap",
+    "instance": "uncertain-write-that-was-lost-repeats-the-transition",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ]
+      },
+      "storage_fault": {
+        "store": 6,
+        "mode": "lost"
+      },
+      "expect": {
+        "result": {
+          "error": "LocalResourceUnavailable",
+          "stage": "store"
+        },
+        "effects": [
+          "build:0#1",
+          "sign:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "signed"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0
+          ],
+          "rolled_back_steps": []
+        },
+        "sequence": 5
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "dispatches": [
+          "accepted"
+        ],
+        "statuses": [
+          "applied"
+        ]
+      },
+      "expect": {
+        "result": "completed",
+        "effects": [
+          "dispatch:0#1",
+          "status:0#1"
+        ],
+        "status": "completed",
+        "steps": [
+          "finalized"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0
+          ],
+          "irreversible_steps": [
+            0
+          ],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 1,
+              "possible_admissions": 1,
+              "evidence": "applied"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

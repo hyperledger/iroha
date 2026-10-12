@@ -182,11 +182,11 @@ def test_contract_sources_are_exactly_the_v1_set() -> None:
 
 def test_security_notes_describe_the_v1_design() -> None:
     text = (builder.PROJECT / "SECURITY.md").read_text(encoding="utf-8")
-    # TODO: WP-TON (map step T9): SECURITY.md still describes the revision 4
-    # attestation design. When it is rewritten, also require the revision 5
-    # terms here (`sccp_checkpoint`, `BLS_FASTAGGREGATEVERIFY`, `sccp_latched`).
     for current in (
         "sccp_apply_control",
+        "sccp_checkpoint",
+        "BLS_FASTAGGREGATEVERIFY",
+        "sccp_latched",
         "control_nonce",
         "raw_reserve",
         "MINTER_FLOOR",

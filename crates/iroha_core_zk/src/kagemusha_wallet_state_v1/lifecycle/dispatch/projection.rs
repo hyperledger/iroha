@@ -124,10 +124,10 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         if bound != request_id {
             return Err(Error::WitnessLost("Receive projection identity"));
         }
-        let payment = valid(KagemushaWalletPaymentV1::decode_canonical(
-            payment,
-            &self.scheme_id,
-        ))?;
+        let payment = read_model_original(
+            || KagemushaWalletPaymentV1::decode_canonical(payment, &self.scheme_id),
+            Error::Invalid("G1 validation"),
+        )?;
         let identity = valid(payment.digests())?;
         let credit = self
             .indexed_credit(&manifest, &identity.credit_id)?
@@ -232,10 +232,10 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         let (scheme, _) = self.proofs.ledger_scope()?;
         intent.validate(&scheme)?;
         let request: KagemushaWalletRequestV1 = archive::decode(&held.request)?;
-        let payment = valid(KagemushaWalletPaymentV1::decode_canonical(
-            &held.payment,
-            &self.scheme_id,
-        ))?;
+        let payment = read_model_original(
+            || KagemushaWalletPaymentV1::decode_canonical(&held.payment, &self.scheme_id),
+            Error::Invalid("G1 validation"),
+        )?;
         let identity = valid(payment.digests())?;
         let package: KagemushaWalletPackageV1 = archive::decode(&output)?;
         valid(package.validate())?;

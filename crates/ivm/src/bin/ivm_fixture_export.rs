@@ -551,7 +551,7 @@ mod tests {
         );
         assert_eq!(fixture._context.consumed_allocated_bytes(), before);
         let payload = fixture
-            .signed_manifest
+            .manifest
             .signature_payload_bytes(&fixture._context, frame.remaining_bytes())
             .expect("encode original fixture verification payload");
         assert_eq!(
@@ -572,6 +572,18 @@ mod tests {
             .signature
             .verify(&provenance.signer, &payload)
             .expect("fixture manifest signature");
+        // An undersized frame refuses before consuming the original operation's
+        // cumulative allowance or allocating another output buffer.
+        let consumed = fixture._context.consumed_allocated_bytes();
+        assert_eq!(payload.len(), frame_bytes);
+        assert!(matches!(
+            signed_manifest.signature_payload_bytes(&fixture._context, frame_bytes - 1),
+            Err(norito::core::BoundedEncodeError::FrameTooLarge {
+                encoded_bytes,
+                max_bytes,
+            }) if encoded_bytes == frame_bytes && max_bytes == frame_bytes - 1
+        ));
+        assert_eq!(fixture._context.consumed_allocated_bytes(), consumed);
         drop(payload);
         drop(frame);
         let rendered =

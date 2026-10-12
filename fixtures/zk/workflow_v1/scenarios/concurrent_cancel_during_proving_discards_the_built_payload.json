@@ -1,0 +1,63 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "concurrent_cancel_during_proving_discards_the_built_payload",
+  "category": "cancellation",
+  "rules": [
+    "persist_before_effect",
+    "cancellation_is_sticky_and_never_rolls_back"
+  ],
+  "description": "Another actor cancels while the driver proves. The built payload loses its compare-and-swap and is discarded: nothing is signed or sent.",
+  "plan": {
+    "kind": "issuer_bootstrap",
+    "instance": "concurrent-cancel-during-proving-discards-the-built-payload",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ]
+      },
+      "concurrent": {
+        "when": "proving",
+        "action": "cancel"
+      },
+      "expect": {
+        "result": {
+          "error": "CancelledBeforeSubmission",
+          "stage": "cancel",
+          "step": 0
+        },
+        "effects": [
+          "concurrent:cancel:cancelled",
+          "build:0#1"
+        ],
+        "status": "cancelled",
+        "steps": [
+          "cancelled_before_submission"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    }
+  ]
+}

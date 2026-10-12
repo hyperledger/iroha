@@ -207,9 +207,7 @@ pub(super) fn java_privacy_exact12_submit_proof_admitted(
         protocol_index,
         expected_network,
     ) || instruction_archive.is_empty()
-        || instruction_archive.len()
-            > usize::try_from(TAIRA_PRIVACY_MAX_ACTION_BYTES_V1)
-                .expect("u32 privacy action limit fits usize")
+        || instruction_archive.len() > SubmitPrivacyProofV1::canonical_frame_byte_limit_v1()
     {
         return false;
     }
@@ -282,9 +280,7 @@ pub(super) fn java_native_privacy_validate_exact12_submit_proof_construction(
     if manifest_len == 0
         || manifest_len > PRIVACY_CAPABILITY_ARCHIVE_MAX_BYTES_V1
         || instruction_len == 0
-        || instruction_len
-            > usize::try_from(TAIRA_PRIVACY_MAX_ACTION_BYTES_V1)
-                .expect("u32 privacy action limit fits usize")
+        || instruction_len > SubmitPrivacyProofV1::canonical_frame_byte_limit_v1()
     {
         return JNI_FALSE;
     }

@@ -14,7 +14,9 @@ Expiry is inclusive: execution at the signed height is allowed; execution at
 a greater height fails. A successful receipt permanently occupies the business
 identifier, so the same identifier cannot execute a second time.
 
-`AtomicSettlementMovements` contains 2 through 255 movements. Each movement is
+`AtomicSettlementMovements` contains 1 through 255 movements. A single payment
+uses the same consent, business-identifier uniqueness and immutable receipt
+rules as a multi-payment batch. Each movement is
 an exact source `AssetId`, a canonical domainless recipient `AccountId`, and a
 positive `Quantity`. The destination has the source's asset definition and
 explicit balance scope. Account aliases, ambient lane context and an asset's

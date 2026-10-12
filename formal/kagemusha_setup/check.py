@@ -27,7 +27,7 @@ def main():
          'source_checked_before_imports': True, 'scope': 'Diagnostic controls only'},
         indent=2, sort_keys=True)+'\n')
     record = {'success': False, 'C12_closed': False, 'current_setup_qualified': False,
-              'planned_toy_k6_proofs': 14, 'native_proofs': 0, 'large_proofs': 0}
+              'planned_toy_k6_proofs': 14, 'planned_adapted_toy_k6_proofs': 2, 'native_proofs': 0, 'large_proofs': 0}
     proof_classes = []
     try:
         algebra = custody.validate_algebra()
@@ -55,8 +55,8 @@ def main():
         shape_names = unittest.defaultTestLoader.getTestCaseNames(shape_class)
         selected.extend('test_requests.RequestShapeTests.'+name for name in shape_names)
         suites.append(unittest.defaultTestLoader.loadTestsFromTestCase(shape_class))
-        custody.require(len(selected) == 100 and len(set(selected)) == 100,
-                        'exact 100 maintained controls')
+        custody.require(len(selected) == 101 and len(set(selected)) == 101,
+                        'exact 101 maintained controls')
         result = unittest.TextTestRunner(verbosity=2).run(unittest.TestSuite(suites))
         record.update(tests=result.testsRun, failures=len(result.failures),
                       errors=len(result.errors), skipped=len(result.skipped), selected=selected)
@@ -64,11 +64,14 @@ def main():
         custody.require((custody.HERE/'source_manifest.json').read_bytes() == manifest_raw,
                         'source manifest changed during controls')
         record['source_pins_unchanged'] = True
-        record['success'] = (result.wasSuccessful() and result.testsRun == 100
+        record['success'] = (result.wasSuccessful() and result.testsRun == 101
                              and not result.skipped and
-                             sum(c.verified_toy_proofs for c in proof_classes) == 14)
+                             sum(c.verified_toy_proofs for c in proof_classes) == 14 and
+                             sum(getattr(c, 'verified_adapted_toy_proofs', 0)
+                                 for c in proof_classes) == 2)
         record['scope'] = ('Source-map ideal raw-RO setup, bounded k0/k2/k6 parameter ownership, and fourteen k6 fixed-Poseidon algebra cases; '
-                           'common proof coins within a curve are counterfactual diagnostics. '
+                           'Two further k6 proofs use an explicit test-only x1=0 adapter and are not fixed-Poseidon evidence. '
+                           'Common proof coins within a curve are counterfactual diagnostics. '
                            'Sequential adaptive request/replay and fourteen closed A1 intake controls are diagnostic only. '
                            'No adaptive privacy theorem, concrete hash, current authority or C12 claim.')
         return 0 if record['success'] else 1
@@ -77,6 +80,8 @@ def main():
         raise
     finally:
         record['verified_toy_k6_proofs'] = sum(c.verified_toy_proofs for c in proof_classes)
+        record['verified_adapted_toy_k6_proofs'] = sum(
+            getattr(c, 'verified_adapted_toy_proofs', 0) for c in proof_classes)
         record['elapsed_seconds'] = time.monotonic()-start
         record['manifest_sha256'] = custody.sha(manifest_raw)
         (output/'result.json').write_text(json.dumps(record, indent=2, sort_keys=True)+'\n')

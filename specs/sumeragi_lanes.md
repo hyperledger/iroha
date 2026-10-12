@@ -426,8 +426,10 @@ against the parent block's): a stalled lane cannot hold transactions, and each r
 transaction is committed evidence of load the lane is not serving (§6.4). A transaction both
 rescued and carried by a lane executes once; the later carrier's copy is a duplicate. A rescue
 is packed within `G`'s own selection budget (`max_block_bytes(G)` less the proposer reserve). A
-lane whose payload limit is larger than `G`'s admits transactions above that budget; such a
-transaction is never rescued. It waits for its lane and expires if the lane does not carry it
+coherent committed policy requires the transaction cap plus the global proposer reserve to fit
+`G`'s payload limit, so every admitted transaction fits the full global selection budget. A
+smaller lane budget or the space remaining after other global proposal contents can defer a
+queued input; rescue carries it only when enough space remains
 (`specs/zk_resource_contract.json`, `stage_decisions`).
 
 ### 5.2 Queue partitions

@@ -1,7 +1,35 @@
-//! Current SCCP payload, domain, tree and destination bounds.
-//! Native ABI selectors and topics are owned by [`super::destination_abi`].
+//! SCCP v1 compiled constants (spec §3.9).
+//!
+//! Domain tags, contract bounds, codec and
+//! domain ids, profile tags and route ids shared by Taira and every destination. Current
+//! EVM selectors and event topics are owned by `destination_abi`. Every hash in
+//! this module is written out as a literal and recomputed from its canonical string by the golden
+//! tests below, so a typo in either the string or the value fails the build's test suite.
 
 use iroha_data_model::sccp::params::SCCP_MESSAGES_MAX_PER_BLOCK_V1;
+
+/// Decode a 64-digit lowercase or uppercase hex literal at compile time.
+const fn hex32(literal: &str) -> [u8; 32] {
+    let bytes = literal.as_bytes();
+    assert!(bytes.len() == 64, "hex32 literal must have 64 digits");
+    let mut out = [0_u8; 32];
+    let mut index = 0;
+    while index < 32 {
+        out[index] = (hex_nibble(bytes[2 * index]) << 4) | hex_nibble(bytes[2 * index + 1]);
+        index += 1;
+    }
+    out
+}
+
+/// Decode one hex digit at compile time.
+const fn hex_nibble(digit: u8) -> u8 {
+    match digit {
+        b'0'..=b'9' => digit - b'0',
+        b'a'..=b'f' => digit - b'a' + 10,
+        b'A'..=b'F' => digit - b'A' + 10,
+        _ => panic!("invalid hex digit"),
+    }
+}
 
 // ---------------------------------------------------------------------------------------------
 // Domain tags (§3.3, §3.4, §3.5, §3.7)
@@ -95,12 +123,23 @@ pub const ROUTE_ID_BSC: &str = "taira_bsc_xor";
 pub const ROUTE_ID_TON: &str = "taira_ton_xor";
 
 // ---------------------------------------------------------------------------------------------
+// secp256k1 (§0, §3.8)
+// ---------------------------------------------------------------------------------------------
+
+/// secp256k1 group order `N`.
+pub const SECP256K1_N: [u8; 32] =
+    hex32("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141");
+/// `HALF_N = floor(N / 2)`, the largest admitted `s`.
+pub const SECP256K1_HALF_N: [u8; 32] =
+    hex32("7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0");
+
+// ---------------------------------------------------------------------------------------------
 // TON cell layout (§5.3.1, §5.3.2)
 // ---------------------------------------------------------------------------------------------
 
 /// Bytes per non-final snake chunk.
 pub const TON_SNAKE_CHUNK_BYTES: usize = 127;
-/// Compressed BLS keys per full `KeyChunk`.
+/// Compressed BLS12-381 keys per full `KeyChunk`.
 pub const TON_KEY_CHUNK_KEYS: usize = 2;
 /// Hashes per full `HashChunk`.
 pub const TON_HASH_CHUNK_HASHES: usize = 3;
@@ -108,7 +147,6 @@ pub const TON_HASH_CHUNK_HASHES: usize = 3;
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn domain_tags_have_the_spec_lengths() {
         assert_eq!(PAYLOAD_TAG.len(), 15);
@@ -125,5 +163,29 @@ mod tests {
         assert_eq!(1_u32 << MAX_BLOCK_PATH, MAX_BLOCK_LEAVES);
         assert_eq!(1_u64 << MAX_HISTORY_PATH, MAX_HISTORY_SIZE);
         assert_eq!(TON_AMOUNT_BOUND, 79_228_162_514_264_337_593_543_950_336);
+    }
+
+    #[test]
+    fn secp256k1_half_order_is_floor_of_half() {
+        // HALF_N * 2 + 1 == N
+        let mut doubled = [0_u8; 32];
+        let mut carry = 1_u16;
+        for index in (0..32).rev() {
+            let value = u16::from(SECP256K1_HALF_N[index]) * 2 + carry;
+            doubled[index] = u8::try_from(value & 0xff).expect("one byte");
+            carry = value >> 8;
+        }
+        assert_eq!(carry, 0);
+        assert_eq!(doubled, SECP256K1_N);
+    }
+
+    #[test]
+    fn hex32_decodes_mixed_case() {
+        let value = hex32("00FFaa0000000000000000000000000000000000000000000000000000000001");
+        assert_eq!(value[0], 0);
+        assert_eq!(value[1], 0xff);
+        assert_eq!(value[2], 0xaa);
+        assert_eq!(value[31], 1);
+        assert_eq!(hex_nibble(b'F'), 15);
     }
 }

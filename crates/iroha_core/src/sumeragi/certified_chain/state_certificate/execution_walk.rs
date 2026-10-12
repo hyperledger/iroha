@@ -145,7 +145,7 @@ where
             NonZeroUsize::new(height).expect("nonzero successor"),
             &mut self.before_read,
         )?;
-        let current = read_frame(block, height as u64, self.chain.result_scope())
+        let current = read_frame(block, height as u64, self.chain.root_scope())
             .map_err(|error| verification_attempt_failure(VerificationReadError::from(error)))?;
         self.chain
             .verify_executed_successor(self.parent.as_ref().unwrap(), current)
@@ -224,7 +224,7 @@ where
                 read_frame(
                     certified.block().clone(),
                     height as u64,
-                    self.chain.result_scope(),
+                    self.chain.root_scope(),
                 )
                 .map_err(|error| {
                     verification_attempt_failure(VerificationReadError::from(error))

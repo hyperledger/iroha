@@ -11,7 +11,6 @@ use iroha_data_model::{
     block::SharedSignedBlock,
     sumeragi_finality::{FinalityValidator, MAX_FINALITY_BLOCK_BYTES, SumeragiFinalityProof},
 };
-use iroha_version::Version as _;
 use std::{alloc::Layout, io::Write as _, time::Instant};
 
 /// Failure to construct a portable destination from the original finite owner.
@@ -48,57 +47,167 @@ pub(super) struct OwnedProof {
     _charges: ChargedBuffer<AllocationCharge>,
 }
 impl OwnedProof {
-    #[allow(unsafe_code)]
     pub(super) fn new(
         block: &SharedSignedBlock,
         members: &[iroha_data_model::sumeragi::epoch::ValidatorCommitteeMemberV1],
         budget: &AllocationBudget,
         deadline: Instant,
     ) -> Result<Self, ProofDestinationError> {
+        let mut original = ProofPreparation::default();
+        original.complete(block, members, budget, deadline)?;
+        Ok(original
+            .construction
+            .expect("completed proof destination")
+            .owned)
+    }
+}
+
+// The retrying caller retains this construction; one-shot consumers use the same kernel
+// and retire incomplete work normally. No new authority or alternative decoder is exposed.
+#[derive(Default)]
+pub(super) struct ProofPreparation {
+    construction: Option<Construction>,
+}
+struct Construction {
+    // A PoP allocated before its key must retire before the proof's original charge ledger.
+    pop: Option<Vec<u8>>,
+    owned: OwnedProof,
+    block: SharedSignedBlock,
+    // Comparison-only original immutable slice identity, never signature authority.
+    members_address: usize,
+    member_count: usize,
+    wire_len: usize,
+    wire_complete: bool,
+}
+impl ProofPreparation {
+    pub(super) fn complete(
+        &mut self,
+        block: &SharedSignedBlock,
+        members: &[iroha_data_model::sumeragi::epoch::ValidatorCommitteeMemberV1],
+        budget: &AllocationBudget,
+        deadline: Instant,
+    ) -> Result<&OwnedProof, ProofDestinationError> {
         check(deadline)?;
         let _flags = norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
-        let length = norito::canonical_frame_len(block.as_ref())
-            .map_err(|_| ProofDestinationError::Source)?
-            .checked_add(1)
-            .ok_or(ProofDestinationError::Source)?;
-        if length > MAX_FINALITY_BLOCK_BYTES
-            || members.is_empty()
-            || members.len() > iroha_sumeragi::types::MAX_COMMITTEE_SIZE
+        if self.construction.is_none() {
+            let length = norito::canonical_frame_len(block.as_ref())
+                .map_err(|_| ProofDestinationError::Source)?
+                .checked_add(1)
+                .ok_or(ProofDestinationError::Source)?;
+            if length > MAX_FINALITY_BLOCK_BYTES
+                || members.is_empty()
+                || members.len() > iroha_sumeragi::types::MAX_COMMITTEE_SIZE
+            {
+                return Err(ProofDestinationError::Source);
+            }
+            let count = members
+                .len()
+                .checked_mul(2)
+                .and_then(|n| n.checked_add(2))
+                .ok_or(ProofDestinationError::Admission(
+                    AllocationRefusal::DemandOverflow,
+                ))?;
+            let charges =
+                ChargedBuffer::new(count, budget).map_err(ProofDestinationError::Buffer)?;
+            self.construction = Some(Construction {
+                pop: None,
+                owned: OwnedProof {
+                    proof: SumeragiFinalityProof {
+                        block_header: block.header(),
+                        block_wire: Vec::new(),
+                        committee: Vec::new(),
+                    },
+                    _charges: charges,
+                },
+                block: block.clone(),
+                members_address: members.as_ptr() as usize,
+                member_count: members.len(),
+                wire_len: length,
+                wire_complete: false,
+            });
+        }
+        let original = self
+            .construction
+            .as_mut()
+            .expect("original proof construction");
+        if !std::ptr::eq(original.block.as_ref(), block.as_ref())
+            || original.members_address != members.as_ptr() as usize
+            || original.member_count != members.len()
+            || !original.owned._charges.belongs_to(budget)
         {
             return Err(ProofDestinationError::Source);
         }
-        let charge_count = members
-            .len()
-            .checked_mul(2)
-            .and_then(|count| count.checked_add(2))
-            .ok_or(ProofDestinationError::Admission(
-                AllocationRefusal::DemandOverflow,
-            ))?;
-        let mut charges =
-            ChargedBuffer::new(charge_count, budget).map_err(ProofDestinationError::Buffer)?;
-        let mut wire = charged_vec::<u8>(length, budget, &mut charges)?;
-        check(deadline)?;
-        {
+        original.fill(members, budget, deadline)?;
+        Ok(&original.owned)
+    }
+}
+impl Construction {
+    #[allow(unsafe_code)]
+    fn fill(
+        &mut self,
+        members: &[iroha_data_model::sumeragi::epoch::ValidatorCommitteeMemberV1],
+        budget: &AllocationBudget,
+        deadline: Instant,
+    ) -> Result<(), ProofDestinationError> {
+        let Self {
+            pop,
+            owned,
+            block,
+            wire_len,
+            wire_complete,
+            ..
+        } = self;
+        if !*wire_complete {
+            if owned.proof.block_wire.capacity() == 0 {
+                owned.proof.block_wire = charged_vec::<u8>(*wire_len, budget, &mut owned._charges)?;
+            }
+            check(deadline)?;
+            // A rejected partial encoder can retry without allocating or appending twice.
+            owned.proof.block_wire.clear();
             let mut writer = FixedVecWriter {
-                bytes: &mut wire,
-                maximum: length,
+                bytes: &mut owned.proof.block_wire,
+                maximum: *wire_len,
             };
             writer
-                .write_all(&[block.version()])
+                .write_all(&[iroha_data_model::block::SignedBlock::WIRE_VERSION])
                 .map_err(|_| ProofDestinationError::Source)?;
             norito::core::write_canonical_to_writer(block.as_ref(), &mut writer)
                 .map_err(|_| ProofDestinationError::Source)?;
-        }
-        if wire.len() != length {
-            return Err(ProofDestinationError::Source);
+            if owned.proof.block_wire.len() != *wire_len {
+                return Err(ProofDestinationError::Source);
+            }
+            *wire_complete = true;
         }
         check(deadline)?;
-        let mut committee = charged_vec::<FinalityValidator>(members.len(), budget, &mut charges)?;
-        for member in members {
+        if owned.proof.committee.capacity() == 0 {
+            owned.proof.committee =
+                charged_vec::<FinalityValidator>(members.len(), budget, &mut owned._charges)?;
+        }
+        while owned.proof.committee.len() < members.len() {
             check(deadline)?;
-            let mut pop =
-                charged_vec::<u8>(member.proof_of_possession.len(), budget, &mut charges)?;
-            pop.extend_from_slice(&member.proof_of_possession);
+            let member = &members[owned.proof.committee.len()];
+            if pop.is_none() {
+                let mut original = charged_vec::<u8>(
+                    member.proof_of_possession.len(),
+                    budget,
+                    &mut owned._charges,
+                )?;
+                original.extend_from_slice(&member.proof_of_possession);
+                *pop = Some(original);
+            }
+            #[cfg(test)]
+            super::cursor::probe_pending_key(
+                block.header().height().get(),
+                owned.proof.committee.len(),
+                members.len(),
+                member
+                    .validator
+                    .public_key()
+                    .retained_allocation_layout()
+                    .size(),
+                owned.proof.block_wire.as_ptr() as usize,
+                pop.as_ref().expect("original PoP").as_ptr() as usize,
+            );
             #[cfg(all(test, sumeragi_core_mutation = "HC213"))]
             let key = member.validator.public_key().clone();
             #[cfg(not(all(test, sumeragi_core_mutation = "HC213")))]
@@ -114,26 +223,18 @@ impl OwnedProof {
                 let retained = original_key
                     .try_clone_from_charge(budget, charge)
                     .map_err(|(_original_charge, error)| ProofDestinationError::Key(error))?;
-                // SAFETY: this closed move-only proof immediately retains the exact
-                // compact key charge. Proof fields retire before the ledger, and no
-                // mutable access or uncharged move-out is exposed by its consumers.
+                // SAFETY: the compact key moves directly into this private owned proof.
+                // Its graph and pending PoP retire before this exact original charge ledger.
                 let (key, charge) = unsafe { retained.into_allocation_parts() };
-                charges.push_reserved(charge);
+                owned._charges.push_reserved(charge);
                 key
             };
-            committee.push(FinalityValidator {
+            owned.proof.committee.push(FinalityValidator {
                 public_key: key,
-                proof_of_possession: pop,
+                proof_of_possession: pop.take().expect("original complete PoP"),
             });
         }
-        Ok(Self {
-            proof: SumeragiFinalityProof {
-                block_header: block.header(),
-                block_wire: wire,
-                committee,
-            },
-            _charges: charges,
-        })
+        Ok(())
     }
 }
 

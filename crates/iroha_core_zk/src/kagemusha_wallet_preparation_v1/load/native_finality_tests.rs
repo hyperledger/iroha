@@ -33,7 +33,7 @@ fn authenticate_originals(
         KagemushaWalletLoadReceiptV1,
         [KagemushaWalletRetainedInputV1; 2],
     ),
-    Error,
+    state::Error,
 > {
     super::authenticate_originals(
         &mut SumeragiCommitVerifierV1::new(native).unwrap(),
@@ -108,7 +108,7 @@ impl NativeLoad {
             KagemushaWalletLoadReceiptV1,
             [KagemushaWalletRetainedInputV1; 2],
         ),
-        Error,
+        state::Error,
     > {
         let receipt_bytes = receipt.to_canonical_bytes().unwrap();
         let evidence_bytes = evidence.to_canonical_bytes().unwrap();
@@ -152,6 +152,24 @@ fn native_load_gate_preserves_exact_authenticated_originals() {
 }
 
 #[test]
+fn oversized_original_is_invalid_even_when_an_enclosing_budget_is_empty() {
+    let bytes = vec![
+        0;
+        iroha_data_model::isi::kagemusha_wallet::load_finality::KAGEMUSHA_WALLET_LOAD_RECEIPT_MAX_BYTES_V1
+            + 1
+    ];
+    let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+    let error = norito::with_decode_limits_scope(limits, || {
+        super::read_original(|| KagemushaWalletLoadReceiptV1::decode_canonical(&bytes))
+    })
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        state::Error::Invalid("Load original binding")
+    ));
+}
+
+#[test]
 fn native_load_gate_rejects_receipt_changes_even_with_rebound_envelope_digest() {
     let source = NativeLoad::new("wallet-load-gate-receipt");
     source.check(&source.receipt, &source.evidence).unwrap();
@@ -170,7 +188,10 @@ fn native_load_gate_rejects_receipt_changes_even_with_rebound_envelope_digest() 
     for receipt in changed {
         let mut evidence = source.evidence.clone();
         evidence.receipt_digest = receipt.receipt_digest().unwrap();
-        assert_eq!(source.check(&receipt, &evidence), Err(Error::Proof));
+        assert!(matches!(
+            source.check(&receipt, &evidence),
+            Err(state::Error::Proof(_))
+        ));
     }
 }
 
@@ -193,7 +214,10 @@ fn native_load_gate_rejects_canonical_qc_with_another_valid_bls_signature() {
         norito::decode_canonical::<Qc>(&evidence.certificate.commit_qc).unwrap(),
         forged
     );
-    assert_eq!(source.check(&source.receipt, &evidence), Err(Error::Proof));
+    assert!(matches!(
+        source.check(&source.receipt, &evidence),
+        Err(state::Error::Proof(_))
+    ));
 }
 
 #[test]
@@ -203,17 +227,17 @@ fn native_load_gate_rejects_substituted_event_and_foreign_certificate() {
     let mut wrong_event = source.evidence.clone();
     wrong_event.event_proof = source.events.get_proof(0).unwrap();
     assert_ne!(wrong_event.event_proof, source.evidence.event_proof);
-    assert_eq!(
+    assert!(matches!(
         source.check(&source.receipt, &wrong_event),
-        Err(Error::Proof)
-    );
+        Err(state::Error::Proof(_))
+    ));
     let foreign = NativeLoad::new("wallet-load-gate-foreign-event");
     let mut substituted = source.evidence.clone();
     substituted.certificate = foreign.evidence.certificate;
-    assert_eq!(
+    assert!(matches!(
         source.check(&source.receipt, &substituted),
-        Err(Error::Proof)
-    );
+        Err(state::Error::Proof(_))
+    ));
 }
 
 #[test]
@@ -223,28 +247,28 @@ fn native_load_gate_rejects_noncanonical_originals_and_a_foreign_root() {
     let evidence = source.evidence.to_canonical_bytes().unwrap();
     let mut trailing_receipt = receipt.clone();
     trailing_receipt.push(0);
-    assert_eq!(
+    assert!(matches!(
         authenticate_originals(&source.native, &trailing_receipt, &evidence),
-        Err(Error::Authority)
-    );
+        Err(state::Error::Invalid("Load original binding"))
+    ));
     let mut trailing_evidence = evidence.clone();
     trailing_evidence.push(0);
-    assert_eq!(
+    assert!(matches!(
         authenticate_originals(&source.native, &receipt, &trailing_evidence),
-        Err(Error::Authority)
-    );
+        Err(state::Error::Invalid("Load original binding"))
+    ));
     let foreign = NativeFinalityFixture::start_with_explicit_parameters("foreign-load-root");
-    assert_eq!(
+    assert!(matches!(
         authenticate_originals(&foreign.verifier(), &receipt, &evidence),
-        Err(Error::Proof)
-    );
+        Err(state::Error::Proof(_))
+    ));
     // A canonically encoded but mismatched retained receipt/finality pair is
     // refused by exact-original binding before a receipt is returned to derive.
     let mut changed = source.receipt;
     changed.amount += 1;
-    assert_eq!(
+    assert!(matches!(
         source.check(&changed, &source.evidence),
-        Err(Error::Authority)
-    );
+        Err(state::Error::Invalid("Load original binding"))
+    ));
     source.check(&source.receipt, &source.evidence).unwrap();
 }

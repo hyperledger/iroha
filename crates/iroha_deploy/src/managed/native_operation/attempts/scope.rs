@@ -235,6 +235,14 @@ impl HistoryScope {
             Self::Enrollment(value) => Self::Enrollment(value.duplicate()),
         }
     }
+    // Exact immutable owner identity binds every original predecessor, including native Arcs.
+    // A separately reconstructed equal scope is deliberately not interchangeable here.
+    pub(super) fn same_original_owner(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Enrollment(a), Self::Enrollment(b)) => Arc::ptr_eq(&a.state, &b.state),
+            _ => false,
+        }
+    }
     pub(super) fn validate(
         &self,
         operation: &PrivateDirectory,

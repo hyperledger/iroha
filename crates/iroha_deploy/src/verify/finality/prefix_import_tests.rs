@@ -62,7 +62,7 @@ fn prefix_import_preserves_native_tip_successor_and_member_witness_checks() {
         let mut qc = commit_qc(&malformed);
         qc.agg_sig.0[0] ^= 1;
         let header = core(&malformed);
-        let execution = result(&malformed);
+        let execution = result(&malformed, chain.root_scope());
         replace_certificate(&mut malformed, &header, &qc, &execution);
         let actual_error = actual.place(&malformed, epoch, None).unwrap_err();
         let expected_error = expected.place(&malformed, epoch, None).unwrap_err();
@@ -84,7 +84,7 @@ fn prefix_import_refuses_a_foreign_retained_decision_without_replacing_its_sourc
     let malformed = checkpoint
         .with_independently_authenticated_decision_data(
             &[chain.proof(1).clone(), foreign.proof(2).clone()],
-            chain.verifier().result_scope(),
+            chain.verifier().root_scope().unwrap().into(),
         )
         .unwrap();
     let malformed_bytes = malformed.encode_canonical().unwrap();
@@ -159,9 +159,26 @@ fn prefix_import_preserves_active_owner_work_and_allocation_refusal() {
             .with(|| Prefix::new(&checkpoint))
             .err()
             .expect("same caller resource refusal");
+        let (
+            FinalityError::DecodeResource(actual_error),
+            FinalityError::DecodeResource(expected_error),
+        ) = (actual_error, expected_error)
+        else {
+            panic!("original decoder refusal required at allocation cap {cap}")
+        };
+        // The two real budgets have distinct opaque identities. Compare the observed
+        // locality and exact resource fields without pretending they share an owner.
         assert_eq!(
-            format!("{actual_error:?}"),
-            format!("{expected_error:?}"),
+            actual_error.kind(),
+            norito::core::DecodeAttemptErrorKind::EnclosingLimit
+        );
+        assert_eq!(
+            expected_error.kind(),
+            norito::core::DecodeAttemptErrorKind::EnclosingLimit
+        );
+        assert_eq!(
+            actual_error.into_error().decode_resource_error(),
+            expected_error.into_error().decode_resource_error(),
             "prefix refusal differs at allocation cap {cap}"
         );
         assert_eq!(

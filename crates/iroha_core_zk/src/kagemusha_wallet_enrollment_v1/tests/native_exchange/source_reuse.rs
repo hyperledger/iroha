@@ -3,6 +3,8 @@
 use super::*;
 use crate::kagemusha_wallet_artifacts_v1::producer_inventory::reopen_pinned_engineering_wallet_sources;
 
+const SELECTION_SCHEMA: &str = "iroha.kagemusha.sealed-proving-originals-selection.v1";
+
 const LOCATOR_SCHEMA: &str = "iroha.kagemusha.sealed-proving-originals-locator.v1";
 
 // This locator is part of the independently hash-pinned target, not a serialized grant.
@@ -16,7 +18,17 @@ fn selected_locator<'a>(
     selected_pins: &norito::json::Value,
     qualification: &Path,
 ) -> Result<&'a Path, &'static str> {
-    if target["schema"].as_str() != Some(TARGET_SCHEMA) || &target["source_pins"] != selected_pins {
+    selected_originals(target, TARGET_SCHEMA, selected_pins, qualification)
+}
+
+fn selected_originals<'a>(
+    target: &'a norito::json::Value,
+    expected_schema: &str,
+    selected_pins: &norito::json::Value,
+    qualification: &Path,
+) -> Result<&'a Path, &'static str> {
+    if target["schema"].as_str() != Some(expected_schema) || &target["source_pins"] != selected_pins
+    {
         return Err("target differs from independently selected source pins");
     }
     let selected = &target["sealed_originals"];
@@ -37,6 +49,26 @@ fn selected_locator<'a>(
 }
 
 impl Sources {
+    // Initial target requires explicit independently pinned DATA, just as later targets do.
+    // The locator is never a source grant; complete current admission below is unchanged.
+    pub(super) fn admit(output: &Path) -> Self {
+        let path = selected_path("KAGEMUSHA_NATIVE_SOURCE_SELECTION");
+        let bytes = read_pin(
+            &path,
+            TARGET_MAX,
+            &env_pin("KAGEMUSHA_NATIVE_SOURCE_SELECTION_SHA256"),
+        );
+        let selected: norito::json::Value = norito::json::from_slice(&bytes).unwrap();
+        let originals = selected_originals(
+            &selected,
+            SELECTION_SCHEMA,
+            &source_pins(),
+            &qualification_root(),
+        )
+        .unwrap();
+        Self::reopen(output, originals)
+    }
+
     pub(super) fn requalify(output: &Path) -> Self {
         let target_path = selected_path("KAGEMUSHA_NATIVE_LOAD_TARGET");
         let bytes = read_pin(
@@ -46,6 +78,10 @@ impl Sources {
         );
         let target: norito::json::Value = norito::json::from_slice(&bytes).unwrap();
         let selected = selected_locator(&target, &source_pins(), &qualification_root()).unwrap();
+        Self::reopen(output, selected)
+    }
+
+    fn reopen(output: &Path, selected: &Path) -> Self {
         let (installed, qualified, genesis, originals) =
             reopen_pinned_engineering_wallet_sources(output, selected);
         let path = originals.root().unwrap().to_path_buf();
@@ -99,6 +135,54 @@ mod tests {
             .store_original(identity, b"one immutable proving DATA original")
             .unwrap();
         (temporary, private, identity)
+    }
+
+    #[test]
+    fn first_target_selection_requires_current_pins_and_distinct_data_schema() {
+        let (_temporary, private, identity) = original();
+        let expected = pins(None);
+        let root = private.path().parent().unwrap();
+        let selection = |source| {
+            norito::json!({
+                "schema": SELECTION_SCHEMA, "source_pins": source,
+                "sealed_originals": (locator(private.path())),
+            })
+        };
+        let data = selection(expected.clone());
+        let path = selected_originals(&data, SELECTION_SCHEMA, &expected, root).unwrap();
+        DirectoryOriginalsV1::open_existing(path, 1024)
+            .unwrap()
+            .verify_original(identity)
+            .unwrap();
+        assert!(selected_locator(&data, &expected, root).is_err());
+        assert!(
+            selected_originals(
+                &target(locator(private.path()), expected.clone()),
+                SELECTION_SCHEMA,
+                &expected,
+                root,
+            )
+            .is_err()
+        );
+        for changed in SOURCE_PINS {
+            assert!(
+                selected_originals(
+                    &selection(pins(Some(changed))),
+                    SELECTION_SCHEMA,
+                    &expected,
+                    root
+                )
+                .is_err()
+            );
+        }
+        for selected in [
+            norito::json::Value::Null,
+            norito::json!({ "schema": SELECTION_SCHEMA, "source_pins": (expected.clone()) }),
+            norito::json!({ "schema": SELECTION_SCHEMA, "source_pins": (expected.clone()),
+                "sealed_originals": { "schema": LOCATOR_SCHEMA, "path": "relative" } }),
+        ] {
+            assert!(selected_originals(&selected, SELECTION_SCHEMA, &expected, root).is_err());
+        }
     }
 
     #[test]

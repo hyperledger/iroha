@@ -3295,7 +3295,7 @@ pub(super) fn network_fixture_with_listener<T: Pload + message::ClassifyTopic>(
             low_burst: None,
             low_buckets: HashMap::new(),
             low_bytes_per_sec: None,
-            low_bytes_burst: None,
+            low_bytes_burst: 1.0,
             low_bytes_buckets: HashMap::new(),
             max_frame_bytes: 1024,
             cap_consensus: 1024,
@@ -4760,6 +4760,130 @@ fn token_bucket_allows_burst_then_throttles() {
     assert!(tb.allow());
     // Next one should be throttled without time passing
     assert!(!tb.allow());
+}
+
+#[test]
+fn low_byte_burst_covers_each_plaintext_topic_and_preserves_explicit_choices() {
+    use core::num::NonZeroU32;
+    let rate = NonZeroU32::new(17);
+    for index in 0..6 {
+        let mut caps = TopicFrameCaps::uniform(32);
+        let topics = [
+            &mut caps.block_sync,
+            &mut caps.tx_gossip,
+            &mut caps.peer_gossip,
+            &mut caps.health,
+            &mut caps.connect,
+            &mut caps.other,
+        ];
+        *topics.into_iter().nth(index).unwrap() = 4096;
+        // High-only caps do not inflate low shaping; stream overhead is not charged here.
+        caps.control = 8192;
+        caps.consensus = 16384;
+        assert_eq!(resolve_low_byte_burst(rate, None, caps).unwrap(), 4096);
+        assert_eq!(resolve_low_byte_burst(None, None, caps).unwrap(), 4096);
+        assert_eq!(
+            resolve_low_byte_burst(NonZeroU32::new(8192), None, caps).unwrap(),
+            8192
+        );
+        for exact_or_larger in [4096, 4097] {
+            assert_eq!(
+                resolve_low_byte_burst(rate, NonZeroU32::new(exact_or_larger), caps).unwrap(),
+                exact_or_larger
+            );
+        }
+        for configured_rate in [None, rate] {
+            assert!(matches!(
+                resolve_low_byte_burst(configured_rate, NonZeroU32::new(4095), caps),
+                Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::InvalidInput
+                    && error.to_string().contains("4095")
+                    && error.to_string().contains("4096 canonical plaintext bytes")
+            ));
+        }
+    }
+    if let Some(above_u32) = (u32::MAX as usize).checked_add(1) {
+        assert!(matches!(
+            resolve_low_byte_burst(rate, None, TopicFrameCaps::uniform(above_u32)),
+            Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::InvalidInput
+        ));
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn low_byte_home_rate_admits_maximum_frame_then_refills_at_original_rate() {
+    use iroha_config::parameters::{actual::LaneProfile, defaults::network as defaults};
+    let rate = LaneProfile::Home
+        .derived_limits()
+        .low_priority_bytes_per_sec
+        .unwrap();
+    let maximum = defaults::MAX_FRAME_BYTES_TX_GOSSIP.get();
+    let caps = TopicFrameCaps::uniform(maximum);
+    let burst = resolve_low_byte_burst(Some(rate), None, caps).unwrap();
+    assert_eq!(burst as usize, maximum);
+    assert!(
+        rate.get() < burst,
+        "home profile recreates the former starvation geometry"
+    );
+    let mut network = bare_network().expect("local network fixture");
+    network.low_bytes_per_sec = Some(f64::from(rate.get()));
+    network.low_bytes_burst = f64::from(burst);
+    let peer = random_peer_id();
+    assert!(network.low_allow_bytes(&peer, maximum));
+    assert!(!network.low_allow_bytes(&peer, 1));
+    tokio::time::advance(Duration::from_secs(1)).await;
+    assert!(network.low_allow_bytes(&peer, rate.get() as usize));
+    assert!(!network.low_allow_bytes(&peer, 1));
+    tokio::time::advance(Duration::from_secs(100)).await;
+    assert!(!network.low_allow_bytes(&peer, maximum + 1));
+    assert!(network.low_allow_bytes(&peer, maximum));
+    assert!(
+        !network.low_allow_bytes(&peer, 1),
+        "idle refill remains bounded by the finite burst"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn low_byte_posts_and_broadcasts_charge_materialized_data_framing() {
+    for broadcast in [false, true] {
+        let mut network = bare_network().expect("local network fixture");
+        let peer = test_peer(socket_addr!(127.0.0.1:12055));
+        let (handle, _receivers) = test_wire_peer_handle::<DummyMsg>(4);
+        insert_dummy_ref_peer(
+            &mut network,
+            peer.id().clone(),
+            peer.address().clone(),
+            155,
+            handle,
+        );
+        network.current_topology.insert(peer.id().clone());
+        let target = if broadcast {
+            RelayTarget::Broadcast
+        } else {
+            RelayTarget::Direct(peer.id().clone())
+        };
+        let relay =
+            RelayMessage::new_signed(&network.key_pair, target, network.relay_ttl, DummyMsg);
+        let plaintext = crate::peer::materialized_data_message_wire_len(relay).unwrap();
+        network.low_bytes_per_sec = Some(1.0);
+        network.low_bytes_burst = f64::from(u32::try_from(plaintext).unwrap());
+        if broadcast {
+            network.broadcast_low(Broadcast {
+                data: DummyMsg,
+                priority: Priority::Low,
+            });
+        } else {
+            network.post_low(Post {
+                data: DummyMsg,
+                peer_id: peer.id().clone(),
+                priority: Priority::Low,
+            });
+        }
+        assert!(network.low_bytes_buckets.contains_key(peer.id()));
+        assert!(
+            !network.low_allow_bytes(peer.id(), 1),
+            "the Data wrapper/header must also be charged"
+        );
+    }
 }
 #[test]
 fn topology_update_interval_uses_configured_period() {

@@ -304,10 +304,8 @@ Defaults first: configuration values are curated for typical Iroha blockchain de
 - `[telemetry]`: Optional destination and retry policies for metrics/events. The collector URL must use `ws` or `wss`; `min_retry_period_ms` is clamped to >=100ms and `max_retry_delay_exponent` must be <=16. Telegram credentials are an all-or-none pair, `telegram_include_metrics` uses a bounded core-actor refresh followed by an in-process registry read, and configured-but-inactive sinks are startup errors rather than ignored compatibility settings. The retired Telegram metrics URL/period keys are rejected.
 - `[dev_telemetry]`: Developer-only structured JSON sink. Its parent directory and file must be owned by the process user, the directory must not be group/other-writable, and the file is held as an exclusive mode-0600 single-link regular file on Unix.
 - `[pipeline]`: Execution pipeline: parallel overlay construction/apply, worker count, overlay bounds, signature batch limits, and Kotodama admission guardrails. These settings cannot enable `Executable::IvmProved`. Production admission rejects proof-backed IVM execution, including trigger registration, until the complete native STARK execution relation and State-owned finalized anchor are implemented and qualified. The retired binding-only verifier-key record and deterministic replay do not authorize private execution.
-  - `ivm_max_cycles_upper_bound` is the mandatory positive ceiling for the `max_cycles` header value accepted from Kotodama bytecode. The default is `1000000`; `0` is rejected during configuration loading. This consensus-relevant value is read only from the configuration file and has no environment-variable alias.
-  - `ivm_max_decoded_instructions` limits the number of decoded VM instructions per contract. `0` disables the check.
-  - `ivm_max_decoded_bytes` limits the decoded byte length after instruction expansion. `0` disables the check.
-  - `query_max_fetch_size` caps iterable query `fetch_size` for IVM query syscalls (0 clamps to 1). Torii endpoints continue to use `torii.app_api.max_fetch_size`.
+  - The execution limits of the pipeline are not node configuration. Overlay bounds (`overlay_max_instructions`, `overlay_max_bytes`, `overlay_chunk_instructions`), the IVM admission bounds (`ivm_max_cycles_upper_bound`, `ivm_max_decoded_instructions`, `ivm_max_decoded_bytes`), the quarantine lane (`quarantine_max_txs_per_block`, `quarantine_tx_max_cycles`), the IVM query limits (`query_max_fetch_size`, `query_stored_min_gas_units`), the AMX budget model (`amx_*`) and `dynamic_prepass` are fields of the committed chain parameter `pipeline_validity_policy_v1` (`iroha_data_model::pipeline_validity_policy`). An authorized `SetParameter` installs or changes it, in genesis or later, and a change governs the blocks after the one that commits it; a chain that never installs it uses the protocol defaults (cycle ceiling `1000000`, `0` meaning unlimited or disabled as before). A configuration file that names one of these keys fails to load with an unknown-parameter error, and none has an environment-variable alias.
+  - `[pipeline.gas]` (fee collection account, accepted assets and conversion rates) is still node configuration bound by the signed genesis context; its committed source is open work.
 - `[norito]`: Serialization tuning for Norito (compression sizes/levels and adaptive layout toggles). Deterministic by design. `max_archive_len` defaults to 512 MiB and is clamped to at least `network.max_frame_bytes` so every admitted network frame remains decodable.
 - `[streaming]`: Control-plane key material for Norito streaming (HPKE + control signatures).
   - `identity_public_key` plus exactly one of `identity_private_key` or `identity_private_key_file` (optional): an Ed25519 identity that overrides the node’s main key pair for streaming signatures. Production profiles use the bounded owner-held file form. `identity_public_key` may be omitted when a private source is set; it is then derived from the private key. Omitting all three fields reuses the node identity.
@@ -408,18 +406,22 @@ Defaults first: configuration values are curated for typical Iroha blockchain de
     - `[[sccp.light_client_keeper.secret_headers]]` (optional, repeatable, at most 64):
       `endpoint`, `header` (an HTTP token that the RPC client does not set itself) and
       `value_file`, an owner-only file holding the value. Inline values are refused.
-- `[zk]`: Zero-knowledge and SCCP verification settings. Worker counts, queue sizes, and timing
-  knobs are operator-local; acceptance limits are consensus-critical and are committed into the
-  block ZK/SCCP policy digest, so every validator must use the same file-backed values.
-  - `[zk.sccp]`: mandatory non-zero per-proof, per-transaction, and per-block native verifier
-    work limits for SCCP inbound source proofs: proof bytes, proof count, native headers, Ethereum
-    light-client updates, native header bytes, Ed25519 signature checks and BSC vote
-    attestations (`specs/sccp.md` §4.1). Transaction limits may not exceed block
-    limits, and the per-proof byte limit may not exceed the transaction byte limit. These fields
-    deliberately have no environment aliases.
-  - `halo2.verifier_worker_threads` / `halo2.verifier_queue_cap` (defaults: `0` / `0`): size the ZK lane verifier worker pool and ingress queue. Zero keeps auto-derivation (`available_parallelism`, queue headroom scaled by workers).
-  - `halo2.verifier_enqueue_wait_ms` (default: `25`): bounded enqueue wait used before classifying a saturated admission as timeout.
-  - `halo2.verifier_retry_ring_cap` / `halo2.verifier_retry_max_attempts` / `halo2.verifier_retry_tick_ms` (defaults: `2048` / `3` / `5`): in-memory replay policy for important ZK lane tasks (`tx_hash` present). Saturated important tasks enter the retry ring and are replayed opportunistically; exhausted entries increment `iroha_zk_lane_retry_exhausted_total`.
+- `[zk]`: local resources of zero-knowledge verification and proving only: verifier worker
+  counts, queue sizes and timing knobs, and the FASTPQ prover settings. Acceptance limits,
+  windows, native verifier selection, relation-selecting keys and the verification gas schedule are
+  consensus-critical chain policy: the committed `zk_validity_policy_v1` parameter (set in the
+  genesis manifest or by an authorized `SetParameter`, effective from the next block; the
+  protocol default applies when a chain commits none). A configuration file or environment
+  variable that names one of them fails to load with an unknown-parameter error.
+  - The policy's `sccp` section holds the mandatory non-zero per-proof, per-transaction, and
+    per-block native verifier work limits for SCCP inbound source proofs: proof bytes, proof
+    count, native headers, Ethereum light-client updates, native header bytes, Ed25519 signature checks and BLS vote attestations (`specs/sccp.md` §4.1).
+    Transaction limits may not exceed block limits, and the per-proof byte limit may not exceed
+    the transaction byte limit; the policy validation rejects a payload that violates this.
+  - `trace.worker_threads` / `trace.queue_cap` (defaults: `0` / `0`): diagnostic worker pool and ingress queue; zero derives bounded values from available parallelism.
+  - `trace.enqueue_wait_ms` (default: `25`): bounded diagnostic enqueue wait.
+  - `trace.retry_ring_cap` / `trace.retry_max_attempts` / `trace.retry_tick_ms` (defaults: `2048` / `3` / `5`): local diagnostic retry resources.
+  - `ipa_commitment`: diagnostic polynomial-opening bounds; these do not grant ledger authority.
   - Telemetry: `iroha_zk_lane_{pending_depth,retry_ring_depth,enqueue_wait_total,enqueue_timeout_total,retry_enqueued_total,retry_replayed_total,retry_exhausted_total,drop_total{reason}}` expose saturation/replay health.
   - `fastpq.execution_mode` (default: `"cpu"`): select the FASTPQ prover backend (`cpu` or `gpu`). CPU pins the deterministic scalar path; GPU requires the compiled accelerator support and a successful runtime preflight or leaves the proof lane disabled. Production builds ship the Stage 6 backend by default via `fastpq_prover::Prover::canonical`. Telemetry increments `fastpq_execution_mode_total{requested,resolved,backend,device_class,chip_family,gpu_kind}` so fleet dashboards can verify that nodes resolve to the expected accelerator set per hardware profile.【crates/iroha_config/src/parameters/defaults.rs:3711】【crates/iroha_config/src/parameters/actual.rs:1882】
   - `fastpq.device_class` (default: unset ⇒ exported as `device_class="unknown"`): optional label describing the hardware profile (e.g., `apple-m4`, `xeon-rtx-sm80`, `neoverse-mi300`). Configure it via TOML or `FASTPQ_DEVICE_CLASS`; blank strings are ignored.【crates/iroha_config/src/parameters/user.rs:1224】

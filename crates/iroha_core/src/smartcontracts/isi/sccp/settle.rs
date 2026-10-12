@@ -2,7 +2,8 @@
 //! (`specs/sccp.md` §4.12.3, §4.12.5, §4.16). Owner: ws41.
 //!
 //! A proven inbound message settles when SCCP is enabled and its revision is `Bidirectional`
-//! or `InboundOnly`; otherwise it stays `Pending` with a reason. A creditable recipient is
+//! or `InboundOnly` and its Taira hold is inactive at executing ledger time; otherwise it
+//! stays `Pending` with a reason. A creditable recipient is
 //! released `amount − fee_due` (the fee goes to the Nexus fee sink); a recipient that can never
 //! be credited bounces the value back to the source-chain sender through a new outbound
 //! message. A voided outbound record is refunded to its sender, or moved to `stranded(route)`
@@ -19,7 +20,7 @@
 //! local fee-sink read that did not complete, which defers the transaction.
 
 use super::{
-    Error, escrow, holds, leaves,
+    Error, escrow, leaves,
     outbound::{self, OutboundRecordArgsV1},
     recipients::{self, SccpRecipientClassV1},
     store,
@@ -88,9 +89,19 @@ pub(super) fn adjust_liability(
     Ok(())
 }
 
+fn activation(
+    world: &(impl WorldReadOnly + ?Sized),
+    network: SccpNetworkV1,
+    revision: u32,
+) -> Option<(SccpRouteActivationV1, u128)> {
+    store::routes::get(world, &network)
+        .and_then(|route| route.revisions.get(&revision))
+        .map(|record| (record.activation, record.liability))
+}
+
 /// Return whether settling the `Pending` inbound `record` of `amount` Taira units can release
 /// or bounce it against `world` (§4.12.4): SCCP is enabled, the revision settles and its
-/// liability covers the amount, and no forgery/quarantine hold applies.
+/// liability covers the amount.
 ///
 /// These are the holds a settlement decides before any effect (`Disabled`,
 /// `RevisionNotSettleable`, `Held`, `LiabilityShortfall`), so a `false` is certain. The holds the
@@ -101,19 +112,14 @@ pub fn inbound_settlement_may_progress(
     world: &(impl WorldReadOnly + ?Sized),
     record: &SccpInboundRecordV1,
     amount: u128,
+    committed_time_ms: Option<u64>,
 ) -> bool {
-    let enabled = store::parameters::get(world)
-        .as_ref()
-        .is_some_and(|params| params.enabled);
-    enabled
-        && record.status.is_pending()
-        && store::routes::get(world, &record.network)
-            .and_then(|route| route.revisions.get(&record.revision))
-            .is_some_and(|revision| {
-                revision.activation.settles()
-                    && revision.liability >= amount
-                    && !holds::forgery_or_quarantine(world, revision)
-            })
+    super::eligibility::inbound_may_progress(
+        &super::eligibility::Current(world),
+        record,
+        amount,
+        committed_time_ms,
+    )
 }
 
 fn set_inbound_status(
@@ -198,15 +204,18 @@ pub fn settle_inbound(
     let enabled = store::parameters::get(world)
         .as_ref()
         .is_some_and(|params| params.enabled);
-    let revision_state = store::routes::get(world, &network)
-        .and_then(|route| route.revisions.get(&revision))
-        .ok_or_else(|| refuse("the revision is unknown"))?;
-    let liability = revision_state.liability;
+    let (activation, liability) =
+        activation(world, network, revision).ok_or_else(|| refuse("the revision is unknown"))?;
     let hold = if !enabled {
         Some(SccpPendingReasonV1::Disabled)
-    } else if !revision_state.activation.settles() {
+    } else if !activation.settles() {
         Some(SccpPendingReasonV1::RevisionNotSettleable)
-    } else if holds::forgery_or_quarantine(world, revision_state) {
+    } else if super::hold::taira(
+        world,
+        network,
+        revision,
+        Some(state_transaction.block_unix_timestamp_ms()),
+    ) {
         Some(SccpPendingReasonV1::Held)
     } else {
         None
@@ -384,7 +393,13 @@ fn bounce_inbound(
             false,
         );
     }
-    let bounce_revision = bounce_target(&*state_transaction.world, network, revision, amount);
+    let bounce_revision = bounce_target(
+        &*state_transaction.world,
+        network,
+        revision,
+        amount,
+        state_transaction.block_unix_timestamp_ms(),
+    );
     let escrow_account = store::routes::get(&*state_transaction.world, &network)
         .map(|route| route.escrow.clone())
         .ok_or_else(|| refuse("the route is unknown"))?;
@@ -431,21 +446,23 @@ fn to_i128(amount: u128) -> Result<i128, Error> {
     i128::try_from(amount).map_err(|_| refuse("amount out of range"))
 }
 
-/// The bounce target revision: the route's unheld `Bidirectional` revision when its cap has
-/// room, else the already-checked unheld inbound revision itself (§4.12.5).
+/// The bounce target revision: the route's `Bidirectional` revision when its cap has room,
+/// else the inbound revision itself (§4.12.5).
 ///
-/// TODO(ws41): skip a paused, frozen or broken-chain target and hold the message when none is
-/// usable, and re-bounce a voided bounce instead of stranding it (`specs/sccp.md` §13, Q10).
+/// Destination-only pauses do not block a bounce: §4.12.5 skips outbound steps 1–6.
+/// TODO: WP-S6: consult actual quarantine/forgery State and strand a quarantined fallback
+/// once that owner exists. No synthetic quarantine authority is supplied here.
 fn bounce_target(
     world: &(impl WorldReadOnly + ?Sized),
     network: SccpNetworkV1,
     revision: u32,
     amount: u128,
+    timestamp_ms: u64,
 ) -> u32 {
     store::routes::get(world, &network)
         .and_then(|route| route.bidirectional_revision())
         .filter(|live| {
-            !holds::forgery_or_quarantine(world, live)
+            !super::hold::taira(world, network, live.revision, Some(timestamp_ms))
                 && live
                     .liability
                     .checked_add(amount)
@@ -458,7 +475,7 @@ fn bounce_target(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SccpRefundOutcomeV1 {
     /// The refund still waits for `SettleSccpV1::Refund`: SCCP is disabled, the revision is
-    /// paused or held, the release movement refuses the credit now, or the void releases no value
+    /// not settleable or held on Taira, the release movement refuses the credit now, or the void releases no value
     /// inline to this sender (its inline release budget is spent, or the sender is a multisig
     /// account).
     ///
@@ -492,9 +509,9 @@ impl SccpRefundOutcomeV1 {
 /// Attempt the refund of the voided outbound message `message_id` (§4.16), emit the events of
 /// its effects, and return the outcome.
 ///
-/// A refund proceeds when SCCP is enabled, the revision is not `Paused`, and no
-/// forgery/quarantine hold applies; otherwise it waits for `SettleSccpV1::Refund`.
-/// A hold precedes recipient classification, registration, release and stranding.
+/// A refund proceeds when SCCP is enabled, the revision settles, and no Taira hold applies;
+/// otherwise it waits
+/// for `SettleSccpV1::Refund`.
 ///
 /// # Errors
 ///
@@ -538,12 +555,16 @@ pub(super) fn refund(
     let enabled = store::parameters::get(world)
         .as_ref()
         .is_some_and(|params| params.enabled);
-    let revision_state = store::routes::get(world, &network)
-        .and_then(|route| route.revisions.get(&revision))
-        .ok_or_else(|| refuse("the revision is unknown"))?;
+    let (activation, _) =
+        activation(world, network, revision).ok_or_else(|| refuse("the revision is unknown"))?;
     if !enabled
-        || revision_state.activation == SccpRouteActivationV1::Paused
-        || holds::forgery_or_quarantine(world, revision_state)
+        || !activation.settles()
+        || super::hold::taira(
+            world,
+            network,
+            revision,
+            Some(state_transaction.block_unix_timestamp_ms()),
+        )
     {
         return Ok(SccpRefundOutcomeV1::Held { changed: false });
     }

@@ -41,12 +41,14 @@ pub enum ExportError {
 impl From<PrivateDataspaceAnchorError> for ExportError {
     fn from(error: PrivateDataspaceAnchorError) -> Self {
         match error {
-            PrivateDataspaceAnchorError::Resource(resource) => Self::Deferred(match resource {
-                norito::core::DecodeResourceError::AllocationFailed { .. } => {
-                    ivm::error::ExecutionDeferral::AllocationUnavailable.into()
+            PrivateDataspaceAnchorError::Resource(resource) => {
+                match crate::execution_attempt::canonical_decode_attempt_error(resource, |error| {
+                    PrivateDataspaceAnchorError::Invalid(error.to_string())
+                }) {
+                    ExecutionAttemptError::Deferred(original) => Self::Deferred(original),
+                    ExecutionAttemptError::Rejected(invalid) => Self::Profile(invalid),
                 }
-                _ => ivm::error::ExecutionDeferral::ActiveMemoryCapacity.into(),
-            }),
+            }
             invalid => Self::Profile(invalid),
         }
     }

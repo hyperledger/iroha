@@ -3507,23 +3507,26 @@ fn quote_app_api_transaction_builder(
             "failed to quote {context} transaction fees: multi-route execution is unsupported"
         )));
     };
-    let latest_header = state.latest_block_header_fast();
-    let observation_time_ms = latest_header
-        .as_ref()
-        .map_or(0, |header| header.creation_time_ms);
-    let next_block_height = latest_header
-        .as_ref()
-        .map_or(1, |header| header.height().get().saturating_add(1));
-    let nexus = state.nexus_snapshot();
-    let pipeline = state.pipeline_snapshot();
+    let quote_view = state.query_view();
+    let sccp_committed_time_ms = iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&quote_view).map_err(|error| {
+        Error::Query(iroha_data_model::ValidationFail::InternalError(format!(
+            "fee quote has invalid committed time: {error:?}"
+        )))
+    })?;
+    let observation_time_ms = sccp_committed_time_ms.unwrap_or(0);
+    let next_block_height = u64::try_from(quote_view.height())
+        .ok()
+        .and_then(|height| height.checked_add(1))
+        .ok_or_else(|| conversion_error("fee quote committed height overflow".to_owned()))?;
     let quote = {
-        let world = state.world_view();
         iroha_core::executor::quote_nexus_fee_admission_draft(
-            &world,
-            &nexus,
-            &pipeline,
+            quote_view.world(),
+            quote_view.nexus(),
+            quote_view.pipeline(),
+            &quote_view.zk().gas,
             &payload,
             observation_time_ms,
+            sccp_committed_time_ms,
             next_block_height,
             Some(route.route.dataspace_id),
         )
@@ -3539,6 +3542,7 @@ fn quote_app_api_transaction_builder(
             error.code()
         )),
     })?;
+    drop(quote_view);
     if !payload
         .fee_payment
         .has_same_payer_and_gas_bound(&quote.recommended_intent)
@@ -15143,6 +15147,45 @@ fn decode_app_api_transaction_payload_b64(
     }
     Ok((payload, bytes))
 }
+#[cfg(test)]
+mod app_api_transaction_payload_bound_tests {
+    use super::decode_app_api_transaction_payload_b64;
+    use base64::Engine as _;
+
+    /// The bound `decode_app_api_transaction_payload_b64` applies to the decoded field.
+    const BOUND: usize = 16 * 1024 * 1024;
+
+    fn refusal(decoded_bytes: usize) -> String {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(vec![0_u8; decoded_bytes]);
+        match decode_app_api_transaction_payload_b64(&encoded) {
+            Ok(_) => panic!("a field of {decoded_bytes} zero bytes is no transaction payload"),
+            Err(error) => format!("{error:?}"),
+        }
+    }
+
+    #[test]
+    fn payload_field_of_exactly_the_bound_passes_the_size_checks_and_one_byte_more_is_refused() {
+        // Exactly the bound passes both size checks and reaches the payload decoder,
+        // which refuses the zero bytes for what they are, not for their length.
+        let at_bound = refusal(BOUND);
+        assert!(
+            at_bound.contains("canonical TransactionPayload"),
+            "a field of exactly the bound is refused by the decoder: {at_bound}"
+        );
+        // One byte more has the same base64 length; the decoded length refuses it.
+        let over = refusal(BOUND + 1);
+        assert!(
+            over.contains("canonical padded base64 within the protocol bound"),
+            "a field one byte above the bound is refused for its size: {over}"
+        );
+        // A longer base64 text is refused before it is decoded.
+        let longer = refusal(BOUND + 3);
+        assert!(
+            longer.contains("between 1 and 16777216 decoded bytes"),
+            "a longer field is refused by its encoded length: {longer}"
+        );
+    }
+}
 fn evaluate_contract_view_request(
     state: Arc<CoreState>,
     req: ContractViewDto,
@@ -26435,9 +26478,12 @@ pub fn handle_proof_retention_status(
 ) -> Result<iroha_torii_shared::ProofRetentionStatus> {
     let world = state.world_view();
     let height_hint = u64::try_from(state.committed_height()).unwrap_or(0);
-    let cap = state.zk.proof_history_cap;
-    let grace_blocks = state.zk.proof_retention_grace_blocks;
-    let prune_batch = state.zk.proof_prune_batch;
+    // Proof retention is committed ZK validity policy: report the effective
+    // values, not the ones this node installed.
+    let zk = state.zk_snapshot();
+    let cap = zk.proof_history_cap;
+    let grace_blocks = zk.proof_retention_grace_blocks;
+    let prune_batch = zk.proof_prune_batch;
     let retention_floor = height_hint.saturating_sub(grace_blocks);
     let mut per_backend: std::collections::BTreeMap<&str, ProofRetentionBackendSummary> =
         std::collections::BTreeMap::new();
@@ -42285,8 +42331,8 @@ mod cursor_mode_tests {
         mode: iroha_config::parameters::actual::QueryCursorMode,
     ) -> Arc<State> {
         let mut state = make_minimal_state(authority);
-        state.pipeline.query_default_cursor_mode = mode;
-        state.pipeline.query_stored_min_gas_units = 200;
+        state.edit_pipeline_for_testing(|pipeline| pipeline.query_default_cursor_mode = mode);
+        state.edit_pipeline_for_testing(|pipeline| pipeline.query_stored_min_gas_units = 200);
         Arc::new(state)
     }
     async fn run_query(
@@ -43421,7 +43467,8 @@ mod validation_fee_torii_ingress_tests {
         stx.world
             .parameters_mut_for_testing()
             .get_mut()
-            .set_parameter(Parameter::Custom(custom_registry));
+            .set_parameter(Parameter::Custom(custom_registry))
+            .expect("valid fixture parameters");
         stx.apply();
         block
             .commit_world_overlay_for_testing()
@@ -54921,7 +54968,7 @@ fn transaction_detail_at_height(
     };
     let block = HistoryReadBudget::new().read(state, nonzero_height)?;
     let block_ref = block.as_ref();
-    for (entrypoint_index, entrypoint_hash, tx, result) in
+    for (entrypoint_index, entrypoint_hash, tx, _) in
         external_signed_transaction_results(block_ref)
     {
         if !visibility.allows_external_entrypoint(block_ref, entrypoint_index) {
@@ -54947,7 +54994,7 @@ fn instruction_detail_at_height(
     };
     let block = HistoryReadBudget::new().read(state, nonzero_height)?;
     let block_ref = block.as_ref();
-    for (entrypoint_index, entrypoint_hash, tx, result) in
+    for (entrypoint_index, entrypoint_hash, tx, _) in
         external_signed_transaction_results(block_ref)
     {
         if !visibility.allows_external_entrypoint(block_ref, entrypoint_index) {
@@ -54956,7 +55003,7 @@ fn instruction_detail_at_height(
         if !signed_transaction_carrier_matches_indexed_identity(&entrypoint_hash, &tx, &target) {
             continue;
         }
-        let instruction = tx
+        tx
             .instructions()
             .explicit_instructions()
             .nth(lookup_index)
@@ -59002,8 +59049,15 @@ pub async fn handle_schema() -> impl IntoResponse {
     infallible_pretty_json_response(&m, "{}")
 }
 #[iroha_futures::telemetry_future]
-pub async fn handle_get_configuration(kiso: KisoHandle) -> Result<impl IntoResponse> {
-    let dto = kiso.get_dto().await?;
+pub async fn handle_get_configuration(
+    kiso: KisoHandle,
+    state: Arc<CoreState>,
+) -> Result<impl IntoResponse> {
+    let mut dto = kiso.get_dto().await?;
+    // The verification gas schedule is chain policy, not node configuration:
+    // report the schedule State charges (the committed ZK validity policy, or
+    // the protocol default).
+    dto.confidential_gas = (&state.zk_snapshot().gas).into();
     // Serialize the DTO directly so new fields (e.g., SoraNet handshake/Puzzle config)
     // are exposed without hand-maintaining this JSON shape.
     Ok(infallible_pretty_json_response(&dto, "{}"))

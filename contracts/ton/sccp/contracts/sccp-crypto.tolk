@@ -3,10 +3,10 @@
 // Tolk 1.4.2 has no BLS, keccak, SHA-256-over-builders or GLOBALID builtins,
 // so they are declared here as asm wrappers (specs/sccp.md §5.3.7). The
 // Acton emulator suite pins `GLOBALID` and the keccak wrappers in
-// `tests/unit/sccp-vectors.test.tolk`.
-// TODO: WP-TON (map step T7a): pin the SHA-256, BLS and `SDLEXCMP` wrappers
-// in `tests/unit/sccp-bls.test.tolk` against `fixtures/sccp/finality_v1.json`
-// (stack shape and opcode gas at n = 4, 7 and 31, §11.4).
+// `tests/unit/sccp-vectors.test.tolk`, and the SHA-256, BLS and `SDLEXCMP`
+// wrappers in `tests/unit/sccp-bls.test.tolk` against
+// `fixtures/sccp/finality_v1.json` (stack shape and opcode gas at n = 4, 7
+// and 31, §11.4).
 
 /// `GLOBALID` (0xF835): the `global_id` of config parameter 19
 /// (TON mainnet = -239).

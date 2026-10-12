@@ -1143,8 +1143,10 @@ pub mod network {
         nonzero!(128 * 1024 * 1024_usize);
     /// Maximum low-priority stream wire bytes retained per peer, including frame prefixes; the
     /// inbound transport mirrors this as separate process-wide source and alignment-scratch pools.
+    /// This funds plaintext and encryption copies for both 17 MiB BlockSync and gossip
+    /// classes, plus their bounded envelopes, without sharing either class's reservation.
     pub const P2P_OUTBOUND_FRAME_QUEUE_MAX_LOW_BYTES: NonZeroUsize =
-        nonzero!(64 * 1024 * 1024_usize);
+        nonzero!(72 * 1024 * 1024_usize);
     /// Maximum encrypted high-priority outbound frames retained per peer.
     pub const P2P_OUTBOUND_FRAME_QUEUE_MAX_HIGH_FRAMES: NonZeroUsize = nonzero!(8192_usize);
     /// Maximum encrypted low-priority outbound frames retained per peer.
@@ -1207,7 +1209,7 @@ pub mod network {
     // transport message; it was measured on the retired certified-body response.
     pub const MAX_FRAME_BYTES: NonZeroUsize =
         nonzero!(17 * 1024 * 1024_usize + DEFAULT_AEAD_FRAME_OVERHEAD_BYTES);
-    // Per-topic caps (defaults stricter than global except BlockSync)
+    // Per-topic caps describe complete canonical plaintext frames.
     /// Maximum frame size for consensus control traffic.
     ///
     /// Consensus certificates and READY bundles can scale with validator set size, so keep
@@ -1222,11 +1224,9 @@ pub mod network {
     pub const MAX_FRAME_BYTES_CONTROL: NonZeroUsize = nonzero!(2 * 1024 * 1024_usize);
     /// Maximum frame size for block sync / consensus payload traffic.
     pub const MAX_FRAME_BYTES_BLOCK_SYNC: NonZeroUsize = MAX_PLAINTEXT_FRAME_BYTES;
-    /// Maximum frame size for transaction gossip.
-    // TODO(X.2): a transaction above this frame is not gossiped, so a maximum-proof
-    // transaction is proposed only when its ingress node leads
-    // (`specs/zk_resource_contract.json`, `gossip_frame_carries_max_transaction`).
-    pub const MAX_FRAME_BYTES_TX_GOSSIP: NonZeroUsize = nonzero!(262_144_usize); // 256 KiB
+    /// Maximum complete transaction-gossip frame, including signed relay metadata.
+    /// This carries the maximum committed transaction under the global plaintext ceiling.
+    pub const MAX_FRAME_BYTES_TX_GOSSIP: NonZeroUsize = MAX_PLAINTEXT_FRAME_BYTES;
     /// Maximum frame size for peer gossip.
     pub const MAX_FRAME_BYTES_PEER_GOSSIP: NonZeroUsize = nonzero!(65_536_usize); // 64 KiB
     /// Maximum frame size for health-check channel messages.
@@ -2394,6 +2394,8 @@ pub mod torii {
     pub const QUERY_FANOUT_MAX_RETAINED_BYTES: Bytes = Bytes(512_000_000);
     /// Maximum complete working set owned by one query, independent of aggregate concurrency.
     pub const QUERY_FANOUT_MAX_WORKING_SET_BYTES: Bytes = Bytes(48_000_000);
+    /// Persistent SCCP history-node backing, independent of transient query leases.
+    pub const SCCP_HISTORY_CACHE_MAX_BYTES: Bytes = Bytes(8_000_000);
     /// Minimum aggregate V1 query-memory pool for four ingress slots plus one fanout.
     pub const QUERY_FANOUT_MIN_POOL_BYTES_V1: u64 = 20_000_000;
     /// Source-derived route/catalogue/key/candidate bytes in one V1 fanout.
@@ -4048,9 +4050,10 @@ pub mod accel {
     pub const ARTIFACT_BYTES: usize = RESOURCE_LIMITS.artifact_bytes;
 }
 /// Zero-knowledge subsystem defaults used by Torii and the host runtime.
-// TODO(F.4): the proof-size, circuit-size and SCCP limits below decide validity but are read
-// from node configuration and bound into State only as a hash. Move their source into
-// committed State (`specs/zk_resource_contract.json`, bounds `proof.config_*`).
+// The proof-size, circuit-size and SCCP limits below are the protocol default of the committed
+// `zk_validity_policy_v1` parameter (`iroha_data_model::zk_validity_policy`): a chain that
+// commits no policy runs under them, and the node configuration schema has no key for them
+// (`specs/zk_resource_contract.json`, bounds `proof.config_*`).
 pub mod zk {
     /// SCCP proof-admission and deterministic verifier-work defaults.
     pub mod sccp {

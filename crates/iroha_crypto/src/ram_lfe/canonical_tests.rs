@@ -168,12 +168,9 @@ fn specified_frame<'a>(document: &'a str, frame: &str) -> (&'a str, Vec<&'a str>
     (row, fields.split('`').skip(1).step_by(2).collect())
 }
 
+/// The specification with Unix line endings, whatever the checkout wrote.
 fn specification() -> String {
-    let path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../specs/ram_lfe_execution_proof.md"
-    );
-    std::fs::read_to_string(path).expect("tracked RAM-LFE specification")
+    crate::ram_lfe::specification_tests::repository_file("specs/ram_lfe_execution_proof.md")
 }
 
 #[test]
@@ -186,6 +183,133 @@ fn specification_lists_every_domain_and_context() {
     }
     for context in RAM_LFE_V1_PRIVATE_CONTEXTS {
         assert!(listed(context), "specification lacks context {context}");
+    }
+}
+
+/// The sentence of the specification that defines the digest of a committed byte
+/// string, compared with what the byte-string commitments hash.
+#[test]
+fn specification_states_the_digest_that_byte_strings_are_committed_with() {
+    use blake2::{
+        Blake2b,
+        digest::{Digest as _, consts::U32},
+    };
+
+    let document = specification();
+    let start = document
+        .find("A byte string is committed through the last row:")
+        .expect("specification defines how a byte string is committed");
+    let paragraph: String = document[start..]
+        .split("\n\n")
+        .next()
+        .unwrap()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        paragraph.contains(
+            "`length` is a u64 and `digest` is the Iroha Blake2b-256 `Hash` of the bytes, \
+             with the low bit of its last byte set (`Hash::new`); it is not the unmarked \
+             Blake2b output."
+        ),
+        "the specification must state the digest the code commits: {paragraph}"
+    );
+    assert!(
+        !document.contains("plain Blake2b"),
+        "no committed digest is the unmarked Blake2b output"
+    );
+
+    // The code: `Hash::new` is Blake2b-256 with the low bit of the last byte set. A byte
+    // string whose unmarked digest has that bit clear tells the two apart.
+    let unmarked = |bytes: &[u8]| -> [u8; 32] { Blake2b::<U32>::digest(bytes).into() };
+    let bytes = (0_u8..=u8::MAX)
+        .map(|byte| [byte; 3])
+        .find(|bytes| unmarked(bytes)[31] & 1 == 0)
+        .expect("some three-byte string has an unmarked digest with a clear low bit");
+    let plain = unmarked(&bytes);
+    let mut marked = plain;
+    marked[31] |= 1;
+    assert_ne!(plain, marked);
+    assert_eq!(Hash::new(bytes).as_ref(), &marked);
+
+    // The frame of the last row holds the length and the marked digest, never the
+    // unmarked one, and every byte-string role commits exactly that frame under its
+    // own domain.
+    let frame = norito::encode_canonical(&OpaqueBytesInputV1 {
+        length: 3,
+        digest: Hash::new(bytes),
+    })
+    .unwrap();
+    let holds = |digest: &[u8; 32]| frame.windows(32).any(|window| window == digest);
+    assert!(holds(&marked) && !holds(&plain));
+    let expected = |domain: &[u8]| public_digest(domain, &frame);
+    let committed: [(&[u8], Hash); 10] = [
+        (
+            PROFILE_DOMAIN,
+            *RamLfeProfileIdV1::from_descriptor(&bytes)
+                .unwrap()
+                .as_hash(),
+        ),
+        (
+            RELATION_DOMAIN,
+            *RamLfeRelationIdV1::from_descriptor(&bytes)
+                .unwrap()
+                .as_hash(),
+        ),
+        (
+            ENCRYPTION_KEY_DOMAIN,
+            *RamLfeEncryptionKeyCommitmentV1::commit(&bytes)
+                .unwrap()
+                .as_hash(),
+        ),
+        (
+            EVALUATION_KEY_DOMAIN,
+            *RamLfeEvaluationKeyCommitmentV1::commit(&bytes)
+                .unwrap()
+                .as_hash(),
+        ),
+        (
+            OPENING_KEY_DOMAIN,
+            *RamLfeOpeningKeyCommitmentV1::commit(&bytes)
+                .unwrap()
+                .as_hash(),
+        ),
+        (
+            PRF_KEY_DOMAIN,
+            *RamLfePrfKeyCommitmentV1::commit(&bytes).unwrap().as_hash(),
+        ),
+        (
+            INPUT_CIPHERTEXT_DOMAIN,
+            *RamLfeInputCiphertextCommitmentV1::commit(&bytes)
+                .unwrap()
+                .as_hash(),
+        ),
+        (
+            OUTPUT_CIPHERTEXT_DOMAIN,
+            *RamLfeOutputCiphertextCommitmentV1::commit(&bytes)
+                .unwrap()
+                .as_hash(),
+        ),
+        (
+            ASSOCIATED_DATA_DOMAIN,
+            *RamLfeAssociatedDataHashV1::commit(&bytes)
+                .unwrap()
+                .as_hash(),
+        ),
+        (
+            EXECUTION_CONTEXT_DOMAIN,
+            *RamLfeExecutionContextIdV1::commit(&bytes)
+                .unwrap()
+                .as_hash(),
+        ),
+    ];
+    for (domain, commitment) in committed {
+        assert_eq!(
+            commitment,
+            expected(domain),
+            "{}",
+            String::from_utf8_lossy(domain)
+        );
     }
 }
 

@@ -298,6 +298,7 @@ fn native_capture_for(
         "result_preimage_hex": (hex::encode(certificate.result_preimage())),
         "result_hash_hex": (hex::encode(decision.result().0)),
         "result_height": (decision.height()),
+        "result_header_bytes": (crate::sumeragi_finality::certified_result::X_LEN),
         "result_body_alignment": (core::mem::align_of::<ExecutionResultCommitment>()),
         "result_body_codec_identity_hex": (hex::encode(norito::schema::identity::frame_hash::<ExecutionResultCommitment>())),
         "execution_commitment_frame_hex": (hex::encode(norito::encode_canonical(decision.execution()).unwrap())),
@@ -396,8 +397,8 @@ fn schedule_capture(schedule: &crate::sumeragi_finality::ScheduleOutcome) -> nor
             "selection_anchor_hex": (hex::encode(boundary.selection_anchor.as_ref())),
             "predecessor_context_id_hex": (hex::encode(boundary.predecessor_context_id)),
         }))),
-        // This complete-graph frame is deliberately named: R uses the compact
-        // ResultWire projection, whose exact bytes are captured separately.
+        // The result body uses the compact ResultWire projection; R also binds the
+        // original fixed header X. Their exact joined bytes are captured separately.
         "standalone_complete_graph": (codec_capture(schedule)),
     })
 }
@@ -459,9 +460,26 @@ fn saved_capture(name: &str, expected: &norito::json::Value) -> norito::json::Va
     norito::json::from_slice(&std::fs::read(path).expect("native capture")).unwrap()
 }
 
+fn assert_native_result_capture(row: &norito::json::Value) {
+    use crate::sumeragi_finality::{CertifiedResultScope, CertifiedResultV1, result_of_preimage};
+    let preimage = hex::decode(row["result_preimage_hex"].as_str().unwrap()).unwrap();
+    let result = CertifiedResultV1::decode(&preimage, CertifiedResultScope::TairaGlobal).unwrap();
+    assert_eq!(result.preimage().unwrap(), preimage);
+    assert_eq!(
+        hex::encode(result_of_preimage(&preimage).unwrap().0),
+        row["result_hash_hex"].as_str().unwrap(),
+    );
+    assert!(result_of_preimage(&result.commitment().preimage().unwrap()).is_none());
+}
+
 #[test]
 fn npos_schedule_proof_bytes_match_independent_native_capture() {
     let expected = npos_schedule_capture();
+    for case in expected["cases"].as_array().unwrap() {
+        for block in case["blocks"].as_array().unwrap() {
+            assert_native_result_capture(block);
+        }
+    }
     assert_eq!(
         saved_capture("ordinary_load_npos_schedule_v1.json", &expected),
         expected
@@ -472,6 +490,7 @@ fn npos_schedule_proof_bytes_match_independent_native_capture() {
 fn canonical_receipt_and_event_proof_bytes_match_independent_native_capture() {
     let expected = native_capture();
     let saved = saved_capture("ordinary_load_receipt_v1.json", &expected);
+    assert_native_result_capture(&saved);
     assert_eq!(
         saved, expected,
         "receipt/event frame, transcript, codec identity and exact typed-hash preimage must all match the pinned native capture"
@@ -493,6 +512,7 @@ fn canonical_receipt_and_event_proof_bytes_match_independent_native_capture() {
 fn first_load_receipt_and_event_match_independent_native_capture() {
     let expected = first_load_capture();
     let saved = saved_capture("ordinary_first_load_receipt_v1.json", &expected);
+    assert_native_result_capture(&saved);
     assert_eq!(saved, expected);
     let bytes = hex::decode(saved["receipt_frame_hex"].as_str().unwrap()).unwrap();
     let receipt: KagemushaWalletLoadReceiptV1 = norito::decode_canonical(&bytes).unwrap();

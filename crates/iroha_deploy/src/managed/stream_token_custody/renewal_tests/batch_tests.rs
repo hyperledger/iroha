@@ -39,7 +39,7 @@ fn native_renewal_batch_keeps_original_order_fresh_binding_and_per_peer_refusal(
             panic!("the native fixture must not claim SDK authentication provenance");
         };
         actual
-            .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+            .verify(fixture.native.chain.root_scope().into())
             .unwrap();
         assert_eq!(&actual.body.node_id, peer);
         assert_eq!(actual.body.challenge, challenge);
@@ -56,7 +56,7 @@ fn native_renewal_batch_keeps_original_order_fresh_binding_and_per_peer_refusal(
         let expected = source.latest_attestation(peer, &challenge).unwrap();
         expected
             .attestation()
-            .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+            .verify(fixture.native.chain.root_scope().into())
             .unwrap();
         // Each producer reads its real clock. All other signed fields match the serial call.
         let mut expected_body = expected.attestation().body.clone();
@@ -84,7 +84,7 @@ fn native_renewal_batch_keeps_original_order_fresh_binding_and_per_peer_refusal(
             let actual = result.unwrap();
             actual
                 .attestation()
-                .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+                .verify(fixture.native.chain.root_scope().into())
                 .unwrap();
             assert_eq!(&actual.attestation().body.node_id, peer);
             assert_eq!(actual.attestation().body.challenge, next_challenge);
@@ -148,7 +148,7 @@ fn native_renewal_batch_preserves_original_caller_decode_refusals_and_retry() {
         let actual = result.unwrap();
         actual
             .attestation()
-            .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+            .verify(fixture.native.chain.root_scope().into())
             .unwrap();
         assert_eq!(&actual.attestation().body.node_id, peer);
         assert_eq!(actual.attestation().body.challenge, retry);

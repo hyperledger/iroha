@@ -279,19 +279,16 @@ impl<C: PastaCurve> Circuit<C::Base> for Prototype<C> {
                 } else {
                     SerializedFf::mul(&mut glue, &mut range, &mut region, &a, &b)?
                 };
+                // Proper Pasta operands use the three-carry layout on both paths.
+                // Rotation packs the same relation into four Glue rows; its range
+                // witnesses have the same bounds as serialized multiplication.
                 assert_eq!(
                     glue.next_row() - start_glue,
-                    if self.phased { 4 } else { 19 }
+                    if self.phased { 4 } else { 16 }
                 );
                 assert_eq!(
                     range.next_row() - start_range,
-                    if self.phased {
-                        if self.range_bits == 15 { 60 } else { 123 }
-                    } else if self.range_bits == 15 {
-                        70
-                    } else {
-                        143
-                    }
+                    if self.range_bits == 15 { 60 } else { 123 }
                 );
                 let recovered = if let Some(ff) = &mut ff {
                     ff.div(&mut region, &product, &b)?

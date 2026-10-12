@@ -1,22 +1,24 @@
-//! SCCP v1 public record and history API (`specs/sccp.md` §6).
+//! SCCP v1 public read API (`specs/sccp.md` §6).
 //!
-//! Every honest peer serves identical bytes derived only from committed state. Record views
-//! and Merkle paths establish no finality; destinations need an authenticated native
-//! certificate. Responses are Norito or JSON by `Accept`. The checkpoint cover answers
-//! `410 sccp_pruned` when the head covers the height but no covering checkpoint is retained.
-//! History paths of an explicit size and final message states carry a strong `ETag` over the
-//! selected representation and answer a matching `If-None-Match` with `304`.
+//! Every honest peer serves identical bytes derived only from committed state; wallets and
+//! destinations never trust them and verify every bundle themselves. Responses are Norito or
+//! JSON by `Accept`. Proofs select a committed certificate with `?at=record|latest|<H>`.
+//! The checkpoint cover answers `410` when the head covers the height but no checkpoint at or above
+//! it is retained. Immutable responses (proof bundles, history paths of an explicit size and
+//! final message states) carry a strong `ETag` over the selected representation and answer a
+//! matching `If-None-Match` with `304`.
 //!
-//! Each handler is a thin extractor over a `*_response` function of a state view, so the
-//! seeded-state tests exercise exactly what the routes serve.
+//! Metadata projections use one state view. Committee and proof routes acquire an
+//! authenticated committed observation and retain the original funded graphs.
 //!
-//! Native proof routes use one original physical request budget and deadline. Complete the
-//! remaining §6 governance filters, diffs and readiness through their canonical read owners.
+//! TODO: complete the §6 evidence and governance views.
+//! Native routes retain their request
+//! allocation, deadline and cancellation ownership through response publication.
 
-mod native;
+pub(crate) mod native;
 pub(crate) use native::{
-    handler_committee, handler_committee_rotations, handler_control_proof,
-    handler_current_committee, handler_finality, handler_message_proof,
+    handler_committee, handler_control_proof, handler_current_committee, handler_finality,
+    handler_message_proof, handler_rotations,
 };
 
 use axum::{
@@ -91,6 +93,7 @@ pub(crate) struct CoveringQuery {
 
 /// `?size=S` of the history route.
 #[derive(Debug, Default, Clone, crate::json_macros::JsonDeserialize)]
+#[norito(deny_unknown_fields)]
 pub(crate) struct HistoryQuery {
     /// History size (default: the current size).
     #[norito(default)]
@@ -118,16 +121,6 @@ fn error(status: StatusCode, code: &str, message: impl Into<String>) -> Response
 
 fn read_error(read: &SccpReadError) -> Response {
     match read {
-        SccpReadError::Unavailable(_) => error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "sccp_unavailable",
-            read.to_string(),
-        ),
-        SccpReadError::UnsupportedScope => error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "route_unavailable",
-            read.to_string(),
-        ),
         SccpReadError::NotFound(_) => {
             error(StatusCode::NOT_FOUND, "sccp_not_found", read.to_string())
         }
@@ -263,15 +256,26 @@ pub(crate) fn capabilities_response(
     view: &(impl StateReadOnly + ?Sized),
     accept: Option<&ExtractAccept>,
 ) -> Response {
-    let mut capabilities = match read::capabilities(view) {
-        Ok(capabilities) => capabilities,
-        Err(failure) => return read_error(&failure),
-    };
+    let mut capabilities = read::capabilities(view);
     capabilities.path_templates = iroha_torii_shared::route_catalog::sccp::ROUTES
         .iter()
         .map(|route| route.path().to_owned())
         .collect();
     respond(accept, capabilities)
+}
+
+/// Current or explicit generation over one immutable view, with original graph custody.
+#[cfg(test)]
+pub(crate) fn committee_response(
+    view: &(impl StateReadOnly + ?Sized),
+    generation: Option<u64>,
+    accept: Option<&ExtractAccept>,
+) -> Response {
+    let result = generation.map_or_else(
+        || read::current_committee(view.world()),
+        |generation| read::committee(view.world(), generation),
+    );
+    respond_result(accept, result)
 }
 
 /// `GET /v1/sccp/messages/{message_id}` over `view`; final states carry an `ETag`.
@@ -367,13 +371,110 @@ pub(crate) fn controls_response(
     )
 }
 
-/// `GET /v1/sccp/history/{height}?size=S` over `view`; an explicit size is `ETag`ged.
+fn history_read_error(failure: read::SccpHistoryReadError) -> Response {
+    use read::SccpHistoryReadError as Failure;
+    match failure {
+        Failure::MissingCommitment => error(
+            StatusCode::NOT_FOUND,
+            "sccp_not_found",
+            "no SCCP commitment at the requested height",
+        ),
+        Failure::SizeOutOfRange | Failure::IndexOutOfRange => error(
+            StatusCode::BAD_REQUEST,
+            "sccp_invalid_query",
+            failure.to_string(),
+        ),
+        Failure::Admission(_) | Failure::Backing(_) => {
+            crate::native_projection_response::capacity().into_response()
+        }
+        Failure::Inconsistent | Failure::ForeignPool => error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "sccp_history_inconsistent",
+            "stored history cannot be served from its original owner",
+        ),
+    }
+}
+
+/// Encode directly from a borrowed funded graph; every returned byte retains the actual
+/// admitted query owner, including a slice extracted after the HTTP body has been dropped.
+fn respond_funded<T>(
+    owner: &crate::history_producer::HistoryProducerOwner,
+    accept: Option<&ExtractAccept>,
+    headers: &HeaderMap,
+    value: &T,
+    immutable: bool,
+) -> Response
+where
+    T: norito::json::JsonSerialize + norito::core::NoritoSerialize,
+{
+    use crate::utils::ResponseFormat;
+    let selected = match format(accept) {
+        Ok(value) => value,
+        Err(response) => return owner.response(response),
+    };
+    let (content_type, bytes) = match selected {
+        ResponseFormat::Norito => {
+            let encoded = match owner
+                .scope(|| norito::core::to_bytes_bounded(value, owner.response_bytes()))
+            {
+                Ok(bytes) => bytes,
+                Err(_) => return crate::native_projection_response::capacity().into_response(),
+            };
+            (
+                crate::utils::NORITO_MIME_TYPE,
+                crate::response_memory_custody::owned(encoded, owner),
+            )
+        }
+        ResponseFormat::Json => {
+            let encoded = match owner
+                .scope(|| norito::json::to_json_bounded_boxed(value, owner.response_bytes()))
+            {
+                Ok(bytes) => bytes,
+                Err(_) => return crate::native_projection_response::capacity().into_response(),
+            };
+            (
+                "application/json",
+                crate::response_memory_custody::owned(encoded, owner),
+            )
+        }
+    };
+    let bytes = match bytes {
+        Ok(bytes) => bytes,
+        Err(_) => return crate::native_projection_response::capacity().into_response(),
+    };
+    let etag = immutable.then(|| format!("\"{}\"", blake3::hash(&bytes).to_hex()));
+    let mut response = if etag
+        .as_ref()
+        .is_some_and(|etag| crate::utils::if_none_match_matches(headers, etag))
+    {
+        drop(bytes);
+        owner.response(StatusCode::NOT_MODIFIED.into_response())
+    } else {
+        let mut response = match crate::response_memory_custody::json(bytes, owner) {
+            Ok(response) => response,
+            Err(_) => return crate::native_projection_response::capacity().into_response(),
+        };
+        response
+            .headers_mut()
+            .insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+        response
+    };
+    if let Some(etag) = etag {
+        validator_headers(&mut response, &etag);
+    }
+    response
+}
+
+/// `GET /v1/sccp/history/{height}?size=S` under its original query and application owners.
 pub(crate) fn history_response(
     view: &(impl StateReadOnly + ?Sized),
     height: u64,
     query: &HistoryQuery,
     accept: Option<&ExtractAccept>,
     headers: &HeaderMap,
+    cache: &mut read::SccpHistoryNodeCache,
+    cache_budget: &iroha_allocation::AllocationBudget,
+    owner: &crate::history_producer::HistoryProducerOwner,
 ) -> Response {
     let size = match query
         .size
@@ -382,12 +483,21 @@ pub(crate) fn history_response(
         .transpose()
     {
         Ok(size) => size,
-        Err(response) => return response,
+        Err(response) => return owner.response(response),
     };
-    match read::history_path_view(view.world(), height, size) {
-        Ok(path) if size.is_some() => respond_immutable(accept, headers, path),
-        Ok(path) => respond(accept, path),
-        Err(failure) => read_error(&failure),
+    let result = owner.scope(|| {
+        read::history_path_view(
+            view.world(),
+            height,
+            size,
+            cache,
+            cache_budget,
+            owner.cold_frames(),
+        )
+    });
+    match result {
+        Ok(path) => respond_funded(owner, accept, headers, path.view(), size.is_some()),
+        Err(failure) => owner.response(history_read_error(failure)),
     }
 }
 
@@ -525,7 +635,24 @@ pub(crate) async fn handler_history(
     headers: HeaderMap,
     accept: Option<ExtractAccept>,
 ) -> Response {
-    history_response(&app.state.view(), height, &query, accept.as_ref(), &headers)
+    let owner = match crate::history_producer::HistoryProducerOwner::current() {
+        Ok(owner) => owner,
+        Err(error) => return error.into_response(),
+    };
+    let mut cache = app
+        .sccp_history
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    history_response(
+        &app.state.view(),
+        height,
+        &query,
+        accept.as_ref(),
+        &headers,
+        &mut cache,
+        &app.sccp_history_budget,
+        &owner,
+    )
 }
 
 /// `GET /v1/sccp/light-clients`: every installed light client with its head and freeze state.

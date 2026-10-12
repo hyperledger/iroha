@@ -99,6 +99,18 @@ fn header_block_original_first_field_enclosing_cause_keeps_same_source_and_retry
         std::mem::size_of::<u64>()
     );
     let wire = original.encode_wire().unwrap();
+    // Version byte, Norito header, then the root payload and nothing else.
+    let root = wire.len() - 1 - norito::core::Header::SIZE;
+    {
+        let _canonical =
+            norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
+        assert_eq!(
+            root,
+            norito::core::encoded_payload_len(&original).unwrap(),
+            "the frame holds exactly the canonical root payload"
+        );
+    }
+    assert!(root > std::mem::size_of::<u64>());
     let pool = AllocationBudget::new(1 << 20);
     let (source, span) = source_for(&original, &pool);
     let floor = pool.reserved_bytes();
@@ -141,6 +153,22 @@ fn header_block_original_first_field_enclosing_cause_keeps_same_source_and_retry
         cause.into_error().decode_resource_error(),
         ordinary_resource
     );
+    // The archive-view record is not a child field. Both decoders accept a
+    // field ceiling below its complete payload when each actual field fits.
+    for field_limit in [root - 1, root] {
+        let limits = DecodeLimits::new(1 << 20, field_limit, 1 << 20, 1 << 20, 64);
+        let ordinary =
+            with_decode_limits_scope(limits, || crate::block::decode_framed_signed_block(&wire))
+                .unwrap();
+        let admitted =
+            with_decode_limits_scope(limits, || decoder.decode(&source, span, protocol)).unwrap();
+        assert_eq!(admitted, ordinary);
+        assert!(admitted.same_signature_custody(&retry));
+        assert_eq!(admitted.header(), original.header());
+        assert_eq!(admitted.encode_wire().unwrap(), wire);
+        assert_eq!(source.as_slice().as_ptr(), pointer);
+        assert_eq!(Hash::new(source.as_slice()), hash);
+    }
     drop(retry);
     drop(decoder);
     assert_eq!(pool.reserved_bytes(), floor);

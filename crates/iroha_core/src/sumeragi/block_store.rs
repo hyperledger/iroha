@@ -124,35 +124,35 @@ pub struct KuraBlockStore {
     kura: Arc<Kura>,
     hasher: SharedCrypto,
     genesis_height: u64,
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
     staging: Staging,
     execution_budget: AllocationBudget,
     schedule: Arc<dyn AvailabilitySchedule>,
-    result_scope: iroha_data_model::sumeragi_finality::CertifiedResultScope,
 
     read: Mutex<Option<CommittedRead>>,
 }
 impl KuraBlockStore {
     /// Bind Kura to the original State pool and its independently authenticated schedule.
-    /// `result_scope` must come from that same root's opaque execution tip or original signed
+    /// `root_scope` must come from that same root's opaque execution tip or original signed
     /// genesis authority; result bytes never select their own scope.
     #[must_use]
     pub fn new(
         kura: Arc<Kura>,
         hasher: SharedCrypto,
         genesis_height: u64,
+        root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
         staging: Staging,
         execution_budget: AllocationBudget,
         schedule: Arc<dyn AvailabilitySchedule>,
-        result_scope: iroha_data_model::sumeragi_finality::CertifiedResultScope,
     ) -> Self {
         Self {
             kura,
             hasher,
             genesis_height,
+            root_scope,
             staging,
             execution_budget,
             schedule,
-            result_scope,
             read: Mutex::new(None),
         }
     }
@@ -215,7 +215,7 @@ impl KuraBlockStore {
                 self.execution_budget.clone(),
                 self.hasher.clone(),
                 self.schedule.clone(),
-                self.result_scope,
+                self.root_scope,
             ));
         }
         match slot
@@ -330,7 +330,7 @@ impl BodyReader for KuraBlockStore {
             self.execution_budget.clone(),
             self.hasher.clone(),
             self.schedule.clone(),
-            self.result_scope,
+            self.root_scope,
         )))
     }
 }

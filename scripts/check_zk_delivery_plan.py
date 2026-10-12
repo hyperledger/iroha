@@ -30,10 +30,20 @@ records `evidence` with four fields:
   acceptance  [{clause, state, proof}] with state `met`, `partial` or `unmet`.
 A clause is exactly one whole sentence of the task's outputs or acceptance text,
 recorded once. A proof cites at least one recorded path or command verbatim.
-`in_progress` records any nonempty subset of sentences. `implemented` requires one
-`met` entry for every sentence, every command `passed`, every recorded path and
-command cited by a proof and every prerequisite implemented. Recorded status is
-traceability; it grants no runtime permission and qualifies no cryptography.
+A command entry may add `platform_todo` for execution that needs a platform the
+development Mac lacks: {platform, reason, todo_site: {path, marker}, owner}, with
+platform `windows`, `linux`, `physical_x86_64` or `cuda` and owner `H.3` or `V.4`.
+The path is one of `paths`; the marker contains `TODO:` and occurs exactly once in
+that file. Any other key is an error. A platform TODO is open until its command is
+`passed`. `in_progress` records any nonempty subset of sentences. `implemented`
+requires an entry for every sentence, every prerequisite implemented, every recorded
+path and command cited by a proof, no command `failed` and every command without a
+`platform_todo` `passed`; each sentence is `met`, or `partial` with a proof that
+cites an open platform TODO command verbatim. Neither H.3 nor V.4 is `implemented`
+while a platform TODO is open anywhere in the graph. Both formats report
+`open_platform_todos` for every task, their total with each originating command
+counted once, and every open item; an open TODO is never a passed check. Recorded
+status is traceability; it grants no runtime permission and qualifies no cryptography.
 """
 
 from __future__ import annotations
@@ -60,6 +70,18 @@ NON_GATING_TASKS = {"H.3", "V.4", "V.6"}
 TASK_STATUSES = ("planned", "in_progress", "implemented")
 COMMAND_OUTCOMES = ("passed", "failed", "not_run")
 CLAUSE_STATES = ("met", "partial", "unmet")
+# A command entry, and the deferred platform execution that it may carry.
+EVIDENCE_FIELDS = ("source", "paths", "commands", "acceptance")
+ACCEPTANCE_FIELDS = ("clause", "state", "proof")
+COMMAND_FIELDS = ("command", "outcome", "platform_todo")
+PLATFORM_TODO_FIELDS = ("platform", "reason", "todo_site", "owner")
+PLATFORM_TODO_SITE_FIELDS = ("path", "marker")
+PLATFORM_TODO_PLATFORMS = ("windows", "linux", "physical_x86_64", "cuda")
+PLATFORM_TODO_OWNERS = ("H.3", "V.4")
+PLATFORM_TODO_LITERAL = "TODO:"
+# Under `implemented` only a deferred platform check may be unexecuted; nothing may have failed.
+IMPLEMENTED_OUTCOMES = ("passed",)
+IMPLEMENTED_DEFERRED_OUTCOMES = ("passed", "not_run")
 LEDGER_DISPOSITIONS = {
     "requirements": ("retained", "corrected"),
     "findings": ("addressed_in_plan", "addressed_with_correction"),
@@ -355,6 +377,58 @@ def check_evidence_paths(identifier: str, paths: list[str], root: Path | None) -
     return errors
 
 
+def unknown_fields(label: str, record: dict[Any, Any], fields: tuple[str, ...]) -> list[str]:
+    """Report each key outside the admitted fields, in recorded order."""
+    return [f"{label} has an unknown field: {key}" for key in record if key not in fields]
+
+
+def open_platform_todo(entry: dict[str, Any]) -> bool:
+    """Whether a valid command entry defers platform execution that has not passed."""
+    return "platform_todo" in entry and entry["outcome"] != "passed"
+
+
+def check_platform_todo(label: str, todo: Any, paths: list[str] | None, root: Path | None) -> list[str]:
+    """Validate the deferred platform execution that one command entry carries.
+
+    `paths` is the task's recorded path list, or None when that list is malformed.
+    `root` is given only when every recorded path was admitted, so that a marker is
+    looked for in admitted repository files alone.
+    """
+    if not isinstance(todo, dict):
+        return [f"{label} must be an object with platform, reason, todo_site and owner"]
+    errors = unknown_fields(label, todo, PLATFORM_TODO_FIELDS)
+    if todo.get("platform") not in PLATFORM_TODO_PLATFORMS:
+        errors.append(f"{label}.platform must be windows, linux, physical_x86_64 or cuda")
+    reason = todo.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        errors.append(f"{label}.reason must be a nonempty string")
+    site = todo.get("todo_site")
+    if not isinstance(site, dict):
+        errors.append(f"{label}.todo_site must be an object with path and marker")
+    else:
+        errors.extend(unknown_fields(f"{label}.todo_site", site, PLATFORM_TODO_SITE_FIELDS))
+        path, marker = site.get("path"), site.get("marker")
+        listed = paths is None or path in paths
+        if not listed:
+            errors.append(f"{label}.todo_site.path must be one of the task's evidence.paths")
+        marked = isinstance(marker, str) and PLATFORM_TODO_LITERAL in marker
+        if not marked:
+            errors.append(f"{label}.todo_site.marker must be text containing the literal TODO:")
+        if root is not None and listed and marked:
+            # Every occurrence counts, overlapping ones included; the file is read as bytes.
+            sought = b"(?=" + re.escape(marker.encode("utf-8", "surrogatepass")) + b")"
+            try:
+                found = len(re.findall(sought, root.joinpath(*path.split("/")).read_bytes()))
+            except OSError:
+                errors.append(f"{label}.todo_site cannot be examined: {path}")
+            else:
+                if found != 1:
+                    errors.append(f"{label}.todo_site.marker must occur exactly once in {path}: found {found}")
+    if todo.get("owner") not in PLATFORM_TODO_OWNERS:
+        errors.append(f"{label}.owner must be H.3 or V.4")
+    return errors
+
+
 def check_evidence(identifier: str, record: dict[str, Any], root: Path | None) -> list[str]:
     """Validate the evidence a non-planned task records for its status."""
     errors: list[str] = []
@@ -362,19 +436,28 @@ def check_evidence(identifier: str, record: dict[str, Any], root: Path | None) -
     if not isinstance(evidence, dict):
         return [f"{identifier}.evidence must record source, paths, commands and acceptance for a non-planned status"]
     implemented = record.get("status") == "implemented"
+    # A record placed at the wrong level, such as a platform_todo beside the commands, is never silently ignored.
+    errors.extend(unknown_fields(f"{identifier}.evidence", evidence, EVIDENCE_FIELDS))
     source = evidence.get("source")
     if not isinstance(source, str) or not COMMIT_ID.search(source):
         errors.append(f"{identifier}.evidence.source must contain the observed 40-hex commit id")
 
     citable: list[str] | None = []
+    recorded: list[str] | None = None
+    site_root: Path | None = None
     paths = evidence.get("paths")
     if not isinstance(paths, list) or not paths or any(not isinstance(path, str) for path in paths):
         errors.append(f"{identifier}.evidence.paths must be a nonempty list of path strings")
         citable = None
     else:
-        errors.extend(check_evidence_paths(identifier, paths, root))
+        refused = check_evidence_paths(identifier, paths, root)
+        errors.extend(refused)
         citable.extend(paths)
+        # A TODO marker is looked for only where every recorded path was admitted.
+        recorded, site_root = paths, None if refused else root
 
+    # The commands whose platform TODO is open; a partial clause may rest on these alone.
+    deferred: list[str] = []
     commands = evidence.get("commands")
     if not isinstance(commands, list) or not commands or any(
         not isinstance(entry, dict)
@@ -385,10 +468,19 @@ def check_evidence(identifier: str, record: dict[str, Any], root: Path | None) -
         errors.append(f"{identifier}.evidence.commands must record each command with outcome passed, failed or not_run")
         citable = None
     else:
+        for index, entry in enumerate(commands):
+            label = f"{identifier}.evidence.commands[{index}]"
+            errors.extend(unknown_fields(label, entry, COMMAND_FIELDS))
+            if "platform_todo" in entry:
+                errors.extend(check_platform_todo(f"{label}.platform_todo", entry["platform_todo"], recorded, site_root))
+        deferred = [entry["command"] for entry in commands if open_platform_todo(entry)]
         if implemented:
-            unpassed = [entry["command"] for entry in commands if entry["outcome"] != "passed"]
-            if unpassed:
-                errors.append(f"{identifier} cannot be implemented with a failed or unexecuted check: {unpassed[0]}")
+            unadmitted = [
+                entry["command"] for entry in commands
+                if entry["outcome"] not in (IMPLEMENTED_DEFERRED_OUTCOMES if "platform_todo" in entry else IMPLEMENTED_OUTCOMES)
+            ]
+            if unadmitted:
+                errors.append(f"{identifier} cannot be implemented with a failed or unexecuted check: {unadmitted[0]}")
         if citable is not None:
             citable.extend(entry["command"] for entry in commands)
 
@@ -405,7 +497,8 @@ def check_evidence(identifier: str, record: dict[str, Any], root: Path | None) -
     sentences = task_sentences(record)
     quoted: set[str] = set()
     cited: set[str] = set()
-    for entry in clauses:
+    for index, entry in enumerate(clauses):
+        errors.extend(unknown_fields(f"{identifier}.evidence.acceptance[{index}]", entry, ACCEPTANCE_FIELDS))
         clause = entry["clause"].strip()
         if clause in quoted:
             errors.append(f"{identifier}.evidence.acceptance repeats a clause: {clause[:60]}")
@@ -413,7 +506,10 @@ def check_evidence(identifier: str, record: dict[str, Any], root: Path | None) -
         quoted.add(clause)
         if clause not in sentences:
             errors.append(f"{identifier}.evidence.acceptance clause is not one whole sentence of the task: {clause[:60]}")
-        if implemented and entry["state"] != "met":
+        # A clause may stay partial only where its proof cites an open platform TODO command.
+        if implemented and entry["state"] != "met" and not (
+            entry["state"] == "partial" and any(command in entry["proof"] for command in deferred)
+        ):
             errors.append(f"{identifier} cannot be implemented with a clause that is {entry['state']}: {clause[:60]}")
         if citable is not None:
             references = [item for item in citable if item in entry["proof"]]
@@ -442,6 +538,9 @@ def empty_report() -> dict[str, Any]:
         "status_counts": {status: 0 for status in TASK_STATUSES},
         "progress": [],
         "complete_deliveries": [],
+        "open_platform_todos": {},
+        "open_platform_todo_total": 0,
+        "open_platform_todo_items": [],
     }
 
 
@@ -625,6 +724,22 @@ def validate(graph: Any, plan: str, reconciliation: Any, root: Path | None, repo
             errors.append(f"{identifier} cannot be implemented before its prerequisites: {', '.join(pending)}")
     if errors:
         return
+
+    # Each open platform TODO is recorded once, under the task whose command carries it.
+    todos = {
+        identifier: [
+            {"task": identifier, "command": entry["command"], "outcome": entry["outcome"], **entry["platform_todo"]}
+            for entry in nodes[identifier].get("evidence", {}).get("commands", []) if open_platform_todo(entry)
+        ]
+        for identifier in sorted(task_ids)
+    }
+    report["open_platform_todos"] = {identifier: len(items) for identifier, items in todos.items()}
+    report["open_platform_todo_items"] = [item for items in todos.values() for item in items]
+    report["open_platform_todo_total"] = len(report["open_platform_todo_items"])
+    holders = [identifier for identifier, items in todos.items() if items]
+    for identifier in PLATFORM_TODO_OWNERS:
+        if holders and nodes[identifier]["status"] == "implemented":
+            errors.append(f"{identifier} cannot be implemented while a platform TODO is open: {', '.join(holders)}")
 
     # Iterative traversal also handles malformed, very deep graphs predictably.
     ancestors: dict[str, set[str]] = {}
@@ -839,6 +954,19 @@ def main(argv: list[str] | None = None) -> int:
                 f"{counts['implemented']} implemented; {len(report['complete_deliveries'])} deliveries complete."
             )
             lines.extend(f"- {line}" for line in report["progress"])
+            lines.append(
+                f"Open platform TODOs: {report['open_platform_todo_total']} in total; an open TODO is never a passed check."
+            )
+            lines.append("- open_platform_todos: " + ", ".join(
+                f"{identifier} {count}" for identifier, count in report["open_platform_todos"].items()
+            ))
+            # Free text is quoted as JSON, so that each open item stays on one line.
+            lines.extend(
+                f"- {item['task']} open platform TODO, {item['platform']}, owner {item['owner']}, "
+                f"outcome {item['outcome']}: command {json.dumps(item['command'])}; reason {json.dumps(item['reason'])}; "
+                f"site {json.dumps(item['todo_site']['path'])} marker {json.dumps(item['todo_site']['marker'])}"
+                for item in report["open_platform_todo_items"]
+            )
     return 0 if write_report(lines) and report["ok"] else 1
 
 

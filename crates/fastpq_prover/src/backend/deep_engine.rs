@@ -292,8 +292,33 @@ fn verify_decoded(
     proof: &DeepProof,
     proof_bytes: usize,
 ) -> Result<VerifiedDeepProof> {
-    let geometry = DeepGeometry::new()?;
     let binding = Context::for_relation(relation).map_err(binding_error)?;
+    verify_bound(relation, proof, proof_bytes, &binding)
+}
+
+/// Verify a decoded frame under a binding context other than the relation's
+/// frozen one, for binding-mutation tests only. A proof must not verify
+/// under any context that differs from the one it was built under.
+#[cfg(test)]
+pub(super) fn verify_under_binding_for_test(
+    relation: &impl DeepRelation,
+    bytes: &[u8],
+    binding: &Context,
+) -> Result<VerificationWork> {
+    let proof = deep_proof::decode(bytes, deep_proof::MAX_FRAME_BYTES)?;
+    Ok(verify_bound(relation, &proof, bytes.len(), binding)?.work())
+}
+
+/// The complete verification under one binding context: transcript replay,
+/// the out-of-domain identity, authentication of every opening against the
+/// committed roots, every fold and the whole terminal.
+fn verify_bound(
+    relation: &impl DeepRelation,
+    proof: &DeepProof,
+    proof_bytes: usize,
+    binding: &Context,
+) -> Result<VerifiedDeepProof> {
+    let geometry = DeepGeometry::new()?;
     let mut transcript = Transcript::new(binding.clone());
     if transcript.challenge().map_err(binding_error)? != Message::Dummy {
         return Err(shape(
@@ -340,7 +365,7 @@ fn verify_decoded(
     };
     let queries: Vec<_> = queries.into_iter().map(|index| index as usize).collect();
     let plans = deep_proof::preflight(proof, &queries)?;
-    let (initial_leaves, initial_parents) = authenticate(&binding, proof, &plans)?;
+    let (initial_leaves, initial_parents) = authenticate(binding, proof, &plans)?;
     let (fold_checks, fri_leaves, fri_parents) = check_chains(
         &geometry,
         &composition,
@@ -348,7 +373,7 @@ fn verify_decoded(
         &betas,
         &queries,
         proof,
-        &binding,
+        binding,
         &plans,
     )?;
     let leaf_hashes = initial_leaves + fri_leaves;

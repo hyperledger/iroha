@@ -152,6 +152,32 @@ fn restore_reauthenticates_native_current_and_undo_and_rejects_claim_substitutio
     let mut wrong_result = snapshot_claim(chain.state());
     wrong_result.blocks.as_mut().unwrap().result[0] ^= 1;
     assert!(restore(wrong_result).is_err());
+    let mut wrong_scope = snapshot_claim(chain.state());
+    wrong_scope.blocks.as_mut().unwrap().root_scope =
+        iroha_data_model::block::consensus::SumeragiRootScope::Dataspace {
+            parent_network_id: *view.network_id(),
+            dataspace_id: iroha_model_base::topology::DataSpaceId::new(19),
+        };
+    assert!(
+        matches!(restore(wrong_scope), Err(TipRestoreError::History(_))),
+        "a decoded scope cannot replace the authenticated genesis scope"
+    );
+    let mut wrong_undo_scope = snapshot_claim(chain.state());
+    wrong_undo_scope
+        .revert
+        .as_mut()
+        .unwrap()
+        .value
+        .as_mut()
+        .unwrap()
+        .root_scope = iroha_data_model::block::consensus::SumeragiRootScope::Dataspace {
+        parent_network_id: *view.network_id(),
+        dataspace_id: iroha_model_base::topology::DataSpaceId::new(19),
+    };
+    assert!(
+        matches!(restore(wrong_undo_scope), Err(TipRestoreError::History(_))),
+        "the predecessor scope is checked against the same authenticated prefix"
+    );
     let mut wrong_undo = snapshot_claim(chain.state());
     wrong_undo
         .revert
@@ -629,46 +655,24 @@ fn restore_keeps_corrupt_native_history_a_completed_schema_rejection() {
 }
 
 #[test]
-fn restored_root_scope_comes_from_verified_genesis_without_changing_snapshot_wire() {
-    let mut chain = chain();
-    chain.commit(Vec::new());
-    let view = chain.state().view();
-    let current = view.native_execution_tip().unwrap();
-    assert_eq!(
-        current.root_scope(),
-        iroha_data_model::block::consensus::SumeragiRootScope::Global
-    );
-    let serialized = norito::json::to_json(&snapshot_claim(chain.state())).unwrap();
-    assert!(!serialized.contains("root_scope"));
-    assert!(!serialized.contains("result_scope"));
-    let claim: NativeExecutionTipSnapshot = norito::json::from_str(&serialized).unwrap();
-    let hashes = view.block_hashes().iter().copied().collect::<Vec<_>>();
-    let restored = claim
-        .restore(
-            &chain.state().ivm_execution_budget(),
-            view.chain_id(),
-            view.network_id(),
-            &hashes,
-            chain.kura(),
-        )
-        .unwrap();
-    assert_eq!(*restored.view().get(), Some(current));
-    assert_eq!(
-        restored.view().get().unwrap().root_scope(),
-        current.root_scope()
-    );
-    assert_eq!(
-        restored
-            .predecessor_view()
-            .get()
-            .unwrap()
-            .unwrap()
-            .root_scope(),
-        current.root_scope()
-    );
-    let read = view
-        .canonical_history()
-        .executed_block(NonZeroUsize::MIN, |_, _| Ok(()))
-        .unwrap();
-    assert_eq!(read.hash(), chain.genesis().hash());
+fn native_tip_snapshot_scope_is_mandatory_and_objects_are_closed() {
+    let chain = chain();
+    let original = norito::json::to_value(&snapshot_claim(chain.state())).unwrap();
+    let mut missing_scope = original.clone();
+    missing_scope
+        .get_mut("blocks")
+        .unwrap()
+        .as_object_mut()
+        .unwrap()
+        .remove("root_scope");
+    assert!(norito::json::from_value::<NativeExecutionTipSnapshot>(missing_scope).is_err());
+    for path in [None, Some("blocks")] {
+        let mut unknown = original.clone();
+        let object = match path {
+            None => unknown.as_object_mut().unwrap(),
+            Some(key) => unknown.get_mut(key).unwrap().as_object_mut().unwrap(),
+        };
+        object.insert("retired_scope".into(), norito::json::Value::Null);
+        assert!(norito::json::from_value::<NativeExecutionTipSnapshot>(unknown).is_err());
+    }
 }

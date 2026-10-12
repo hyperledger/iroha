@@ -235,6 +235,10 @@ fn queued_genuine_then_future(
     chain.commit_at(3_000, Vec::new());
     let genuine_now = carrier(&chain, original(&chain), 3_100);
     let still_future = carrier(&chain, future(&chain, &keys), 3_101);
+    // Clone shares an initialized canonical-byte Arc; an empty OnceLock is cloned
+    // empty. Materialize both originals before the queue takes its owned clones.
+    let _ = genuine_now.entrypoint_bytes();
+    let _ = still_future.entrypoint_bytes();
     let (_, clock) = TimeSource::new_mock(Duration::from_millis(3_102));
     let queue = std::sync::Arc::new(Queue::test(
         iroha_config::parameters::actual::Queue::default(),
@@ -276,6 +280,14 @@ fn stale_fifo_forgery_spends_no_count_bytes_or_quota_and_retains_original_lease(
                 .collect::<Vec<_>>(),
             hashes
         );
+        assert!(std::sync::Arc::ptr_eq(
+            &stale.entrypoint_bytes(),
+            &snapshot[0].entrypoint_bytes()
+        ));
+        assert!(std::sync::Arc::ptr_eq(
+            &original_bytes,
+            &snapshot[1].entrypoint_bytes()
+        ));
         drop(snapshot);
         let parent = view.latest_block().unwrap().unwrap();
         for _ in 0..2 {

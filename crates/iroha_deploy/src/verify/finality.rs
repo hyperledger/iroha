@@ -29,8 +29,8 @@ use iroha_data_model::{
     NetworkId,
     block::{BlockHeader, SignedBlock},
     sumeragi_finality::{
-        CertifiedResultScope, EpochValidationScope, FinalityError as NativeFinalityError,
-        FinalityValidator, ScheduledSlot, SumeragiFinalityAttestation, SumeragiFinalityCheckpoint,
+        EpochValidationScope, FinalityError as NativeFinalityError, FinalityValidator,
+        ScheduledSlot, SumeragiFinalityAttestation, SumeragiFinalityCheckpoint,
         SumeragiFinalityProof, SumeragiFinalityVerifier, VerifiedSumeragiBlock,
     },
 };
@@ -367,8 +367,6 @@ impl Budget {
 pub struct FinalityVerifier {
     /// Exact selected immutable image; verifier clones share storage, never advancement.
     checkpoint: Arc<SumeragiFinalityCheckpoint>,
-    /// Root role retained from the constructor-authenticated native verifier.
-    result_scope: CertifiedResultScope,
     /// Successors an observation verified before its budget ran out, awaiting a fresh quorum.
     /// The next observation continues from here. The durable runtime owner may explicitly
     /// retain them as a certificate-only checkpoint while still returning CatchingUp.
@@ -380,9 +378,7 @@ pub struct FinalityVerifier {
 
 impl PartialEq for FinalityVerifier {
     fn eq(&self, other: &Self) -> bool {
-        self.checkpoint == other.checkpoint
-            && self.pending == other.pending
-            && self.result_scope == other.result_scope
+        self.checkpoint == other.checkpoint && self.pending == other.pending
     }
 }
 impl Eq for FinalityVerifier {}
@@ -422,7 +418,6 @@ impl FinalityVerifier {
         verifier.verify(genesis)?;
         Ok(Self {
             checkpoint: Arc::new(verifier.export_checkpoint(genesis)?),
-            result_scope: CertifiedResultScope::from_root_scope(verifier.root_scope()),
             pending: None,
             verified_tip: Arc::new(OnceLock::new()),
         })
@@ -458,12 +453,10 @@ impl FinalityVerifier {
             validation,
             |checkpoint, native, verified_tip| {
                 // The original importer discarded this verifier before the committee check.
-                let result_scope = CertifiedResultScope::from_root_scope(native.root_scope());
                 drop(native);
                 CommitteeSize::new(checkpoint.tip().committee.len())?;
                 Ok(Self {
                     checkpoint: Arc::new(checkpoint),
-                    result_scope,
                     pending: None,
                     verified_tip: Arc::new(OnceLock::from(verified_tip)),
                 })
@@ -471,10 +464,14 @@ impl FinalityVerifier {
         )?
     }
 
-    /// Result scope from the original constructor-authenticated native root.
-    #[must_use]
-    pub const fn result_scope(&self) -> CertifiedResultScope {
-        self.result_scope
+    /// Original signed-genesis scope retained by this independently authenticated prefix.
+    ///
+    /// # Errors
+    /// The retained checkpoint's native authentication or original decoder admission fails.
+    pub fn root_scope(
+        &self,
+    ) -> Result<iroha_data_model::block::consensus::SumeragiRootScope, FinalityError> {
+        Ok(self.verified_tip_ref()?.root_scope())
     }
 
     /// Complete native checkpoint to persist for independently authenticated restart.
@@ -664,7 +661,7 @@ impl FinalityVerifier {
             self.checkpoint.network_id(),
             challenge,
             attestation,
-            self.result_scope(),
+            self.root_scope()?,
         )?;
         if !self.members().contains(&attestation.body.node_id) {
             return Err(FinalityError::NotInCommittee {
@@ -851,7 +848,7 @@ impl Read {
         peer: &PeerId,
         challenge: &[u8; 32],
         network: NetworkId,
-        scope: CertifiedResultScope,
+        root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
     ) -> Self {
         match response {
             Err(error) => Self::Unreachable(error),
@@ -865,14 +862,16 @@ impl Read {
                     return Self::Invalid(Box::new(error));
                 }
                 match attestation {
-                    FinalityAttestation::Raw(attestation) => match attestation.verify(scope) {
-                        Ok(()) => Self::Claim(Box::new(attestation)),
-                        Err(error) => Self::Invalid(Box::new(error.into())),
-                    },
+                    FinalityAttestation::Raw(attestation) => {
+                        match attestation.verify(root_scope.into()) {
+                            Ok(()) => Self::Claim(Box::new(attestation)),
+                            Err(error) => Self::Invalid(Box::new(error.into())),
+                        }
+                    }
                     // The private SDK carrier retains the exact statement it already checked.
                     // Request rebinding above and trusted prefix placement below remain fresh.
                     FinalityAttestation::Authenticated(attestation) => {
-                        if attestation.result_scope() != scope {
+                        if attestation.root_scope() != root_scope {
                             return Self::Invalid(Box::new(NativeFinalityError(
                                 "SDK attestation result scope differs from selected native root".into()
                             ).into()));
@@ -915,7 +914,7 @@ fn read_members<S: FinalitySource + ?Sized>(
             &peer,
             challenge,
             network,
-            CertifiedResultScope::from_root_scope(prefix.native.root_scope()),
+            prefix.native.root_scope(),
         );
         reads.insert(peer, read);
     }
@@ -1174,10 +1173,10 @@ fn verify_identity(
     network: NetworkId,
     challenge: &[u8; 32],
     attestation: &SumeragiFinalityAttestation,
-    scope: CertifiedResultScope,
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
 ) -> Result<(), FinalityError> {
     verify_request_binding(network, challenge, attestation)?;
-    attestation.verify(scope)?;
+    attestation.verify(root_scope.into())?;
     // Structural consistency binds the decoded genesis to the selected network; the tip
     // still requires exact retained-decision or contiguous-successor authentication.
     Ok(())

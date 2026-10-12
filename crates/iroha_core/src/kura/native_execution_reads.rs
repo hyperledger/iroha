@@ -66,6 +66,11 @@ impl AsMut<[u8]> for NativeFrameDestination {
 /// Capturing this receipt reads only bounded index/hash metadata, never the frame body.
 pub(crate) struct NativeFrameRead<'kura> {
     kura: &'kura Kura,
+    binding: NativeFrameBinding,
+}
+
+// The two handle forms share these original journal descriptors and the sole read kernel.
+struct NativeFrameBinding {
     height: u64,
     hash: HashOf<BlockHeader>,
     wire_len: u64,
@@ -75,26 +80,21 @@ pub(crate) struct NativeFrameRead<'kura> {
 impl NativeFrameRead<'_> {
     /// Exact occupied slot length to admit before any body allocation or I/O.
     pub(crate) const fn wire_len(&self) -> u64 {
-        self.wire_len
+        self.binding.wire_len
     }
 
-    /// Compare the original native journal images across one complete byte scan.
-    /// Metadata alone never authenticates bytes: the caller must also join full raw
-    /// bytes to genuinely verified canonical receipts before any cursor reuse.
+    /// Compare original journal images without granting byte or certificate authority.
     pub(crate) fn same_journal_image(&self, other: &Self) -> bool {
         core::ptr::eq(self.kura, other.kura)
-            && Kura::native_frame_journal_images_unchanged(&self.journals, &other.journals)
+            && Kura::native_frame_journal_images_unchanged(
+                &self.binding.journals,
+                &other.binding.journals,
+            )
     }
 
-    /// Bind the same original occupied slot while allowing later journal appends.
-    /// This identifies the source owner and geometry, not continued disk-byte or QC authority.
+    /// Identify the original occupied slot while allowing later journal appends.
     pub(crate) fn same_original_slot(&self, other: &Self) -> bool {
-        core::ptr::eq(self.kura, other.kura)
-            && self.height == other.height
-            && self.hash == other.hash
-            && self.wire_len == other.wire_len
-            && self.start == other.start
-            && Kura::native_frame_journal_objects_unchanged(&self.journals, &other.journals)
+        core::ptr::eq(self.kura, other.kura) && self.binding.same_original_slot(&other.binding)
     }
 
     /// Load only this admitted slot, rechecking all durable metadata under storage guards.
@@ -113,11 +113,51 @@ impl NativeFrameRead<'_> {
         admitted_wire_len: u64,
         budget: &iroha_allocation::AllocationBudget,
     ) -> Result<Option<NativeFrameBytes>> {
+        self.binding
+            .read_original(self.kura, admitted_wire_len, budget)
+    }
+}
+
+/// The same untrusted original slot, retaining its actual Kura owner across State views.
+/// No descriptor, frame, receipt or committee is reconstructed by sharing this handle.
+pub(crate) struct OwnedNativeFrameRead {
+    binding: NativeFrameBinding,
+    kura: Arc<Kura>,
+}
+impl OwnedNativeFrameRead {
+    pub(crate) const fn wire_len(&self) -> u64 {
+        self.binding.wire_len
+    }
+    pub(crate) fn same_original_slot(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.kura, &other.kura) && self.binding.same_original_slot(&other.binding)
+    }
+    pub(crate) fn read_original(
+        &self,
+        admitted_wire_len: u64,
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<Option<NativeFrameBytes>> {
+        self.binding
+            .read_original(&self.kura, admitted_wire_len, budget)
+    }
+}
+impl NativeFrameBinding {
+    fn same_original_slot(&self, other: &Self) -> bool {
+        self.height == other.height
+            && self.hash == other.hash
+            && self.wire_len == other.wire_len
+            && self.start == other.start
+            && Kura::native_frame_journal_objects_unchanged(&self.journals, &other.journals)
+    }
+    fn read_original(
+        &self,
+        kura: &Kura,
+        admitted_wire_len: u64,
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<Option<NativeFrameBytes>> {
         // Failed backing and partial reads can refund this pool. Every storage guard
         // must retire before a synchronous refund waker may reenter the same source.
         budget.with_deferred_refund_notifications(|_| {
             let Self {
-                kura,
                 height,
                 hash,
                 wire_len,
@@ -287,12 +327,28 @@ impl Kura {
         }
         Ok(Some(NativeFrameRead {
             kura: self,
-            height,
-            hash,
-            wire_len,
-            start: slot.start,
-            journals,
+            binding: NativeFrameBinding {
+                height,
+                hash,
+                wire_len,
+                start: slot.start,
+                journals,
+            },
         }))
+    }
+
+    /// Capture the same original slot while retaining the actual shared storage owner.
+    pub(crate) fn native_frame_read_owned(
+        self: &Arc<Self>,
+        height: u64,
+        hash: HashOf<BlockHeader>,
+    ) -> Result<Option<OwnedNativeFrameRead>> {
+        Ok(self
+            .native_frame_read(height, hash)?
+            .map(|source| OwnedNativeFrameRead {
+                binding: source.binding,
+                kura: Arc::clone(self),
+            }))
     }
 
     /// Read the exact frame of an already authenticated original execution graph.

@@ -52,7 +52,8 @@ use eyre::Result;
 #[cfg(test)]
 use iroha_config::parameters::actual::LaneConfig as LaneGeometry;
 use iroha_config::parameters::actual::{
-    GovernanceCatalog, LaneRegistry, LaneRoutingPolicy, Nexus, Pipeline, Queue as Config,
+    ConfidentialGas, GovernanceCatalog, LaneRegistry, LaneRoutingPolicy, Nexus, Pipeline,
+    Queue as Config,
 };
 use iroha_crypto::{Hash, HashOf};
 #[cfg(test)]
@@ -1092,6 +1093,9 @@ pub struct Failure {
 }
 trait QueueAdmissionStateAccess {
     fn authority_exists(&mut self, authority: &AccountId) -> bool;
+    /// Verification gas schedule of the committed ZK validity policy the admission view holds.
+    /// It prices the proposal gas of proof-bearing native instructions.
+    fn verification_gas(&mut self) -> ConfidentialGas;
     /// Whether a proposer of the committed chain can include `transaction` on its route
     /// (`sumeragi::payload::check_includable_transaction`).
     fn check_includable_transaction(
@@ -1156,6 +1160,9 @@ impl QueueAdmissionStateAccess for EagerAdmissionStateAccess<'_, '_> {
     fn authority_exists(&mut self, authority: &AccountId) -> bool {
         self.view.world().accounts().get(authority).is_some()
     }
+    fn verification_gas(&mut self) -> ConfidentialGas {
+        self.view.zk.gas
+    }
     fn check_includable_transaction(
         &mut self,
         transaction: &AcceptedTransaction<'_>,
@@ -1180,7 +1187,15 @@ impl QueueAdmissionStateAccess for EagerAdmissionStateAccess<'_, '_> {
     ) -> Result<Option<SccpAdmissionKeysV1>, Error> {
         use crate::smartcontracts::isi::sccp::{admission::SccpExemptClassV1, fees};
         if matches!(
-            fees::exempt_class(self.view.world(), transaction.payload()),
+            fees::exempt_class(
+                self.view.world(),
+                transaction.payload(),
+                crate::smartcontracts::isi::sccp::hold::committed_time_ms(self.view).map_err(
+                    |error| Error::AdmissionInvariant {
+                        reason: error.to_string()
+                    }
+                )?,
+            ),
             Some(SccpExemptClassV1::ForgeryEvidence)
         ) {
             return queue.admit_forgery(self.view, transaction).map(Some);
@@ -1219,8 +1234,14 @@ impl QueueAdmissionStateAccess for EagerAdmissionStateAccess<'_, '_> {
             self.view.world(),
             &self.view.nexus,
             &self.view.pipeline,
+            &self.view.zk.gas,
             self.next_block_height,
             route_dataspace_id,
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(self.view).map_err(
+                |error| Error::AdmissionInvariant {
+                    reason: error.to_string(),
+                },
+            )?,
         )
     }
     fn extract_lane_identity_metadata(
@@ -1453,13 +1474,11 @@ impl Queue {
     }
 
     fn collect_lane_privacy_proofs(tx: &CheckedTransaction<'_>) -> Vec<LanePrivacyProof> {
+        // Admission has validated every wrapped carrier; a malformed one
+        // contributes no witness.
         tx.external()
-            .into_iter()
-            .flat_map(|signed| signed.attachments().into_iter())
-            .into_iter()
-            .flat_map(|list| list.as_slice().iter())
-            .filter_map(|attachment| attachment.lane_privacy.clone())
-            .collect()
+            .map(|signed| signed.lane_privacy_proofs_v1().unwrap_or_default())
+            .unwrap_or_default()
     }
     fn publishes_only_space_directory_manifests(tx: &CheckedTransaction<'_>) -> bool {
         let Some(signed) = tx.external() else {
@@ -1526,6 +1545,7 @@ impl Queue {
 impl Queue {
     fn signed_executable_proposal_gas_cost(
         signed: &iroha_data_model::transaction::SignedTransaction,
+        zk_gas: &ConfidentialGas,
     ) -> Result<u64, ProposalGasCostError> {
         let executable = signed.instructions();
         if executable.requires_transaction_gas_limit() {
@@ -1535,7 +1555,7 @@ impl Queue {
             .map_err(|_| ProposalGasCostError::MissingSignedGasLimit);
         }
         match executable {
-            Executable::Instructions(batch) => Ok(gas::meter_instructions(batch.as_ref())),
+            Executable::Instructions(batch) => Ok(gas::meter_instructions(batch.as_ref(), zk_gas)),
             Executable::Batch(items) => {
                 let instructions = items
                     .iter()
@@ -1544,7 +1564,7 @@ impl Queue {
                         ExecutableBatchItem::ContractCall(_) => None,
                     })
                     .collect::<Vec<_>>();
-                Ok(gas::meter_instructions(&instructions))
+                Ok(gas::meter_instructions(&instructions, zk_gas))
             }
             Executable::ContractCall(_) | Executable::Ivm(_) | Executable::IvmProved(_) => {
                 Err(ProposalGasCostError::MissingSignedGasLimit)
@@ -1563,16 +1583,17 @@ impl Queue {
     /// when gas accounting cannot derive a deterministic upper bound.
     pub(crate) fn compute_proposal_gas_cost(
         tx: &AcceptedTransaction<'_>,
+        zk_gas: &ConfidentialGas,
     ) -> Result<u64, ProposalGasCostError> {
         match tx.entrypoint() {
             iroha_data_model::transaction::TransactionEntrypoint::External(signed) => {
-                Self::signed_executable_proposal_gas_cost(signed)
+                Self::signed_executable_proposal_gas_cost(signed, zk_gas)
             }
             iroha_data_model::transaction::TransactionEntrypoint::SealedCommitment(_) => {
                 Ok(gas::meter_sealed_transaction_commitment(tx.encoded_len()))
             }
             iroha_data_model::transaction::TransactionEntrypoint::SealedReveal(reveal) => {
-                Self::signed_executable_proposal_gas_cost(reveal.signed_transaction())
+                Self::signed_executable_proposal_gas_cost(reveal.signed_transaction(), zk_gas)
             }
         }
     }
@@ -2744,14 +2765,17 @@ impl Queue {
             }
         }
     }
+    #[allow(clippy::too_many_arguments)] // Original SCCP time is distinct from the fee horizon.
     fn recheck_external_nexus_fee_admission(
         &self,
         tx: &AcceptedTransaction<'static>,
         world: &impl WorldReadOnly,
         nexus: &Nexus,
         pipeline: &Pipeline,
+        zk_gas: &ConfidentialGas,
         next_block_height: u64,
         route_dataspace_id: Option<DataSpaceId>,
+        sccp_committed_time_ms: Option<u64>,
     ) -> Result<Option<FeeAdmissionReservation>, Error> {
         let Some(transaction) = tx.external() else {
             return Ok(None);
@@ -2761,8 +2785,10 @@ impl Queue {
             world,
             nexus,
             pipeline,
+            zk_gas,
             transaction,
             observation_time_ms,
+            sccp_committed_time_ms,
             next_block_height,
             route_dataspace_id,
         )
@@ -2997,6 +3023,8 @@ impl Queue {
         state_view: &StateView<'_>,
         max_scan: NonZeroUsize,
     ) -> Option<Vec<AcceptedTransaction<'static>>> {
+        let sccp_committed_time_ms =
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(state_view).ok()?;
         let _ = self.cull_expired_entries_if_due();
         if self.admission_faulted() {
             return None;
@@ -3049,6 +3077,7 @@ impl Queue {
                 let class = crate::smartcontracts::isi::sccp::admission::exempt_class_of_entrypoint(
                     state_view.world(),
                     tx.as_accepted().entrypoint(),
+                    sccp_committed_time_ms,
                 );
                 // A forgery claim can become genuine/duplicate while remaining in Queue.
                 // Preserve all such candidates in this bounded window: only the global
@@ -4039,8 +4068,9 @@ impl Queue {
         if manifest_allowed {
             telemetry_handle.record_manifest_admission("allowed");
         }
-        let proposal_gas_cost =
-            Self::compute_proposal_gas_cost(checked.as_accepted()).map_err(|error| Failure {
+        let zk_gas = state_access.verification_gas();
+        let proposal_gas_cost = Self::compute_proposal_gas_cost(checked.as_accepted(), &zk_gas)
+            .map_err(|error| Failure {
                 tx: Box::new(checked.as_accepted().clone()),
                 err: Error::NexusFeeAdmissionRejected {
                     code: FeeRejectionCode::InvalidGasLimit,
@@ -4049,7 +4079,7 @@ impl Queue {
             })?;
         let enqueued_at_ms = self.validation_timestamp_ms(checked.as_accepted());
         #[cfg(feature = "telemetry")]
-        let pending_teu = Self::compute_teu_weight(checked.as_accepted());
+        let pending_teu = Self::compute_teu_weight(checked.as_accepted(), &zk_gas);
         Ok(PreparedQueueAdmission {
             checked,
             hash,
@@ -4834,14 +4864,14 @@ impl Queue {
         let _ = self.refresh_backpressure_state(queued, telemetry);
     }
     #[cfg(any(test, feature = "telemetry"))]
-    fn compute_teu_weight(tx: &AcceptedTransaction<'static>) -> u64 {
+    fn compute_teu_weight(tx: &AcceptedTransaction<'static>, zk_gas: &ConfidentialGas) -> u64 {
         use iroha_data_model::transaction::Executable;
         match tx.entrypoint() {
             iroha_data_model::transaction::TransactionEntrypoint::External(signed) => {
                 match signed.instructions() {
                     Executable::Instructions(batch) => {
                         let instructions: Vec<_> = batch.iter().map(Clone::clone).collect();
-                        gas::meter_instructions(&instructions)
+                        gas::meter_instructions(&instructions, zk_gas)
                     }
                     Executable::ContractCall(_) => {
                         crate::executor::transaction_gas_limit(signed).unwrap_or(0)
@@ -4858,11 +4888,11 @@ impl Queue {
                                 .explicit_instructions()
                                 .cloned()
                                 .collect::<Vec<_>>();
-                            gas::meter_instructions(&instructions)
+                            gas::meter_instructions(&instructions, zk_gas)
                         }
                     }
                     Executable::IvmProved(proved) => {
-                        gas::meter_instructions(proved.overlay.as_ref())
+                        gas::meter_instructions(proved.overlay.as_ref(), zk_gas)
                     }
                     Executable::Ivm(bytecode) => Self::compute_ivm_teu_weight(bytecode.as_ref()),
                 }
@@ -4874,7 +4904,7 @@ impl Queue {
                 match reveal.signed_transaction().instructions() {
                     Executable::Instructions(batch) => {
                         let instructions: Vec<_> = batch.iter().map(Clone::clone).collect();
-                        gas::meter_instructions(&instructions)
+                        gas::meter_instructions(&instructions, zk_gas)
                     }
                     Executable::ContractCall(_) => {
                         crate::executor::transaction_gas_limit(reveal.signed_transaction())
@@ -4894,11 +4924,11 @@ impl Queue {
                                 .explicit_instructions()
                                 .cloned()
                                 .collect::<Vec<_>>();
-                            gas::meter_instructions(&instructions)
+                            gas::meter_instructions(&instructions, zk_gas)
                         }
                     }
                     Executable::IvmProved(proved) => {
-                        gas::meter_instructions(proved.overlay.as_ref())
+                        gas::meter_instructions(proved.overlay.as_ref(), zk_gas)
                     }
                     Executable::Ivm(bytecode) => Self::compute_ivm_teu_weight(bytecode.as_ref()),
                 }
@@ -5129,7 +5159,10 @@ impl Queue {
                                     TxTeuInfo {
                                         lane_id: route.lane_id,
                                         dataspace_id: route.dataspace_id,
-                                        teu: Self::compute_teu_weight(tx.as_accepted()),
+                                        teu: Self::compute_teu_weight(
+                                            tx.as_accepted(),
+                                            &view.zk.gas,
+                                        ),
                                     },
                                 );
                             }
@@ -5459,7 +5492,7 @@ pub mod tests {
         },
         parameter::TransactionParameters,
         prelude::*,
-        proof::{ProofAttachment, ProofAttachmentList, ProofBox},
+        proof::{ProofAttachment, ProofBox},
         runtime::RuntimeUpgradeManifest,
         transaction::signed::{
             SealedTransactionCommitmentPayload, SealedTransactionReveal,
@@ -9081,11 +9114,13 @@ pub mod tests {
             let mut block = state.block(header(1));
             {
                 let mut stx = block.transaction();
-                stx.world.parameters.get_mut().set_parameter(
-                    crate::sumeragi::lanes::routing::test_support::metadata(
+                stx.world
+                    .parameters
+                    .get_mut()
+                    .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
                         iroha_data_model::block::consensus::SumeragiRootScope::Global,
-                    ),
-                );
+                    ))
+                    .expect("original signed global routing metadata");
                 install_value_route(
                     &mut stx,
                     network,
@@ -9221,7 +9256,12 @@ pub mod tests {
         let classes = snapshot
             .iter()
             .filter_map(|transaction| {
-                admission::exempt_class_of_entrypoint(view.world(), transaction.entrypoint())
+                admission::exempt_class_of_entrypoint(
+                    view.world(),
+                    transaction.entrypoint(),
+                    crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                        .expect("original fixture time"),
+                )
             })
             .collect::<Vec<_>>();
         assert_eq!(classes, vec![SccpExemptClassV1::SelfClaim]);
@@ -9399,7 +9439,7 @@ pub mod tests {
         let signed_len = tx.encoded_len();
         let original_frame = tx.entrypoint_bytes();
         let encoded_len = original_frame.len();
-        let expected_gas = Queue::compute_proposal_gas_cost(&tx).unwrap();
+        let expected_gas = Queue::compute_proposal_gas_cost(&tx, &gas::DEFAULT_ZK_GAS).unwrap();
         queue.push(tx, state.view()).unwrap();
         let snapshot = queue
             .bounded_pending_snapshot(&state.view(), nonzero!(1_usize))
@@ -9411,7 +9451,7 @@ pub mod tests {
             original_frame.as_slice()
         );
         assert_eq!(
-            Queue::compute_proposal_gas_cost(&snapshot[0]),
+            Queue::compute_proposal_gas_cost(&snapshot[0], &gas::DEFAULT_ZK_GAS),
             Ok(expected_gas)
         );
         drop(snapshot);
@@ -9513,19 +9553,22 @@ pub mod tests {
             &mut |_| true
         ));
         assert_eq!(
-            Queue::compute_proposal_gas_cost(&revealed),
-            Queue::compute_proposal_gas_cost(&external)
+            Queue::compute_proposal_gas_cost(&revealed, &gas::DEFAULT_ZK_GAS),
+            Queue::compute_proposal_gas_cost(&external, &gas::DEFAULT_ZK_GAS)
         );
         assert_eq!(
-            Queue::compute_teu_weight(&revealed),
-            Queue::compute_teu_weight(&external)
+            Queue::compute_teu_weight(&revealed, &gas::DEFAULT_ZK_GAS),
+            Queue::compute_teu_weight(&external, &gas::DEFAULT_ZK_GAS)
         );
         let commitment_cost = gas::meter_sealed_transaction_commitment(committed.encoded_len());
         assert_eq!(
-            Queue::compute_proposal_gas_cost(&committed),
+            Queue::compute_proposal_gas_cost(&committed, &gas::DEFAULT_ZK_GAS),
             Ok(commitment_cost)
         );
-        assert_eq!(Queue::compute_teu_weight(&committed), commitment_cost);
+        assert_eq!(
+            Queue::compute_teu_weight(&committed, &gas::DEFAULT_ZK_GAS),
+            commitment_cost
+        );
     }
     #[test]
     fn proposal_gas_cost_fails_closed_and_charges_signed_runtime_limit() {
@@ -9548,7 +9591,7 @@ pub mod tests {
         let missing_limit =
             build_unchecked(Executable::Ivm(IvmBytecode::from_compiled(vec![0])), None);
         assert_eq!(
-            Queue::compute_proposal_gas_cost(&missing_limit),
+            Queue::compute_proposal_gas_cost(&missing_limit, &gas::DEFAULT_ZK_GAS),
             Err(ProposalGasCostError::MissingSignedGasLimit),
             "an invariant violation must not become zero-cost proposal work"
         );
@@ -9567,7 +9610,7 @@ pub mod tests {
             )),
         ));
         assert_eq!(
-            Queue::compute_proposal_gas_cost(&missing_reveal),
+            Queue::compute_proposal_gas_cost(&missing_reveal, &gas::DEFAULT_ZK_GAS),
             Err(ProposalGasCostError::MissingSignedGasLimit),
             "wrapping an invalid runtime gas owner in a sealed reveal must not make it free",
         );
@@ -9600,19 +9643,19 @@ pub mod tests {
         for executable in runtime_executables {
             let accepted = build_unchecked(executable, Some(signed_limit));
             assert_eq!(
-                Queue::compute_proposal_gas_cost(&accepted),
+                Queue::compute_proposal_gas_cost(&accepted, &gas::DEFAULT_ZK_GAS),
                 Ok(signed_limit.get()),
                 "every runtime-dependent executable must consume its signed upper bound"
             );
         }
         let native_instruction = sample_unregister_instruction();
-        let native_expected = gas::meter_instruction(&native_instruction);
+        let native_expected = gas::meter_instruction(&native_instruction, &gas::DEFAULT_ZK_GAS);
         let native = build_unchecked(
             Executable::Instructions(vec![native_instruction].into()),
             Some(NonZeroU64::new(999).expect("non-zero ignored native limit")),
         );
         assert_eq!(
-            Queue::compute_proposal_gas_cost(&native),
+            Queue::compute_proposal_gas_cost(&native, &gas::DEFAULT_ZK_GAS),
             Ok(native_expected),
             "deterministic native work remains charged by the instruction meter"
         );
@@ -9860,9 +9903,11 @@ pub mod tests {
         // This queue component has explicit Global routing metadata; its UAID
         // fixtures do not authenticate a native genesis or publication source.
         let mut parameters = world.parameters.block();
-        parameters.set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
-            iroha_data_model::block::consensus::SumeragiRootScope::Global,
-        ));
+        parameters
+            .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+                iroha_data_model::block::consensus::SumeragiRootScope::Global,
+            ))
+            .expect("valid fixture parameters");
         parameters.commit();
         if bind_manifest {
             let manifest = AssetPermissionManifest {
@@ -9903,7 +9948,8 @@ pub mod tests {
         let tx = accepted_tx_by_someone(&time);
         let hash = tx.hash_as_entrypoint();
         let encoded_len = tx.entrypoint_bytes().len();
-        let gas = Queue::compute_proposal_gas_cost(&tx).expect("signature-bound gas");
+        let gas = Queue::compute_proposal_gas_cost(&tx, &gas::DEFAULT_ZK_GAS)
+            .expect("signature-bound gas");
         queue
             .push(tx, state.view())
             .expect("admit original signed input");

@@ -22,7 +22,7 @@ use iroha_data_model::{
         IROHA_JINDO_RING_DEGREE_V1, IrohaJindoPolynomialCommitmentStatementV1,
         PrivacyConsensusLimitsV1, PrivacyJindoFieldElementV1, PrivacyProofBytesV1,
         PrivacyProofEnvelopeV1, PrivacyProofV1, PrivacyProtocolIdV1, PrivacyStatementContextV1,
-        PrivacyStatementDigestV1, PrivacyStatementV1, PrivacyTransactionIntentDigestV1,
+        PrivacyStatementV1, PrivacyTransactionIntentDigestV1,
     },
     transaction::{
         FeePaymentIntent, SignedTransaction, TransactionBuilder, TransactionPayload,
@@ -678,26 +678,13 @@ fn transaction_payload_v1(
 /// be returned, signed, or submitted through the public prepared-action API.
 fn derive_canonical_transaction_intent_digest_v1(
     context: &JindoPrivacyActionTransactionContextV1,
-    profile: crate::privacy_profiles::CompiledPrivacyProfileV1,
     statement: PrivacyStatementV1,
 ) -> Result<PrivacyTransactionIntentDigestV1, JindoPrivacyActionBuildErrorV1> {
-    let normalized_projection_envelope = PrivacyProofEnvelopeV1 {
-        wire_magic: Default::default(),
-        catalog_commitment: Default::default(),
-        protocol_id: profile.protocol_id,
-        proof_system_id: profile.proof_system_id,
-        engine_id: profile.engine_id,
-        parameter_id: profile.parameter_id,
-        parameter_digest: profile.parameter_digest,
-        verifier_digest: profile.verifier_digest,
-        statement_schema_digest: profile.statement_schema_digest,
-        engine_manifest_digest: profile.engine_manifest_digest,
-        statement_digest: PrivacyStatementDigestV1::new([0; 32]),
+    let normalized_projection_envelope = PrivacyProofEnvelopeV1::bind_v1(
         statement,
-        proof: PrivacyProofV1::IrohaJindoPolynomialCommitmentV1(PrivacyProofBytesV1::new(
-            Vec::new(),
-        )),
-    };
+        PrivacyProofV1::IrohaJindoPolynomialCommitmentV1(PrivacyProofBytesV1::new(Vec::new())),
+    )
+    .map_err(|_| JindoPrivacyActionBuildErrorV1::StatementDigest)?;
     transaction_payload_v1(context, normalized_projection_envelope)?
         .privacy_transaction_intent_digest_v1()
         .map_err(|_| JindoPrivacyActionBuildErrorV1::TransactionIntent)
@@ -777,7 +764,7 @@ where
     let draft_statement =
         PrivacyStatementV1::IrohaJindoPolynomialCommitmentV1(native_statement.clone());
     let transaction_intent_digest =
-        derive_canonical_transaction_intent_digest_v1(&context, profile, draft_statement)?;
+        derive_canonical_transaction_intent_digest_v1(&context, draft_statement)?;
     let mut final_statement = native_statement;
     final_statement.context.transaction_intent_digest = transaction_intent_digest;
     let typed_statement =
@@ -812,21 +799,14 @@ where
     )?;
     let proof_bytes = u32::try_from(proof.len())
         .map_err(|_| JindoPrivacyActionBuildErrorV1::EncodedLengthOverflow)?;
-    let final_envelope = PrivacyProofEnvelopeV1 {
-        wire_magic: Default::default(),
-        catalog_commitment: Default::default(),
-        protocol_id: profile.protocol_id,
-        proof_system_id: profile.proof_system_id,
-        engine_id: profile.engine_id,
-        parameter_id: profile.parameter_id,
-        parameter_digest: profile.parameter_digest,
-        verifier_digest: profile.verifier_digest,
-        statement_schema_digest: profile.statement_schema_digest,
-        engine_manifest_digest: profile.engine_manifest_digest,
-        statement_digest,
-        statement: typed_statement,
-        proof: PrivacyProofV1::IrohaJindoPolynomialCommitmentV1(PrivacyProofBytesV1::new(proof)),
-    };
+    let final_envelope = PrivacyProofEnvelopeV1::bind_v1(
+        typed_statement,
+        PrivacyProofV1::IrohaJindoPolynomialCommitmentV1(PrivacyProofBytesV1::new(proof)),
+    )
+    .map_err(|_| JindoPrivacyActionBuildErrorV1::EnvelopeValidation)?;
+    if !profile.matches_envelope_v1(&final_envelope) {
+        return Err(JindoPrivacyActionBuildErrorV1::EnvelopeValidation);
+    }
     final_envelope
         .validate_with_limits(&PrivacyConsensusLimitsV1::taira_default())
         .map_err(|_| JindoPrivacyActionBuildErrorV1::EnvelopeValidation)?;

@@ -1530,7 +1530,7 @@ mod tests {
                     keys[signer as usize].private_key(),
                     &vote.preimage(),
                 )
-                .unwrap(),
+                .expect("canonical native vote signature"),
             );
             vote
         };
@@ -1640,7 +1640,9 @@ mod tests {
             slashing_delay_blocks: 1,
             ..SumeragiNposParameters::default()
         };
-        parameters.set_parameter(Parameter::Custom(npos.into_custom_parameter()));
+        parameters
+            .set_parameter(Parameter::Custom(npos.into_custom_parameter()))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
     fn penalty_header(height: u64) -> BlockHeader {
@@ -3833,7 +3835,7 @@ mod tests {
                     roster_keys()[1].private_key(),
                     &vote.preimage(),
                 )
-                .unwrap(),
+                .expect("canonical native vote signature"),
             );
         }
         let proof = Evidence::from_native(&iroha_sumeragi::message::Evidence::VoteEquivocation(

@@ -2684,7 +2684,7 @@ fn sccp_liability_release(
     crate::state::sccp_forgery_custody::ForgeryStorageError,
 > {
     super::sccp::liability::release_blocker(
-        &state_transaction.sccp_parent_world_view(),
+        super::sccp::eligibility::TransactionParent(&state_transaction.world),
         &*state_transaction.world,
         validator,
         slashable_through_height,

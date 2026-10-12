@@ -10,8 +10,7 @@ use std::{fmt, mem::ManuallyDrop, ops::Deref};
 
 use iroha_allocation::{AllocationBudget, AllocationCharge, ChargedBuffer, ChargedShared};
 use iroha_data_model::block::consensus::{
-    Evidence, EvidenceAttribution, EvidencePenaltyStatus, EvidenceRecord, EvidenceScope,
-    RecordedEvidenceV1,
+    Evidence, EvidenceAttribution, EvidencePenaltyStatus, EvidenceRecord, RecordedEvidenceV1,
 };
 use norito::{
     core::{Encoder, SerializePayload},
@@ -123,7 +122,7 @@ pub(in crate::sumeragi) struct EvidenceRecordBody {
     fields: ManuallyDrop<iroha_allocation::RetainedPayload<EvidenceRecordBodyFields>>,
     proof_charge: ManuallyDrop<AllocationCharge>,
     // Test-only mutation owns the same finite original pool; it never creates a namespace.
-    #[cfg(test)]
+    #[cfg(all(test, sumeragi_core_mutation = "HC181"))]
     budget: AllocationBudget,
 }
 impl EvidenceRecordBody {
@@ -166,7 +165,7 @@ impl EvidenceRecordBody {
         shell.initialize(Self {
             fields: ManuallyDrop::new(fields),
             proof_charge,
-            #[cfg(test)]
+            #[cfg(all(test, sumeragi_core_mutation = "HC181"))]
             budget: budget.clone(),
         })
     }
@@ -286,7 +285,7 @@ impl RetainedEvidenceRecord {
         };
         if matches!(
             record.attribution.scope,
-            EvidenceScope::SccpGeneration { .. }
+            iroha_data_model::block::consensus::EvidenceScope::SccpGeneration { .. }
         ) {
             return Err(EvidenceRecordRestoreError::UnsupportedSccp);
         }

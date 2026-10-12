@@ -164,7 +164,6 @@ impl HistoryProducerOwner {
         {
             return owner.map(Some);
         }
-        #[cfg(feature = "app_api")]
         if let Ok(owner) = crate::APP_ROUTED_READ_HTTP_ADMISSION
             .try_with(|admission| Self::from_reservation(&admission.reservation))
         {

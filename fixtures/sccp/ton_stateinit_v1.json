@@ -7,10 +7,10 @@
       "hash": "636f93d7b6d9fbf1c4756453654eea4d8fa9a474b461e642d501299737cd0450"
     },
     "minter": {
-      "bits": 72824,
-      "cells": 140,
+      "bits": 82792,
+      "cells": 145,
       "depth": 13,
-      "hash": "20bb84f564d0e11fad112eeb37caa1f1c23298ecad7abb10a3304c54d9d5bb24"
+      "hash": "c7d4edd315ceedb9a4f61131dc2896db88e86e6758066f4845c0159ea85ca7d9"
     },
     "wallet": {
       "bits": 5722,
@@ -29,14 +29,14 @@
   "vectors": [
     {
       "address": {
-        "account_id": "8c7ea5ac8d1aa09ce8194e79736b32aca537b5295753271ff54b412e215018ad",
-        "raw": "0:8c7ea5ac8d1aa09ce8194e79736b32aca537b5295753271ff54b412e215018ad",
+        "account_id": "98e5d863619df3181f46fff79c056b7796c80cd95517f7894763bb7c5577463a",
+        "raw": "0:98e5d863619df3181f46fff79c056b7796c80cd95517f7894763bb7c5577463a",
         "workchain": 0
       },
       "children": {
-        "bucket_0_account_id": "8b7a9f9f4aedec09d49e5ca9c1074e556cd57fdfbea0068fe3f94002dc530ee1",
-        "bucket_1_account_id": "c43f742f8a1e78456617e553b842223379f7434738cd9aa80e9dd0dbdc804a68",
-        "wallet_account_id": "45be9d9f94939182a88879aae518af2d0b8b6d49e736dae22f92b28181f93d63",
+        "bucket_0_account_id": "f136f11198d213994b8e919712fa572f56cebd27e726dcf403cdc7f4c2861902",
+        "bucket_1_account_id": "ab2cc3bf02ffe558a524de20bd9c093e5c33697e1ea498d0f79900984c5def97",
+        "wallet_account_id": "b6b1ed57a0c2abaa2ae1fef3361691ec16991fd9325b0885dfc4a52ff369fce6",
         "wallet_owner": "0:abababababababababababababababababababababababababababababababab"
       },
       "committee": "n4",
@@ -126,19 +126,19 @@
       },
       "q": 3,
       "route_revision": 1,
-      "state_init_hash": "8c7ea5ac8d1aa09ce8194e79736b32aca537b5295753271ff54b412e215018ad",
+      "state_init_hash": "98e5d863619df3181f46fff79c056b7796c80cd95517f7894763bb7c5577463a",
       "taira_network_id": "1111111111111111111111111111111111111111111111111111111111111111"
     },
     {
       "address": {
-        "account_id": "6c585047fc89521fb845694349d98a720aa0f08ee3bb09ea5bcdca0f15f6c408",
-        "raw": "0:6c585047fc89521fb845694349d98a720aa0f08ee3bb09ea5bcdca0f15f6c408",
+        "account_id": "70b4c1a3bb642b47b3e6ae27ebe8e4b386627632f97c029f52725f9dda35ffd0",
+        "raw": "0:70b4c1a3bb642b47b3e6ae27ebe8e4b386627632f97c029f52725f9dda35ffd0",
         "workchain": 0
       },
       "children": {
-        "bucket_0_account_id": "86d65001294c44bfcf9414a31fddeb94f6643c9961d799654f519c3c98f43a44",
-        "bucket_1_account_id": "fbc0277c0204cbc7e71819d8511a8f1d71d6384a658be68fbac92e50bffe39ad",
-        "wallet_account_id": "ca0165cc15a7ee9cac0e6ebcd26b64290743a1987e3736460a2f995ac1800d62",
+        "bucket_0_account_id": "841780c04f7df27baf2be95b2e107c0a7fc5c4d6f767004e10e2602ef22d852c",
+        "bucket_1_account_id": "20c033bff1af5350cfadfefbd11764a007727b8d57a0fa0ad1daf9fa7e4d8b3f",
+        "wallet_account_id": "b653a9493ee3289d442f8b4451e0b7ecb6c9471fb3af58065899d3f0dc63ecf6",
         "wallet_owner": "0:abababababababababababababababababababababababababababababababab"
       },
       "committee": "n31",
@@ -381,7 +381,7 @@
       },
       "q": 21,
       "route_revision": 2,
-      "state_init_hash": "6c585047fc89521fb845694349d98a720aa0f08ee3bb09ea5bcdca0f15f6c408",
+      "state_init_hash": "70b4c1a3bb642b47b3e6ae27ebe8e4b386627632f97c029f52725f9dda35ffd0",
       "taira_network_id": "1111111111111111111111111111111111111111111111111111111111111111"
     }
   ]

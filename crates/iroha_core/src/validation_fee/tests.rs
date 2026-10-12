@@ -24,7 +24,8 @@ use iroha_data_model::{
 use iroha_model_base::{domain::DomainId, name::Name, topology::DataSpaceId};
 use iroha_primitives::numeric::NumericSpec;
 pub(crate) use signed_original_fixtures::{
-    signed_payout_lifecycle_registry_fixture, signed_payout_lifecycle_registry_fixture_with_config,
+    sign_paid_fixture, signed_payout_lifecycle_registry_fixture,
+    signed_payout_lifecycle_registry_fixture_with_config,
     with_original_validation_fee_payout_state_at_height,
 };
 use std::str::FromStr as _;
@@ -303,10 +304,12 @@ pub(crate) fn validation_fee_payout_world(deployer: &AccountId) -> crate::state:
     );
     {
         let mut parameters = world.parameters.block();
-        parameters.set_parameter(iroha_data_model::parameter::Parameter::Custom(
-            iroha_data_model::parameter::system::SumeragiNposParameters::default()
-                .into_custom_parameter(),
-        ));
+        parameters
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                iroha_data_model::parameter::system::SumeragiNposParameters::default()
+                    .into_custom_parameter(),
+            ))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
     world
@@ -1066,5 +1069,6 @@ pub(crate) fn install_policy_registry_fixture(
         .world
         .parameters
         .get_mut()
-        .set_parameter(Parameter::Custom(registry.clone().into_custom_parameter()));
+        .set_parameter(Parameter::Custom(registry.clone().into_custom_parameter()))
+        .expect("valid fixture parameters");
 }

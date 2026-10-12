@@ -752,11 +752,9 @@ Governance execution is parameterised via `iroha_config`:
   citizenship_asset_id = "79jULkZVMgnbzxBe6NvqeDxVEeEk"
   citizenship_bond_amount = "10000"
 
-  # Standalone referendum settings; not Parliament ballot inputs.
-  vk_ballot.backend = "halo2/ipa"
-  vk_ballot.name    = "ballot_v1"
-  vk_tally.backend  = "halo2/ipa"
-  vk_tally.name     = "tally_v1"
+  # Standalone referendum settings; not Parliament ballot inputs. The ballot
+  # and tally verifying keys are not configuration: each election commits its
+  # own (`CreateElection.vk_ballot` / `vk_tally`).
   plain_voting_enabled = true
   conviction_step_blocks = 100
   max_conviction = 6
@@ -1060,7 +1058,7 @@ Unlock Sweep (Operator/Audit)
 Standalone `CastZkBallot` Verification Path
 - `CastZkBallot` decodes the supplied base64 proof and rejects empty or malformed payloads (`BallotRejected` with `invalid or empty proof`).
 - If `public_inputs_json` is supplied, it must be a JSON object; non-object payloads are rejected.
-- The host resolves the ballot verifying key from the referendum (`vk_ballot`) or governance defaults and requires the record to exist, be `Active`, and carry inline bytes.
+- The host resolves the ballot verifying key from the election's own committed `vk_ballot` (there is no node-configured default; an election that commits none is rejected with `election commits no ballot verifying key`) and requires the record to exist, be `Active`, and carry inline bytes.
 - Stored verifying-key bytes are re-hashed with `hash_vk`; any commitment mismatch aborts execution before verification to guard against tampered registry entries (`BallotRejected` with `verifying key commitment mismatch`).
 - Proof bytes are dispatched to the registered backend via `zk::verify_backend`; invalid transcripts surface as `BallotRejected` with `invalid proof`. The instruction fails deterministically; when it applied a configured nonzero slash, the block rejection corridor commits the exact penalty separately from the failed ballot and subsequent fee settlement.
 - The proof must expose a ballot commitment and eligibility root as public inputs; the root must match the election’s `eligible_root`, and the derived nullifier must match any provided hint.

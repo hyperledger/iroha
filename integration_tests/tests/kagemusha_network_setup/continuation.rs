@@ -243,9 +243,7 @@ fn prefix(network: &Network, through: u64) -> Result<Vec<SumeragiFinalityProof>>
         for height in 1..=through {
             let proof = client.get_sumeragi_finality_proof(
                 NonZeroU64::new(height).unwrap(),
-                iroha_data_model::sumeragi_finality::CertifiedResultScope::from_root_scope(
-                    verifier.root_scope(),
-                ),
+                verifier.root_scope(),
             )?;
             let verified = verifier.verify(&proof)?;
             ensure!(

@@ -196,19 +196,10 @@ impl UnsignedClosureReadPhase<'_> {
                 output = Some(self.read(&mut |attempt| inspector.inspect(attempt), None)?);
                 return Ok(());
             };
-            self.history.revalidate_retained_handles()?;
-            if let Some(prior) = self.history.scope.predecessor() {
-                retained_graph::validate_predecessor_in_snapshot(prior, snapshot)?;
-            }
+            let graph = retained_graph::ReadPhaseGraph::enter(self.history, snapshot, inspector)?;
             let pass = EnrollmentReadPass::unsigned_closure(snapshot, self.history, inspector);
             let result = self.read(&mut |attempt| inspector.inspect(attempt), Some(&pass));
-            let current = if self.head_admitted {
-                retained_graph::validate_in_snapshot(self.history, snapshot)
-            } else if let Some(prior) = self.history.scope.predecessor() {
-                retained_graph::validate_predecessor_in_snapshot(prior, snapshot)
-            } else {
-                Ok(())
-            };
+            let current = graph.close(self.history, self.head_admitted, result.is_ok());
             // The canonical reread retains the exact native handle Arcs, and only replaces
             // the History after its original-before/current-after custody checks succeed.
             // On every ordinary result, original custody wins graph and inner errors; the

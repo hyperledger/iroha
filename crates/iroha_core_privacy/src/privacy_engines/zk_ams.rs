@@ -18,6 +18,8 @@ use curve25519_dalek::{
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 use iroha_crypto::{Hash, PrivateKey, PublicKey};
 #[cfg(any(test, feature = "privacy-release-evidence"))]
+use iroha_data_model::privacy::PrivacyStatementDigestV1;
+#[cfg(any(test, feature = "privacy-release-evidence"))]
 use iroha_data_model::transaction::{Executable, signed::TransactionSignatureError};
 use iroha_data_model::{
     account::AccountId,
@@ -27,10 +29,10 @@ use iroha_data_model::{
         IrohaZkAmsProofV1, IrohaZkAmsStatementV1, PrivacyConsensusLimitsV1, PrivacyIssuerIdV1,
         PrivacyP256PointV1, PrivacyPolicyDigestV1, PrivacyPolicyIdV1, PrivacyProofBytesV1,
         PrivacyProofEnvelopeV1, PrivacyProofV1, PrivacyProtocolIdV1, PrivacyRootV1,
-        PrivacyStatementContextV1, PrivacyStatementDigestV1, PrivacyStatementV1,
-        PrivacyTransactionIntentDigestV1, PrivacyZkAmsActionV1, PrivacyZkAmsAdmissionAnchorV1,
-        PrivacyZkAmsBatchAdmissionV1, PrivacyZkAmsIssuerPolicyRecordDigestV1,
-        PrivacyZkAmsKeyImageV1, PrivacyZkAmsPersonhoodCredentialV1, PrivacyZkAmsProvisionAccountV1,
+        PrivacyStatementContextV1, PrivacyStatementV1, PrivacyTransactionIntentDigestV1,
+        PrivacyZkAmsActionV1, PrivacyZkAmsAdmissionAnchorV1, PrivacyZkAmsBatchAdmissionV1,
+        PrivacyZkAmsIssuerPolicyRecordDigestV1, PrivacyZkAmsKeyImageV1,
+        PrivacyZkAmsPersonhoodCredentialV1, PrivacyZkAmsProvisionAccountV1,
         PrivacyZkAmsRegistryIdV1, PrivacyZkAmsRegistryRecordDigestV1, PrivacyZkAmsSeedPublicKeyV1,
         ZK_AMS_PHC_VERSION_V1,
     },
@@ -600,10 +602,8 @@ fn zk_ams_transaction_payload_v1(
         .map_err(|_| ZkAmsPrivacyActionIntentErrorV1::InvalidTransactionContext)
 }
 fn zk_ams_intent_projection_envelope_v1(
-    profile: crate::privacy_profiles::CompiledPrivacyProfileV1,
     statement: IrohaZkAmsStatementV1,
-    statement_digest: PrivacyStatementDigestV1,
-) -> PrivacyProofEnvelopeV1 {
+) -> Result<PrivacyProofEnvelopeV1, ZkAmsPrivacyActionIntentErrorV1> {
     let proof = match &statement.action {
         PrivacyZkAmsActionV1::BatchAdmission(_) => {
             IrohaZkAmsProofV1::MaskedRelaxedSpartanBatchAdmission(PrivacyProofBytesV1::new(
@@ -616,21 +616,11 @@ fn zk_ams_intent_projection_envelope_v1(
             )
         }
     };
-    PrivacyProofEnvelopeV1 {
-        wire_magic: Default::default(),
-        catalog_commitment: Default::default(),
-        protocol_id: profile.protocol_id,
-        proof_system_id: profile.proof_system_id,
-        engine_id: profile.engine_id,
-        parameter_id: profile.parameter_id,
-        parameter_digest: profile.parameter_digest,
-        verifier_digest: profile.verifier_digest,
-        statement_schema_digest: profile.statement_schema_digest,
-        engine_manifest_digest: profile.engine_manifest_digest,
-        statement_digest,
-        statement: PrivacyStatementV1::IrohaZkAmsV1(statement),
-        proof: PrivacyProofV1::IrohaZkAmsV1(proof),
-    }
+    PrivacyProofEnvelopeV1::bind_v1(
+        PrivacyStatementV1::IrohaZkAmsV1(statement),
+        PrivacyProofV1::IrohaZkAmsV1(proof),
+    )
+    .map_err(|_| ZkAmsPrivacyActionIntentErrorV1::StatementDigest)
 }
 fn zk_ams_statement_v1(
     context: PrivacyStatementContextV1,
@@ -677,11 +667,7 @@ fn prepare_zk_ams_privacy_action_transaction_intent_with_profile_v1(
         governance,
         action,
     );
-    let draft_envelope = zk_ams_intent_projection_envelope_v1(
-        profile,
-        draft_statement.clone(),
-        PrivacyStatementDigestV1::new([0; 32]),
-    );
+    let draft_envelope = zk_ams_intent_projection_envelope_v1(draft_statement.clone())?;
     let transaction_intent_digest = zk_ams_transaction_payload_v1(context, draft_envelope)?
         .privacy_transaction_intent_digest_v1()
         .map_err(|_| ZkAmsPrivacyActionIntentErrorV1::TransactionIntent)?;
@@ -771,11 +757,7 @@ fn validate_zk_ams_privacy_action_transaction_intent_with_profile_v1(
     typed_statement
         .validate(&PrivacyConsensusLimitsV1::taira_default())
         .map_err(|_| ZkAmsPrivacyActionIntentErrorV1::StatementValidation)?;
-    let statement_digest = typed_statement
-        .digest()
-        .map_err(|_| ZkAmsPrivacyActionIntentErrorV1::StatementDigest)?;
-    let envelope =
-        zk_ams_intent_projection_envelope_v1(profile, statement.clone(), statement_digest);
+    let envelope = zk_ams_intent_projection_envelope_v1(statement.clone())?;
     let validated = zk_ams_transaction_payload_v1(context, envelope)?
         .validate_privacy_transaction_intent_binding_v1()
         .map_err(|_| ZkAmsPrivacyActionIntentErrorV1::FinalIntentBinding)?;
@@ -972,21 +954,12 @@ fn finalize_zk_ams_prepared_action_v1(
             .len(),
     )
     .map_err(|_| ZkAmsPrivacyActionBuildErrorV1::EncodedLengthOverflow)?;
-    let final_envelope = PrivacyProofEnvelopeV1 {
-        wire_magic: Default::default(),
-        catalog_commitment: Default::default(),
-        protocol_id: profile.protocol_id,
-        proof_system_id: profile.proof_system_id,
-        engine_id: profile.engine_id,
-        parameter_id: profile.parameter_id,
-        parameter_digest: profile.parameter_digest,
-        verifier_digest: profile.verifier_digest,
-        statement_schema_digest: profile.statement_schema_digest,
-        engine_manifest_digest: profile.engine_manifest_digest,
-        statement_digest,
-        statement: typed_statement,
-        proof: PrivacyProofV1::IrohaZkAmsV1(proof),
-    };
+    let final_envelope =
+        PrivacyProofEnvelopeV1::bind_v1(typed_statement, PrivacyProofV1::IrohaZkAmsV1(proof))
+            .map_err(|_| ZkAmsPrivacyActionBuildErrorV1::EnvelopeValidation)?;
+    if !profile.matches_envelope_v1(&final_envelope) {
+        return Err(ZkAmsPrivacyActionBuildErrorV1::EnvelopeValidation);
+    }
     final_envelope
         .validate_with_limits(&PrivacyConsensusLimitsV1::taira_default())
         .map_err(|_| ZkAmsPrivacyActionBuildErrorV1::EnvelopeValidation)?;

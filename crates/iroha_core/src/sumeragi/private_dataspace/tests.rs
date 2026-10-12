@@ -72,10 +72,14 @@ fn world(
     {
         let mut parameters = world.parameters.block();
         if let Some(scope) = scope {
-            parameters.set_parameter(test_support::metadata(scope));
+            parameters
+                .set_parameter(test_support::metadata(scope))
+                .expect("valid fixture parameters");
         }
         if let Some(policy) = admission {
-            parameters.set_parameter(Parameter::Custom(policy.into_custom_parameter().unwrap()));
+            parameters
+                .set_parameter(Parameter::Custom(policy.into_custom_parameter().unwrap()))
+                .expect("valid fixture parameters");
         }
         parameters.commit();
     }
@@ -372,17 +376,22 @@ fn parent_receipt_uses_original_certified_archive_and_survives_native_replay() {
 
 #[test]
 fn private_profile_resource_refusal_retains_instruction_attempt_and_invalid_does_not() {
-    use norito::core::DecodeResourceError;
+    let allocator = norito::core::classify_decode_attempt(|| {
+        Err::<(), _>(norito::Error::AllocationFailed { bytes: 1 })
+    })
+    .unwrap_err();
+    let capacity = norito::with_decode_limits_scope(
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 1, 64),
+        || norito::core::classify_decode_attempt(|| norito::core::reserve_decode_allocation(2)),
+    )
+    .unwrap_err();
     for (resource, expected) in [
         (
-            DecodeResourceError::AllocationFailed { bytes: 1 },
+            allocator,
             ivm::error::ExecutionDeferral::AllocationUnavailable,
         ),
         (
-            DecodeResourceError::TotalAllocationExceeded {
-                attempted: 2,
-                limit: 1,
-            },
+            capacity,
             ivm::error::ExecutionDeferral::ActiveMemoryCapacity,
         ),
     ] {

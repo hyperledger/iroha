@@ -2251,7 +2251,6 @@ pub mod extractors {
                     "A present query string must contain at least one key=value pair.",
                 )));
             }
-            #[cfg(feature = "app_api")]
             if let Some(decoded) =
                 crate::decode_current_app_routed_read_query::<T>(query.unwrap_or_default(), true)
             {
@@ -2283,7 +2282,6 @@ pub mod extractors {
                     "A present query string must contain at least one key=value pair.",
                 )));
             }
-            #[cfg(feature = "app_api")]
             if let Some(decoded) =
                 crate::decode_current_app_routed_read_query::<T>(query.unwrap_or_default(), false)
             {
@@ -2475,21 +2473,34 @@ pub mod extractors {
                     limit: 1,
                 });
             assert_eq!(norito_response.status(), StatusCode::PAYLOAD_TOO_LARGE);
-            let versioned_response = versioned_decode_rejection::<Dummy>(
-                iroha_version::error::Error::NoritoResourceLimit(
-                    norito::core::DecodeResourceError::TotalAllocationExceeded {
-                        attempted: 1,
-                        limit: 0,
-                    },
-                ),
+            #[derive(Debug, norito::Encode, norito::Decode)]
+            #[norito(decode_from_slice)]
+            struct TextPayload(String);
+            impl Version for TextPayload {
+                fn version(&self) -> u8 {
+                    1
+                }
+                fn supported_versions() -> core::ops::Range<u8> {
+                    1..2
+                }
+            }
+            let mut wire = vec![1];
+            wire.extend(norito::codec::encode_adaptive(&TextPayload(
+                "actual query data".into(),
+            )));
+            let refusal = norito::with_decode_limits_scope(
+                norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+                || iroha_version::codec::decode_exact_versioned::<TextPayload>(&wire).unwrap_err(),
             );
+            assert!(refusal.is_local_resource_refusal());
+            let versioned_response = versioned_decode_rejection::<Dummy>(refusal);
             assert_eq!(versioned_response.status(), StatusCode::PAYLOAD_TOO_LARGE);
         }
         #[tokio::test]
         async fn signed_query_versioned_decode_rejection_does_not_reflect_codec_text() {
             let marker = "attacker-controlled-versioned-diagnostic";
             let response = versioned_decode_rejection::<SignedQuery>(
-                iroha_version::error::Error::NoritoCodec(marker.repeat(32)),
+                iroha_version::error::Error::NoritoCodec(norito::Error::Message(marker.repeat(32))),
             );
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
             let body = response

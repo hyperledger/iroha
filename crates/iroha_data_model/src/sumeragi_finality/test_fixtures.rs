@@ -24,10 +24,26 @@ use iroha_allocation::{AllocationBudget, ChargedBuffer};
 use iroha_crypto::{KeyPair, bls_normal_pop_prove};
 use iroha_sumeragi::{
     availability::{PayloadAuthoring, PayloadBytes},
-    crypto::Signer,
+    crypto::{Signer, SigningError},
     types::{Bitmap, ChainParams},
 };
 use std::{num::NonZeroU64, time::Duration};
+
+/// Wrap synthetic execution data in the required inactive finality header of its block.
+/// The caller still signs the resulting `X ‖ body` with the fixture's original quorum.
+#[must_use]
+pub fn inactive_result_for_block(
+    block: &SignedBlock,
+    body: ExecutionResultCommitment,
+) -> CertifiedResultV1 {
+    let header = SccpFinalityHeaderV1::inactive(
+        *body.schedule.current.network_id.as_bytes(),
+        block.header().height().get(),
+        block.header().creation_time_ms,
+    )
+    .unwrap();
+    CertifiedResultV1::new(header, body, CertifiedResultScope::NonGlobal).unwrap()
+}
 
 // Only fixed public fixture keys enter this signer; it is never deployment custody.
 struct FixtureSigner<'a> {
@@ -38,10 +54,10 @@ impl Signer for FixtureSigner<'_> {
     fn public_key(&self) -> &CoreKey {
         &self.public
     }
-    fn sign(&self, preimage: &[u8]) -> Signature {
-        Signature(
-            iroha_crypto::bls::consensus::sign_preimage(self.key.private_key(), preimage).unwrap(),
-        )
+    fn sign(&self, preimage: &[u8]) -> Result<Signature, SigningError> {
+        iroha_crypto::bls::consensus::sign_preimage(self.key.private_key(), preimage)
+            .map(Signature)
+            .map_err(|_| SigningError::Refused)
     }
 }
 
@@ -84,35 +100,6 @@ pub fn author_payload(
     PayloadAuthoring::new(header, payload)
         .complete(instance, config, budget, &crypto, &signer)
         .unwrap_or_else(|(_, error)| panic!("genuine fixture availability authoring: {error:?}"))
-}
-
-/// Wrap one synthetic execution body in the sole certified-result layout for a fixture.
-///
-/// The fixture has no SCCP effects, so its original block supplies an inactive header. This
-/// helper neither executes World nor grants monetary or deployment authority.
-///
-/// # Panics
-/// Panics when the supplied body does not bind the block or selected fixture root.
-#[must_use]
-pub fn certified_result_for_block(
-    block: &SignedBlock,
-    body: ExecutionResultCommitment,
-    scope: CertifiedResultScope,
-) -> CertifiedResultV1 {
-    let header = SccpFinalityHeaderV1::inactive(
-        body.schedule.current.network_id.as_bytes().to_owned(),
-        block.header().height().get(),
-        block.header().creation_time_ms,
-    )
-    .expect("fixture finality header");
-    let result = CertifiedResultV1::new(header, body, scope).expect("fixture certified result");
-    result
-        .check_block(
-            block.header().height().get(),
-            block.header().creation_time_ms,
-        )
-        .expect("fixture block binding");
-    result
 }
 
 /// A deterministic signed genesis and genuine exact-quorum native proof chain for tests.
@@ -354,12 +341,8 @@ impl NativeFinalityFixture {
             .unwrap();
         let mut block = genesis.clone();
         Self::install_network_results(&mut block, vec![Ok(Vec::new())]);
-        let result = Self::result(&block, &epoch);
-        let result = certified_result_for_block(
-            &block,
-            result,
-            CertifiedResultScope::from_root_scope(root_scope),
-        );
+        let result =
+            Self::certified_result(&block, Self::result(&block, &epoch), root_scope.into());
         block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
             vec![],
             vec![],
@@ -384,6 +367,28 @@ impl NativeFinalityFixture {
             verifier,
             chain_id: chain_id.into(),
         }
+    }
+
+    /// Scope retained by the independently selected signed-genesis verifier.
+    #[must_use]
+    pub const fn root_scope(&self) -> crate::block::consensus::SumeragiRootScope {
+        self.verifier.root_scope()
+    }
+
+    // Synthetic execution fixtures have no SCCP initialization. Their inactive X still binds
+    // the actual block time/height and exact result network; genuine QCs sign the full result.
+    fn certified_result(
+        block: &SignedBlock,
+        body: ExecutionResultCommitment,
+        scope: CertifiedResultScope,
+    ) -> CertifiedResultV1 {
+        let header = SccpFinalityHeaderV1::inactive(
+            *body.schedule.current.network_id.as_bytes(),
+            block.header().height().get(),
+            u64::try_from(block.header().creation_time().as_millis()).unwrap(),
+        )
+        .unwrap();
+        CertifiedResultV1::new(header, body, scope).unwrap()
     }
 
     /// Exact genesis-derived network identity selected by this fixture.
@@ -580,11 +585,7 @@ impl NativeFinalityFixture {
             Some(self.tip.block_header.hash())
         );
         assert!(block.commit_certificate().is_none());
-        let result = certified_result_for_block(
-            &block,
-            result.clone(),
-            CertifiedResultScope::from_root_scope(self.verifier.root_scope()),
-        );
+        let result = Self::certified_result(&block, result.clone(), self.root_scope().into());
         let parent = self.verifier.verify_retained_decision(&self.tip).unwrap();
         let (crypto, committee) = ProofCrypto::new(&self.validators).unwrap();
         let ScheduledSlot::Ready(scheduled) = &parent.commitment().schedule.next else {
@@ -645,15 +646,9 @@ impl NativeFinalityFixture {
         };
         let shares: Vec<_> = self.keys[..quorum]
             .iter()
-            .map(|key| {
-                iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &qc.preimage())
-                    .unwrap()
-            })
+            .map(|key| consensus::sign_preimage(key.private_key(), &qc.preimage()).unwrap())
             .collect();
-        let refs: Vec<_> = shares.iter().collect();
-        qc.agg_sig = AggregateSignature(
-            iroha_crypto::bls::consensus::aggregate(refs.iter().copied()).unwrap(),
-        );
+        qc.agg_sig = AggregateSignature(consensus::aggregate(&shares).unwrap());
         block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
             norito::encode_canonical(header).unwrap(),
             norito::encode_canonical(&qc).unwrap(),
@@ -734,7 +729,7 @@ mod tests {
         let fixture = NativeFinalityFixture::new();
         let certified = fixture
             .latest()
-            .decode_checked(CertifiedResultScope::TairaGlobal)
+            .decode_checked(fixture.root_scope().into())
             .unwrap();
         let header = certified.header.clone().unwrap();
         let config = ScheduledConfig {
@@ -806,9 +801,7 @@ mod tests {
             .encode_wire()
             .unwrap();
         let proof = fixture.certify(block);
-        let certified = proof
-            .decode_checked(CertifiedResultScope::TairaGlobal)
-            .unwrap();
+        let certified = proof.decode_checked(fixture.root_scope().into()).unwrap();
         assert_eq!(
             certified
                 .block
@@ -846,7 +839,7 @@ mod tests {
             let mut qc: Qc = norito::decode_canonical(original.commit_qc()).unwrap();
             let certified = CertifiedResultV1::decode(
                 original.result_preimage(),
-                CertifiedResultScope::from_root_scope(root),
+                CertifiedResultScope::from(root),
             )
             .unwrap();
             let mut fields = certified.header().fields();
@@ -956,6 +949,74 @@ mod tests {
         println!("NATIVE_CHECKPOINT_NETWORK_ID={}", genesis.network_id());
         println!("NATIVE_CHECKPOINT_H1={}", hex::encode(first_bytes));
         println!("NATIVE_CHECKPOINT_H2={}", hex::encode(second_bytes));
+    }
+    #[test]
+    fn tracked_native_checkpoint_fixtures_are_the_current_exporter_output() {
+        use sha2::{Digest as _, Sha256};
+        // The tracked frames are what `capture_native_checkpoint_fixtures` prints from this
+        // tree. A change to the certified result, its schedule projection or the checkpoint
+        // codec makes them stale: regenerate them with that exporter in the same change
+        // (`specs/first_release_history_cutover.md`, surface `execution_root`).
+        let genesis = NativeFinalityFixture::start("portable-native-fixture");
+        let second = NativeFinalityFixture::new();
+        let tracked: [(&str, SumeragiFinalityCheckpoint, &[u8]); 2] = [
+            (
+                "genesis-checkpoint.nrt",
+                genesis.checkpoint(),
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../fixtures/sumeragi/native-finality/genesis-checkpoint.nrt"
+                )),
+            ),
+            (
+                "height-2-checkpoint.nrt",
+                second.checkpoint(),
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../fixtures/sumeragi/native-finality/height-2-checkpoint.nrt"
+                )),
+            ),
+        ];
+        assert_eq!(tracked[0].1.height(), 1);
+        assert_eq!(tracked[1].1.height(), 2);
+        // `capture.json` records the capture that produced the tracked frames. Its identity
+        // and artifact entries describe those frames and are compared here. Its `generator`
+        // block (source digests, harness, logs) describes the sources of the day of the
+        // capture: it says nothing about the current sources and is not compared.
+        let record: norito::json::Value = norito::json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/sumeragi/native-finality/capture.json"
+        )))
+        .unwrap();
+        assert_eq!(record["chain_id"].as_str(), Some(genesis.chain_id()));
+        assert_eq!(
+            record["network_id"].as_str(),
+            Some(genesis.network_id().to_string().as_str())
+        );
+        assert_eq!(genesis.network_id(), second.network_id());
+        let artifacts = record["artifacts"].as_array().unwrap();
+        assert_eq!(artifacts.len(), tracked.len());
+        for ((name, checkpoint, bytes), artifact) in tracked.iter().zip(artifacts) {
+            assert!(
+                checkpoint.encode_canonical().unwrap() == *bytes,
+                "fixtures/sumeragi/native-finality/{name} is not the current exporter output"
+            );
+            assert_eq!(
+                &SumeragiFinalityCheckpoint::decode_canonical(bytes).unwrap(),
+                checkpoint
+            );
+            assert_eq!(
+                artifact["path"].as_str(),
+                Some(format!("fixtures/sumeragi/native-finality/{name}").as_str())
+            );
+            assert_eq!(artifact["height"].as_u64(), Some(checkpoint.height()));
+            assert_eq!(artifact["bytes"].as_u64(), Some(bytes.len() as u64));
+            assert_eq!(
+                artifact["sha256"].as_str(),
+                Some(hex::encode(Sha256::digest(bytes)).as_str()),
+                "capture.json does not describe the tracked {name}"
+            );
+        }
     }
     #[test]
     fn explicitly_selected_npos_fixture_binds_signed_epoch_policy() {

@@ -49,7 +49,8 @@ fn custody_pool(count: usize) -> (World, ValidatorElectionPolicyV1, Vec<KeyPair>
         let mut entry = world.parameters.block();
         entry
             .get_mut()
-            .set_parameter(Parameter::Custom(parameters.into_custom_parameter()));
+            .set_parameter(Parameter::Custom(parameters.into_custom_parameter()))
+            .expect("valid fixture parameters");
         entry.commit();
     }
     let escrow = AccountId::new(keys[0].public_key().clone());
@@ -188,7 +189,8 @@ fn frozen_floors_and_exit_obligations_do_not_follow_mutable_configuration() {
         changed.min_self_bond = Quantity::from(1000_u64);
         entry
             .get_mut()
-            .set_parameter(Parameter::Custom(changed.into_custom_parameter()));
+            .set_parameter(Parameter::Custom(changed.into_custom_parameter()))
+            .expect("valid fixture parameters");
         entry.commit();
     }
     let view = world.view();

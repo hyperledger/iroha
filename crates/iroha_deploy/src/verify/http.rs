@@ -51,7 +51,7 @@ pub struct HttpFinalitySource {
     peers: BTreeMap<PeerId, Client>,
     initial_height: NonZeroU64,
     deadline: Instant,
-    scope: iroha_data_model::sumeragi_finality::CertifiedResultScope,
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
 }
 
 impl HttpFinalitySource {
@@ -59,7 +59,8 @@ impl HttpFinalitySource {
     /// HTTPS is required except for numeric loopback development endpoints. Each client's
     /// explicit credential stays at that endpoint; this constructor never retargets a client.
     /// The initial height is only a retry hint, normally the retained checkpoint height.
-    /// Select `scope` from independently authenticated genesis or the retained native verifier.
+    /// `root_scope` comes from independently authenticated genesis or a retained verifier;
+    /// responses never select it.
     ///
     /// # Errors
     /// Rejects mixed networks, insecure remote endpoints, duplicate peers, unbounded endpoint
@@ -70,9 +71,12 @@ impl HttpFinalitySource {
         proof_clients: Vec<Client>,
         peer_clients: Vec<(PeerId, Client)>,
         deadline: Instant,
-        scope: iroha_data_model::sumeragi_finality::CertifiedResultScope,
+        root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
     ) -> Result<Self, HttpFinalityError> {
         ensure_deadline(deadline)?;
+        root_scope
+            .validate()
+            .map_err(|_| HttpFinalityError::Invalid("root scope"))?;
         if proof_clients.is_empty()
             || proof_clients.len() > MAX_OBSERVATION_PEERS
             || peer_clients.is_empty()
@@ -102,7 +106,7 @@ impl HttpFinalitySource {
             peers,
             initial_height,
             deadline,
-            scope,
+            root_scope,
         })
     }
 }
@@ -115,7 +119,7 @@ impl FinalitySource for HttpFinalitySource {
             ensure_deadline(self.deadline)?;
             let bounded =
                 client.with_request_deadline(self.deadline.min(Instant::now() + PER_PEER_BUDGET));
-            if let Ok(proof) = bounded.get_sumeragi_finality_proof(height, self.scope) {
+            if let Ok(proof) = bounded.get_sumeragi_finality_proof(height, self.root_scope) {
                 ensure_deadline(self.deadline)?;
                 return Ok(proof);
             }
@@ -141,7 +145,7 @@ impl FinalitySource for HttpFinalitySource {
             .with_request_deadline(deadline);
         read_tip(self.initial_height, deadline, |height| {
             client
-                .get_sumeragi_finality_attestation(height, *challenge, peer, self.scope)
+                .get_sumeragi_finality_attestation(height, *challenge, peer, self.root_scope)
                 .map(FinalityAttestation::Authenticated)
                 .map_err(|error| {
                     match error.downcast_ref::<BridgeFinalityAttestationTipMismatch>() {

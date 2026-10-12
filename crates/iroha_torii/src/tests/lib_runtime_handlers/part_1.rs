@@ -146,7 +146,7 @@ async fn api_version_negotiates_text_success_and_typed_unavailable() {
     );
 
     let block = make_empty_signed_block(1, None, 0);
-    let expected_version = block.version().to_string();
+    let expected_version = block.encode_wire().expect("canonical block wire")[0].to_string();
     let header = block.header();
     let hash = store_block(&app, block);
     record_committed_block_hash_for_test(&app, header, hash);
@@ -2432,11 +2432,16 @@ fn mk_app_state_for_tests_with_world_and_options_and_network_id_and_nexus(
             query_memory.ingress_slots.get(),
         )),
         query_fanout_inflight,
-        #[cfg(feature = "app_api")]
+        sccp_history: std::sync::Mutex::new(
+            iroha_core::smartcontracts::isi::sccp::read::SccpHistoryNodeCache::new(),
+        ),
+        sccp_history_budget: iroha_core::state::AllocationBudget::new(
+            usize::try_from(defaults::torii::SCCP_HISTORY_CACHE_MAX_BYTES.get())
+                .expect("default cache fits usize"),
+        ),
         app_routed_read_waiters: Arc::new(tokio::sync::Semaphore::new(
             defaults::torii::QUERY_MAX_INFLIGHT.get(),
         )),
-        #[cfg(feature = "app_api")]
         app_api_routed_read_body_read_timeout: Duration::from_millis(
             defaults::torii::APP_API_ROUTED_READ_BODY_READ_TIMEOUT_MS,
         ),

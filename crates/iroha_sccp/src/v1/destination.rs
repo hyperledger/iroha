@@ -350,6 +350,230 @@ impl TairaCertificateV1 {
     }
 }
 
+/// Borrowed authority for the destination's exact certificate verification kernel.
+///
+/// The caller obtains the network, instance, committee (including its latch) and checkpoint
+/// lookup from one selected destination state. Construction authenticates no remote source;
+/// it checks the TON key/root relation so a supplied key slice cannot substitute authority.
+/// `Live` and entry-point violation/update rules remain the caller's responsibility.
+#[derive(Clone, Copy, Debug)]
+pub struct CertificateAuthorityV1<'a> {
+    flavor: DestinationFlavor,
+    taira_network_id: &'a [u8; 32],
+    consensus_instance: &'a [u8; 32],
+    committee: &'a CommitteeStateV1,
+    ton_keys: Option<&'a [[u8; KEY_LEN]]>,
+}
+/// The result of the common certificate kernel, before entry-point state transitions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CertificateVerificationV1 {
+    /// Verified current-generation header.
+    pub header: SccpFinalityHeaderV1,
+    /// `keccak256(X)` of that header.
+    pub checkpoint_id: [u8; 32],
+    /// Whether the full cryptographic path ran, requiring certificate publication.
+    pub full_path: bool,
+}
+impl<'a> CertificateAuthorityV1<'a> {
+    /// Borrow the actual selected destination authority. EVM obtains keys from each certificate;
+    /// TON requires the stored canonical keys and their exact current committee root.
+    ///
+    /// # Errors
+    /// Returns `BadCommittee` for absent, substituted or malformed TON committee keys.
+    pub fn new(
+        flavor: DestinationFlavor,
+        taira_network_id: &'a [u8; 32],
+        consensus_instance: &'a [u8; 32],
+        committee: &'a CommitteeStateV1,
+        ton_keys: Option<&'a [[u8; KEY_LEN]]>,
+    ) -> Result<Self, DestinationError> {
+        if flavor == DestinationFlavor::Ton
+            && !ton_keys.is_some_and(|keys| successor_keys_match(keys, &committee.root))
+        {
+            return Err(DestinationError::BadCommittee);
+        }
+        Ok(Self {
+            flavor,
+            taira_network_id,
+            consensus_instance,
+            committee,
+            ton_keys,
+        })
+    }
+    /// Verify steps 1–12 of §5.1.3 against this borrowed authority.
+    /// `checkpoint_at` reads the selected destination's stored id at the requested height.
+    /// A stored matching id takes the mandatory cheap path only after checks 1–6.
+    ///
+    /// This operation has no effects and does not assert `Live` or accept a state transition.
+    /// Apply the entry point's committee rules to the returned header before using it.
+    ///
+    /// # Errors
+    /// Returns the same first failed certificate check as the destination entry points.
+    pub fn verify(
+        &self,
+        certificate: &TairaCertificateV1,
+        checkpoint_at: impl FnOnce(u64) -> Option<[u8; 32]>,
+    ) -> Result<CertificateVerificationV1, DestinationError> {
+        let cur = self.committee;
+        let flavor = self.flavor;
+
+        // 1. Exact lengths: `QC_FIXED`, `X`, the signature, and on EVM the committee and
+        //    `signerYs`. TON reads the committee from storage.
+        let qc = QcFixedV1::parse(&certificate.qc).map_err(|_| DestinationError::BadCertificate)?;
+        let raw_header = <&[u8; X_LEN]>::try_from(&certificate.header[..])
+            .map_err(|_| DestinationError::BadHeader)?;
+        let calldata_keys;
+        let (keys, signature, ys): (&[[u8; KEY_LEN]], &[u8], &[[u8; FP_LEN]]) = match flavor {
+            DestinationFlavor::Evm => {
+                if certificate.signature.len() != EVM_SIGNATURE_LEN {
+                    return Err(DestinationError::BadCertificate);
+                }
+                calldata_keys =
+                    committee_keys(&certificate.committee).ok_or(DestinationError::BadCommittee)?;
+                let (ys, rest) = certificate.signer_ys.as_chunks::<FP_LEN>();
+                if !rest.is_empty() || Some(ys.len()) != quorum(calldata_keys.len()) {
+                    return Err(DestinationError::BadCertificate);
+                }
+                (
+                    calldata_keys.as_slice(),
+                    certificate.signature.as_slice(),
+                    ys,
+                )
+            }
+            DestinationFlavor::Ton => {
+                if certificate.ton_signature.len() != SIGNATURE_LEN {
+                    return Err(DestinationError::BadCertificate);
+                }
+                (
+                    self.ton_keys.unwrap_or_default(),
+                    certificate.ton_signature.as_slice(),
+                    <&[[u8; FP_LEN]]>::default(),
+                )
+            }
+        };
+
+        // 2. `X` is a header of this Taira network with `ACTIVE` set.
+        let header = SccpFinalityHeaderV1::parse(raw_header)
+            .ok()
+            .filter(|header| header.network_id() == *self.taira_network_id && header.is_active())
+            .ok_or(DestinationError::BadHeader)?;
+
+        // 3. Classification: only a certificate of the current generation goes on.
+        if !cur.is_current(&header) {
+            return Err(DestinationError::CommitteeNotAccepted);
+        }
+
+        // 4. EVM: the calldata committee is the current one.
+        if flavor == DestinationFlavor::Evm && committee_root(keys) != Some(cur.root) {
+            return Err(DestinationError::BadCommittee);
+        }
+
+        // 5. The signer set: no spare bit and exactly `q` signers.
+        check_signers(qc.signers, keys.len()).map_err(CertificateError::destination_error)?;
+        let indices =
+            signer_indices(qc.signers, keys.len()).ok_or(DestinationError::BadCertificate)?;
+        let signer_keys: Vec<[u8; KEY_LEN]> = indices.iter().map(|index| keys[*index]).collect();
+
+        // 6. Encodings, before the cheap path and before any curve operation. Both flavours
+        //    refuse the identity signature first. EVM then requires every signer `y` below
+        //    `p`, every limb of `σ` below `p`, and for every signer key its flags, an `x`
+        //    below `p` and coordinates other than `(0, 0)`.
+        match flavor {
+            DestinationFlavor::Evm => {
+                if *signature == IDENTITY_SIGNATURE_EVM {
+                    return Err(DestinationError::BadSignature);
+                }
+                if !ys.iter().all(fp_is_canonical) {
+                    return Err(DestinationError::BadCommittee);
+                }
+                let (limbs, _) = signature.as_chunks::<FP_LEN>();
+                if !limbs.iter().all(fp_is_canonical) {
+                    return Err(DestinationError::BadSignature);
+                }
+                if !signer_keys.iter().zip(ys).all(|(key, y)| {
+                    signer_key_flags_match(key, y) && signer_coordinates_name_a_finite_point(key, y)
+                }) {
+                    return Err(DestinationError::BadCommittee);
+                }
+            }
+            DestinationFlavor::Ton => {
+                if *signature == IDENTITY_SIGNATURE {
+                    return Err(DestinationError::BadSignature);
+                }
+            }
+        }
+
+        // 7. The checkpoint id. `R` belongs to the full path.
+        let id = checkpoint_id(raw_header);
+
+        // 8. Cheap path (mandatory): a stored `X` is already certified, so its signature is
+        //    not checked and it is not published again.
+        if checkpoint_at(header.height()) == Some(id) {
+            return Ok(CertificateVerificationV1 {
+                header,
+                checkpoint_id: id,
+                full_path: false,
+            });
+        }
+
+        // 9–11. The aggregate key and the pairing check, as each contract observes them.
+        match flavor {
+            DestinationFlavor::Evm => {
+                // 10. `G1ADD` over the signer points: a point off the curve, then `apk = O`,
+                //     answer `BadCommittee` before `σ` is read as a point.
+                if !signer_keys
+                    .iter()
+                    .zip(ys)
+                    .all(|(key, y)| signer_point_is_on_curve(key, y))
+                {
+                    return Err(DestinationError::BadCommittee);
+                }
+                match signer_point_sum(keys, qc.signers) {
+                    Some(sum) if sum != IDENTITY_KEY => {}
+                    _ => return Err(DestinationError::BadCommittee),
+                }
+                // 11. `PAIRING_CHECK` validates its inputs and sees the aggregate key only.
+                let compressed = <&[u8; EVM_SIGNATURE_LEN]>::try_from(signature)
+                    .ok()
+                    .and_then(|limbs| signature_from_evm192(limbs).ok())
+                    .ok_or(DestinationError::BadSignature)?;
+                verify_certificate_by_aggregate(
+                    self.consensus_instance,
+                    &certificate.qc,
+                    raw_header,
+                    &compressed,
+                    keys,
+                )
+                .map_err(CertificateError::destination_error)?;
+            }
+            DestinationFlavor::Ton => {
+                // `BLS_FASTAGGREGATEVERIFY` is one verdict (§5.3.4 item 5): a stored key that
+                // is no valid key, an identity aggregate, a `σ` that is no point of G2 and a
+                // failed pairing all throw `BadSignature`.
+                let compressed = <[u8; SIGNATURE_LEN]>::try_from(signature)
+                    .ok()
+                    .filter(|signature| signature_to_evm192(signature).is_some())
+                    .ok_or(DestinationError::BadSignature)?;
+                verify_certificate(
+                    self.consensus_instance,
+                    &certificate.qc,
+                    raw_header,
+                    &compressed,
+                    keys,
+                )
+                .map_err(CertificateError::ton_destination_error)?;
+            }
+        }
+
+        // 12. Report publication to the owner; the caller emits only when the full path ran.
+        Ok(CertificateVerificationV1 {
+            header,
+            checkpoint_id: id,
+            full_path: true,
+        })
+    }
+}
+
 /// `CheckpointRefV1`: the header of a stored checkpoint (§5.1.3 "Using a checkpoint").
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CheckpointRefV1 {
@@ -664,7 +888,39 @@ impl Destination {
     /// [`DeploymentError::ZeroRevision`], [`DeploymentError::ZeroSupplyCap`],
     /// [`DeploymentError::Pin`], and for a TON deployment [`DeploymentError::TonKeys`].
     pub fn new(deployment: DeploymentV1) -> Result<Self, DeploymentError> {
-        let (lane, committee, keys) = validate_deployment(&deployment)?;
+        // The flavour of each profile: the EVM constructor takes `networkTag` 0x41 or 0x42
+        // only (§5.2.1), and a TON minter requires `GLOBALID = −239` (§5.3.1).
+        let flavor_of_profile = match deployment.network {
+            SccpNetworkV1::EthereumMainnet | SccpNetworkV1::BscMainnet => DestinationFlavor::Evm,
+            SccpNetworkV1::TonMainnet => DestinationFlavor::Ton,
+            _ => return Err(DeploymentError::Network),
+        };
+        let lane = lane_bytes(
+            SccpNetworkV1::SoraTaira,
+            deployment.network,
+            &deployment.taira_network_id,
+        )
+        .ok_or(DeploymentError::Network)?;
+        if deployment.flavor != flavor_of_profile {
+            return Err(DeploymentError::Flavor);
+        }
+        if deployment.route_revision == 0 {
+            return Err(DeploymentError::ZeroRevision);
+        }
+        if deployment.max_wrapped_supply == 0 {
+            return Err(DeploymentError::ZeroSupplyCap);
+        }
+        let committee = deployment.initial_committee().ok_or(DeploymentError::Pin)?;
+        let keys = match deployment.flavor {
+            DestinationFlavor::Evm => None,
+            DestinationFlavor::Ton => Some(
+                deployment
+                    .pin_keys
+                    .clone()
+                    .filter(|keys| successor_keys_match(keys, &deployment.pin_root))
+                    .ok_or(DeploymentError::TonKeys)?,
+            ),
+        };
         Ok(Self {
             deployment,
             lane,
@@ -789,13 +1045,26 @@ impl Destination {
         now_ms: u64,
     ) -> Result<CallOutcome, DestinationError> {
         self.atomically(|destination, events| {
-            let (stopped, _) = destination.native_state().submit_checkpoints(
-                certificates,
-                next_keys,
-                now_ms,
-                events,
-            )?;
-            Ok((stopped, None))
+            if certificates.len() > MAX_CERTIFICATES_PER_CALL {
+                return Err(DestinationError::TooManyCertificates);
+            }
+            if certificates.is_empty() {
+                return Err(DestinationError::NothingToDo);
+            }
+            destination.require_live(now_ms)?;
+            let mut changed = false;
+            for (index, certificate) in certificates.iter().enumerate() {
+                let successor_keys = next_keys.get(index).and_then(Option::as_deref);
+                match destination.checkpoint_step(certificate, successor_keys, now_ms, events)? {
+                    CheckpointStep::Applied(step_changed) => changed |= step_changed,
+                    CheckpointStep::Stopped(reason) => return Ok((Some(reason), None)),
+                }
+            }
+            if changed {
+                Ok((None, None))
+            } else {
+                Err(DestinationError::NothingToDo)
+            }
         })
     }
 
@@ -868,17 +1137,37 @@ impl Destination {
     ) -> Result<CallOutcome, DestinationError> {
         self.atomically(|destination, events| {
             let header = destination.obtain_header(source, now_ms, events)?;
-            let pause = native_check_control(
-                &destination.deployment,
-                &header,
-                proof,
-                destination.state.control_nonce,
-                now_ms,
-            )?;
+            check_block_ref(&proof.block, &header)?;
+            let deployment = &destination.deployment;
+            let fields = ControlLeafV1 {
+                route_revision: deployment.route_revision,
+                control_nonce: proof.control_nonce,
+                track: proof.track,
+                parliament_paused: proof.parliament_paused,
+                fast_pause_until_ms: proof.fast_pause_until_ms,
+                certificate_id: proof.certificate_id,
+                effect_hash: proof.effect_hash,
+            };
+            // A leaf of refused fields is still a leaf of the tree: the path is checked
+            // first, the constraints after it. The deployment's profile is external, so the
+            // lane exists.
+            let leaf = control_leaf_unchecked(
+                &deployment.taira_network_id,
+                deployment.network,
+                &deployment.destination_word,
+                &fields,
+            )
+            .map_err(|_| DestinationError::BadProof)?;
+            check_leaf(&leaf, proof.leaf_index, &proof.path, &proof.block)?;
+            check_control_constraints(&fields).map_err(|_| DestinationError::BadControl)?;
             let state = &mut destination.state;
-            state.parliament_paused = pause.parliament_paused;
-            state.fast_pause_until_ms = pause.fast_pause_until_ms;
-            state.control_nonce = pause.control_nonce;
+            if proof.control_nonce <= state.control_nonce {
+                return Err(DestinationError::StaleControl);
+            }
+            state.parliament_paused = proof.parliament_paused != 0;
+            state.fast_pause_until_ms =
+                applied_fast_pause_until_ms(proof.fast_pause_until_ms, now_ms);
+            state.control_nonce = proof.control_nonce;
             state.op_count = bumped_op_count(state.op_count);
             events.push(DestinationEvent::ControlApplied {
                 control_nonce: proof.control_nonce,
@@ -1024,14 +1313,109 @@ impl Destination {
         certificate: &TairaCertificateV1,
         events: &mut Vec<DestinationEvent>,
     ) -> Result<(SccpFinalityHeaderV1, [u8; 32]), DestinationError> {
-        native_verify(
-            &self.deployment,
-            &self.state.committee,
-            self.state.keys.as_deref(),
-            &self.state.checkpoints,
-            certificate,
-            events,
-        )
+        // These keys were bound to the root by deployment or an authenticated rotation.
+        let authority = CertificateAuthorityV1 {
+            flavor: self.deployment.flavor,
+            taira_network_id: &self.deployment.taira_network_id,
+            consensus_instance: &self.deployment.consensus_instance,
+            committee: &self.state.committee,
+            ton_keys: self.state.keys.as_deref(),
+        };
+        let checked = authority.verify(certificate, |height| {
+            self.state.checkpoints.get(&height).copied()
+        })?;
+        if checked.full_path {
+            events.push(DestinationEvent::Certificate {
+                height: checked.header.height(),
+                generation: checked.header.generation(),
+                qc: certificate.qc.clone(),
+                header: certificate.header.clone(),
+                signature: match self.deployment.flavor {
+                    DestinationFlavor::Evm => certificate.signature.clone(),
+                    DestinationFlavor::Ton => certificate.ton_signature.clone(),
+                },
+            });
+        }
+        Ok((checked.header, checked.checkpoint_id))
+    }
+
+    /// Record `checkpoint[height] = id` if the height is absent. TON keeps three entries: a
+    /// new height enters only above the lowest stored one, which it evicts. Returns whether
+    /// the checkpoint was recorded.
+    fn record_checkpoint(
+        &mut self,
+        height: u64,
+        id: [u8; 32],
+        events: &mut Vec<DestinationEvent>,
+    ) -> bool {
+        let checkpoints = &mut self.state.checkpoints;
+        if checkpoints.contains_key(&height) {
+            return false;
+        }
+        if let Some(slots) = self.deployment.flavor.checkpoint_slots()
+            && checkpoints.len() >= slots
+        {
+            let lowest = checkpoints.first_key_value().map(|(lowest, _)| *lowest);
+            if lowest.is_none_or(|lowest| height <= lowest) {
+                return false;
+            }
+            checkpoints.pop_first();
+        }
+        checkpoints.insert(height, id);
+        events.push(DestinationEvent::Checkpointed { height, id });
+        true
+    }
+
+    /// One certificate of `submitCheckpoints`: its verification, V1–V3 with the latch, and
+    /// the updates of §5.1.2.
+    fn checkpoint_step(
+        &mut self,
+        certificate: &TairaCertificateV1,
+        next_keys: Option<&[[u8; KEY_LEN]]>,
+        now_ms: u64,
+        events: &mut Vec<DestinationEvent>,
+    ) -> Result<CheckpointStep, DestinationError> {
+        let (header, id) = self.verify(certificate, events)?;
+        let stored = self.state.checkpoints.get(&header.height()).copied();
+        // TON stores the keys, so a rotation to another root must bring them. The answer
+        // reads `cur.root` before the rotation.
+        let needs_keys = self.deployment.flavor == DestinationFlavor::Ton
+            && self.state.committee.successor_needs_keys(&header);
+        let outcome = self
+            .state
+            .committee
+            .apply_checkpoint(&header, stored.as_ref(), now_ms)
+            .map_err(committee_error)?;
+        match outcome {
+            CheckpointOutcomeV1::Latched(violation) => {
+                events.push(DestinationEvent::Latched(violation));
+                Ok(CheckpointStep::Stopped(StopReasonV1::Latch))
+            }
+            CheckpointOutcomeV1::Applied {
+                high_raised,
+                rotation,
+                live,
+            } => {
+                let recorded = self.record_checkpoint(header.height(), id, events);
+                if let Some(rotation) = rotation {
+                    if needs_keys {
+                        // The error reverts the call, and with it the rotation applied above.
+                        let keys = next_keys
+                            .filter(|keys| successor_keys_match(keys, &rotation.root))
+                            .ok_or(DestinationError::BadCommittee)?;
+                        self.state.keys = Some(keys.to_vec());
+                    }
+                    events.push(DestinationEvent::CommitteeRotated(rotation));
+                }
+                if live {
+                    Ok(CheckpointStep::Applied(
+                        recorded || high_raised || rotation.is_some(),
+                    ))
+                } else {
+                    Ok(CheckpointStep::Stopped(StopReasonV1::Frozen))
+                }
+            }
+        }
     }
 
     /// Obtain the certified header of an entry point and require `Live`.
@@ -1045,7 +1429,38 @@ impl Destination {
         now_ms: u64,
         events: &mut Vec<DestinationEvent>,
     ) -> Result<SccpFinalityHeaderV1, DestinationError> {
-        self.native_state().obtain_header(source, now_ms, events)
+        match source {
+            CertificateSourceV1::Inline(certificate) => {
+                let (header, id) = self.verify(certificate, events)?;
+                let stored = self.state.checkpoints.get(&header.height()).copied();
+                self.state
+                    .committee
+                    .apply_inline(&header, stored.as_ref(), now_ms)
+                    .map_err(committee_error)?;
+                self.record_checkpoint(header.height(), id, events);
+                Ok(header)
+            }
+            CertificateSourceV1::Checkpoint(reference) => {
+                let raw = <&[u8; X_LEN]>::try_from(&reference.header[..])
+                    .map_err(|_| DestinationError::BadHeader)?;
+                let mut height = [0_u8; 8];
+                height.copy_from_slice(&raw[X_OFFSET_HEIGHT..X_OFFSET_HEIGHT + 8]);
+                let stored = self.state.checkpoints.get(&u64::from_be_bytes(height));
+                if stored != Some(&checkpoint_id(raw)) {
+                    return Err(DestinationError::UnknownCheckpoint);
+                }
+                // The stored id authenticates the network of `X`; `ACTIVE` is still required.
+                let header = SccpFinalityHeaderV1::parse(raw)
+                    .ok()
+                    .filter(SccpFinalityHeaderV1::is_active)
+                    .ok_or(DestinationError::BadHeader)?;
+                self.state
+                    .committee
+                    .require_checkpoint_use(&header, now_ms)
+                    .map_err(committee_error)?;
+                Ok(header)
+            }
+        }
     }
 
     /// The payload of a TON finalize or void, which the minter checks before it obtains `X`
@@ -1055,7 +1470,10 @@ impl Destination {
         &self,
         proof: &MessageProofV1,
     ) -> Result<Option<AddressedPayload>, DestinationError> {
-        native_payload_before_header(&self.deployment, proof)
+        match self.deployment.flavor {
+            DestinationFlavor::Evm => Ok(None),
+            DestinationFlavor::Ton => self.addressed_payload(&proof.payload).map(Some),
+        }
     }
 
     /// The checks of a message proof against a verified header (§5.1.5 steps 4 and 5): the
@@ -1070,921 +1488,84 @@ impl Destination {
         now_ms: u64,
         usage: MessageUse,
     ) -> Result<(AddressedPayload, [u8; 32]), DestinationError> {
-        native_check_message(
-            &self.deployment,
-            &self.lane,
-            header,
-            proof,
-            early,
-            now_ms,
-            usage,
-        )
-    }
-
-    // Borrow only the authority/checkpoint state; monetary state stays with the caller.
-    fn native_state(&mut self) -> NativeStateMut<'_, BTreeMap<u64, [u8; 32]>> {
-        NativeStateMut {
-            deployment: &self.deployment,
-            committee: &mut self.state.committee,
-            keys: &mut self.state.keys,
-            checkpoints: &mut self.state.checkpoints,
-        }
-    }
-}
-
-fn validate_deployment(
-    deployment: &DeploymentV1,
-) -> Result<([u8; LANE_LEN], CommitteeStateV1, Option<Vec<[u8; KEY_LEN]>>), DeploymentError> {
-    // The flavour of each profile: the EVM constructor takes `networkTag` 0x41 or 0x42
-    // only (§5.2.1), and a TON minter requires `GLOBALID = −239` (§5.3.1).
-    let flavor_of_profile = match deployment.network {
-        SccpNetworkV1::EthereumMainnet | SccpNetworkV1::BscMainnet => DestinationFlavor::Evm,
-        SccpNetworkV1::TonMainnet => DestinationFlavor::Ton,
-        _ => return Err(DeploymentError::Network),
-    };
-    let lane = lane_bytes(
-        SccpNetworkV1::SoraTaira,
-        deployment.network,
-        &deployment.taira_network_id,
-    )
-    .ok_or(DeploymentError::Network)?;
-    if deployment.flavor != flavor_of_profile {
-        return Err(DeploymentError::Flavor);
-    }
-    if deployment.route_revision == 0 {
-        return Err(DeploymentError::ZeroRevision);
-    }
-    if deployment.max_wrapped_supply == 0 {
-        return Err(DeploymentError::ZeroSupplyCap);
-    }
-    let committee = deployment.initial_committee().ok_or(DeploymentError::Pin)?;
-    let keys = match deployment.flavor {
-        DestinationFlavor::Evm => None,
-        DestinationFlavor::Ton => Some(
-            deployment
-                .pin_keys
-                .clone()
-                .filter(|keys| successor_keys_match(keys, &deployment.pin_root))
-                .ok_or(DeploymentError::TonKeys)?,
-        ),
-    };
-    Ok((lane, committee, keys))
-}
-
-/// Checkpoint observations from one independently selected destination state.
-///
-/// EVM entries name exactly the heights read from `checkpointHeader`: `None` means a
-/// successful absent read. A missing map key means unavailable, never absent. TON supplies
-/// all three slots, so absence is known for every other height. These values must come from
-/// the destination; a supplied certificate never establishes an observed checkpoint.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CheckpointObservationsV1 {
-    /// Individually queried EVM checkpoint heights, including explicit absent responses.
-    Evm(BTreeMap<u64, Option<[u8; 32]>>),
-    /// Complete TON checkpoint slots, with empty slots represented by `None`.
-    Ton([Option<(u64, [u8; 32])>; TON_CHECKPOINT_SLOTS]),
-}
-
-/// Why native proof preflight cannot accept the supplied call.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PreflightError {
-    /// An independent observation is structurally inconsistent; no authority is inferred.
-    Observation(&'static str),
-    /// The destination did not supply the requested checkpoint lookup.
-    CheckpointUnavailable(u64),
-    /// The same refusal the destination's native checks return.
-    Destination(DestinationError),
-}
-impl core::fmt::Display for PreflightError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::Observation(reason) => write!(f, "invalid destination observation: {reason}"),
-            Self::CheckpointUnavailable(height) => write!(
-                f,
-                "checkpoint observation at height {height} is unavailable"
-            ),
-            Self::Destination(error) => write!(f, "destination: {error}"),
-        }
-    }
-}
-impl std::error::Error for PreflightError {}
-impl From<DestinationError> for PreflightError {
-    fn from(error: DestinationError) -> Self {
-        Self::Destination(error)
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct ObservedCheckpoints {
-    // None means complete TON slot coverage. Some contains all queried EVM heights.
-    queried: Option<BTreeSet<u64>>,
-    entries: BTreeMap<u64, [u8; 32]>,
-}
-impl CheckpointStore for ObservedCheckpoints {
-    type Error = PreflightError;
-    fn lookup(&self, height: u64) -> Result<Option<[u8; 32]>, Self::Error> {
-        if self
-            .queried
-            .as_ref()
-            .is_some_and(|queried| !queried.contains(&height))
-        {
-            return Err(PreflightError::CheckpointUnavailable(height));
-        }
-        Ok(self.entries.get(&height).copied())
-    }
-    fn entries(&self) -> &BTreeMap<u64, [u8; 32]> {
-        &self.entries
-    }
-    fn entries_mut(&mut self) -> &mut BTreeMap<u64, [u8; 32]> {
-        &mut self.entries
-    }
-}
-
-/// A validated, immutable projection of independently observed destination state.
-///
-/// The constructor checks shape, not RPC authentication. The caller must bind every input
-/// (including the time, deployment immutables, current committee, pause and checkpoint reads)
-/// to the same independently selected destination block. Never derive this state from the
-/// offered certificate. This projection deliberately has no invented balances, consumed bits,
-/// fees or supply. Its methods qualify proof/authority checks only, not a transaction's
-/// complete acceptance, later execution time or TON's asynchronous bucket outcome.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DestinationObservationV1 {
-    deployment: DeploymentV1,
-    lane: [u8; LANE_LEN],
-    committee: CommitteeStateV1,
-    keys: Option<Vec<[u8; KEY_LEN]>>,
-    checkpoints: ObservedCheckpoints,
-    pause: PauseStateV1,
-    now_ms: u64,
-}
-
-/// The deadline branch of a native transfer proof.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MessagePurposeV1 {
-    /// Mint while the deadline has not passed; effective pause is also checked.
-    Finalize,
-    /// Consume an expired transfer without minting; effective pause is irrelevant.
-    VoidExpired,
-}
-
-/// Fields authenticated by a successful native message proof preflight.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct MessagePreflightV1 {
-    message_id: [u8; 32],
-    nonce: u64,
-    deadline_ms: u64,
-    amount: u128,
-    recipient: Vec<u8>,
-}
-impl MessagePreflightV1 {
-    /// Authenticated transfer identity.
-    #[must_use]
-    pub const fn message_id(&self) -> [u8; 32] {
-        self.message_id
-    }
-    /// Authenticated destination nonce; its consumed bit must still be queried.
-    #[must_use]
-    pub const fn nonce(&self) -> u64 {
-        self.nonce
-    }
-    /// Authenticated deadline checked against the observation's destination time.
-    #[must_use]
-    pub const fn deadline_ms(&self) -> u64 {
-        self.deadline_ms
-    }
-    /// Authenticated token amount; supply and balances were not queried by this preflight.
-    #[must_use]
-    pub const fn amount(&self) -> u128 {
-        self.amount
-    }
-    /// Authenticated recipient bytes.
-    #[must_use]
-    pub fn recipient(&self) -> &[u8] {
-        &self.recipient
-    }
-}
-
-/// Successful checkpoint preflight, including a persisted latch or frozen stop.
-/// No destination writes occurred; subsequent transactions must read current state again.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CheckpointPreflightV1 {
-    observation: DestinationObservationV1,
-    processed: usize,
-    stopped: Option<StopReasonV1>,
-    events: Vec<DestinationEvent>,
-}
-impl CheckpointPreflightV1 {
-    /// Projected state after the processed prefix of the batch.
-    #[must_use]
-    pub const fn observation(&self) -> &DestinationObservationV1 {
-        &self.observation
-    }
-    /// Number of certificates processed, including a certificate that stops the batch.
-    #[must_use]
-    pub const fn processed(&self) -> usize {
-        self.processed
-    }
-    /// A latch/frozen stop is persisted success, not a rollback error.
-    #[must_use]
-    pub const fn stopped(&self) -> Option<StopReasonV1> {
-        self.stopped
-    }
-    /// Events produced by the shared checkpoint state machine.
-    #[must_use]
-    pub fn events(&self) -> &[DestinationEvent] {
-        &self.events
-    }
-}
-
-impl DestinationObservationV1 {
-    /// Validate the shape of one coherent, independently obtained observation.
-    ///
-    /// # Errors
-    /// Rejects invalid deployment/current committee geometry, TON key/root mismatch, flavor
-    /// mismatch, zero stored checkpoint ids, duplicate TON slots and inconsistent pause data.
-    pub fn new(
-        deployment: DeploymentV1,
-        committee: CommitteeStateV1,
-        keys: Option<Vec<[u8; KEY_LEN]>>,
-        checkpoints: CheckpointObservationsV1,
-        pause: PauseStateV1,
-        now_ms: u64,
-    ) -> Result<Self, PreflightError> {
-        let (lane, _, _) = validate_deployment(&deployment)
-            .map_err(|_| PreflightError::Observation("deployment"))?;
-        if committee.root == [0; 32]
-            || committee.generation == 0
-            || committee.start == 0
-            || committee.high < committee.start - 1
-            || (committee.equivocated && committee.until_ms != 0)
-        {
-            return Err(PreflightError::Observation("current committee"));
-        }
-        if pause.effective != (pause.parliament_paused || now_ms < pause.fast_pause_until_ms) {
-            return Err(PreflightError::Observation("effective pause"));
-        }
-        match deployment.flavor {
-            DestinationFlavor::Evm if keys.is_some() => {
-                return Err(PreflightError::Observation(
-                    "EVM committee keys belong to calldata",
-                ));
+        check_block_ref(&proof.block, header)?;
+        let payload = match early {
+            Some(payload) => payload,
+            None => self.addressed_payload(&proof.payload)?,
+        };
+        match usage {
+            MessageUse::Finalize if now_ms > payload.deadline_ms => {
+                return Err(DestinationError::DeadlinePassed);
             }
-            DestinationFlavor::Ton
-                if !keys
-                    .as_deref()
-                    .is_some_and(|keys| successor_keys_match(keys, &committee.root)) =>
-            {
-                return Err(PreflightError::Observation("current TON keys"));
+            MessageUse::Void if now_ms <= payload.deadline_ms => {
+                return Err(DestinationError::DeadlineNotReached);
             }
             _ => {}
         }
-        let mut entries = BTreeMap::new();
-        let queried = match (deployment.flavor, checkpoints) {
-            (DestinationFlavor::Evm, CheckpointObservationsV1::Evm(reads)) => {
-                let mut queried = BTreeSet::new();
-                for (height, id) in reads {
-                    queried.insert(height);
-                    if let Some(id) = id {
-                        entries.insert(height, id);
-                    }
-                }
-                Some(queried)
-            }
-            (DestinationFlavor::Ton, CheckpointObservationsV1::Ton(slots)) => {
-                for (height, id) in slots.into_iter().flatten() {
-                    if entries.insert(height, id).is_some() {
-                        return Err(PreflightError::Observation(
-                            "duplicate TON checkpoint height",
-                        ));
-                    }
-                }
-                None
-            }
-            _ => return Err(PreflightError::Observation("checkpoint flavor")),
-        };
-        if entries
-            .iter()
-            .any(|(height, id)| *height == 0 || *id == [0; 32])
-        {
-            return Err(PreflightError::Observation("stored checkpoint"));
-        }
-        Ok(Self {
-            deployment,
-            lane,
-            committee,
-            keys,
-            checkpoints: ObservedCheckpoints { queried, entries },
-            pause,
-            now_ms,
-        })
-    }
-    /// Deployment identity supplied independently of any offered certificate.
-    #[must_use]
-    pub const fn deployment(&self) -> &DeploymentV1 {
-        &self.deployment
-    }
-    /// Exact observed or successfully projected current committee state.
-    #[must_use]
-    pub const fn committee(&self) -> &CommitteeStateV1 {
-        &self.committee
-    }
-    /// Destination time shared by every field in this observation.
-    #[must_use]
-    pub const fn now_ms(&self) -> u64 {
-        self.now_ms
-    }
-    /// Exact current pause state, including its two independent pause mechanisms.
-    #[must_use]
-    pub const fn pause(&self) -> PauseStateV1 {
-        self.pause
-    }
-    /// A queried checkpoint, preserving unavailable versus absent.
-    ///
-    /// # Errors
-    /// Returns [`PreflightError::CheckpointUnavailable`] for an unqueried EVM height.
-    pub fn checkpoint(&self, height: u64) -> Result<Option<[u8; 32]>, PreflightError> {
-        self.checkpoints.lookup(height)
-    }
-    fn native_state(&mut self) -> NativeStateMut<'_, ObservedCheckpoints> {
-        NativeStateMut {
-            deployment: &self.deployment,
-            committee: &mut self.committee,
-            keys: &mut self.keys,
-            checkpoints: &mut self.checkpoints,
-        }
-    }
-    /// Check native finality, V1–V3/checkpoint use, pause, payload and paths in contract order.
-    /// Consumed bits, supply, gas/value, and asynchronous TON effects are outside this result.
-    ///
-    /// # Errors
-    /// Returns an unavailable observation or the first native destination refusal.
-    pub fn preflight_message(
-        &self,
-        source: CertificateSourceV1<'_>,
-        proof: &MessageProofV1,
-        purpose: MessagePurposeV1,
-    ) -> Result<MessagePreflightV1, PreflightError> {
-        let early = native_payload_before_header(&self.deployment, proof)?;
-        let mut projected = self.clone();
-        let header =
-            projected
-                .native_state()
-                .obtain_header(source, self.now_ms, &mut Vec::new())?;
-        if purpose == MessagePurposeV1::Finalize && self.pause.effective {
-            return Err(DestinationError::MintingIsPaused.into());
-        }
-        let usage = match purpose {
-            MessagePurposeV1::Finalize => MessageUse::Finalize,
-            MessagePurposeV1::VoidExpired => MessageUse::Void,
-        };
-        let (payload, message_id) = native_check_message(
-            &self.deployment,
-            &self.lane,
-            &header,
-            proof,
-            early,
-            self.now_ms,
-            usage,
-        )?;
-        Ok(MessagePreflightV1 {
-            message_id,
-            nonce: payload.nonce,
-            deadline_ms: payload.deadline_ms,
-            amount: payload.amount,
-            recipient: payload.recipient,
-        })
-    }
-    /// Check the complete native control leaf, authority, paths and nonce, returning the
-    /// effective pause after the destination's expiry clamp. No state is changed.
-    ///
-    /// # Errors
-    /// Returns an unavailable observation or the first native destination refusal.
-    pub fn preflight_control(
-        &self,
-        source: CertificateSourceV1<'_>,
-        proof: &ControlProofV1,
-    ) -> Result<PauseStateV1, PreflightError> {
-        let mut projected = self.clone();
-        let header =
-            projected
-                .native_state()
-                .obtain_header(source, self.now_ms, &mut Vec::new())?;
-        Ok(native_check_control(
-            &self.deployment,
-            &header,
-            proof,
-            self.pause.control_nonce,
-            self.now_ms,
-        )?)
-    }
-    /// Project one atomic checkpoint call with the same size/order/latch/rollback rules as
-    /// [`Destination::submit_checkpoints`]. Errors discard every projected update. A persisted
-    /// stop is returned explicitly; unprocessed certificates are never marked verified.
-    ///
-    /// # Errors
-    /// Returns an unavailable observation or the first native destination refusal.
-    pub fn preflight_checkpoints(
-        &self,
-        certificates: &[TairaCertificateV1],
-        next_keys: &[Option<Vec<[u8; KEY_LEN]>>],
-    ) -> Result<CheckpointPreflightV1, PreflightError> {
-        let mut projected = self.clone();
-        let mut events = Vec::new();
-        let (stopped, processed) = projected.native_state().submit_checkpoints(
-            certificates,
-            next_keys,
-            self.now_ms,
-            &mut events,
-        )?;
-        Ok(CheckpointPreflightV1 {
-            observation: projected,
-            stopped,
-            processed,
-            events,
-        })
-    }
-}
-
-// Shared native proof and checkpoint checks. Destination and wallet preflight use these
-// same implementations; the store makes an unqueried RPC height distinct from absence.
-trait CheckpointStore {
-    type Error: From<DestinationError>;
-    fn lookup(&self, height: u64) -> Result<Option<[u8; 32]>, Self::Error>;
-    fn entries(&self) -> &BTreeMap<u64, [u8; 32]>;
-    fn entries_mut(&mut self) -> &mut BTreeMap<u64, [u8; 32]>;
-}
-impl CheckpointStore for BTreeMap<u64, [u8; 32]> {
-    type Error = DestinationError;
-    fn lookup(&self, height: u64) -> Result<Option<[u8; 32]>, Self::Error> {
-        Ok(self.get(&height).copied())
-    }
-    fn entries(&self) -> &BTreeMap<u64, [u8; 32]> {
-        self
-    }
-    fn entries_mut(&mut self) -> &mut BTreeMap<u64, [u8; 32]> {
-        self
-    }
-}
-struct NativeStateMut<'a, S> {
-    deployment: &'a DeploymentV1,
-    committee: &'a mut CommitteeStateV1,
-    keys: &'a mut Option<Vec<[u8; KEY_LEN]>>,
-    checkpoints: &'a mut S,
-}
-impl<S: CheckpointStore> NativeStateMut<'_, S> {
-    fn submit_checkpoints(
-        &mut self,
-        certificates: &[TairaCertificateV1],
-        next_keys: &[Option<Vec<[u8; KEY_LEN]>>],
-        now_ms: u64,
-        events: &mut Vec<DestinationEvent>,
-    ) -> Result<(Option<StopReasonV1>, usize), S::Error> {
-        if certificates.len() > MAX_CERTIFICATES_PER_CALL {
-            return Err(DestinationError::TooManyCertificates.into());
-        }
-        if certificates.is_empty() {
-            return Err(DestinationError::NothingToDo.into());
-        }
-        self.committee
-            .require_live(now_ms)
-            .map_err(committee_error)?;
-        let mut changed = false;
-        for (index, certificate) in certificates.iter().enumerate() {
-            let successor_keys = next_keys.get(index).and_then(Option::as_deref);
-            match self.checkpoint_step(certificate, successor_keys, now_ms, events)? {
-                CheckpointStep::Applied(step_changed) => changed |= step_changed,
-                CheckpointStep::Stopped(reason) => return Ok((Some(reason), index + 1)),
-            }
-        }
-        if changed {
-            Ok((None, certificates.len()))
-        } else {
-            Err(DestinationError::NothingToDo.into())
-        }
+        let message = message_id(&self.lane, &payload_hash(&proof.payload));
+        let leaf = transfer_leaf(&message, &self.deployment.destination_word);
+        check_leaf(&leaf, proof.leaf_index, &proof.path, &proof.block)?;
+        Ok((payload, message))
     }
 
-    fn record_checkpoint(
-        &mut self,
-        height: u64,
-        id: [u8; 32],
-        events: &mut Vec<DestinationEvent>,
-    ) -> Result<bool, S::Error> {
-        let checkpoints = &mut *self.checkpoints;
-        if checkpoints.lookup(height)?.is_some() {
-            return Ok(false);
-        }
-        if let Some(slots) = self.deployment.flavor.checkpoint_slots()
-            && checkpoints.entries().len() >= slots
-        {
-            let lowest = checkpoints
-                .entries()
-                .first_key_value()
-                .map(|(lowest, _)| *lowest);
-            if lowest.is_none_or(|lowest| height <= lowest) {
-                return Ok(false);
-            }
-            checkpoints.entries_mut().pop_first();
-        }
-        checkpoints.entries_mut().insert(height, id);
-        events.push(DestinationEvent::Checkpointed { height, id });
-        Ok(true)
-    }
-    fn checkpoint_step(
-        &mut self,
-        certificate: &TairaCertificateV1,
-        next_keys: Option<&[[u8; KEY_LEN]]>,
-        now_ms: u64,
-        events: &mut Vec<DestinationEvent>,
-    ) -> Result<CheckpointStep, S::Error> {
-        let (header, id) = native_verify(
-            self.deployment,
-            self.committee,
-            self.keys.as_deref(),
-            self.checkpoints,
-            certificate,
-            events,
-        )?;
-        let stored = self.checkpoints.lookup(header.height())?;
-        // TON stores the keys, so a rotation to another root must bring them. The answer
-        // reads `cur.root` before the rotation.
-        let needs_keys = self.deployment.flavor == DestinationFlavor::Ton
-            && self.committee.successor_needs_keys(&header);
-        let outcome = self
-            .committee
-            .apply_checkpoint(&header, stored.as_ref(), now_ms)
-            .map_err(committee_error)?;
-        match outcome {
-            CheckpointOutcomeV1::Latched(violation) => {
-                events.push(DestinationEvent::Latched(violation));
-                Ok(CheckpointStep::Stopped(StopReasonV1::Latch))
-            }
-            CheckpointOutcomeV1::Applied {
-                high_raised,
-                rotation,
-                live,
-            } => {
-                let recorded = self.record_checkpoint(header.height(), id, events)?;
-                if let Some(rotation) = rotation {
-                    if needs_keys {
-                        // The error reverts the call, and with it the rotation applied above.
-                        let keys = next_keys
-                            .filter(|keys| successor_keys_match(keys, &rotation.root))
-                            .ok_or(DestinationError::BadCommittee)?;
-                        *self.keys = Some(keys.to_vec());
-                    }
-                    events.push(DestinationEvent::CommitteeRotated(rotation));
+    /// Decode a transfer payload and require that it is addressed to this revision and to a
+    /// recipient this destination can mint to (§5.1.5 step 4).
+    ///
+    /// `BadPayload` answers every violation of §3.2 and a payload of another lane or
+    /// revision. `BadRecipient` answers a recipient of the right length that is not a valid
+    /// account of the own codec (EVM: the zero address; TON: another workchain or a zero
+    /// account id), and the contract itself.
+    fn addressed_payload(&self, bytes: &[u8]) -> Result<AddressedPayload, DestinationError> {
+        let deployment = &self.deployment;
+        let is_ton = deployment.network == SccpNetworkV1::TonMainnet;
+        let own_domain = domain(deployment.network);
+        match SccpTransferPayloadV1::decode(bytes) {
+            Ok(payload) => {
+                if payload.source_domain != domain(SccpNetworkV1::SoraTaira)
+                    || payload.dest_domain != own_domain
+                    || payload.route_revision != deployment.route_revision
+                {
+                    return Err(DestinationError::BadPayload);
                 }
-                if live {
-                    Ok(CheckpointStep::Applied(
-                        recorded || high_raised || rotation.is_some(),
-                    ))
+                // The codec rule holds, so the recipient has its codec's length.
+                let recipient = payload.recipient.bytes;
+                let is_own = if is_ton {
+                    recipient.get(4..) == Some(&deployment.destination_word[..])
                 } else {
-                    Ok(CheckpointStep::Stopped(StopReasonV1::Frozen))
+                    recipient[..] == deployment.destination_word[12..]
+                };
+                if is_own {
+                    return Err(DestinationError::BadRecipient);
                 }
+                Ok(AddressedPayload {
+                    nonce: payload.nonce,
+                    deadline_ms: payload.deadline_ms,
+                    amount: payload.amount,
+                    recipient,
+                })
             }
+            // Only the recipient's codec rule failed. It is the destination's own rule when
+            // everything else about the payload holds: the recipient's length, the route id
+            // (the one rule the decoder checks after the recipient) and the address of this
+            // revision.
+            Err(PayloadError::BadRecipient) => {
+                let recipient_len = if is_ton { 36 } else { 20 };
+                let addressed = raw_payload(bytes).is_some_and(|raw| {
+                    raw.source_domain == domain(SccpNetworkV1::SoraTaira)
+                        && raw.dest_domain == own_domain
+                        && raw.route_revision == deployment.route_revision
+                        && raw.recipient.len() == recipient_len
+                        && route_id(deployment.network).map(str::as_bytes) == Some(raw.route_id)
+                });
+                Err(if addressed {
+                    DestinationError::BadRecipient
+                } else {
+                    DestinationError::BadPayload
+                })
+            }
+            Err(_) => Err(DestinationError::BadPayload),
         }
     }
-    fn obtain_header(
-        &mut self,
-        source: CertificateSourceV1<'_>,
-        now_ms: u64,
-        events: &mut Vec<DestinationEvent>,
-    ) -> Result<SccpFinalityHeaderV1, S::Error> {
-        match source {
-            CertificateSourceV1::Inline(certificate) => {
-                let (header, id) = native_verify(
-                    self.deployment,
-                    self.committee,
-                    self.keys.as_deref(),
-                    self.checkpoints,
-                    certificate,
-                    events,
-                )?;
-                let stored = self.checkpoints.lookup(header.height())?;
-                self.committee
-                    .apply_inline(&header, stored.as_ref(), now_ms)
-                    .map_err(committee_error)?;
-                self.record_checkpoint(header.height(), id, events)?;
-                Ok(header)
-            }
-            CertificateSourceV1::Checkpoint(reference) => {
-                let raw = <&[u8; X_LEN]>::try_from(&reference.header[..])
-                    .map_err(|_| DestinationError::BadHeader)?;
-                let mut height = [0_u8; 8];
-                height.copy_from_slice(&raw[X_OFFSET_HEIGHT..X_OFFSET_HEIGHT + 8]);
-                let stored = self.checkpoints.lookup(u64::from_be_bytes(height))?;
-                if stored != Some(checkpoint_id(raw)) {
-                    return Err(DestinationError::UnknownCheckpoint.into());
-                }
-                // The stored id authenticates the network of `X`; `ACTIVE` is still required.
-                let header = SccpFinalityHeaderV1::parse(raw)
-                    .ok()
-                    .filter(SccpFinalityHeaderV1::is_active)
-                    .ok_or(DestinationError::BadHeader)?;
-                self.committee
-                    .require_checkpoint_use(&header, now_ms)
-                    .map_err(committee_error)?;
-                Ok(header)
-            }
-        }
-    }
-}
-fn native_verify<S: CheckpointStore>(
-    deployment: &DeploymentV1,
-    cur: &CommitteeStateV1,
-    keys: Option<&[[u8; KEY_LEN]]>,
-    checkpoints: &S,
-    certificate: &TairaCertificateV1,
-    events: &mut Vec<DestinationEvent>,
-) -> Result<(SccpFinalityHeaderV1, [u8; 32]), S::Error> {
-    let flavor = deployment.flavor;
-
-    // 1. Exact lengths: `QC_FIXED`, `X`, the signature, and on EVM the committee and
-    //    `signerYs`. TON reads the committee from storage.
-    let qc = QcFixedV1::parse(&certificate.qc).map_err(|_| DestinationError::BadCertificate)?;
-    let raw_header = <&[u8; X_LEN]>::try_from(&certificate.header[..])
-        .map_err(|_| DestinationError::BadHeader)?;
-    let calldata_keys;
-    let (keys, signature, ys): (&[[u8; KEY_LEN]], &[u8], &[[u8; FP_LEN]]) = match flavor {
-        DestinationFlavor::Evm => {
-            if certificate.signature.len() != EVM_SIGNATURE_LEN {
-                return Err(DestinationError::BadCertificate.into());
-            }
-            calldata_keys =
-                committee_keys(&certificate.committee).ok_or(DestinationError::BadCommittee)?;
-            let (ys, rest) = certificate.signer_ys.as_chunks::<FP_LEN>();
-            if !rest.is_empty() || Some(ys.len()) != quorum(calldata_keys.len()) {
-                return Err(DestinationError::BadCertificate.into());
-            }
-            (
-                calldata_keys.as_slice(),
-                certificate.signature.as_slice(),
-                ys,
-            )
-        }
-        DestinationFlavor::Ton => {
-            if certificate.ton_signature.len() != SIGNATURE_LEN {
-                return Err(DestinationError::BadCertificate.into());
-            }
-            (
-                keys.unwrap_or_default(),
-                certificate.ton_signature.as_slice(),
-                <&[[u8; FP_LEN]]>::default(),
-            )
-        }
-    };
-
-    // 2. `X` is a header of this Taira network with `ACTIVE` set.
-    let header = SccpFinalityHeaderV1::parse(raw_header)
-        .ok()
-        .filter(|header| header.network_id() == deployment.taira_network_id && header.is_active())
-        .ok_or(DestinationError::BadHeader)?;
-
-    // 3. Classification: only a certificate of the current generation goes on.
-    if !cur.is_current(&header) {
-        return Err(DestinationError::CommitteeNotAccepted.into());
-    }
-
-    // 4. EVM: the calldata committee is the current one.
-    if flavor == DestinationFlavor::Evm && committee_root(keys) != Some(cur.root) {
-        return Err(DestinationError::BadCommittee.into());
-    }
-
-    // 5. The signer set: no spare bit and exactly `q` signers.
-    check_signers(qc.signers, keys.len()).map_err(CertificateError::destination_error)?;
-    let indices = signer_indices(qc.signers, keys.len()).ok_or(DestinationError::BadCertificate)?;
-    let signer_keys: Vec<[u8; KEY_LEN]> = indices.iter().map(|index| keys[*index]).collect();
-
-    // 6. Encodings, before the cheap path and before any curve operation. Both flavours
-    //    refuse the identity signature first. EVM then requires every signer `y` below
-    //    `p`, every limb of `σ` below `p`, and for every signer key its flags, an `x`
-    //    below `p` and coordinates other than `(0, 0)`.
-    match flavor {
-        DestinationFlavor::Evm => {
-            if *signature == IDENTITY_SIGNATURE_EVM {
-                return Err(DestinationError::BadSignature.into());
-            }
-            if !ys.iter().all(fp_is_canonical) {
-                return Err(DestinationError::BadCommittee.into());
-            }
-            let (limbs, _) = signature.as_chunks::<FP_LEN>();
-            if !limbs.iter().all(fp_is_canonical) {
-                return Err(DestinationError::BadSignature.into());
-            }
-            if !signer_keys.iter().zip(ys).all(|(key, y)| {
-                signer_key_flags_match(key, y) && signer_coordinates_name_a_finite_point(key, y)
-            }) {
-                return Err(DestinationError::BadCommittee.into());
-            }
-        }
-        DestinationFlavor::Ton => {
-            if *signature == IDENTITY_SIGNATURE {
-                return Err(DestinationError::BadSignature.into());
-            }
-        }
-    }
-
-    // 7. The checkpoint id. `R` belongs to the full path.
-    let id = checkpoint_id(raw_header);
-
-    // 8. Cheap path (mandatory): a stored `X` is already certified, so its signature is
-    //    not checked and it is not published again.
-    if checkpoints.lookup(header.height())? == Some(id) {
-        return Ok((header, id));
-    }
-
-    // 9–11. The aggregate key and the pairing check, as each contract observes them.
-    match flavor {
-        DestinationFlavor::Evm => {
-            // 10. `G1ADD` over the signer points: a point off the curve, then `apk = O`,
-            //     answer `BadCommittee` before `σ` is read as a point.
-            if !signer_keys
-                .iter()
-                .zip(ys)
-                .all(|(key, y)| signer_point_is_on_curve(key, y))
-            {
-                return Err(DestinationError::BadCommittee.into());
-            }
-            match signer_point_sum(keys, qc.signers) {
-                Some(sum) if sum != IDENTITY_KEY => {}
-                _ => return Err(DestinationError::BadCommittee.into()),
-            }
-            // 11. `PAIRING_CHECK` validates its inputs and sees the aggregate key only.
-            let compressed = <&[u8; EVM_SIGNATURE_LEN]>::try_from(signature)
-                .ok()
-                .and_then(|limbs| signature_from_evm192(limbs).ok())
-                .ok_or(DestinationError::BadSignature)?;
-            verify_certificate_by_aggregate(
-                &deployment.consensus_instance,
-                &certificate.qc,
-                raw_header,
-                &compressed,
-                keys,
-            )
-            .map_err(CertificateError::destination_error)?;
-        }
-        DestinationFlavor::Ton => {
-            // `BLS_FASTAGGREGATEVERIFY` is one verdict (§5.3.4 item 5): a stored key that
-            // is no valid key, an identity aggregate, a `σ` that is no point of G2 and a
-            // failed pairing all throw `BadSignature`.
-            let compressed = <[u8; SIGNATURE_LEN]>::try_from(signature)
-                .ok()
-                .filter(|signature| signature_to_evm192(signature).is_some())
-                .ok_or(DestinationError::BadSignature)?;
-            verify_certificate(
-                &deployment.consensus_instance,
-                &certificate.qc,
-                raw_header,
-                &compressed,
-                keys,
-            )
-            .map_err(CertificateError::ton_destination_error)?;
-        }
-    }
-
-    // 12. Publish the certificate: every successful full-path verification, whatever
-    //     follows. A call that later reverts drops the event with its other effects.
-    events.push(DestinationEvent::Certificate {
-        height: header.height(),
-        generation: header.generation(),
-        qc: certificate.qc.clone(),
-        header: certificate.header.clone(),
-        signature: signature.to_vec(),
-    });
-    Ok((header, id))
-}
-fn native_payload_before_header(
-    deployment: &DeploymentV1,
-    proof: &MessageProofV1,
-) -> Result<Option<AddressedPayload>, DestinationError> {
-    match deployment.flavor {
-        DestinationFlavor::Evm => Ok(None),
-        DestinationFlavor::Ton => native_addressed_payload(deployment, &proof.payload).map(Some),
-    }
-}
-fn native_check_message(
-    deployment: &DeploymentV1,
-    lane: &[u8; LANE_LEN],
-    header: &SccpFinalityHeaderV1,
-    proof: &MessageProofV1,
-    early: Option<AddressedPayload>,
-    now_ms: u64,
-    usage: MessageUse,
-) -> Result<(AddressedPayload, [u8; 32]), DestinationError> {
-    check_block_ref(&proof.block, header)?;
-    let payload = match early {
-        Some(payload) => payload,
-        None => native_addressed_payload(deployment, &proof.payload)?,
-    };
-    match usage {
-        MessageUse::Finalize if now_ms > payload.deadline_ms => {
-            return Err(DestinationError::DeadlinePassed);
-        }
-        MessageUse::Void if now_ms <= payload.deadline_ms => {
-            return Err(DestinationError::DeadlineNotReached);
-        }
-        _ => {}
-    }
-    let message = message_id(lane, &payload_hash(&proof.payload));
-    let leaf = transfer_leaf(&message, &deployment.destination_word);
-    check_leaf(&leaf, proof.leaf_index, &proof.path, &proof.block)?;
-    Ok((payload, message))
-}
-fn native_addressed_payload(
-    deployment: &DeploymentV1,
-    bytes: &[u8],
-) -> Result<AddressedPayload, DestinationError> {
-    let is_ton = deployment.network == SccpNetworkV1::TonMainnet;
-    let own_domain = domain(deployment.network);
-    match SccpTransferPayloadV1::decode(bytes) {
-        Ok(payload) => {
-            if payload.source_domain != domain(SccpNetworkV1::SoraTaira)
-                || payload.dest_domain != own_domain
-                || payload.route_revision != deployment.route_revision
-            {
-                return Err(DestinationError::BadPayload);
-            }
-            // The codec rule holds, so the recipient has its codec's length.
-            let recipient = payload.recipient.bytes;
-            let is_own = if is_ton {
-                recipient.get(4..) == Some(&deployment.destination_word[..])
-            } else {
-                recipient[..] == deployment.destination_word[12..]
-            };
-            if is_own {
-                return Err(DestinationError::BadRecipient);
-            }
-            Ok(AddressedPayload {
-                nonce: payload.nonce,
-                deadline_ms: payload.deadline_ms,
-                amount: payload.amount,
-                recipient,
-            })
-        }
-        // Only the recipient's codec rule failed. It is the destination's own rule when
-        // everything else about the payload holds: the recipient's length, the route id
-        // (the one rule the decoder checks after the recipient) and the address of this
-        // revision.
-        Err(PayloadError::BadRecipient) => {
-            let recipient_len = if is_ton { 36 } else { 20 };
-            let addressed = raw_payload(bytes).is_some_and(|raw| {
-                raw.source_domain == domain(SccpNetworkV1::SoraTaira)
-                    && raw.dest_domain == own_domain
-                    && raw.route_revision == deployment.route_revision
-                    && raw.recipient.len() == recipient_len
-                    && route_id(deployment.network).map(str::as_bytes) == Some(raw.route_id)
-            });
-            Err(if addressed {
-                DestinationError::BadRecipient
-            } else {
-                DestinationError::BadPayload
-            })
-        }
-        Err(_) => Err(DestinationError::BadPayload),
-    }
-}
-fn native_check_control(
-    deployment: &DeploymentV1,
-    header: &SccpFinalityHeaderV1,
-    proof: &ControlProofV1,
-    current_nonce: u64,
-    now_ms: u64,
-) -> Result<PauseStateV1, DestinationError> {
-    check_block_ref(&proof.block, header)?;
-    let deployment = deployment;
-    let fields = ControlLeafV1 {
-        route_revision: deployment.route_revision,
-        control_nonce: proof.control_nonce,
-        track: proof.track,
-        parliament_paused: proof.parliament_paused,
-        fast_pause_until_ms: proof.fast_pause_until_ms,
-        certificate_id: proof.certificate_id,
-        effect_hash: proof.effect_hash,
-    };
-    // A leaf of refused fields is still a leaf of the tree: the path is checked
-    // first, the constraints after it. The deployment's profile is external, so the
-    // lane exists.
-    let leaf = control_leaf_unchecked(
-        &deployment.taira_network_id,
-        deployment.network,
-        &deployment.destination_word,
-        &fields,
-    )
-    .map_err(|_| DestinationError::BadProof)?;
-    check_leaf(&leaf, proof.leaf_index, &proof.path, &proof.block)?;
-    check_control_constraints(&fields).map_err(|_| DestinationError::BadControl)?;
-    if proof.control_nonce <= current_nonce {
-        return Err(DestinationError::StaleControl);
-    }
-    let parliament_paused = proof.parliament_paused != 0;
-    let fast_pause_until_ms = applied_fast_pause_until_ms(proof.fast_pause_until_ms, now_ms);
-    Ok(PauseStateV1 {
-        parliament_paused,
-        fast_pause_until_ms,
-        control_nonce: proof.control_nonce,
-        effective: parliament_paused || now_ms < fast_pause_until_ms,
-    })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2047,7 +1628,10 @@ fn void_frozen_last_nonce(flavor: DestinationFlavor, first_nonce: u64, count: u6
 ///
 /// The certified block itself is named with its own root and count and no history path. An
 /// older block is proven through the history accumulator of the header.
-fn check_block_ref(
+///
+/// # Errors
+/// Returns `BadProof` when the block reference is not included in the supplied verified header.
+pub fn check_block_ref(
     block: &BlockRefV1,
     header: &SccpFinalityHeaderV1,
 ) -> Result<(), DestinationError> {
@@ -2077,9 +1661,11 @@ fn check_block_ref(
     }
 }
 
-/// A leaf against the block reference that holds it (path of at most 9 siblings);
-/// `BadProof` otherwise.
-fn check_leaf(
+/// A leaf against the block reference that holds it (path of at most 9 siblings).
+///
+/// # Errors
+/// Returns `BadProof` for a malformed or non-matching inclusion path.
+pub fn check_leaf(
     leaf: &[u8; 32],
     leaf_index: u32,
     path: &[[u8; 32]],
@@ -6401,383 +5987,164 @@ mod tests {
             );
         }
     }
-    fn observed(
-        destination: &Destination,
-        heights: &[u64],
-        now_ms: u64,
-    ) -> DestinationObservationV1 {
-        let state = destination.state();
-        let checkpoints = match destination.deployment().flavor {
-            EVM => CheckpointObservationsV1::Evm(
-                heights
-                    .iter()
-                    .map(|h| (*h, state.checkpoints.get(h).copied()))
-                    .collect(),
-            ),
-            TON => {
-                let mut slots = [None; 3];
-                for (i, entry) in state.checkpoints.iter().enumerate() {
-                    slots[i] = Some((*entry.0, *entry.1));
-                }
-                CheckpointObservationsV1::Ton(slots)
-            }
-        };
-        DestinationObservationV1::new(
-            destination.deployment().clone(),
-            state.committee,
-            state.keys.clone(),
-            checkpoints,
-            destination.pause_state(now_ms),
-            now_ms,
-        )
-        .unwrap()
-    }
-
     #[test]
-    fn observed_native_message_matches_destination_and_keeps_unknown_distinct() {
+    fn borrowed_certificate_authority_matches_full_and_cached_destination_paths() {
         let world = World::new();
+        let cert = world.cert(1010);
         for flavor in FLAVORS {
-            let _route = on(flavor);
-            let (payload, leaf) = transfer(5, 100, NOW + DAY);
-            let mut ledger = Ledger::default();
-            let header = ledger.block(&world, 1010, &[[1; 32], leaf, [3; 32]]);
-            let certificate = world.k0.certify(&header);
-            let proof = ledger.message(&payload, 1010, 1, &header);
-            let mut destination = world.destination(flavor);
-            let view = observed(&destination, &[1010], NOW);
-            let before = view.clone();
-            let approved = view
-                .preflight_message(inline(&certificate), &proof, MessagePurposeV1::Finalize)
-                .unwrap();
-            let actual = destination
-                .finalize(inline(&certificate), &proof, NOW)
-                .unwrap();
-            assert_eq!(actual.returned, Some(approved.message_id()));
-            assert_eq!(approved.nonce(), 5);
-            assert_eq!(approved.amount(), 100);
-            assert_eq!(approved.recipient(), recipient_of(flavor));
-            assert_eq!(view, before);
-            let reference = CheckpointRefV1 {
-                header: certificate.header.clone(),
-            };
-            let stored = observed(&destination, &[1010], NOW);
-            assert_eq!(
-                stored
-                    .preflight_message(
-                        CertificateSourceV1::Checkpoint(&reference),
-                        &proof,
-                        MessagePurposeV1::Finalize
-                    )
-                    .unwrap(),
-                approved
-            );
-            let mut bad = proof.clone();
-            bad.path[0][0] ^= 1;
-            let expected = destination
-                .finalize(inline(&certificate), &bad, NOW)
-                .unwrap_err();
-            assert_eq!(
-                stored.preflight_message(inline(&certificate), &bad, MessagePurposeV1::Finalize),
-                Err(PreflightError::Destination(expected))
-            );
-            if flavor == EVM {
-                let unknown = observed(&world.destination(flavor), &[], NOW);
-                assert_eq!(
-                    unknown.preflight_message(
-                        inline(&certificate),
-                        &proof,
-                        MessagePurposeV1::Finalize
-                    ),
-                    Err(PreflightError::CheckpointUnavailable(1010))
-                );
-                let mut malformed = certificate.clone();
-                malformed.qc.pop();
-                assert_eq!(
-                    unknown.preflight_message(
-                        inline(&malformed),
-                        &proof,
-                        MessagePurposeV1::Finalize
-                    ),
-                    Err(PreflightError::Destination(
-                        DestinationError::BadCertificate
-                    ))
-                );
-                assert_eq!(
-                    view.preflight_message(
-                        CertificateSourceV1::Checkpoint(&reference),
-                        &proof,
-                        MessagePurposeV1::Finalize
-                    ),
-                    Err(PreflightError::Destination(
-                        DestinationError::UnknownCheckpoint
-                    ))
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn observed_checkpoint_batches_preserve_rollback_latch_and_successor_keys() {
-        let world = World::new();
-        for flavor in FLAVORS {
-            let mut destination = world.destination(flavor);
-            let first = world.cert(1010);
-            let mut bad = world.cert(1011);
-            bad.qc.pop();
-            let view = observed(&destination, &[1010, 1011], NOW);
-            let before = view.clone();
-            let result = destination
-                .submit_checkpoints(&[first.clone(), bad.clone()], &[], NOW)
-                .unwrap_err();
-            assert_eq!(
-                view.preflight_checkpoints(&[first, bad], &[]),
-                Err(PreflightError::Destination(result))
-            );
-            assert_eq!(view, before);
-            assert!(destination.state().checkpoints.is_empty());
-            // A conflicting authenticated header causes a persisted latch, not an error or a reset.
-            destination.state.checkpoints.insert(1010, [0xa5; 32]);
-            let view = observed(&destination, &[1010], NOW);
-            let cert = world.cert(1010);
-            let actual = destination
-                .submit_checkpoints(std::slice::from_ref(&cert), &[], NOW)
-                .unwrap();
-            let projected = view.preflight_checkpoints(&[cert], &[]).unwrap();
-            assert_eq!(projected.stopped(), Some(StopReasonV1::Latch));
-            assert_eq!(projected.processed(), 1);
-            assert_eq!(projected.events(), actual.events);
-            assert_eq!(
-                projected.observation().committee(),
-                &destination.state().committee
-            );
-            assert!(projected.observation().committee().equivocated);
-            assert_eq!(projected.observation().committee().until_ms, 0);
-            let mut destination = world.destination(flavor);
-            let cert = world.k0.certify(&world.handoff(1010));
-            let view = observed(&destination, &[1010], NOW);
-            if flavor == TON {
-                let before = destination.state().clone();
-                assert_eq!(
-                    view.preflight_checkpoints(std::slice::from_ref(&cert), &[]),
-                    Err(PreflightError::Destination(DestinationError::BadCommittee))
-                );
-                assert_eq!(
-                    destination.submit_checkpoints(std::slice::from_ref(&cert), &[], NOW),
-                    Err(DestinationError::BadCommittee)
-                );
-                assert_eq!(destination.state(), &before);
-            }
-            let keys = [Some(world.k1.keys())];
-            let actual = destination
-                .submit_checkpoints(std::slice::from_ref(&cert), &keys, NOW)
-                .unwrap();
-            let projected = view.preflight_checkpoints(&[cert], &keys).unwrap();
-            assert_eq!(projected.events(), actual.events);
-            assert_eq!(
-                projected.observation().committee(),
-                &destination.state().committee
-            );
-            assert_eq!(projected.observation().keys, destination.state().keys);
-        }
-    }
-
-    #[test]
-    fn observed_controls_keep_full_leaf_order_nonce_and_pause_clamp() {
-        let world = World::new();
-        for flavor in FLAVORS {
-            let _route = on(flavor);
-            let mut destination = world.destination(flavor);
-            let mut ledger = Ledger::default();
-            let fields = ControlLeafV1 {
-                route_revision: 1,
-                control_nonce: 4,
-                track: TRACK_FAST_PAUSE,
-                parliament_paused: 0,
-                fast_pause_until_ms: NOW + 2 * MAX_FAST_PAUSE_MS,
-                certificate_id: [1; 32],
-                effect_hash: [2; 32],
-            };
-            let deployment = destination.deployment();
-            let leaf = control_leaf_unchecked(
-                &deployment.taira_network_id,
-                deployment.network,
-                &deployment.destination_word,
-                &fields,
+            let destination = world.destination(flavor);
+            let authority = CertificateAuthorityV1::new(
+                flavor,
+                &NETWORK,
+                &INSTANCE,
+                &destination.state.committee,
+                destination.state.keys.as_deref(),
             )
             .unwrap();
-            let header = ledger.block(&world, 1010, &[leaf]);
-            let certificate = world.k0.certify(&header);
-            let proof = ledger.control(&fields, 1010, 0, &header);
-            let view = observed(&destination, &[1010], NOW);
-            let before = view.clone();
-            let projected = view
-                .preflight_control(inline(&certificate), &proof)
+            let full = authority
+                .verify(&cert, |height| {
+                    assert_eq!(height, 1010);
+                    None
+                })
                 .unwrap();
-            destination
-                .apply_control(inline(&certificate), &proof, NOW)
+            assert!(full.full_path);
+            assert_eq!(full.header, world.x(1010));
+            assert_eq!(destination.verify_certificate(&cert, NOW), Ok(()));
+            let mut events = Vec::new();
+            assert_eq!(
+                destination.verify(&cert, &mut events),
+                Ok((full.header, full.checkpoint_id))
+            );
+            assert_eq!(events.len(), 1);
+            assert!(matches!(
+                &events[0],
+                DestinationEvent::Certificate { height: 1010, .. }
+            ));
+            // A different valid signature is not a signature of this QC. Stored X takes the
+            // mandatory cheap path; an absent or different checkpoint still checks pairing.
+            let mut invalid = cert.clone();
+            let wrong = world.cert(1011);
+            invalid.signature = wrong.signature;
+            invalid.ton_signature = wrong.ton_signature;
+            assert_eq!(
+                authority.verify(&invalid, |_| None),
+                Err(DestinationError::BadSignature)
+            );
+            assert_eq!(
+                authority.verify(&invalid, |_| Some([9; 32])),
+                Err(DestinationError::BadSignature)
+            );
+            let cheap = authority
+                .verify(&invalid, |height| {
+                    assert_eq!(height, 1010);
+                    Some(full.checkpoint_id)
+                })
                 .unwrap();
-            assert_eq!(projected, destination.pause_state(NOW));
-            assert_eq!(projected.fast_pause_until_ms, NOW + MAX_FAST_PAUSE_MS);
-            assert!(projected.effective);
-            assert!(!projected.parliament_paused);
-            assert_eq!(view, before);
-            let view = observed(&destination, &[1010], NOW);
+            assert!(!cheap.full_path);
+            assert_eq!(cheap.header, full.header);
+            let mut stored = destination;
+            stored.state.checkpoints.insert(1010, full.checkpoint_id);
+            let mut events = Vec::new();
             assert_eq!(
-                view.preflight_control(inline(&certificate), &proof),
-                Err(PreflightError::Destination(DestinationError::StaleControl))
+                stored.verify(&invalid, &mut events),
+                Ok((full.header, full.checkpoint_id))
             );
-            let mut bad = proof.clone();
-            bad.effect_hash[0] ^= 1;
+            assert!(events.is_empty());
+            invalid.signature = IDENTITY_SIGNATURE_EVM.to_vec();
+            invalid.ton_signature = IDENTITY_SIGNATURE.to_vec();
             assert_eq!(
-                view.preflight_control(inline(&certificate), &bad),
-                Err(PreflightError::Destination(DestinationError::BadProof))
+                stored.verify(&invalid, &mut events),
+                Err(DestinationError::BadSignature)
             );
+            assert!(events.is_empty());
         }
-    }
-    #[test]
-    fn observed_expiry_frozen_prefix_and_ton_eviction_match_destination() {
-        let world = World::new();
-        for flavor in FLAVORS {
-            let mut destination = world.destination(flavor);
-            let expired_at = T0 + VALIDITY + 1;
-            let view = observed(&destination, &[1010], expired_at);
-            let cert = world.cert(1010);
-            assert_eq!(
-                view.preflight_checkpoints(std::slice::from_ref(&cert), &[]),
-                Err(PreflightError::Destination(
-                    destination
-                        .submit_checkpoints(std::slice::from_ref(&cert), &[], expired_at)
-                        .unwrap_err()
-                ))
-            );
-            // A very old, genuine rotation is verified and persists an already expired successor.
-            let header = x(&SccpFinalityHeaderFieldsV1 {
-                timestamp_ms: 1,
-                validity_ms: DAY,
-                ..handoff(world.k0.root(), 5, 1010, world.k1.root())
-            });
-            let frozen = world.k0.certify(&header);
-            let unread = world.cert(1011);
-            let keys = [Some(world.k1.keys())];
-            let view = observed(&destination, &[1010, 1011], NOW);
-            let actual = destination
-                .submit_checkpoints(&[frozen.clone(), unread.clone()], &keys, NOW)
-                .unwrap();
-            let projected = view
-                .preflight_checkpoints(&[frozen, unread], &keys)
-                .unwrap();
-            assert_eq!(projected.stopped(), Some(StopReasonV1::Frozen));
-            assert_eq!(projected.processed(), 1);
-            assert_eq!(projected.events(), actual.events);
-            assert_eq!(
-                projected.observation().committee(),
-                &destination.state().committee
-            );
-            assert_eq!(projected.observation().checkpoint(1011).unwrap(), None);
-        }
-        let mut destination = world.destination(TON);
-        let first = [world.cert(1010), world.cert(1011), world.cert(1012)];
-        destination.submit_checkpoints(&first, &[], NOW).unwrap();
-        let view = observed(&destination, &[], NOW);
-        assert_eq!(view.checkpoint(1010).unwrap(), Some(id(&world.x(1010))));
-        let newer = world.cert(1013);
-        let actual = destination
-            .submit_checkpoints(std::slice::from_ref(&newer), &[], NOW)
-            .unwrap();
-        let projected = view.preflight_checkpoints(&[newer], &[]).unwrap();
-        assert_eq!(projected.events(), actual.events);
-        assert_eq!(projected.observation().checkpoint(1010).unwrap(), None);
-        assert_eq!(
-            projected.observation().checkpoints.entries,
-            destination.state().checkpoints
-        );
-        assert_eq!(view.checkpoint(1010).unwrap(), Some(id(&world.x(1010))));
     }
 
     #[test]
-    fn observed_shape_refuses_inconsistent_authority_and_pause_inputs() {
+    fn borrowed_ton_authority_binds_original_stored_keys_before_verification() {
         let world = World::new();
         let destination = world.destination(TON);
-        let state = destination.state();
-        let valid = observed(&destination, &[], NOW);
-        let construct = |committee, keys, checkpoints, pause| {
-            DestinationObservationV1::new(
-                destination.deployment().clone(),
-                committee,
-                keys,
-                checkpoints,
-                pause,
-                NOW,
-            )
-        };
-        let mut malformed = state.committee;
-        malformed.start = 0;
-        assert!(
-            construct(
-                malformed,
-                state.keys.clone(),
-                CheckpointObservationsV1::Ton([None; 3]),
-                valid.pause()
-            )
-            .is_err()
+        let keys = destination.state.keys.as_deref().unwrap();
+        let authority = CertificateAuthorityV1::new(
+            TON,
+            &NETWORK,
+            &INSTANCE,
+            &destination.state.committee,
+            Some(keys),
+        )
+        .unwrap();
+        assert!(core::ptr::eq(
+            authority.ton_keys.unwrap().as_ptr(),
+            keys.as_ptr()
+        ));
+        assert_eq!(
+            authority
+                .verify(&world.cert(1010), |_| None)
+                .unwrap()
+                .header,
+            world.x(1010)
         );
-        let mut malformed = state.committee;
-        malformed.high = malformed.start - 2;
-        assert!(
-            construct(
-                malformed,
-                state.keys.clone(),
-                CheckpointObservationsV1::Ton([None; 3]),
-                valid.pause()
-            )
-            .is_err()
+        let other = world.k1.keys();
+        let mut reversed = keys.to_vec();
+        reversed.reverse();
+        for supplied in [
+            None,
+            Some(other.as_slice()),
+            Some(reversed.as_slice()),
+            Some(&keys[..3]),
+        ] {
+            assert_eq!(
+                CertificateAuthorityV1::new(
+                    TON,
+                    &NETWORK,
+                    &INSTANCE,
+                    &destination.state.committee,
+                    supplied
+                )
+                .unwrap_err(),
+                DestinationError::BadCommittee
+            );
+        }
+        let mut changed = destination.state.committee;
+        changed.root = [9; 32];
+        assert_eq!(
+            CertificateAuthorityV1::new(TON, &NETWORK, &INSTANCE, &changed, Some(keys))
+                .unwrap_err(),
+            DestinationError::BadCommittee
         );
-        assert!(
-            construct(
-                state.committee,
-                Some(world.k1.keys()),
-                CheckpointObservationsV1::Ton([None; 3]),
-                valid.pause()
-            )
-            .is_err()
+        let mut changed = destination.state.committee;
+        changed.generation += 1;
+        let authority =
+            CertificateAuthorityV1::new(TON, &NETWORK, &INSTANCE, &changed, Some(keys)).unwrap();
+        assert_eq!(
+            authority.verify(&world.cert(1010), |_| None),
+            Err(DestinationError::CommitteeNotAccepted)
         );
-        assert!(
-            construct(
-                state.committee,
-                state.keys.clone(),
-                CheckpointObservationsV1::Evm(BTreeMap::new()),
-                valid.pause()
-            )
-            .is_err()
+        let wrong_instance = [9; 32];
+        let authority = CertificateAuthorityV1::new(
+            TON,
+            &NETWORK,
+            &wrong_instance,
+            &destination.state.committee,
+            Some(keys),
+        )
+        .unwrap();
+        assert_eq!(
+            authority.verify(&world.cert(1010), |_| None),
+            Err(DestinationError::BadSignature)
         );
-        assert!(
-            construct(
-                state.committee,
-                state.keys.clone(),
-                CheckpointObservationsV1::Ton([Some((1, [2; 32])), Some((1, [3; 32])), None]),
-                valid.pause()
-            )
-            .is_err()
-        );
-        assert!(
-            construct(
-                state.committee,
-                state.keys.clone(),
-                CheckpointObservationsV1::Ton([Some((1, [0; 32])), None, None]),
-                valid.pause()
-            )
-            .is_err()
-        );
-        let mut wrong = valid.pause();
-        wrong.effective = true;
-        assert!(
-            construct(
-                state.committee,
-                state.keys.clone(),
-                CheckpointObservationsV1::Ton([None; 3]),
-                wrong
-            )
-            .is_err()
+        let wrong_network = [9; 32];
+        let authority = CertificateAuthorityV1::new(
+            TON,
+            &wrong_network,
+            &INSTANCE,
+            &destination.state.committee,
+            Some(keys),
+        )
+        .unwrap();
+        assert_eq!(
+            authority.verify(&world.cert(1010), |_| None),
+            Err(DestinationError::BadHeader)
         );
     }
 }

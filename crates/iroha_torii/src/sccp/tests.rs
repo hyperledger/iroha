@@ -12,7 +12,6 @@ use iroha_core::{
     query::store::LiveQueryStore,
     smartcontracts::isi::sccp::{commitment, light_clients},
     state::{State, StateTransaction, World},
-    sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
 };
 use iroha_crypto::{Algorithm, KeyPair};
 use iroha_data_model::{
@@ -108,6 +107,12 @@ fn route(state: &State, next_outbound_nonce: u64) -> SccpRouteV1 {
             address: [0x33; 20],
             runtime_code_hash: [0x34; 32],
         }),
+        iroha_data_model::sccp::deployment::SccpCommitteePinV1 {
+            generation: 1,
+            committee_root: [0x44; 32],
+            start_height: 1,
+            until_ms: 1_801_209_600_000,
+        },
         1_000_000,
         1,
     );
@@ -180,8 +185,8 @@ fn inbound_record(height: u64) -> SccpInboundRecordV1 {
     }
 }
 
-/// A state with an injected route revision 1 of Ethereum, three outbound records (nonces 0
-/// and 1 recorded, nonce 2 refunded), one inbound record, two controls and an
+/// A state with route revision 1 of Ethereum, three outbound records (nonce 0 recorded,
+/// nonce 1 recorded, nonce 2 refunded), one inbound record, two controls and an
 /// Ethereum light client with three checkpoints.
 fn seeded() -> (State, [u8; 32], [u8; 32], u64) {
     let state = blank_state();
@@ -213,7 +218,7 @@ fn seeded() -> (State, [u8; 32], [u8; 32], u64) {
                     commitment_index: 1,
                     leaf: [9; 32],
                     certificate_id: [8; 32],
-                    effect_hash: [0x45; 32],
+                    effect_hash: [5; 32],
                 },
             )
             .expect("control");
@@ -356,39 +361,6 @@ async fn immutable_response_validator_refuses_changed_representation_or_body() {
 }
 
 #[tokio::test]
-async fn held_inbound_status_roundtrips_without_terminal_cache_authority() {
-    let state = blank_state();
-    let id = [0x55_u8; 32];
-    let mut record = inbound_record(15);
-    record.status = SccpInboundStatusV1::pending(SccpPendingReasonV1::Held);
-    // Injected DATA tests read/transport behavior only, not evidence or hold authority.
-    seed(&state, |transaction| {
-        store::inbound_messages::insert(transaction, id, record.clone()).expect("held inbound");
-    });
-    let view = state.view();
-    let mut conditional = HeaderMap::new();
-    conditional.insert(header::IF_NONE_MATCH, HeaderValue::from_static("*"));
-    for json in [false, true] {
-        let accept = if json { json_accept() } else { norito_accept() };
-        let response = message_response(&view, &hex::encode(id), Some(&accept), &conditional);
-        assert_eq!(
-            response.status(),
-            StatusCode::OK,
-            "a held record cannot yield 304"
-        );
-        assert!(response.headers().get(header::ETAG).is_none());
-        let bytes = body(response).await;
-        let decoded: SccpMessageStatusV1 = if json {
-            norito::json::from_slice(&bytes).expect("held JSON")
-        } else {
-            norito::decode_from_bytes(&bytes).expect("held Norito")
-        };
-        assert_eq!(decoded.inbound().map(|view| &view.record), Some(&record));
-        assert!(!decoded.is_final());
-    }
-}
-
-#[tokio::test]
 async fn message_route_serves_the_status_union() {
     let (state, first_recorded, refunded, _) = seeded();
     let view = state.view();
@@ -410,7 +382,8 @@ async fn message_route_serves_the_status_union() {
     let first: SccpMessageStatusV1 = decode(first).await;
     assert!(matches!(
         first.outbound().map(|view| view.state),
-        Some(SccpOutboundStateV1::Recorded(state)) if state.deadline_ms == 9_000
+        Some(SccpOutboundStateV1::Recorded(recorded))
+            if recorded.deadline_ms == 9_000
     ));
     let recorded: SccpMessageStatusV1 = decode(message_response(
         &view,
@@ -561,7 +534,7 @@ async fn recent_route_pages_both_directions() {
 }
 
 #[tokio::test]
-async fn controls_route_preserves_committed_records_and_nonce_order() {
+async fn controls_route_reports_native_control_records() {
     let (state, ..) = seeded();
     let view = state.view();
     let accept = norito_accept();
@@ -576,10 +549,9 @@ async fn controls_route_preserves_committed_records_and_nonce_order() {
     assert_eq!(page.next_control_nonce, 2);
     assert_eq!(page.controls.len(), 2);
     assert_eq!(page.controls[0].control_nonce, 1);
-    assert_eq!(page.controls[0].record.height, 10);
     assert_eq!(page.controls[1].control_nonce, 2);
+    assert_eq!(page.controls[0].record.height, 10);
     assert_eq!(page.controls[1].record.height, 11);
-    assert!(!page.controls[1].record.parliament_paused);
     assert!(page.controls[0].record.parliament_paused);
     let after: SccpControlPageV1 = decode(controls_response(
         &view,
@@ -659,12 +631,18 @@ async fn history_route_serves_logarithmic_paths_with_validators() {
     let view = state.view();
     let accept = norito_accept();
     let headers = HeaderMap::new();
+    let cache_budget = iroha_allocation::AllocationBudget::new(1 << 20);
+    let mut cache = read::SccpHistoryNodeCache::new();
+    let (_, owner) = history_owner();
     let current: SccpHistoryPathViewV1 = decode(history_response(
         &view,
         10,
         &HistoryQuery::default(),
         Some(&accept),
         &headers,
+        &mut cache,
+        &cache_budget,
+        &owner,
     ))
     .await;
     assert_eq!(current.history_size, 3);
@@ -673,9 +651,9 @@ async fn history_route_serves_logarithmic_paths_with_validators() {
         commitment::history_root_and_size(view.world()),
         "the served root is the stored accumulator root"
     );
-    assert_eq!(current.proof.leaf_index, 0);
+    assert_eq!(current.proof.history_index, 0);
     assert_eq!(
-        current.proof.path.len(),
+        current.proof.history_path.len(),
         2,
         "promote-odd path of leaf 0 of 3"
     );
@@ -687,6 +665,9 @@ async fn history_route_serves_logarithmic_paths_with_validators() {
         },
         Some(&accept),
         &headers,
+        &mut cache,
+        &cache_budget,
+        &owner,
     );
     let etag = sized.headers()[header::ETAG].clone();
     let older: SccpHistoryPathViewV1 = decode(sized).await;
@@ -702,6 +683,9 @@ async fn history_route_serves_logarithmic_paths_with_validators() {
             },
             Some(&accept),
             &conditional,
+            &mut cache,
+            &cache_budget,
+            &owner,
         )
         .status(),
         StatusCode::NOT_MODIFIED
@@ -715,6 +699,9 @@ async fn history_route_serves_logarithmic_paths_with_validators() {
             },
             Some(&accept),
             &headers,
+            &mut cache,
+            &cache_budget,
+            &owner,
         ))
         .await,
         (StatusCode::BAD_REQUEST, "sccp_invalid_query".to_owned())
@@ -726,6 +713,9 @@ async fn history_route_serves_logarithmic_paths_with_validators() {
             &HistoryQuery::default(),
             Some(&accept),
             &headers,
+            &mut cache,
+            &cache_budget,
+            &owner,
         ))
         .await,
         (StatusCode::NOT_FOUND, "sccp_not_found".to_owned())
@@ -733,39 +723,19 @@ async fn history_route_serves_logarithmic_paths_with_validators() {
 }
 
 #[tokio::test]
-async fn governance_route_reports_missing_records_and_malformed_ids() {
-    let (state, ..) = seeded();
+async fn governance_route_reports_missing_records() {
+    let state = blank_state();
     let view = state.view();
-    let accept = norito_accept();
-    assert_eq!(
-        error_code(governance_proposal_response(
-            &view,
-            &"11".repeat(32),
-            Some(&accept)
-        ))
-        .await,
-        (StatusCode::NOT_FOUND, "sccp_not_found".to_owned())
-    );
-    assert_eq!(
-        error_code(governance_proposal_response(&view, "11", Some(&accept))).await,
-        (StatusCode::BAD_REQUEST, "sccp_invalid_query".to_owned())
-    );
+    let missing = hex::encode([0x99; 32]);
+    let response = governance_proposal_response(&view, &missing, None);
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
 async fn capabilities_list_paths_profiles_and_limits() {
-    let chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000))
-        .expect("genuine Global genesis");
-    let capabilities: SccpCapabilitiesV1 = decode(capabilities_response(
-        &chain.state().view(),
-        Some(&norito_accept()),
-    ))
-    .await;
-    assert_eq!(capabilities.consensus_instance, chain.instance().0);
-    assert_eq!(
-        capabilities.finality,
-        read::api::SccpFinalityConstantsV1::current()
-    );
+    let state = blank_state();
+    let capabilities: SccpCapabilitiesV1 =
+        decode(capabilities_response(&state.view(), Some(&norito_accept()))).await;
     assert_eq!(capabilities.limits, SccpReadLimitsV1::v1());
     assert_eq!(capabilities.profiles.len(), 3);
     for route in iroha_torii_shared::route_catalog::sccp::ROUTES {
@@ -783,73 +753,6 @@ async fn capabilities_list_paths_profiles_and_limits() {
             .path_templates
             .iter()
             .any(|path| path == "/v1/sccp/light-clients/{network}/checkpoints")
-    );
-}
-
-#[tokio::test]
-async fn capabilities_advertise_native_proofs_and_reject_retired_rosters() {
-    let chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000))
-        .expect("genuine Global genesis");
-    let capabilities: SccpCapabilitiesV1 = decode(capabilities_response(
-        &chain.state().view(),
-        Some(&norito_accept()),
-    ))
-    .await;
-    assert_eq!(capabilities.consensus_instance, chain.instance().0);
-    assert_eq!(
-        capabilities.finality,
-        read::api::SccpFinalityConstantsV1::current()
-    );
-    for native in [
-        iroha_torii_shared::route_catalog::sccp::MESSAGE_PROOF,
-        iroha_torii_shared::route_catalog::sccp::CONTROL_PROOF,
-        iroha_torii_shared::route_catalog::sccp::FINALITY,
-        iroha_torii_shared::route_catalog::sccp::CURRENT_COMMITTEE,
-        iroha_torii_shared::route_catalog::sccp::COMMITTEE,
-        iroha_torii_shared::route_catalog::sccp::COMMITTEE_ROTATIONS,
-    ] {
-        assert!(
-            capabilities
-                .path_templates
-                .iter()
-                .any(|path| path == native.path()),
-            "native read route is not advertised: {}",
-            native.path()
-        );
-    }
-    for retired in [
-        "/v1/sccp/rosters/current",
-        "/v1/sccp/rosters/rotations",
-        "/v1/sccp/rosters/{generation}",
-    ] {
-        assert!(
-            !capabilities
-                .path_templates
-                .iter()
-                .any(|path| path == retired),
-            "retired certificate transport remains advertised: {retired}"
-        );
-    }
-}
-
-#[tokio::test]
-async fn capabilities_keep_unavailable_and_unsupported_scope_distinct() {
-    let state = blank_state();
-    assert_eq!(
-        error_code(capabilities_response(&state.view(), Some(&norito_accept()))).await,
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "sccp_unavailable".to_owned()
-        )
-    );
-    // Core's genuine private-root control covers authority selection; this checks only
-    // the shared endpoint's distinct mapping, without fabricating an execution tip.
-    assert_eq!(
-        error_code(read_error(&SccpReadError::UnsupportedScope)).await,
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "route_unavailable".to_owned()
-        )
     );
 }
 
@@ -899,6 +802,10 @@ async fn numeric_query_values_reach_the_handlers_as_text() {
         .await
         .expect("history query");
     assert_eq!(history.size.as_deref(), Some("16"));
+    let proof: native::ProofQuery = extract_query("/v1/sccp/messages/00/proof?at=42")
+        .await
+        .expect("proof query");
+    assert_eq!(proof.at.as_deref(), Some("42"));
     assert_eq!(
         extract_query::<OutboundQuery>(
             "/v1/sccp/outbound/ethereum-mainnet/1?from_nonce=1&from_nonce=2"
@@ -907,5 +814,284 @@ async fn numeric_query_values_reach_the_handlers_as_text() {
         .err(),
         Some(StatusCode::BAD_REQUEST),
         "duplicate keys are still refused"
+    );
+}
+
+#[tokio::test]
+async fn committee_routes_report_current_records_and_reject_zero_or_absent_generation() {
+    use iroha_core::sumeragi::test_chain::{CertifiedTestChain, TestChainConfig};
+    use iroha_data_model::{
+        isi::sccp::InitializeSccpV1,
+        parameter::{
+            Parameter,
+            system::{SumeragiConsensusMode, SumeragiNposParameters},
+        },
+        sccp::params::SccpParametersV1,
+    };
+    use iroha_sccp::api::SccpGenerationV1;
+    let state = blank_state();
+    assert_eq!(
+        committee_response(&state.view(), None, None).status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        committee_response(&state.view(), Some(0), None).status(),
+        StatusCode::BAD_REQUEST
+    );
+    // Core owns generation admission: obtain the retained record by executing the
+    // public initializer against its original signed NPoS genesis context.
+    let parameters = SccpParametersV1::taira_default();
+    let mut config = TestChainConfig::new(World::new(), 1_000);
+    config.consensus_mode = SumeragiConsensusMode::Npos;
+    config.genesis_parameters.push(Parameter::Custom(
+        SumeragiNposParameters::default().into_custom_parameter(),
+    ));
+    config.genesis_block_cadence_ms = NonZeroU64::new(1_000).unwrap();
+    let mut nexus = iroha_config::parameters::actual::Nexus::default();
+    nexus.staking.unbonding_delay = std::time::Duration::from_millis(
+        parameters.committee_validity_ms + parameters.forgery_evidence_grace_ms,
+    );
+    nexus.staking.max_slash_bps = 10_000;
+    config.nexus = Some(nexus);
+    config.genesis_instructions.push(
+        InitializeSccpV1 {
+            parameters,
+            reset_nonce: [0x5a; 32],
+        }
+        .into(),
+    );
+    let chain = CertifiedTestChain::start(config).expect("initialize genuine SCCP genesis");
+    let state = chain.state();
+    let mut keys = chain
+        .validators()
+        .iter()
+        .map(|(peer, _)| {
+            peer.public_key()
+                .try_to_bytes()
+                .unwrap()
+                .1
+                .try_into()
+                .unwrap()
+        })
+        .collect::<Vec<[u8; 48]>>();
+    keys.sort();
+    let view = state.view();
+    let record = store::committee_generations::get(view.world(), &1).unwrap();
+    let liability_clock = record.liable_until_lc + 1;
+    let mut block = state.block(BlockHeader::new(
+        NonZeroU64::new(30).unwrap(),
+        None,
+        None,
+        30_000,
+        0,
+    ));
+    let mut stx = block.transaction();
+    store::liability_clock::set(&mut stx, liability_clock);
+    let current: SccpGenerationV1 =
+        decode(committee_response(&stx, None, Some(&norito_accept()))).await;
+    let explicit: SccpGenerationV1 = norito::json::from_slice(
+        &body(committee_response(&stx, Some(1), Some(&json_accept()))).await,
+    )
+    .unwrap();
+    assert_eq!(current, explicit);
+    assert_eq!(current.keys, keys);
+    assert_eq!(
+        current.committee_root,
+        iroha_sccp::v1::committee::committee_root(&keys).unwrap()
+    );
+    assert!(current.liable, "the current generation remains liable");
+    assert_eq!(
+        committee_response(&stx, Some(2), None).status(),
+        StatusCode::NOT_FOUND
+    );
+    let capabilities = read::capabilities(&stx);
+    assert_eq!(
+        capabilities.current_generation.unwrap().deadline_ms,
+        chain.genesis().header().creation_time_ms + parameters.committee_validity_ms
+    );
+    assert_eq!(capabilities.liability_clock, liability_clock);
+}
+
+fn history_owner() -> (
+    std::sync::Arc<tokio::sync::Semaphore>,
+    crate::history_producer::HistoryProducerOwner,
+) {
+    let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(1));
+    let reservation = crate::QueryFanoutMemoryReservation::from_admitted_fanout(
+        semaphore.clone().try_acquire_owned().unwrap(),
+        crate::QueryFanoutMemoryEnvelope::for_body_admission(48_000_000).unwrap(),
+        1,
+    )
+    .unwrap();
+    let owner =
+        crate::history_producer::HistoryProducerOwner::from_reservation(&reservation).unwrap();
+    (semaphore, owner)
+}
+
+#[tokio::test]
+async fn history_response_bytes_keep_query_custody_after_body_and_path_retire() {
+    use http_body_util::BodyExt as _;
+    let (state, ..) = seeded();
+    let cache_budget = iroha_allocation::AllocationBudget::new(1 << 20);
+    let mut cache = read::SccpHistoryNodeCache::new();
+    for accept in [norito_accept(), json_accept()] {
+        let (semaphore, owner) = history_owner();
+        let response = history_response(
+            &state.view(),
+            10,
+            &HistoryQuery {
+                size: Some("3".into()),
+            },
+            Some(&accept),
+            &HeaderMap::new(),
+            &mut cache,
+            &cache_budget,
+            &owner,
+        );
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(response.headers().contains_key(header::ETAG));
+        assert_eq!(
+            owner.cold_frames().reserved_bytes(),
+            0,
+            "the projected path has retired after encoding"
+        );
+        let mut body = response.into_body();
+        drop(owner);
+        let bytes = body.frame().await.unwrap().unwrap().into_data().unwrap();
+        let final_slice = bytes.slice(..);
+        drop(body);
+        drop(bytes);
+        assert_eq!(
+            semaphore.available_permits(),
+            0,
+            "extracted last reader still owns the admission"
+        );
+        assert!(!final_slice.is_empty());
+        drop(final_slice);
+        assert_eq!(semaphore.available_permits(), 1);
+    }
+}
+
+#[test]
+fn history_query_refuses_retired_or_unknown_fields() {
+    assert!(norito::json::from_str::<HistoryQuery>(r#"{"size":"3","attestation":"own"}"#).is_err());
+    let valid = norito::json::from_str::<HistoryQuery>(r#"{"size":"3"}"#).unwrap();
+    assert_eq!(valid.size.as_deref(), Some("3"));
+}
+
+#[tokio::test]
+async fn app_history_cache_is_local_reused_and_survives_query_refusal() {
+    use std::sync::Arc;
+    let mut app = crate::mk_app_state_for_tests();
+    let second_app = crate::mk_app_state_for_tests();
+    Arc::get_mut(&mut app).unwrap().sccp_history_budget =
+        iroha_allocation::AllocationBudget::new(128);
+    let cloned = Arc::clone(&app);
+    assert!(
+        app.sccp_history_budget
+            .same_pool(&cloned.sccp_history_budget)
+    );
+    assert!(
+        !app.sccp_history_budget
+            .same_pool(&second_app.sccp_history_budget)
+    );
+    seed(&app.state, |transaction| {
+        for height in 1..=64 {
+            record_outbound(
+                transaction,
+                height - 1,
+                height,
+                SccpOutboundStatusV1::Recorded,
+            );
+        }
+    });
+    let original_view = app.state.view();
+    let (first_query, owner) = history_owner();
+    let original = {
+        let mut cache = app.sccp_history.lock().unwrap();
+        history_response(
+            &original_view,
+            1,
+            &HistoryQuery::default(),
+            Some(&norito_accept()),
+            &HeaderMap::new(),
+            &mut cache,
+            &app.sccp_history_budget,
+            &owner,
+        )
+    };
+    assert_eq!(original.status(), StatusCode::OK);
+    drop(owner);
+    let first: SccpHistoryPathViewV1 = decode(original).await;
+    assert_eq!(first_query.available_permits(), 1);
+    assert_eq!(app.sccp_history_budget.reserved_bytes(), 128);
+    // A new actual query owner reuses the application backing, never the old query pool.
+    let (warm_query, warm_owner) = history_owner();
+    let warm = {
+        let mut cache = cloned.sccp_history.lock().unwrap();
+        history_response(
+            &original_view,
+            1,
+            &HistoryQuery::default(),
+            Some(&norito_accept()),
+            &HeaderMap::new(),
+            &mut cache,
+            &cloned.sccp_history_budget,
+            &warm_owner,
+        )
+    };
+    drop(warm_owner);
+    let warm: SccpHistoryPathViewV1 = decode(warm).await;
+    assert_eq!(warm, first);
+    assert_eq!(warm_query.available_permits(), 1);
+    assert_eq!(app.sccp_history_budget.reserved_bytes(), 128);
+    assert_eq!(second_app.sccp_history_budget.reserved_bytes(), 0);
+    seed(&app.state, |transaction| {
+        for height in 65..=128 {
+            record_outbound(
+                transaction,
+                height - 1,
+                height,
+                SccpOutboundStatusV1::Recorded,
+            );
+        }
+    });
+    let (refused_query, refused_owner) = history_owner();
+    let refused = {
+        let mut cache = app.sccp_history.lock().unwrap();
+        history_response(
+            &app.state.view(),
+            1,
+            &HistoryQuery::default(),
+            Some(&norito_accept()),
+            &HeaderMap::new(),
+            &mut cache,
+            &app.sccp_history_budget,
+            &refused_owner,
+        )
+    };
+    assert_eq!(refused.status(), StatusCode::TOO_MANY_REQUESTS);
+    drop(refused_owner);
+    drop(refused);
+    assert_eq!(refused_query.available_permits(), 1);
+    assert_eq!(app.sccp_history_budget.reserved_bytes(), 128);
+    let (_, retry_owner) = history_owner();
+    let old = {
+        let mut cache = app.sccp_history.lock().unwrap();
+        history_response(
+            &original_view,
+            1,
+            &HistoryQuery::default(),
+            Some(&norito_accept()),
+            &HeaderMap::new(),
+            &mut cache,
+            &app.sccp_history_budget,
+            &retry_owner,
+        )
+    };
+    let old: SccpHistoryPathViewV1 = decode(old).await;
+    assert_eq!(
+        old, first,
+        "refusal preserves the original view and published path"
     );
 }

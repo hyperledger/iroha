@@ -1,0 +1,148 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "happy_path_dkg_completes",
+  "category": "happy_path",
+  "rules": [
+    "per_transaction_atomicity_only",
+    "persist_before_effect",
+    "no_secret_in_journal"
+  ],
+  "description": "A registration transaction, one dealing round and a publication transaction run to completion in one call. Each transaction is dispatched once and read back once.",
+  "plan": {
+    "kind": "dkg",
+    "instance": "happy-path-dkg-completes",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction"
+      },
+      {
+        "label": "deal",
+        "kind": "offchain_round",
+        "irreversible": true,
+        "participants_required": 2,
+        "custody_handles_required": 1
+      },
+      {
+        "label": "publish",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok",
+          "ok"
+        ],
+        "signs": [
+          "ok",
+          "ok"
+        ],
+        "dispatches": [
+          "accepted",
+          "accepted"
+        ],
+        "statuses": [
+          "applied",
+          "applied"
+        ],
+        "round_starts": [
+          "completed:p1,p2"
+        ]
+      },
+      "expect": {
+        "result": "completed",
+        "effects": [
+          "build:0#1",
+          "sign:0#1",
+          "dispatch:0#1",
+          "status:0#1",
+          "round_start:1",
+          "build:2#1",
+          "sign:2#1",
+          "dispatch:2#1",
+          "status:2#1"
+        ],
+        "status": "completed",
+        "steps": [
+          "finalized",
+          "round_completed",
+          "finalized"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0,
+            1,
+            2
+          ],
+          "irreversible_steps": [
+            0,
+            1,
+            2
+          ],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        },
+        "sequence": 17,
+        "identities": {
+          "0": [
+            {
+              "dispatches": 1,
+              "possible_admissions": 1,
+              "evidence": "applied"
+            }
+          ],
+          "2": [
+            {
+              "dispatches": 1,
+              "possible_admissions": 1,
+              "evidence": "applied"
+            }
+          ]
+        },
+        "participants_received": {
+          "1": 2
+        }
+      }
+    },
+    {
+      "op": "progress",
+      "expect": {
+        "result": "ok",
+        "effects": [],
+        "status": "completed",
+        "steps": [
+          "finalized",
+          "round_completed",
+          "finalized"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0,
+            1,
+            2
+          ],
+          "irreversible_steps": [
+            0,
+            1,
+            2
+          ],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        },
+        "sequence": 17
+      }
+    }
+  ]
+}

@@ -230,3 +230,39 @@ fn collection_requires_the_complete_selected_activation_copy() {
     );
     assert_eq!(w.custody.signatures, signatures);
 }
+
+#[test]
+fn activation_output_read_refusal_preserves_plan_and_exact_publication_retry() {
+    let mut w = wallet();
+    w.commit(bootstrap()).unwrap();
+    let asset = fixture("KagemushaWalletAssetScopeV1");
+    let plan = w.activation_plan(&asset).unwrap();
+    let exact = output(&plan);
+    let root = w.manifest().unwrap().0;
+    let signatures = w.custody.signatures;
+    for limits in [
+        norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+    ] {
+        // Direct Plan coverage reaches the model decoder; public finish coverage also
+        // retains the real preceding selected-plan/archive reads and their refusals.
+        let direct = norito::with_decode_limits_scope(limits, || plan.output(&exact));
+        assert!(matches!(direct, Err(Error::DecodeResource(ref cause))
+            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        let public =
+            norito::with_decode_limits_scope(limits, || w.finish_activation(&plan, &exact));
+        assert!(matches!(public, Err(Error::DecodeResource(ref cause))
+            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        assert_eq!(w.manifest().unwrap().0, root);
+        assert_eq!(
+            archive::encode(&w.activation_plan(&asset).unwrap()).unwrap(),
+            archive::encode(&plan).unwrap()
+        );
+        assert_eq!(w.custody.signatures, signatures);
+    }
+    w.finish_activation(&plan, &exact).unwrap();
+    let selected = w.activation_plan(&asset).unwrap();
+    assert_eq!(selected.nonce, plan.nonce);
+    assert_eq!(w.retained_activation(&selected).unwrap(), Some(exact));
+    assert_eq!(w.custody.signatures, signatures);
+}

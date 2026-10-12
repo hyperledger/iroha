@@ -314,14 +314,22 @@ fn prepared_genesis_derives_then_enforces_both_signed_native_policies() {
             .map(|key| PeerId::new(key.public_key().clone())),
     );
     let account = AccountId::new(prepared.genesis.public_key().clone());
-    let result = crate::block::ValidBlock::validate_signed_genesis(
-        prepared.genesis.block().clone(),
-        &topology,
-        &account,
-        &TimeSource::new_system(),
-        &prepared.state,
-        ConsensusMode::Permissioned,
-    )
+    let result = {
+        let selected_genesis = prepared.genesis.block().clone();
+        let selected_scope = crate::sumeragi::epoch::authenticated_genesis(&selected_genesis)
+            .expect("signed fixture root scope")
+            .into_parts()
+            .1;
+        crate::block::ValidBlock::validate_signed_genesis(
+            selected_genesis,
+            &topology,
+            &account,
+            &TimeSource::new_system(),
+            &prepared.state,
+            ConsensusMode::Permissioned,
+            selected_scope,
+        )
+    }
     .unpack(|_| {});
     let (_, overlay) =
         result.unwrap_or_else(|(_, error)| panic!("final signed policies must execute: {error}"));
@@ -349,22 +357,29 @@ fn changed_original_genesis_configuration_is_rejected_before_publication() {
         CertifiedTestChain::prepare(TestChainConfig::new(World::new(), 1000)).unwrap();
     Arc::get_mut(&mut prepared.state)
         .unwrap()
-        .pipeline
-        .amx_group_budget_ms += 1;
+        .edit_pipeline_for_testing(|pipeline| pipeline.amx_group_budget_ms += 1);
     let topology = super::super::super::network_topology::Topology::new(
         prepared
             .validator_keys
             .iter()
             .map(|key| PeerId::new(key.public_key().clone())),
     );
-    let error = crate::block::ValidBlock::validate_signed_genesis(
-        prepared.genesis.block().clone(),
-        &topology,
-        &AccountId::new(prepared.genesis.public_key().clone()),
-        &TimeSource::new_system(),
-        &prepared.state,
-        ConsensusMode::Permissioned,
-    )
+    let error = {
+        let selected_genesis = prepared.genesis.block().clone();
+        let selected_scope = crate::sumeragi::epoch::authenticated_genesis(&selected_genesis)
+            .expect("signed fixture root scope")
+            .into_parts()
+            .1;
+        crate::block::ValidBlock::validate_signed_genesis(
+            selected_genesis,
+            &topology,
+            &AccountId::new(prepared.genesis.public_key().clone()),
+            &TimeSource::new_system(),
+            &prepared.state,
+            ConsensusMode::Permissioned,
+            selected_scope,
+        )
+    }
     .unpack(|_| {})
     .err()
     .expect("configured policy mismatch must reject")

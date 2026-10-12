@@ -98,7 +98,7 @@ mod public_artifact_tests {
         stx.world
             .parameters
             .get_mut()
-            .set_parameter(Parameter::Custom(protected));
+            .set_parameter(Parameter::Custom(protected)).expect("valid fixture parameters");
         let (program, manifest) = minimal_contract_artifact();
         let code_hash = manifest.code_hash.expect("manifest code hash");
         let register_bytes = scode::RegisterSmartContractBytes { artifact_id: iroha_data_model::smart_contract::ContractArtifactId::new(iroha_model_base::topology::DataSpaceId::UNIVERSAL, code_hash),

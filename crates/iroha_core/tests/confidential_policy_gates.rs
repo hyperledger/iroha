@@ -379,7 +379,7 @@ fn shielded_transition_abort_retains_active_confidential_mode_when_supply_is_non
 #[test]
 fn policy_transition_reaches_shielded_only_on_schedule() {
     let (mut state, header, owner, domain_id, asset_def_id) = init_state();
-    let mut zk_cfg = state.zk.clone();
+    let mut zk_cfg = state.installed_zk().clone();
     zk_cfg.policy_transition_delay_blocks = 1;
     zk_cfg.policy_transition_window_blocks = 1;
     state

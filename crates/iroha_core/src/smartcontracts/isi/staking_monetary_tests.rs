@@ -161,7 +161,8 @@ fn staking_asset_resolution_requires_the_exact_committed_network_currency() {
     stx.world
         .parameters
         .get_mut()
-        .set_parameter(Parameter::Custom(parameters.into_custom_parameter()));
+        .set_parameter(Parameter::Custom(parameters.into_custom_parameter()))
+        .expect("valid fixture parameters");
     assert!(
         stake_context(
             &stx.world,

@@ -125,13 +125,27 @@ authority from paying a dataspace-restricted PipelineGas asset in direct mode;
 that debit is reserved and settled against the transaction's exact route
 bucket.
 
+The committed `ivm_gas_tech_account_id`, `ivm_gas_accepted_assets` and
+`ivm_gas_units_per_gas` parameters are the only pipeline fee authority. Missing
+fields use protocol defaults. The receiver is a canonical encoded account, with
+its carried prefix validated independently of node address settings; aliases
+cannot change its identity. Views and block execution use one validated
+projection, frozen from the predecessor for the entire block, so a committed
+change applies to the next block. Node `[pipeline.gas]` settings are rejected.
+Malformed committed fields fail validation or restoration rather than selecting
+a local/default fallback. Core keeps the original parameters and their validated
+fee and execution-limit projections in one MV value: commit, retained predecessor
+and rollback move them together. Binary/JSON serialization commits only the original Parameters
+layout; restore rebuilds the projection. Failed validation or a local decode
+refusal changes neither value, and ordinary projection reads do not decode.
+
 Governed `ivm_gas_units_per_gas` updates are validated atomically before they
 enter consensus state. Asset identifiers must be canonical and unique, TWAPs
 must be positive decimals, and liquidity/volatility labels must be known. A
 zero `units_per_gas` remains valid when Nexus already settles gas through its
-own component. Execution also decodes any persisted governed snapshot
-fallibly, so malformed state produces a configuration rejection rather than a
-node panic.
+own component. Restoration validates all three fields before runtime use; a
+malformed persisted snapshot is refused. Execution consumes the validated
+predecessor projection and never refreshes it from transaction-local writes.
 
 Receipt-lane spend leases are source locks. Only the program sponsor or a
 delegate holding `CanManageFeeSponsorProgram` may register one. Registration

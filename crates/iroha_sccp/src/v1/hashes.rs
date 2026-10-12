@@ -1,7 +1,7 @@
 //! SCCP v1 payload hash, message id and leaves (spec §3.3, §3.4, §3.5).
 //!
 //! `payload_hash`, `message_id`, `transfer_leaf`, the internal `node` hash and
-//! `history_leaf`, plus the fixed-width ABI `word(x)` helpers of §0. Every hash is Ethereum Keccak-256
+//! `history_leaf`, plus the EIP-712 `word(x)` helpers of §0. Every hash is Ethereum Keccak-256
 //! over an explicit big-endian preimage.
 
 use tiny_keccak::{Hasher as _, Keccak};

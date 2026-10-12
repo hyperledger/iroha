@@ -22,6 +22,9 @@
 //!
 //! A destination that applies a leaf stores its fast-pause expiry clamped to
 //! [`MAX_FAST_PAUSE_MS`] from its own clock ([`applied_fast_pause_until_ms`], §5.1.6).
+//!
+//! Core records this sole current layout from the complete committed pause State and the
+//! exact certificate cause. No retired control-leaf constructor or fallback is retained.
 
 use iroha_data_model::bridge::SccpNetworkV1;
 

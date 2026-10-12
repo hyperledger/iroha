@@ -9,6 +9,9 @@
 //! always rechecks its original parent and S0 clock. Penalty and R-EX integration are
 //! required before the operation is release-qualified.
 
+use iroha_data_model::sccp::generation::{
+    SccpAnchorV1, SccpGenerationMemberV1, next_liability_clock_v1,
+};
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
@@ -31,16 +34,19 @@ use iroha_sccp::v1::{
 use iroha_sumeragi::{preimage::TAG_INSTANCE, types::Hash32};
 
 use super::{
-    anchors::{SccpAnchorLookupError, SccpAnchorV1, lookup_anchor},
-    generation::{SccpCommitteeGenerationV1, SccpGenerationMemberV1, advance_liability_clock},
+    anchors::{SccpAnchorLookupError, lookup_anchor},
+    generation_record::RetainedSccpGeneration,
     params,
     read::native::SccpNativeReadControl,
     store,
 };
+use super::{eligibility::Current, original_read::OriginalRead};
 use crate::state::{NativeExecutionTip, StateReadOnly, StateView, WorldReadOnly};
 
 mod execution;
+mod restoration;
 pub(crate) use execution::{ForgeryExecutionError, execute_forgery};
+pub(crate) use restoration::SccpRestore;
 
 /// Protocol refusals stay separate from local source, allocation, deadline or stop refusals.
 #[derive(Clone, Debug, thiserror::Error)]
@@ -96,7 +102,7 @@ type Result<T> = core::result::Result<T, ForgeryVerificationError>;
 #[derive(Clone, Copy)]
 pub struct VerifiedForgeryCandidate<'a> {
     evidence: &'a SubmitSccpForgeryEvidenceV1,
-    generation: &'a SccpCommitteeGenerationV1,
+    generation: &'a RetainedSccpGeneration,
     parent: NativeExecutionTip,
     execution_height: u64,
     liability_clock: u64,
@@ -115,7 +121,7 @@ impl<'a> VerifiedForgeryCandidate<'a> {
     }
     /// Borrow the original generation, including unchanged G6 lane/account/activation binds.
     #[must_use]
-    pub const fn generation(&self) -> &'a SccpCommitteeGenerationV1 {
+    pub const fn generation(&self) -> &'a RetainedSccpGeneration {
         self.generation
     }
     /// The immutable executed tip used for this observation; never a tip reconstructed from X.
@@ -210,14 +216,14 @@ pub fn verify_committed<'a>(
             .ok_or(ForgeryVerificationError::Unavailable(
                 "next height overflows",
             ))?;
-    let liability_clock = advance_liability_clock(
+    let liability_clock = next_liability_clock_v1(
         *store::liability_clock::get(view.world()),
         parent.creation_time_ms(),
         transaction_time_ms,
         parameters.committee_heartbeat_ms,
     );
     verify_observation(
-        view.world(),
+        Current(view.world()),
         evidence,
         header,
         Observation {
@@ -256,7 +262,7 @@ impl VerificationControl<'_> {
 }
 
 fn verify_observation<'a>(
-    world: &'a impl WorldReadOnly,
+    world: impl OriginalRead<'a> + 'a,
     evidence: &'a SubmitSccpForgeryEvidenceV1,
     header: SccpFinalityHeaderV1,
     observation: Observation,
@@ -269,7 +275,7 @@ fn verify_observation<'a>(
         execution_height,
         liability_clock,
     } = observation;
-    let current = *store::committee_current::get(world);
+    let current = world.committee_current();
     let generation = generation_for_claim(world, &header, current, liability_clock)?;
     let qc = QcFixedV1::parse(&evidence.qc).map_err(|_| ForgeryVerificationError::BadSignature)?;
     let result = outer_result(&header, &qc.result_body).0;
@@ -307,11 +313,11 @@ fn verify_observation<'a>(
     })
 }
 
-fn mismatch_for_observation(
-    world: &impl WorldReadOnly,
+fn mismatch_for_observation<'a>(
+    world: impl OriginalRead<'a> + 'a,
     evidence: &SubmitSccpForgeryEvidenceV1,
     header: &SccpFinalityHeaderV1,
-    generation: &SccpCommitteeGenerationV1,
+    generation: &RetainedSccpGeneration,
     observation: Observation,
     qc: &QcFixedV1,
     result: [u8; 32],
@@ -345,9 +351,9 @@ fn mismatch_for_observation(
                     core_hash: parent.core_hash().0,
                     result: parent.result().0,
                 },
-                store::anchor_open::get(world),
+                world.anchor_open(),
                 header.height(),
-                store::anchor_chunks::get(world, &chunk),
+                world.anchor_chunk(&chunk),
                 witness,
             )
             .map_err(anchor_error)
@@ -360,7 +366,7 @@ fn mismatch_for_observation(
 #[derive(Clone, Copy)]
 pub(crate) struct ForgeryPrecheck<'a> {
     evidence: &'a SubmitSccpForgeryEvidenceV1,
-    generation: &'a SccpCommitteeGenerationV1,
+    generation: &'a RetainedSccpGeneration,
     observation: Observation,
     qc: QcFixedV1,
     result: [u8; 32],
@@ -369,7 +375,7 @@ pub(crate) struct ForgeryPrecheck<'a> {
 }
 impl<'a> ForgeryPrecheck<'a> {
     /// Borrow the original retained generation and G6 member bindings.
-    pub(crate) fn generation(&self) -> &'a SccpCommitteeGenerationV1 {
+    pub(crate) fn generation(&self) -> &'a RetainedSccpGeneration {
         self.generation
     }
     /// Read parsed signed fields without assigning scheduling authority.
@@ -405,7 +411,7 @@ pub(crate) fn prepare_committed<'a>(
             .ok_or(ForgeryVerificationError::Unavailable(
                 "next height overflows",
             ))?;
-    let liability_clock = advance_liability_clock(
+    let liability_clock = next_liability_clock_v1(
         *store::liability_clock::get(view.world()),
         parent.creation_time_ms(),
         transaction_time_ms,
@@ -418,7 +424,7 @@ pub(crate) fn prepare_committed<'a>(
         liability_clock,
     };
     let generation = generation_for_claim(
-        view.world(),
+        Current(view.world()),
         &header,
         *store::committee_current::get(view.world()),
         liability_clock,
@@ -428,7 +434,7 @@ pub(crate) fn prepare_committed<'a>(
         .map_err(|_| ForgeryVerificationError::BadSignature)?;
     let result = outer_result(&header, &qc.result_body).0;
     let rule = mismatch_for_observation(
-        view.world(),
+        Current(view.world()),
         evidence,
         &header,
         generation,
@@ -491,7 +497,7 @@ pub(crate) fn verify_prechecked<'a>(
 /// malformed member list cannot make one validator become two new offences.
 pub(crate) fn new_signers(
     world: &impl WorldReadOnly,
-    generation: &SccpCommitteeGenerationV1,
+    generation: &RetainedSccpGeneration,
     signers: u32,
     budget: &AllocationBudget,
 ) -> core::result::Result<u32, crate::state::sccp_forgery_custody::ForgeryStorageError> {
@@ -568,14 +574,14 @@ pub(crate) fn verify_for_proposal(
             .ok_or(ForgeryVerificationError::Unavailable(
                 "next height overflows",
             ))?;
-    let liability_clock = advance_liability_clock(
+    let liability_clock = next_liability_clock_v1(
         *store::liability_clock::get(view.world()),
         parent.creation_time_ms(),
         canonical_time_ms,
         parameters.committee_heartbeat_ms,
     );
     let checked = verify_observation(
-        view.world(),
+        Current(view.world()),
         evidence,
         header,
         Observation {
@@ -600,18 +606,19 @@ pub(crate) fn verify_for_proposal(
 }
 
 fn generation_for_claim<'a>(
-    world: &'a impl WorldReadOnly,
+    world: impl OriginalRead<'a> + 'a,
     header: &SccpFinalityHeaderV1,
     current: u64,
     liability_clock: u64,
-) -> Result<&'a SccpCommitteeGenerationV1> {
-    let generation = store::committee_generations::get(world, &header.generation()).ok_or(
-        if header.generation() <= current {
-            ForgeryVerificationError::EvidenceExpired
-        } else {
-            ForgeryVerificationError::EvidenceUnknownGeneration
-        },
-    )?;
+) -> Result<&'a RetainedSccpGeneration> {
+    let generation =
+        world
+            .generation(&header.generation())
+            .ok_or(if header.generation() <= current {
+                ForgeryVerificationError::EvidenceExpired
+            } else {
+                ForgeryVerificationError::EvidenceUnknownGeneration
+            })?;
     if header.committee_root() != generation.committee_root {
         return Err(ForgeryVerificationError::NotEvidence);
     }
@@ -668,7 +675,7 @@ fn original_source(view: &impl StateReadOnly) -> Result<(NativeExecutionTip, Has
 }
 
 fn verify_signature(
-    generation: &SccpCommitteeGenerationV1,
+    generation: &RetainedSccpGeneration,
     instance: Hash32,
     header: &SccpFinalityHeaderV1,
     qc: &QcFixedV1,
@@ -702,7 +709,7 @@ fn verify_signature(
 }
 
 fn first_mismatch(
-    generation: &SccpCommitteeGenerationV1,
+    generation: &RetainedSccpGeneration,
     execution_height: u64,
     height: u64,
     qc: &QcFixedV1,

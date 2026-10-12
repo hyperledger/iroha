@@ -9583,7 +9583,11 @@ mod sccp_routing_tests {
     #[test]
     fn every_sccp_instruction_routes_to_the_universal_dataspace() {
         let samples = SampleInstructions::all();
-        assert_eq!(samples.len(), 7);
+        assert_eq!(
+            samples.len(),
+            8,
+            "the complete current SCCP instruction surface"
+        );
         for (index, instruction) in samples.iter().enumerate() {
             let instruction: &dyn Instruction = &**instruction;
             assert!(instruction_routes_to_universal_dataspace(instruction));
@@ -15757,7 +15761,8 @@ mod tests {
             .get_mut()
             .set_parameter(iroha_data_model::parameter::Parameter::Custom(
                 registry.into_custom_parameter(),
-            ));
+            ))
+            .expect("valid fixture parameters");
         world.commit();
     }
     fn fx_route_plan_results(
@@ -17739,9 +17744,13 @@ mod tests {
         registry.upsert(corridor);
         {
             let mut world = state.world.block();
-            world.parameters.get_mut().set_parameter(
-                iroha_data_model::parameter::Parameter::Custom(registry.into_custom_parameter()),
-            );
+            world
+                .parameters
+                .get_mut()
+                .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                    registry.into_custom_parameter(),
+                ))
+                .expect("valid fixture parameters");
             world.commit();
         }
         let expected = RoutingPlan::native_amx(

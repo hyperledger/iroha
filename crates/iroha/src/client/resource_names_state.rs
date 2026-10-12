@@ -12,13 +12,12 @@ impl Client {
     /// Torii requires that account's existing native `CanReadAllLedgerData` permission;
     /// owning an API token or an ordinary query signer does not establish that grant.
     /// The configured provider path prefix is preserved in the signed final GET URI.
+    /// `root_scope` is selected from the caller's independently authenticated signed genesis.
     /// The fresh challenge is signed in that URI and echoed in the singleton
     /// finality header. Owner-held listener credentials and the bounded no-redirect
     /// transport come from this client's admitted context. This is unverified data:
     /// consumers must still authenticate four current independently selected native
     /// statements, the exact complete World cut and the independent release catalog.
-    ///
-    /// `scope` comes from the independently selected chain root, not response contents.
     ///
     /// # Errors
     /// Zero challenge, failed canonical signing/transport, denied read root, non-success,
@@ -26,7 +25,7 @@ impl Client {
     pub fn get_native_resource_names_state_wire(
         &self,
         challenge: [u8; 32],
-        scope: iroha_data_model::sumeragi_finality::CertifiedResultScope,
+        root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
     ) -> Result<Vec<u8>> {
         if challenge == [0; 32] {
             return Err(eyre!("native resource names challenge must be nonzero"));
@@ -114,9 +113,12 @@ impl Client {
             ));
         }
         // Structural/node signature checking grants no installed-node or finality authority.
-        original.attestation.verify(scope).map_err(|_| {
-            eyre!("native resource names node statement has invalid structure/signature")
-        })?;
+        original
+            .attestation
+            .verify(root_scope.into())
+            .map_err(|_| {
+                eyre!("native resource names node statement has invalid structure/signature")
+            })?;
         Ok(wire)
     }
 }
@@ -126,6 +128,71 @@ mod tests {
     use super::super::evidence_http_tests::{capture_requests, client_with_base_url};
     use super::super::tests::assert_canonical_account_signed_request;
     use super::*;
+
+    fn active_genesis_statement(
+        original: &iroha_data_model::sumeragi_finality::SumeragiFinalityAttestation,
+        node: &iroha_crypto::KeyPair,
+        scope: iroha_data_model::block::consensus::SumeragiRootScope,
+    ) -> iroha_data_model::sumeragi_finality::SumeragiFinalityAttestation {
+        use iroha_data_model::{
+            block::{CommitCertificate, decode_framed_signed_block},
+            sumeragi_finality::{
+                CertifiedResultV1, SccpFinalityHeaderFieldsV1, SccpFinalityHeaderV1,
+                certified_result::{FLAG_ACTIVE, context_committee_root},
+            },
+        };
+        let mut statement = original.clone();
+        let mut proof = statement.body.genesis_finality_proof.clone();
+        let mut block = decode_framed_signed_block(&proof.block_wire).unwrap();
+        let (x, body) = CertifiedResultV1::decode(
+            block.commit_certificate().unwrap().result_preimage(),
+            scope.into(),
+        )
+        .unwrap()
+        .into_parts();
+        let x = SccpFinalityHeaderV1::from_fields(&SccpFinalityHeaderFieldsV1 {
+            flags: FLAG_ACTIVE,
+            generation: 1,
+            committee_root: context_committee_root(&body.schedule.current).unwrap(),
+            ..x.fields()
+        })
+        .unwrap();
+        let current = CertifiedResultV1::new(x, body, scope.into()).unwrap();
+        block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
+            Vec::new(),
+            Vec::new(),
+            current.preimage().unwrap(),
+            Vec::new(),
+        )));
+        proof.block_wire = block.encode_wire().unwrap();
+        statement.body.genesis_finality_proof = proof.clone();
+        statement.body.finality_proof = proof;
+        statement.body.status.height = 2;
+        statement.body.status.committed_height = 1;
+        statement.body.status.applied_height = 1;
+        statement.signature = iroha_crypto::SignatureOf::try_from_hash(
+            node.private_key(),
+            statement.body.signing_hash(),
+        )
+        .unwrap();
+        statement
+            .verify(scope.into())
+            .expect("real node signature over structurally valid active G1 candidate");
+        statement
+    }
+
+    // Early transport failures do not read a finality response. Supply an independent
+    // real signed root even for those controls; never infer scope from candidate X.
+    fn transport_fixture_scope() -> iroha_data_model::block::consensus::SumeragiRootScope {
+        static SCOPE: std::sync::OnceLock<iroha_data_model::block::consensus::SumeragiRootScope> =
+            std::sync::OnceLock::new();
+        *SCOPE.get_or_init(|| {
+            iroha_data_model::sumeragi_finality::test_fixtures::NativeFinalityFixture::start(
+                "SDK native names early transport scope",
+            )
+            .root_scope()
+        })
+    }
 
     #[test]
     fn native_names_provider_dispatches_exact_signed_get_with_fresh_uri_challenge() {
@@ -138,10 +205,7 @@ mod tests {
             client
                 .clone()
                 .with_test_http_transport(transport)
-                .get_native_resource_names_state_wire(
-                    [0xab; 32],
-                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
-                )
+                .get_native_resource_names_state_wire([0xab; 32], transport_fixture_scope())
         });
         assert!(!format!("{:#}", result.unwrap_err()).contains("private-sentinel-never-log"));
         assert_eq!(snapshots.len(), 1);
@@ -217,10 +281,7 @@ mod tests {
                 client
                     .clone()
                     .with_test_http_transport(transport)
-                    .get_native_resource_names_state_wire(
-                        [0xab; 32],
-                        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
-                    )
+                    .get_native_resource_names_state_wire([0xab; 32], transport_fixture_scope())
             });
             assert!(result.is_err());
             assert_eq!(snapshots.len(), 1);
@@ -276,10 +337,7 @@ mod tests {
             client
                 .clone()
                 .with_test_http_transport(transport)
-                .get_native_resource_names_state_wire(
-                    [1; 32],
-                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
-                )
+                .get_native_resource_names_state_wire([1; 32], transport_fixture_scope())
         });
         let error = format!("{:#}", result.unwrap_err());
         assert!(!error.contains("synthetic-fi-application-credential"));
@@ -289,10 +347,7 @@ mod tests {
             client
                 .clone()
                 .with_test_http_transport(transport)
-                .get_native_resource_names_state_wire(
-                    [1; 32],
-                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
-                )
+                .get_native_resource_names_state_wire([1; 32], transport_fixture_scope())
         });
         assert!(result.is_err());
         assert!(snapshots.is_empty());
@@ -308,10 +363,7 @@ mod tests {
             client
                 .clone()
                 .with_test_http_transport(transport)
-                .get_native_resource_names_state_wire(
-                    [0; 32],
-                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
-                )
+                .get_native_resource_names_state_wire([0; 32], transport_fixture_scope())
         });
         assert!(result.is_err());
         assert!(snapshots.is_empty());
@@ -329,10 +381,7 @@ mod tests {
                 client
                     .clone()
                     .with_test_http_transport(transport)
-                    .get_native_resource_names_state_wire(
-                        [1; 32],
-                        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
-                    )
+                    .get_native_resource_names_state_wire([1; 32], transport_fixture_scope())
             });
             assert!(result.is_err());
             assert_eq!(snapshots.len(), 1);
@@ -374,10 +423,7 @@ mod tests {
             client
                 .clone()
                 .with_test_http_transport(transport)
-                .get_native_resource_names_state_wire(
-                    [2; 32],
-                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
-                )
+                .get_native_resource_names_state_wire([2; 32], transport_fixture_scope())
         });
         assert!(result.is_err());
         assert_eq!(snapshots.len(), 1);
@@ -414,10 +460,7 @@ mod tests {
             let (result, snapshots) = capture_requests(response, |transport| {
                 let mut configured = client.clone().with_test_http_transport(transport);
                 configured.torii_url = target;
-                configured.get_native_resource_names_state_wire(
-                    [3; 32],
-                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
-                )
+                configured.get_native_resource_names_state_wire([3; 32], transport_fixture_scope())
             });
             assert!(result.is_err());
             assert!(snapshots.is_empty());
@@ -439,10 +482,7 @@ mod tests {
                 for (key, value) in additions {
                     configured.headers.insert(key.into(), value.into());
                 }
-                configured.get_native_resource_names_state_wire(
-                    [3; 32],
-                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
-                )
+                configured.get_native_resource_names_state_wire([3; 32], transport_fixture_scope())
             });
             assert!(result.is_err());
             assert!(snapshots.is_empty());
@@ -518,9 +558,7 @@ mod tests {
             signature: SignatureOf::try_from_hash(node.private_key(), body.signing_hash()).unwrap(),
             body,
         };
-        attestation
-            .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
-            .unwrap();
+        attestation.verify(native.root_scope().into()).unwrap();
         let original = NativeResourceNamesStateV1 {
             attestation,
             world_snapshot: snapshot,
@@ -542,24 +580,55 @@ mod tests {
             client
                 .clone()
                 .with_test_http_transport(transport)
-                .get_native_resource_names_state_wire(
-                    [0x58; 32],
-                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
-                )
+                .get_native_resource_names_state_wire([0x58; 32], native.root_scope())
         });
         let returned: Vec<u8> = result.unwrap();
         assert_eq!(returned, wire);
         assert_eq!(snapshots.len(), 1);
         assert_canonical_account_signed_request(&client, &snapshots[0]);
+        // Active G1 is only a structural candidate, not authenticated execution.
+        // The caller's separate signed private root must select NonGlobal rejection.
+        let mut active = original.clone();
+        active.attestation =
+            active_genesis_statement(&original.attestation, &node, native.root_scope());
+        let private = NativeFinalityFixture::start_with_scope(
+            "native names private root selection",
+            iroha_data_model::block::consensus::SumeragiRootScope::Dataspace {
+                parent_network_id: native.network_id(),
+                dataspace_id: iroha_model_base::topology::DataSpaceId::new(73),
+            },
+        );
+        assert!(
+            active
+                .attestation
+                .verify(private.root_scope().into())
+                .is_err()
+        );
+        let active_wire = norito::encode_canonical(&active).unwrap();
+        for (scope, accepted) in [(native.root_scope(), true), (private.root_scope(), false)] {
+            let response = Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", APPLICATION_NORITO)
+                .body(active_wire.clone())
+                .unwrap();
+            let (result, snapshots) = capture_requests(response, |transport| {
+                client
+                    .clone()
+                    .with_test_http_transport(transport)
+                    .get_native_resource_names_state_wire([0x58; 32], scope)
+            });
+            assert_eq!(snapshots.len(), 1);
+            assert_eq!(result.is_ok(), accepted);
+            if let Ok(read) = result {
+                assert_eq!(read, active_wire);
+            }
+        }
         // Valid node-signed carrier is still tied to this exact fresh request.
         let (result, snapshots) = capture_requests(response.clone(), |transport| {
             client
                 .clone()
                 .with_test_http_transport(transport)
-                .get_native_resource_names_state_wire(
-                    [0x59; 32],
-                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
-                )
+                .get_native_resource_names_state_wire([0x59; 32], native.root_scope())
         });
         assert!(result.is_err());
         assert_eq!(snapshots.len(), 1);
@@ -568,10 +637,7 @@ mod tests {
             client
                 .clone()
                 .with_test_http_transport(transport)
-                .get_native_resource_names_state_wire(
-                    [0x58; 32],
-                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
-                )
+                .get_native_resource_names_state_wire([0x58; 32], native.root_scope())
         });
         assert!(result.is_err());
         assert_eq!(snapshots.len(), 1);

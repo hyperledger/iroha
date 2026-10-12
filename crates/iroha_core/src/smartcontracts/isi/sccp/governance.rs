@@ -13,7 +13,7 @@
 mod registration;
 
 use super::{
-    Error, controls, escrow, light_clients, params,
+    Error, controls, escrow, light_clients,
     recipients::{self, SccpRecipientClassV1},
     registry, store,
 };
@@ -130,6 +130,12 @@ pub fn enact(
     if store::parameters::get(&*state_transaction.world).is_none() {
         return Err(refuse("SCCP does not exist on this network"));
     }
+    if cause.track != iroha_sccp::v1::control::TRACK_PARLIAMENT
+        || cause.certificate_id == [0; 32]
+        || cause.effect_hash == [0; 32]
+    {
+        return Err(refuse("the enacted Parliament cause is malformed"));
+    }
     for (index, action) in proposal.actions.iter().enumerate() {
         apply_action(state_transaction, action, proposal_id, cause)
             .map_err(|error| refuse(format_args!("action {index}: {error}")))?;
@@ -219,7 +225,8 @@ fn apply_action(
             light_clients::freeze(state_transaction, action, proposal_id)
         }
         SccpGovernanceActionV1::SetParameters(action) => {
-            params::validate_next(state_transaction, &action.next)?;
+            super::init::check_parameters(state_transaction, &action.next)
+                .map_err(|error| refuse(format_args!("parameters: {error}")))?;
             store::parameters::set(state_transaction, Some(action.next));
             Ok(())
         }
@@ -467,7 +474,7 @@ fn set_taira_paused(
 mod tests {
     use super::*;
     use crate::smartcontracts::isi::sccp::test_support::{
-        blank_state, header, sample_generation, sample_pin, sample_proposal,
+        blank_state, header, sample_generation_at, sample_pin, sample_proposal,
     };
     use iroha_data_model::sccp::{
         deployment::{SccpEvmDeploymentV1, SccpTonCodeRefV1, SccpTonDeploymentV1},
@@ -504,7 +511,7 @@ mod tests {
             network: NETWORK,
             revision,
             deployment: evm(seed),
-            initial_committee: sample_pin(&sample_generation(1, 1)),
+            initial_committee: sample_pin(&sample_generation_at(1, 1)),
             max_wrapped_supply: 1_000_000_000_000,
         })
     }
@@ -513,7 +520,12 @@ mod tests {
     fn setup(stx: &mut StateTransaction<'_, '_>) {
         store::parameters::set(stx, Some(SccpParametersV1::taira_default()));
         escrow::create_route_escrows(stx).expect("escrows");
-        store::committee_generations::insert(stx, 1, sample_generation(1, 1)).expect("generation");
+        crate::smartcontracts::isi::sccp::test_support::install_generation(
+            stx,
+            1,
+            sample_generation_at(1, 1),
+        )
+        .expect("generation");
         store::committee_current::set(stx, 1);
     }
 
@@ -572,7 +584,7 @@ mod tests {
                         network,
                         revision: 1,
                         deployment,
-                        initial_committee: sample_pin(&sample_generation(1, 1)),
+                        initial_committee: sample_pin(&sample_generation_at(1, 1)),
                         max_wrapped_supply: 1_000_000_000_000,
                     },
                 )],
@@ -929,9 +941,10 @@ mod tests {
         setup(&mut stx);
         stx.nexus.staking.unbonding_delay = std::time::Duration::from_secs(21 * 86_400);
         stx.nexus.staking.max_slash_bps = 1;
-        let consensus = &mut stx.world.parameters.get_mut().sumeragi;
+        let mut consensus = stx.world.parameters.get().sumeragi().clone();
         consensus.epoch_length_blocks = std::num::NonZeroU64::new(3_600).expect("epoch");
         consensus.block_cadence_ms = std::num::NonZeroU64::new(1_000).expect("cadence");
+        stx.world.parameters.get_mut().set_sumeragi(consensus);
         let original = *store::parameters::get(&*stx.world);
         let mut next = original.expect("original parameters");
         next.enabled = false;

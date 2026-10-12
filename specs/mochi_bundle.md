@@ -207,8 +207,13 @@ boundary, not a measured performance result.
 The `cargo xtask` alias enables the required `dev-tools` feature. Native release
 qualification is dispatched through `.github/workflows/devex_native.yml` using
 five explicitly supplied existing runner labels. Its resource and host checks,
-native custody tests and installed-runtime smoke are execution gates; defining
-the workflow does not establish that those platform jobs passed. An installation
+native custody tests and installed-runtime smoke are execution gates. Each target
+also builds the standalone `kagami-bundle` and runs the same installed deployment,
+restart and fresh bytecode/package flows against its `bin` directory. The Mochi
+archive is also extracted into a fresh runner temporary directory; the same installed
+flows and subsequent private/attachment checks use only that extracted application's
+runtime paths. These installed flows keep build tools off `PATH` and supply no runtime
+TOML. Defining the workflow does not establish that those platform jobs passed. An installation
 built with a development profile may omit remote authority. Release packaging requires
 the committed Taira preset; a successful local smoke still does not qualify remote attachment.
 The workflow also runs the eight-validator attachment regression with its

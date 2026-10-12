@@ -18,12 +18,7 @@ use iroha_data_model::{
     isi as dm_isi, isi::InstructionBox, proof::ProofAttachment, zk::OpenVerifyEnvelope,
 };
 use norito::{codec::Encode as _, decode_canonical};
-#[cfg(test)]
-use parking_lot::ReentrantMutex;
-use std::{
-    borrow::Borrow,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::borrow::Borrow;
 /// Per-instruction family base costs.
 /// Chosen to be small compared to the default per-block gas limit.
 // Tuned to target a simple fee envelope:
@@ -122,49 +117,18 @@ const PER_BYTE_PIN_MANIFEST: u64 = 1;
 const PER_BYTE_SEALED_COMMITMENT: u64 = 1;
 const PER_BYTE_KAIGI_RELAY_DESCRIPTOR: u64 = 1;
 const PER_KAIGI_RELAY_HOP: u64 = 16;
-static ZK_GAS_BASE_VERIFY: AtomicU64 = AtomicU64::new(DEFAULT_ZK_GAS_BASE_VERIFY);
-static ZK_GAS_PER_PUBLIC_INPUT: AtomicU64 = AtomicU64::new(DEFAULT_ZK_GAS_PER_PUBLIC_INPUT);
-static ZK_GAS_PER_PROOF_BYTE: AtomicU64 = AtomicU64::new(DEFAULT_ZK_GAS_PER_PROOF_BYTE);
-static ZK_GAS_PER_NULLIFIER: AtomicU64 = AtomicU64::new(DEFAULT_ZK_GAS_PER_NULLIFIER);
-static ZK_GAS_PER_COMMITMENT: AtomicU64 = AtomicU64::new(DEFAULT_ZK_GAS_PER_COMMITMENT);
-#[cfg(test)]
-static CONFIDENTIAL_GAS_TEST_LOCK: ReentrantMutex<()> = ReentrantMutex::new(());
-/// Consensus gas schedule installed from startup configuration or committed ZK policy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ConfidentialGasSchedule {
-    /// Base gas charged before applying any per-element multipliers.
-    pub base_verify: u64,
-    /// Gas multiplier applied per public input exposed by the proof.
-    pub per_public_input: u64,
-    /// Gas multiplier applied per byte of proof data.
-    pub per_proof_byte: u64,
-    /// Gas multiplier applied per nullifier referenced by the proof.
-    pub per_nullifier: u64,
-    /// Gas multiplier applied per commitment emitted by the proof.
-    pub per_commitment: u64,
-}
-impl Default for ConfidentialGasSchedule {
-    fn default() -> Self {
-        Self {
-            base_verify: DEFAULT_ZK_GAS_BASE_VERIFY,
-            per_public_input: DEFAULT_ZK_GAS_PER_PUBLIC_INPUT,
-            per_proof_byte: DEFAULT_ZK_GAS_PER_PROOF_BYTE,
-            per_nullifier: DEFAULT_ZK_GAS_PER_NULLIFIER,
-            per_commitment: DEFAULT_ZK_GAS_PER_COMMITMENT,
-        }
-    }
-}
-impl From<ActualConfidentialGas> for ConfidentialGasSchedule {
-    fn from(value: ActualConfidentialGas) -> Self {
-        Self {
-            base_verify: value.proof_base,
-            per_public_input: value.per_public_input,
-            per_proof_byte: value.per_proof_byte,
-            per_nullifier: value.per_nullifier,
-            per_commitment: value.per_commitment,
-        }
-    }
-}
+/// Verification gas schedule of the protocol default ZK validity policy.
+///
+/// Block execution never reads this constant: it meters with the schedule
+/// frozen in the block's ZK settings (`StateBlock::zk`). A chain that commits
+/// no `zk_validity_policy_v1` parameter runs under exactly these rates.
+pub const DEFAULT_ZK_GAS: ActualConfidentialGas = ActualConfidentialGas {
+    proof_base: DEFAULT_ZK_GAS_BASE_VERIFY,
+    per_public_input: DEFAULT_ZK_GAS_PER_PUBLIC_INPUT,
+    per_proof_byte: DEFAULT_ZK_GAS_PER_PROOF_BYTE,
+    per_nullifier: DEFAULT_ZK_GAS_PER_NULLIFIER,
+    per_commitment: DEFAULT_ZK_GAS_PER_COMMITMENT,
+};
 
 /// Return whether every gas component fits within the shared block limit.
 ///
@@ -189,50 +153,21 @@ pub(crate) fn gas_components_fit_block_limit(
     true
 }
 
-/// Install the confidential verification gas schedule at a consensus policy boundary.
-pub(crate) fn configure_confidential_gas(schedule: ConfidentialGasSchedule) {
-    #[cfg(test)]
-    let _test_guard = CONFIDENTIAL_GAS_TEST_LOCK.lock();
-    ZK_GAS_BASE_VERIFY.store(schedule.base_verify, Ordering::Relaxed);
-    ZK_GAS_PER_PUBLIC_INPUT.store(schedule.per_public_input, Ordering::Relaxed);
-    ZK_GAS_PER_PROOF_BYTE.store(schedule.per_proof_byte, Ordering::Relaxed);
-    ZK_GAS_PER_NULLIFIER.store(schedule.per_nullifier, Ordering::Relaxed);
-    ZK_GAS_PER_COMMITMENT.store(schedule.per_commitment, Ordering::Relaxed);
+/// Set the telemetry gauges to the schedule a block charges: operators see the
+/// committed schedule, never a configured one. Metering does not read the gauges.
+pub(crate) fn publish_confidential_gas_gauges(schedule: &ActualConfidentialGas) {
+    #[cfg(feature = "telemetry")]
+    if let Some(metrics) = iroha_telemetry::metrics::global() {
+        metrics.set_confidential_gas_schedule(schedule);
+    }
+    #[cfg(not(feature = "telemetry"))]
+    let _ = schedule;
 }
 /// Deterministic cost for storing a sealed transaction commitment.
 #[must_use]
 pub fn meter_sealed_transaction_commitment(encoded_len: usize) -> u64 {
     let encoded_len = u64::try_from(encoded_len).unwrap_or(u64::MAX);
     BASE_SEALED_COMMITMENT.saturating_add(PER_BYTE_SEALED_COMMITMENT.saturating_mul(encoded_len))
-}
-#[cfg(test)]
-pub(crate) fn lock_confidential_gas_for_tests() -> impl Drop {
-    CONFIDENTIAL_GAS_TEST_LOCK.lock()
-}
-#[cfg(test)]
-pub(crate) fn confidential_gas_schedule_for_tests() -> ConfidentialGasSchedule {
-    ConfidentialGasSchedule {
-        base_verify: zk_gas_base_verify(),
-        per_public_input: zk_gas_per_public_input(),
-        per_proof_byte: zk_gas_per_proof_byte(),
-        per_nullifier: zk_gas_per_nullifier(),
-        per_commitment: zk_gas_per_commitment(),
-    }
-}
-fn zk_gas_base_verify() -> u64 {
-    ZK_GAS_BASE_VERIFY.load(Ordering::Relaxed)
-}
-fn zk_gas_per_public_input() -> u64 {
-    ZK_GAS_PER_PUBLIC_INPUT.load(Ordering::Relaxed)
-}
-fn zk_gas_per_proof_byte() -> u64 {
-    ZK_GAS_PER_PROOF_BYTE.load(Ordering::Relaxed)
-}
-fn zk_gas_per_nullifier() -> u64 {
-    ZK_GAS_PER_NULLIFIER.load(Ordering::Relaxed)
-}
-fn zk_gas_per_commitment() -> u64 {
-    ZK_GAS_PER_COMMITMENT.load(Ordering::Relaxed)
 }
 fn ipa_public_input_count(attachment: &ProofAttachment) -> Option<u64> {
     let backend = attachment.backend.as_str();
@@ -253,17 +188,18 @@ fn gas_for_proof_attachment(
     attachment: &ProofAttachment,
     nullifiers: usize,
     commitments: usize,
+    zk_gas: &ActualConfidentialGas,
 ) -> u64 {
-    let mut gas = zk_gas_base_verify();
+    let mut gas = zk_gas.proof_base;
     let proof_bytes = u64::try_from(attachment.proof.bytes.len()).unwrap_or(u64::MAX);
-    gas = gas.saturating_add(zk_gas_per_proof_byte().saturating_mul(proof_bytes));
+    gas = gas.saturating_add(zk_gas.per_proof_byte.saturating_mul(proof_bytes));
     if let Some(public_inputs) = ipa_public_input_count(attachment) {
-        gas = gas.saturating_add(zk_gas_per_public_input().saturating_mul(public_inputs));
+        gas = gas.saturating_add(zk_gas.per_public_input.saturating_mul(public_inputs));
     }
     let nullifiers_u64 = u64::try_from(nullifiers).unwrap_or(u64::MAX);
     let commitments_u64 = u64::try_from(commitments).unwrap_or(u64::MAX);
-    gas = gas.saturating_add(zk_gas_per_nullifier().saturating_mul(nullifiers_u64));
-    gas = gas.saturating_add(zk_gas_per_commitment().saturating_mul(commitments_u64));
+    gas = gas.saturating_add(zk_gas.per_nullifier.saturating_mul(nullifiers_u64));
+    gas = gas.saturating_add(zk_gas.per_commitment.saturating_mul(commitments_u64));
     gas
 }
 fn gas_for_kaigi_proof_verification(
@@ -271,13 +207,15 @@ fn gas_for_kaigi_proof_verification(
     public_inputs: u64,
     nullifiers: u64,
     commitments: u64,
+    zk_gas: &ActualConfidentialGas,
 ) -> u64 {
     let proof_bytes = u64::try_from(proof.len()).unwrap_or(u64::MAX);
-    zk_gas_base_verify()
-        .saturating_add(zk_gas_per_public_input().saturating_mul(public_inputs))
-        .saturating_add(zk_gas_per_proof_byte().saturating_mul(proof_bytes))
-        .saturating_add(zk_gas_per_nullifier().saturating_mul(nullifiers))
-        .saturating_add(zk_gas_per_commitment().saturating_mul(commitments))
+    zk_gas
+        .proof_base
+        .saturating_add(zk_gas.per_public_input.saturating_mul(public_inputs))
+        .saturating_add(zk_gas.per_proof_byte.saturating_mul(proof_bytes))
+        .saturating_add(zk_gas.per_nullifier.saturating_mul(nullifiers))
+        .saturating_add(zk_gas.per_commitment.saturating_mul(commitments))
 }
 fn gas_for_register_pin_manifest(manifest_bytes: usize) -> u64 {
     BASE_REGISTER_PIN_MANIFEST.saturating_add(
@@ -359,8 +297,8 @@ fn sccp_byte_gas(bytes: usize, per_unit: u64, bytes_per_unit: u64) -> u64 {
 fn sccp_proof_gas(proof_bytes: usize) -> u64 {
     SCCP_LIGHT_CLIENT_VERIFY.saturating_add(sccp_byte_gas(proof_bytes, 1, SCCP_PROOF_BYTES_PER_GAS))
 }
-/// Gas of the SCCP v1 instructions (`specs/sccp.md` §4), proportional to their signature and
-/// proof work, or `None` for any other instruction.
+/// Gas of the SCCP v1 instructions (`specs/sccp.md` §4), proportional to their proof work and
+/// payload bytes, or `None` for any other instruction.
 fn sccp_instruction_gas(any: &dyn core::any::Any) -> Option<u64> {
     use dm_isi::sccp;
     if let Some(record) = any.downcast_ref::<sccp::RecordSccpMessage>() {
@@ -390,6 +328,24 @@ fn sccp_instruction_gas(any: &dyn core::any::Any) -> Option<u64> {
                 .saturating_add(sccp_proof_gas(report.b.len())),
         );
     }
+    if let Some(evidence) = any.downcast_ref::<sccp::SubmitSccpForgeryEvidenceV1>() {
+        // Fee exemption does not waive the native aggregate-signature verification
+        // or the optional fixed-depth anchor proof's decoding and hashing work.
+        let anchor_bytes = evidence.anchor.as_ref().map_or(0, |anchor| {
+            anchor.core_hash.len()
+                + anchor.result.len()
+                + anchor
+                    .path
+                    .iter()
+                    .map(|sibling| sibling.len())
+                    .sum::<usize>()
+        });
+        let bytes = evidence.qc.len()
+            + evidence.header.len()
+            + evidence.aggregate_signature.len()
+            + anchor_bytes;
+        return Some(BASE_SCCP.saturating_add(sccp_proof_gas(bytes)));
+    }
     if any.downcast_ref::<sccp::SettleSccpV1>().is_some() {
         // A settlement releases escrow and may register its recipient implicitly.
         return Some(
@@ -404,8 +360,12 @@ fn sccp_instruction_gas(any: &dyn core::any::Any) -> Option<u64> {
     None
 }
 /// Compute gas for a single instruction using a simple schedule.
+///
+/// `zk_gas` is the verification gas schedule of the block that executes the
+/// instruction (the block's frozen ZK settings). It prices proof-bearing
+/// instructions; every other cost is a constant of the release.
 #[allow(clippy::too_many_lines)]
-pub fn meter_instruction(instr: &InstructionBox) -> u64 {
+pub fn meter_instruction(instr: &InstructionBox, zk_gas: &ActualConfidentialGas) -> u64 {
     // Helper to compute JSON-like payload size when present.
     // Use the canonical JSON string length without re-encoding to avoid
     // extra allocations during metering. `Json` stores a normalized string,
@@ -576,10 +536,9 @@ pub fn meter_instruction(instr: &InstructionBox) -> u64 {
         return BASE_CUSTOM.saturating_add(KAIGI_RECORD_READ_ESCROW);
     }
     if let Some(create) = any.downcast_ref::<dm_isi::kaigi::CreateKaigi>() {
-        let proof_gas = create
-            .proof
-            .as_deref()
-            .map_or(0, |proof| gas_for_kaigi_proof_verification(proof, 6, 1, 1));
+        let proof_gas = create.proof.as_deref().map_or(0, |proof| {
+            gas_for_kaigi_proof_verification(proof, 6, 1, 1, zk_gas)
+        });
         let relay_gas = create
             .call
             .relay_manifest
@@ -604,7 +563,7 @@ pub fn meter_instruction(instr: &InstructionBox) -> u64 {
                 .map_or(0, |proof| u64::try_from(proof.len()).unwrap_or(u64::MAX));
             return BASE_KAIGI_JOIN_ZK
                 .saturating_add(KAIGI_RECORD_MUTATION_ESCROW)
-                .saturating_add(zk_gas_per_proof_byte().saturating_mul(proof_bytes));
+                .saturating_add(zk_gas.per_proof_byte.saturating_mul(proof_bytes));
         }
         return BASE_KAIGI_JOIN.saturating_add(KAIGI_RECORD_MUTATION_ESCROW);
     }
@@ -620,15 +579,14 @@ pub fn meter_instruction(instr: &InstructionBox) -> u64 {
                 .map_or(0, |proof| u64::try_from(proof.len()).unwrap_or(u64::MAX));
             return BASE_KAIGI_LEAVE_ZK
                 .saturating_add(KAIGI_RECORD_MUTATION_ESCROW)
-                .saturating_add(zk_gas_per_proof_byte().saturating_mul(proof_bytes));
+                .saturating_add(zk_gas.per_proof_byte.saturating_mul(proof_bytes));
         }
         return BASE_KAIGI_LEAVE.saturating_add(KAIGI_RECORD_MUTATION_ESCROW);
     }
     if let Some(end) = any.downcast_ref::<dm_isi::kaigi::EndKaigi>() {
-        let proof_gas = end
-            .proof
-            .as_deref()
-            .map_or(0, |proof| gas_for_kaigi_proof_verification(proof, 6, 1, 0));
+        let proof_gas = end.proof.as_deref().map_or(0, |proof| {
+            gas_for_kaigi_proof_verification(proof, 6, 1, 0, zk_gas)
+        });
         return BASE_KAIGI_END
             .saturating_add(KAIGI_RECORD_MUTATION_ESCROW)
             .saturating_add(proof_gas);
@@ -636,10 +594,9 @@ pub fn meter_instruction(instr: &InstructionBox) -> u64 {
     if let Some(usage) = any.downcast_ref::<dm_isi::kaigi::RecordKaigiUsage>() {
         let is_privacy = usage.usage_commitment.is_some() || usage.proof.is_some();
         if is_privacy {
-            let proof_gas = usage
-                .proof
-                .as_deref()
-                .map_or(0, |proof| gas_for_kaigi_proof_verification(proof, 1, 0, 1));
+            let proof_gas = usage.proof.as_deref().map_or(0, |proof| {
+                gas_for_kaigi_proof_verification(proof, 1, 0, 1, zk_gas)
+            });
             return BASE_KAIGI_USAGE_ZK
                 .saturating_add(KAIGI_RECORD_MUTATION_ESCROW)
                 .saturating_add(proof_gas);
@@ -677,13 +634,13 @@ pub fn meter_instruction(instr: &InstructionBox) -> u64 {
             .saturating_add(PER_BYTE_JSON.saturating_mul(notes_bytes));
     }
     if let Some(verify) = any.downcast_ref::<dm_isi::zk::VerifyProof>() {
-        return gas_for_proof_attachment(&verify.attachment, 0, 0);
+        return gas_for_proof_attachment(&verify.attachment, 0, 0, zk_gas);
     }
     if let Some(ballot) = any.downcast_ref::<dm_isi::zk::SubmitBallot>() {
-        return gas_for_proof_attachment(&ballot.ballot_proof, 1, 0);
+        return gas_for_proof_attachment(&ballot.ballot_proof, 1, 0, zk_gas);
     }
     if let Some(finalize) = any.downcast_ref::<dm_isi::zk::FinalizeElection>() {
-        return gas_for_proof_attachment(&finalize.tally_proof, 0, 0);
+        return gas_for_proof_attachment(&finalize.tally_proof, 0, 0, zk_gas);
     }
     if any
         .downcast_ref::<dm_isi::smart_contract_code::RegisterSmartContractCode>()
@@ -721,42 +678,41 @@ fn kaigi_relay_manifest_gas(manifest: &iroha_data_model::kaigi::KaigiRelayManife
             .saturating_add(PER_BYTE_KAIGI_RELAY_DESCRIPTOR.saturating_mul(key_bytes))
     })
 }
-/// Compute gas for a sequence of instructions.
-pub fn meter_instructions(is: &[InstructionBox]) -> u64 {
+/// Compute gas for a sequence of instructions under the verification gas
+/// schedule `zk_gas` of the executing block.
+pub fn meter_instructions(is: &[InstructionBox], zk_gas: &ActualConfidentialGas) -> u64 {
     is.iter().fold(0_u64, |total, instruction| {
-        total.saturating_add(meter_instruction(instruction))
+        total.saturating_add(meter_instruction(instruction, zk_gas))
     })
 }
-/// Return the portion of the gas schedule attributed to confidential ISIs.
+/// Return the portion of the gas schedule attributed to confidential ISIs,
+/// priced by the verification gas schedule `zk_gas` of the executing block.
 #[must_use]
-pub fn confidential_gas_cost(instr: &InstructionBox) -> u64 {
+pub fn confidential_gas_cost(instr: &InstructionBox, zk_gas: &ActualConfidentialGas) -> u64 {
     let any = instr.as_any();
     if let Some(create) = any.downcast_ref::<dm_isi::kaigi::CreateKaigi>() {
-        return create
-            .proof
-            .as_deref()
-            .map_or(0, |proof| gas_for_kaigi_proof_verification(proof, 6, 1, 1));
+        return create.proof.as_deref().map_or(0, |proof| {
+            gas_for_kaigi_proof_verification(proof, 6, 1, 1, zk_gas)
+        });
     }
     if let Some(end) = any.downcast_ref::<dm_isi::kaigi::EndKaigi>() {
-        return end
-            .proof
-            .as_deref()
-            .map_or(0, |proof| gas_for_kaigi_proof_verification(proof, 6, 1, 0));
+        return end.proof.as_deref().map_or(0, |proof| {
+            gas_for_kaigi_proof_verification(proof, 6, 1, 0, zk_gas)
+        });
     }
     if let Some(usage) = any.downcast_ref::<dm_isi::kaigi::RecordKaigiUsage>() {
-        return usage
-            .proof
-            .as_deref()
-            .map_or(0, |proof| gas_for_kaigi_proof_verification(proof, 1, 0, 1));
+        return usage.proof.as_deref().map_or(0, |proof| {
+            gas_for_kaigi_proof_verification(proof, 1, 0, 1, zk_gas)
+        });
     }
     if let Some(verify) = any.downcast_ref::<dm_isi::zk::VerifyProof>() {
-        return gas_for_proof_attachment(&verify.attachment, 0, 0);
+        return gas_for_proof_attachment(&verify.attachment, 0, 0, zk_gas);
     }
     if let Some(ballot) = any.downcast_ref::<dm_isi::zk::SubmitBallot>() {
-        return gas_for_proof_attachment(&ballot.ballot_proof, 1, 0);
+        return gas_for_proof_attachment(&ballot.ballot_proof, 1, 0, zk_gas);
     }
     if let Some(finalize) = any.downcast_ref::<dm_isi::zk::FinalizeElection>() {
-        return gas_for_proof_attachment(&finalize.tally_proof, 0, 0);
+        return gas_for_proof_attachment(&finalize.tally_proof, 0, 0, zk_gas);
     }
     if let Some(transition) =
         any.downcast_ref::<dm_isi::governance::SubmitParliamentLifecycleTransitionV1>()
@@ -766,13 +722,13 @@ pub fn confidential_gas_cost(instr: &InstructionBox) -> u64 {
     0
 }
 /// Return the saturating confidential-gas total for an instruction sequence.
-pub(crate) fn sum_confidential_gas_costs<I>(instructions: I) -> u64
+pub(crate) fn sum_confidential_gas_costs<I>(instructions: I, zk_gas: &ActualConfidentialGas) -> u64
 where
     I: IntoIterator,
     I::Item: Borrow<InstructionBox>,
 {
     instructions.into_iter().fold(0_u64, |total, instruction| {
-        total.saturating_add(confidential_gas_cost(instruction.borrow()))
+        total.saturating_add(confidential_gas_cost(instruction.borrow(), zk_gas))
     })
 }
 #[cfg(test)]
@@ -780,6 +736,58 @@ mod tests {
     use super::*;
     use iroha_model_base::domain::DomainId;
 
+    #[test]
+    fn two_schedules_meter_independently_in_one_process() {
+        use iroha_data_model::{isi::zk::VerifyProof, proof::VerifyingKeyId};
+        // The schedule is an argument, not process state: two blocks with
+        // different committed policies are metered side by side.
+        let changed = ActualConfidentialGas {
+            proof_base: DEFAULT_ZK_GAS.proof_base + 1,
+            per_public_input: DEFAULT_ZK_GAS.per_public_input + 2,
+            per_proof_byte: DEFAULT_ZK_GAS.per_proof_byte + 3,
+            per_nullifier: DEFAULT_ZK_GAS.per_nullifier + 4,
+            per_commitment: DEFAULT_ZK_GAS.per_commitment + 5,
+        };
+        let fixture = native_framing_fixture_envelope(
+            crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID,
+            [0u8; 32],
+        );
+        let proof_box = fixture.proof_box("pipa-r/pasta");
+        let attachment = ProofAttachment::new_ref(
+            proof_box.backend.clone(),
+            proof_box,
+            VerifyingKeyId::new("pipa-r/pasta", "vk-two-schedules"),
+        );
+        let proof_bytes = attachment.proof.bytes.len() as u64;
+        let public_inputs =
+            super::ipa_public_input_count(&attachment).expect("native public column");
+        assert_eq!(public_inputs, 9);
+        let instruction: InstructionBox = VerifyProof::new(attachment).into();
+        let under_default = meter_instruction(&instruction, &DEFAULT_ZK_GAS);
+        let under_changed = meter_instruction(&instruction, &changed);
+        assert_eq!(
+            under_changed - under_default,
+            1 + 2 * public_inputs + 3 * proof_bytes
+        );
+        // Metering under one schedule leaves the other unchanged.
+        assert_eq!(
+            meter_instruction(&instruction, &DEFAULT_ZK_GAS),
+            under_default
+        );
+        assert_eq!(confidential_gas_cost(&instruction, &changed), under_changed);
+        // An instruction without a proof costs the same under every schedule.
+        let (account, _) = gen_account_in("wonderland");
+        let plain = InstructionBox::from(SetKeyValueBox::from(SetKeyValue::account(
+            account,
+            "k".parse().expect("valid name"),
+            Json::new("v"),
+        )));
+        assert_eq!(
+            meter_instruction(&plain, &DEFAULT_ZK_GAS),
+            meter_instruction(&plain, &changed)
+        );
+        assert_eq!(confidential_gas_cost(&plain, &changed), 0);
+    }
     #[test]
     fn block_gas_component_fit_is_overflow_safe() {
         assert!(gas_components_fit_block_limit(0, [u64::MAX, 1]));
@@ -809,8 +817,14 @@ mod tests {
         let id = sample_account();
         let small = SetKeyValue::account(id.clone(), "k".parse().unwrap(), Json::new("v"));
         let big = SetKeyValue::account(id, "k".parse().unwrap(), Json::new("v".repeat(256)));
-        let g_small = meter_instruction(&InstructionBox::from(SetKeyValueBox::from(small)));
-        let g_big = meter_instruction(&InstructionBox::from(SetKeyValueBox::from(big)));
+        let g_small = meter_instruction(
+            &InstructionBox::from(SetKeyValueBox::from(small)),
+            &DEFAULT_ZK_GAS,
+        );
+        let g_big = meter_instruction(
+            &InstructionBox::from(SetKeyValueBox::from(big)),
+            &DEFAULT_ZK_GAS,
+        );
         assert!(g_big > g_small);
     }
     #[test]
@@ -835,16 +849,18 @@ mod tests {
         let small = make_registration("small-allowlist-gas", small_value.clone());
         let large = make_registration("large-allowlist-gas", large_value.clone());
         assert_eq!(
-            meter_instruction(&small),
+            meter_instruction(&small, &DEFAULT_ZK_GAS),
             BASE_REGISTER
                 + u64::try_from(small_value.as_ref().len()).expect("JSON length fits u64")
         );
         assert_eq!(
-            meter_instruction(&large),
+            meter_instruction(&large, &DEFAULT_ZK_GAS),
             BASE_REGISTER
                 + u64::try_from(large_value.as_ref().len()).expect("JSON length fits u64")
         );
-        assert!(meter_instruction(&large) > meter_instruction(&small));
+        assert!(
+            meter_instruction(&large, &DEFAULT_ZK_GAS) > meter_instruction(&small, &DEFAULT_ZK_GAS)
+        );
     }
     #[test]
     fn mint_and_transfer_have_nonzero_costs() {
@@ -857,12 +873,14 @@ mod tests {
         let mint =
             dm_isi::mint_burn::Mint::asset_quantity(1u64, AssetId::of(def.clone(), a.clone()));
         let xfer = dm_isi::transfer::Transfer::asset_quantity(AssetId::of(def, a.clone()), 1u64, a);
-        let g_mint = meter_instruction(&InstructionBox::from(dm_isi::mint_burn::MintBox::from(
-            mint,
-        )));
-        let g_xfer = meter_instruction(&InstructionBox::from(dm_isi::transfer::TransferBox::from(
-            xfer,
-        )));
+        let g_mint = meter_instruction(
+            &InstructionBox::from(dm_isi::mint_burn::MintBox::from(mint)),
+            &DEFAULT_ZK_GAS,
+        );
+        let g_xfer = meter_instruction(
+            &InstructionBox::from(dm_isi::transfer::TransferBox::from(xfer)),
+            &DEFAULT_ZK_GAS,
+        );
         assert!(g_mint > 0 && g_xfer > 0);
     }
     #[test]
@@ -884,8 +902,8 @@ mod tests {
             None,
             None,
         ));
-        let small = meter_instruction(&small);
-        let large = meter_instruction(&large);
+        let small = meter_instruction(&small, &DEFAULT_ZK_GAS);
+        let large = meter_instruction(&large, &DEFAULT_ZK_GAS);
         assert_eq!(small, BASE_REGISTER_PIN_MANIFEST + 1);
         assert_eq!(large, BASE_REGISTER_PIN_MANIFEST + 4096);
         assert_eq!(large - small, 4095);
@@ -912,8 +930,11 @@ mod tests {
             InstructionBox::from(dm_isi::register::RegisterBox::from(r)),
             InstructionBox::from(dm_isi::mint_burn::MintBox::from(m)),
         ];
-        let sum_inline = v.iter().map(meter_instruction).sum::<u64>();
-        assert_eq!(sum_inline, meter_instructions(&v));
+        let sum_inline = v
+            .iter()
+            .map(|instruction| meter_instruction(instruction, &DEFAULT_ZK_GAS))
+            .sum::<u64>();
+        assert_eq!(sum_inline, meter_instructions(&v, &DEFAULT_ZK_GAS));
     }
     #[test]
     fn batch_meter_saturates_governed_kaigi_proof_costs() {
@@ -922,15 +943,13 @@ mod tests {
             kaigi::{KaigiId, NewKaigi},
         };
 
-        let _gas_lock = super::lock_confidential_gas_for_tests();
-        let original = super::confidential_gas_schedule_for_tests();
-        super::configure_confidential_gas(super::ConfidentialGasSchedule {
-            base_verify: u64::MAX,
+        let saturating = ActualConfidentialGas {
+            proof_base: u64::MAX,
             per_public_input: 0,
             per_proof_byte: 0,
             per_nullifier: 0,
             per_commitment: 0,
-        });
+        };
         let call_id = KaigiId::new(
             DomainId::try_new("kaigi-gas", "universal").expect("valid domain id"),
             "saturated-batch".parse().expect("valid call name"),
@@ -945,28 +964,25 @@ mod tests {
             })
         };
         let instructions = [make_instruction(), make_instruction()];
-        assert_eq!(meter_instruction(&instructions[0]), u64::MAX);
-        assert_eq!(meter_instructions(&instructions), u64::MAX);
+        assert_eq!(meter_instruction(&instructions[0], &saturating), u64::MAX);
+        assert_eq!(meter_instructions(&instructions, &saturating), u64::MAX);
         assert_eq!(
-            super::sum_confidential_gas_costs(instructions.iter()),
+            super::sum_confidential_gas_costs(instructions.iter(), &saturating),
             u64::MAX,
             "queued confidential-gas accounting must saturate too"
         );
-        super::configure_confidential_gas(original);
     }
     #[test]
     fn batch_meter_saturates_on_overflow() {
         use iroha_data_model::{isi::zk::VerifyProof, proof::VerifyingKeyId};
 
-        let _gas_lock = super::lock_confidential_gas_for_tests();
-        let original = super::confidential_gas_schedule_for_tests();
-        configure_confidential_gas(ConfidentialGasSchedule {
-            base_verify: u64::MAX,
+        let saturating = ActualConfidentialGas {
+            proof_base: u64::MAX,
             per_public_input: 0,
             per_proof_byte: 0,
             per_nullifier: 0,
             per_commitment: 0,
-        });
+        };
         let fixture = native_framing_fixture_envelope(
             crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID,
             [0_u8; 32],
@@ -978,8 +994,7 @@ mod tests {
             VerifyingKeyId::new("pipa-r/pasta", "vk-batch-overflow"),
         );
         let instruction: InstructionBox = VerifyProof::new(attachment).into();
-        let gas = meter_instructions(&[instruction.clone(), instruction]);
-        configure_confidential_gas(original);
+        let gas = meter_instructions(&[instruction.clone(), instruction], &saturating);
 
         assert_eq!(gas, u64::MAX);
     }
@@ -990,7 +1005,10 @@ mod tests {
                 iroha_data_model::parameter::system::SumeragiParameter::MaxClockDriftMs(1),
             ),
         ));
-        assert_eq!(meter_instruction(&instruction), BASE_CUSTOM);
+        assert_eq!(
+            meter_instruction(&instruction, &DEFAULT_ZK_GAS),
+            BASE_CUSTOM
+        );
     }
     fn parliament_corpus_instruction(
         record_count: usize,
@@ -1030,8 +1048,8 @@ mod tests {
         };
         let expected = parliament_encoded_input_gas(create.encode().len());
         let instruction = InstructionBox::from(create);
-        assert_eq!(meter_instruction(&instruction), expected);
-        assert_eq!(confidential_gas_cost(&instruction), 0);
+        assert_eq!(meter_instruction(&instruction, &DEFAULT_ZK_GAS), expected);
+        assert_eq!(confidential_gas_cost(&instruction, &DEFAULT_ZK_GAS), 0);
     }
     #[test]
     fn parliament_transition_gas_is_explicit_and_saturating() {
@@ -1041,7 +1059,7 @@ mod tests {
         };
         let expected = parliament_encoded_input_gas(transition.encode().len());
         let instruction = InstructionBox::from(transition);
-        assert_eq!(meter_instruction(&instruction), expected);
+        assert_eq!(meter_instruction(&instruction, &DEFAULT_ZK_GAS), expected);
         assert!(expected > BASE_CUSTOM);
         let maximum_host_length = parliament_encoded_input_gas(usize::MAX);
         let expected_maximum_host_length = BASE_PARLIAMENT.saturating_add(
@@ -1072,9 +1090,9 @@ mod tests {
             .saturating_add(PARLIAMENT_REGISTRATION_VERIFY)
             .saturating_add(parliament_max_cached_record_gas());
         let instruction = InstructionBox::from(transition);
-        assert_eq!(meter_instruction(&instruction), expected);
+        assert_eq!(meter_instruction(&instruction, &DEFAULT_ZK_GAS), expected);
         assert_eq!(
-            confidential_gas_cost(&instruction),
+            confidential_gas_cost(&instruction, &DEFAULT_ZK_GAS),
             PARLIAMENT_PROOF_UNIT + PARLIAMENT_REGISTRATION_VERIFY
         );
         assert!(expected <= 1_680_000);
@@ -1094,9 +1112,9 @@ mod tests {
                 ),
             );
         let instruction = InstructionBox::from(transition);
-        assert_eq!(meter_instruction(&instruction), expected);
+        assert_eq!(meter_instruction(&instruction, &DEFAULT_ZK_GAS), expected);
         assert_eq!(
-            confidential_gas_cost(&instruction),
+            confidential_gas_cost(&instruction, &DEFAULT_ZK_GAS),
             PARLIAMENT_PROOF_UNIT + PARLIAMENT_BALLOT_OR_VERIFY
         );
         assert!(
@@ -1110,7 +1128,9 @@ mod tests {
         let maximum = InstructionBox::from(parliament_corpus_instruction(
             PARLIAMENT_TIMED_OVN_BALLOT_CHUNK_MAX_RECORDS_V1,
         ));
-        assert!(meter_instruction(&maximum) > meter_instruction(&one));
+        assert!(
+            meter_instruction(&maximum, &DEFAULT_ZK_GAS) > meter_instruction(&one, &DEFAULT_ZK_GAS)
+        );
     }
     #[test]
     fn transfer_batch_gas_matches_entry_sum() {
@@ -1134,19 +1154,21 @@ mod tests {
             2u64,
         );
         let batch = dm_isi::transfer::TransferAssetBatch::new(vec![entry_a, entry_b]);
-        let batch_gas = meter_instruction(&InstructionBox::from(batch));
+        let batch_gas = meter_instruction(&InstructionBox::from(batch), &DEFAULT_ZK_GAS);
         let t1 = dm_isi::transfer::Transfer::asset_quantity(
             AssetId::of(def.clone(), from.clone()),
             1u64,
             to.clone(),
         );
         let t2 = dm_isi::transfer::Transfer::asset_quantity(AssetId::of(def, from), 2u64, to);
-        let expected = meter_instruction(&InstructionBox::from(
-            dm_isi::transfer::TransferBox::from(t1),
-        ))
-        .saturating_add(meter_instruction(&InstructionBox::from(
-            dm_isi::transfer::TransferBox::from(t2),
-        )));
+        let expected = meter_instruction(
+            &InstructionBox::from(dm_isi::transfer::TransferBox::from(t1)),
+            &DEFAULT_ZK_GAS,
+        )
+        .saturating_add(meter_instruction(
+            &InstructionBox::from(dm_isi::transfer::TransferBox::from(t2)),
+            &DEFAULT_ZK_GAS,
+        ));
         assert_eq!(batch_gas, expected);
     }
     #[test]
@@ -1207,7 +1229,7 @@ mod tests {
         let mut total = 0_u64;
         for (label, instr, expected) in &cases {
             let expected = *expected;
-            let gas = meter_instruction(instr);
+            let gas = meter_instruction(instr, &DEFAULT_ZK_GAS);
             assert_eq!(
                 gas, expected,
                 "{label} gas mismatch (got {gas}, expected {expected})"
@@ -1219,10 +1241,8 @@ mod tests {
     }
     #[test]
     fn verify_proof_gas_matches_schedule() {
-        let _gas_lock = super::lock_confidential_gas_for_tests();
         use iroha_data_model::{isi::zk::VerifyProof, proof::VerifyingKeyId};
-        let schedule = super::ConfidentialGasSchedule::default();
-        super::configure_confidential_gas(schedule);
+        let schedule = DEFAULT_ZK_GAS;
         let fixture = native_framing_fixture_envelope(
             crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID,
             [0u8; 32],
@@ -1237,30 +1257,31 @@ mod tests {
         let public_inputs =
             super::ipa_public_input_count(&attachment).expect("native public column");
         let instruction: InstructionBox = VerifyProof::new(attachment).into();
-        let gas = meter_instruction(&instruction);
+        let gas = meter_instruction(&instruction, &DEFAULT_ZK_GAS);
         assert_eq!(public_inputs, 9);
-        let expected = schedule.base_verify
+        let expected = schedule.proof_base
             + schedule.per_public_input.saturating_mul(public_inputs)
             + schedule.per_proof_byte.saturating_mul(proof_bytes);
         assert_eq!(gas, expected);
-        assert_eq!(confidential_gas_cost(&instruction), expected);
+        assert_eq!(
+            confidential_gas_cost(&instruction, &DEFAULT_ZK_GAS),
+            expected
+        );
     }
     #[test]
     fn kaigi_proof_gas_uses_every_governed_schedule_dimension() {
-        let _gas_lock = super::lock_confidential_gas_for_tests();
         use iroha_data_model::{
             isi::kaigi::{CreateKaigi, EndKaigi, JoinKaigi, LeaveKaigi, RecordKaigiUsage},
             kaigi::{KaigiId, KaigiPrivacyMode, NewKaigi},
         };
 
-        let schedule = super::ConfidentialGasSchedule {
-            base_verify: 1_337,
+        let schedule = ActualConfidentialGas {
+            proof_base: 1_337,
             per_public_input: 41,
             per_proof_byte: 17,
             per_nullifier: 43,
             per_commitment: 47,
         };
-        super::configure_confidential_gas(schedule);
 
         let call_id = KaigiId::new(
             DomainId::try_new("kaigi-gas", "universal").expect("valid domain id"),
@@ -1271,18 +1292,18 @@ mod tests {
         let proof = vec![0xA5; 8];
         let proof_len = u64::try_from(proof.len()).expect("fixture proof length fits u64");
         let expected_create_proof_gas = schedule
-            .base_verify
+            .proof_base
             .saturating_add(schedule.per_public_input.saturating_mul(6))
             .saturating_add(schedule.per_nullifier)
             .saturating_add(schedule.per_commitment)
             .saturating_add(schedule.per_proof_byte.saturating_mul(proof_len));
         let expected_end_proof_gas = schedule
-            .base_verify
+            .proof_base
             .saturating_add(schedule.per_public_input.saturating_mul(6))
             .saturating_add(schedule.per_nullifier)
             .saturating_add(schedule.per_proof_byte.saturating_mul(proof_len));
         let expected_usage_proof_gas = schedule
-            .base_verify
+            .proof_base
             .saturating_add(schedule.per_public_input)
             .saturating_add(schedule.per_commitment)
             .saturating_add(schedule.per_proof_byte.saturating_mul(proof_len));
@@ -1296,7 +1317,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            meter_instruction(&create),
+            meter_instruction(&create, &schedule),
             BASE_KAIGI_CREATE
                 .saturating_add(expected_create_proof_gas)
                 .saturating_add(kaigi_create_record_gas(
@@ -1306,7 +1327,10 @@ mod tests {
                         .expect("CreateKaigi instruction"),
                 ))
         );
-        assert_eq!(confidential_gas_cost(&create), expected_create_proof_gas);
+        assert_eq!(
+            confidential_gas_cost(&create, &schedule),
+            expected_create_proof_gas
+        );
 
         let longer_create: InstructionBox = CreateKaigi {
             call: call.clone(),
@@ -1317,7 +1341,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            meter_instruction(&longer_create) - meter_instruction(&create),
+            meter_instruction(&longer_create, &schedule) - meter_instruction(&create, &schedule),
             schedule.per_proof_byte
         );
 
@@ -1332,7 +1356,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            meter_instruction(&join),
+            meter_instruction(&join, &schedule),
             BASE_KAIGI_JOIN_ZK
                 .saturating_add(KAIGI_RECORD_MUTATION_ESCROW)
                 .saturating_add(schedule.per_proof_byte.saturating_mul(proof_len))
@@ -1348,7 +1372,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            meter_instruction(&leave),
+            meter_instruction(&leave, &schedule),
             BASE_KAIGI_LEAVE_ZK
                 .saturating_add(KAIGI_RECORD_MUTATION_ESCROW)
                 .saturating_add(schedule.per_proof_byte.saturating_mul(proof_len))
@@ -1364,12 +1388,15 @@ mod tests {
         }
         .into();
         assert_eq!(
-            meter_instruction(&end),
+            meter_instruction(&end, &schedule),
             BASE_KAIGI_END
                 .saturating_add(KAIGI_RECORD_MUTATION_ESCROW)
                 .saturating_add(expected_end_proof_gas)
         );
-        assert_eq!(confidential_gas_cost(&end), expected_end_proof_gas);
+        assert_eq!(
+            confidential_gas_cost(&end, &schedule),
+            expected_end_proof_gas
+        );
 
         let usage: InstructionBox = RecordKaigiUsage {
             call_id,
@@ -1380,12 +1407,15 @@ mod tests {
         }
         .into();
         assert_eq!(
-            meter_instruction(&usage),
+            meter_instruction(&usage, &schedule),
             BASE_KAIGI_USAGE_ZK
                 .saturating_add(KAIGI_RECORD_MUTATION_ESCROW)
                 .saturating_add(expected_usage_proof_gas)
         );
-        assert_eq!(confidential_gas_cost(&usage), expected_usage_proof_gas);
+        assert_eq!(
+            confidential_gas_cost(&usage, &schedule),
+            expected_usage_proof_gas
+        );
 
         let proofless_create: InstructionBox = CreateKaigi {
             call,
@@ -1402,12 +1432,10 @@ mod tests {
                 .expect("CreateKaigi instruction"),
         );
         assert_eq!(
-            meter_instruction(&proofless_create),
+            meter_instruction(&proofless_create, &schedule),
             BASE_KAIGI_CREATE.saturating_add(expected_create_record_gas)
         );
-        assert_eq!(confidential_gas_cost(&proofless_create), 0);
-
-        super::configure_confidential_gas(super::ConfidentialGasSchedule::default());
+        assert_eq!(confidential_gas_cost(&proofless_create, &schedule), 0);
     }
     #[test]
     fn kaigi_relay_gas_scales_with_bounded_descriptor_payloads() {
@@ -1450,7 +1478,7 @@ mod tests {
             .downcast_ref::<CreateKaigi>()
             .expect("CreateKaigi instruction");
         assert_eq!(
-            meter_instruction(&create),
+            meter_instruction(&create, &DEFAULT_ZK_GAS),
             BASE_KAIGI_CREATE
                 + kaigi_create_record_gas(create_ref)
                 + KAIGI_RELAY_STATE_READ_ESCROW
@@ -1463,7 +1491,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            meter_instruction(&set),
+            meter_instruction(&set, &DEFAULT_ZK_GAS),
             BASE_KAIGI_RELAY_MANIFEST
                 + KAIGI_RECORD_MUTATION_ESCROW
                 + KAIGI_RELAY_STATE_READ_ESCROW
@@ -1480,7 +1508,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            meter_instruction(&register),
+            meter_instruction(&register, &DEFAULT_ZK_GAS),
             BASE_KAIGI_RELAY_REGISTER + KAIGI_RELAY_STATE_READ_ESCROW + 3
         );
 
@@ -1489,7 +1517,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            meter_instruction(&unregister),
+            meter_instruction(&unregister, &DEFAULT_ZK_GAS),
             BASE_KAIGI_RELAY_UNREGISTER + KAIGI_RELAY_STATE_READ_ESCROW
         );
 
@@ -1502,7 +1530,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            meter_instruction(&health),
+            meter_instruction(&health, &DEFAULT_ZK_GAS),
             BASE_KAIGI_RELAY_HEALTH + KAIGI_RELAY_STATE_READ_ESCROW + 3
         );
     }
@@ -1555,7 +1583,8 @@ mod tests {
         }
         .into();
         assert!(
-            meter_instruction(&long_create) > meter_instruction(&short_create),
+            meter_instruction(&long_create, &DEFAULT_ZK_GAS)
+                > meter_instruction(&short_create, &DEFAULT_ZK_GAS),
             "larger title/description input must increase CreateKaigi gas"
         );
 
@@ -1569,7 +1598,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            meter_instruction(&join),
+            meter_instruction(&join, &DEFAULT_ZK_GAS),
             BASE_KAIGI_JOIN + KAIGI_RECORD_MUTATION_ESCROW
         );
         let leave: InstructionBox = LeaveKaigi {
@@ -1582,7 +1611,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            meter_instruction(&leave),
+            meter_instruction(&leave, &DEFAULT_ZK_GAS),
             BASE_KAIGI_LEAVE + KAIGI_RECORD_MUTATION_ESCROW
         );
         let end: InstructionBox = EndKaigi {
@@ -1595,7 +1624,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            meter_instruction(&end),
+            meter_instruction(&end, &DEFAULT_ZK_GAS),
             BASE_KAIGI_END + KAIGI_RECORD_MUTATION_ESCROW
         );
         let usage: InstructionBox = RecordKaigiUsage {
@@ -1607,7 +1636,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            meter_instruction(&usage),
+            meter_instruction(&usage, &DEFAULT_ZK_GAS),
             BASE_KAIGI_USAGE + KAIGI_RECORD_MUTATION_ESCROW
         );
         let manifest: InstructionBox = SetKaigiRelayManifest {
@@ -1616,7 +1645,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            meter_instruction(&manifest),
+            meter_instruction(&manifest, &DEFAULT_ZK_GAS),
             BASE_KAIGI_RELAY_MANIFEST + KAIGI_RECORD_MUTATION_ESCROW
         );
         let health: InstructionBox = ReportKaigiRelayHealth {
@@ -1628,7 +1657,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            meter_instruction(&health),
+            meter_instruction(&health, &DEFAULT_ZK_GAS),
             BASE_KAIGI_RELAY_HEALTH + KAIGI_RELAY_STATE_READ_ESCROW
         );
     }
@@ -1784,7 +1813,7 @@ mod tests {
             ),
         ];
         for (label, instruction) in cases {
-            let gas = meter_instruction(&instruction);
+            let gas = meter_instruction(&instruction, &DEFAULT_ZK_GAS);
             assert!(
                 gas < SHIPPED_BLOCK_GAS_LIMIT,
                 "proofless {label} costs {gas}, exceeding shipped block gas {SHIPPED_BLOCK_GAS_LIMIT}"
@@ -1842,12 +1871,12 @@ mod tests {
             )),
         ];
         for instruction in controller_changes {
-            assert_eq!(meter_instruction(&instruction), expected);
+            assert_eq!(meter_instruction(&instruction, &DEFAULT_ZK_GAS), expected);
         }
 
         let unregister_account: InstructionBox = Unregister::account(account).into();
         assert_eq!(
-            meter_instruction(&unregister_account),
+            meter_instruction(&unregister_account, &DEFAULT_ZK_GAS),
             BASE_UNREGISTER + KAIGI_RECORD_READ_ESCROW
         );
         let unregister_domain: InstructionBox = Unregister::domain(
@@ -1855,12 +1884,15 @@ mod tests {
         )
         .into();
         assert_eq!(
-            meter_instruction(&unregister_domain),
+            meter_instruction(&unregister_domain, &DEFAULT_ZK_GAS),
             BASE_UNREGISTER + KAIGI_RECORD_READ_ESCROW
         );
         let unregister_role: InstructionBox =
             Unregister::role(RoleId::new("gas-role".parse().expect("valid role name"))).into();
-        assert_eq!(meter_instruction(&unregister_role), BASE_UNREGISTER);
+        assert_eq!(
+            meter_instruction(&unregister_role, &DEFAULT_ZK_GAS),
+            BASE_UNREGISTER
+        );
     }
     #[test]
     fn proof_public_input_gas_rejects_alternate_norito_layout() {
@@ -1904,14 +1936,12 @@ mod tests {
     }
     #[test]
     fn state_configured_gas_schedule_updates_metering() {
-        let _gas_lock = super::lock_confidential_gas_for_tests();
         use iroha_data_model::{isi::zk::VerifyProof, proof::VerifyingKeyId};
-        configure_confidential_gas(ConfidentialGasSchedule::default());
         let world = crate::state::World::new();
         let kura = Kura::blank_kura_for_testing();
         let query = LiveQueryStore::start_test();
         let mut state = State::new(world, kura, query);
-        let mut zk_cfg = state.zk.clone();
+        let mut zk_cfg = state.installed_zk().clone();
         zk_cfg.gas = cfg::ConfidentialGas {
             proof_base: 777_000,
             per_public_input: 3_131,
@@ -1958,12 +1988,18 @@ mod tests {
             );
         }
         let verify_instr: InstructionBox = VerifyProof::new(attachment.clone()).into();
-        let verify_gas = meter_instruction(&verify_instr);
+        // Metering reads the schedule of the State's frozen settings, passed
+        // by the caller; no process-wide value exists.
+        let view = state.view();
+        let verify_gas = meter_instruction(&verify_instr, &view.zk.gas);
         let expected_verify = zk_cfg.gas.proof_base
             + zk_cfg.gas.per_public_input.saturating_mul(public_inputs)
             + zk_cfg.gas.per_proof_byte.saturating_mul(proof_bytes);
         assert_eq!(verify_gas, expected_verify);
-        configure_confidential_gas(ConfidentialGasSchedule::default());
+        assert_ne!(
+            verify_gas,
+            meter_instruction(&verify_instr, &DEFAULT_ZK_GAS)
+        );
     }
     #[test]
     fn confidential_gas_cost_zero_for_non_confidential_instr() {
@@ -1976,7 +2012,7 @@ mod tests {
         let mint =
             dm_isi::mint_burn::Mint::asset_quantity(1u64, AssetId::of(asset, account.clone()));
         let instr = InstructionBox::from(dm_isi::mint_burn::MintBox::from(mint));
-        assert_eq!(confidential_gas_cost(&instr), 0);
+        assert_eq!(confidential_gas_cost(&instr, &DEFAULT_ZK_GAS), 0);
     }
     #[test]
     fn sccp_gas_grows_with_native_proof_work_and_fits_the_block() {
@@ -1989,12 +2025,34 @@ mod tests {
             },
         };
         const SHIPPED_BLOCK_GAS_LIMIT: u64 = 1_680_000;
-        let gas = |instruction: InstructionBox| meter_instruction(&instruction);
+        let gas = |instruction: InstructionBox| meter_instruction(&instruction, &DEFAULT_ZK_GAS);
         for instruction in I::all() {
             assert!(gas(instruction.clone()) >= BASE_SCCP, "{instruction:?}");
             assert!(gas(instruction.clone()) < SHIPPED_BLOCK_GAS_LIMIT);
-            assert_eq!(confidential_gas_cost(&instruction), 0);
+            assert_eq!(confidential_gas_cost(&instruction, &DEFAULT_ZK_GAS), 0);
         }
+        assert_eq!(
+            I::all().len(),
+            8,
+            "the complete current SCCP instruction surface"
+        );
+        assert_eq!(gas(I::initialize().into()), BASE_SCCP);
+        let mut forgery = dm_isi::sccp::SubmitSccpForgeryEvidenceV1 {
+            qc: [0; 116],
+            header: [0; 221],
+            aggregate_signature: [0; 96],
+            anchor: None,
+        };
+        let unanchored = gas(forgery.clone().into());
+        assert!(unanchored >= SCCP_LIGHT_CLIENT_VERIFY);
+        forgery.anchor = Some(iroha_data_model::sccp::native::SccpAnchorWitnessV1 {
+            core_hash: [1; 32],
+            result: [2; 32],
+            path: [[3; 32]; iroha_data_model::sccp::native::SCCP_ANCHOR_PATH_DEPTH_V1],
+        });
+        let anchored = gas(forgery.into());
+        assert!(anchored > unanchored);
+        assert!(anchored < SHIPPED_BLOCK_GAS_LIMIT);
         let record = |bytes: usize| {
             let mut record = I::record();
             record.recipient = vec![1; bytes];

@@ -1,6 +1,7 @@
 //! Codec and structural controls for native SCCP DATA; these do not certify signatures.
 
 use super::*;
+use crate::sccp::deployment::SccpCommitteePinV1;
 use crate::{
     block::consensus::{
         EvidenceAttribution, EvidencePenaltyStatus, EvidenceRecord, EvidenceScope,

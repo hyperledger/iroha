@@ -194,7 +194,7 @@ fn retained_live_actor_delivers_signed_native_ingress() {
         signer: config.committee.index_of(remote.public_key()).unwrap(),
         sig: Signature([0; 96]),
     };
-    vote.sig = remote.sign(&vote.preimage());
+    vote.sig = remote.sign(&vote.preimage()).unwrap();
     assert!(
         prepared
             .crypto

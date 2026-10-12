@@ -3,8 +3,8 @@
 
 use super::*;
 use iroha_data_model::sumeragi_finality::{
-    CertifiedResultScope, CertifiedResultV1, NativeLaneStateProof, SccpFinalityHeaderV1,
-    ScheduledConfig, ScheduledSlot, core_epoch, result_of_preimage,
+    CertifiedResultV1, NativeLaneStateProof, SccpFinalityHeaderV1, ScheduledConfig, ScheduledSlot,
+    core_epoch, result_of_preimage,
 };
 use iroha_sumeragi::{
     message::{BlockHeader, Qc},
@@ -28,7 +28,7 @@ fn second_boundary(
     next.leader_seed = [2; 32];
     next.validate_successor(current).unwrap();
     let (original_x, mut result) =
-        CertifiedResultV1::decode(&first.result_preimage, CertifiedResultScope::TairaGlobal)
+        CertifiedResultV1::decode(&first.result_preimage, native.root_scope().into())
             .unwrap()
             .into_parts();
     result.height = height;
@@ -57,10 +57,14 @@ fn second_boundary(
     let mut header: BlockHeader = norito::decode_canonical(&first.consensus_header).unwrap();
     header.height = height;
     header.epoch = core_epoch(current).unwrap().id;
-    let x =
-        SccpFinalityHeaderV1::inactive(original_x.network_id(), height, original_x.timestamp_ms())
-            .unwrap();
-    let result_preimage = CertifiedResultV1::new(x, result, CertifiedResultScope::TairaGlobal)
+    // This synthetic boundary has no SCCP initialization; retain the fixture timestamp.
+    let original_x = SccpFinalityHeaderV1::inactive(
+        *native.network_id().as_bytes(),
+        height,
+        original_x.timestamp_ms(),
+    )
+    .unwrap();
+    let result_preimage = CertifiedResultV1::new(original_x, result, native.root_scope().into())
         .unwrap()
         .preimage()
         .unwrap();
@@ -84,10 +88,7 @@ fn second_boundary(
             iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &qc.preimage()).unwrap()
         })
         .collect();
-    let references: Vec<_> = shares.iter().collect();
-    qc.agg_sig = AggregateSignature(
-        iroha_crypto::bls::consensus::aggregate(references.iter().copied()).unwrap(),
-    );
+    qc.agg_sig = AggregateSignature(iroha_crypto::bls::consensus::aggregate(&shares).unwrap());
     SumeragiCommitCertificateV1 {
         consensus_header: norito::encode_canonical(&header).unwrap(),
         commit_qc: norito::encode_canonical(&qc).unwrap(),

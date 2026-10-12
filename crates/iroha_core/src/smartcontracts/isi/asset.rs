@@ -4822,9 +4822,9 @@ pub mod isi {
             &record.leg,
         )
         .map_err(|error| {
-            if let iroha_data_model::sumeragi_amx::AmxError::Resource(resource) = &error {
+            if let Some(resource) = crate::sumeragi::amx::classified_decode_refusal(&error) {
                 state_transaction.arm_local_storage_refusal(
-                    crate::state::StateStorageAdmissionError::AmxDecode(*resource),
+                    crate::state::StateStorageAdmissionError::AmxDecode(resource),
                 );
             }
             InstructionExecutionError::InvariantViolation(error.to_string().into())
@@ -10298,6 +10298,9 @@ pub mod query {
         include!("asset/core_numeric_mutation_tests.rs");
         include!("asset/retail_daily_limit_tests.rs");
         include!("asset/privacy_public_reserve_tests.rs");
+        mod privacy_economic_invariant_tests {
+            include!("asset/privacy_economic_invariant_tests.rs");
+        }
         mod prepared_independent_occurrence_tests {
             include!("asset/prepared_independent_occurrence_tests.rs");
         }

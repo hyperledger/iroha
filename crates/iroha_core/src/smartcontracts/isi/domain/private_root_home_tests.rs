@@ -252,9 +252,11 @@ fn restricted_home_requires_original_private_root_not_global_missing_or_foreign_
         let world = World::with([], [Account::new(ALICE_ID.clone()).build(&ALICE_ID)], []);
         if let Some(root) = root {
             let mut parameters = world.parameters.block();
-            parameters.set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
-                root,
-            ));
+            parameters
+                .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+                    root,
+                ))
+                .expect("valid fixture parameters");
             parameters.commit();
         }
         let state = State::new_with_nexus_for_testing(

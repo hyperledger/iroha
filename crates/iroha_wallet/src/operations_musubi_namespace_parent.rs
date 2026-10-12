@@ -465,18 +465,15 @@ impl MusubiNamespaceBindingParent<'_> {
             anchor.ordinal == ordinal,
             "namespace child selected another attempt"
         );
-        match &anchor.child_request_sha256 {
-            Some(original) => {
-                eyre::ensure!(original == hash, "namespace anchored child hash changed")
-            }
-            None => {
-                anchor.child_request_sha256 = Some(hash.to_owned());
-                self.directory.write_atomic(
-                    ANCHOR,
-                    &encode_bounded(&anchor, MAX_PARENT_BYTES)?,
-                    PublishMode::Replace,
-                )?;
-            }
+        if let Some(original) = &anchor.child_request_sha256 {
+            eyre::ensure!(original == hash, "namespace anchored child hash changed")
+        } else {
+            anchor.child_request_sha256 = Some(hash.to_owned());
+            self.directory.write_atomic(
+                ANCHOR,
+                &encode_bounded(&anchor, MAX_PARENT_BYTES)?,
+                PublishMode::Replace,
+            )?;
         }
         Ok(())
     }
@@ -495,27 +492,26 @@ impl MusubiNamespaceBindingParent<'_> {
         if let Some(last) = attempts.last() {
             self.anchor(&last.authorization)?;
         }
-        if let Some(last) = attempts.last_mut() {
-            if last.retirement.is_none()
-                && current_unix_ms()? >= last.authorization.deadline_ms
-                && last.preparation.as_ref().is_none_or(|value| {
-                    matches!(
-                        value.phase(),
-                        NativePreparationPhase::RequestOnly | NativePreparationPhase::Retired
-                    )
-                })
-            {
-                // Validate new caller authorization before changing even an unsigned predecessor.
-                let now = current_unix_ms()?;
-                eyre::ensure!(
-                    last.authorization.ordinal < MAX_ATTEMPTS
-                        && deadline > Instant::now()
-                        && deadline_unix_ms > now
-                        && deadline_unix_ms - now <= MAX_WINDOW_MS,
-                    "namespace successor authorization unavailable"
-                );
-                self.retire(last, deadline)?;
-            }
+        if let Some(last) = attempts.last_mut()
+            && last.retirement.is_none()
+            && current_unix_ms()? >= last.authorization.deadline_ms
+            && last.preparation.as_ref().is_none_or(|value| {
+                matches!(
+                    value.phase(),
+                    NativePreparationPhase::RequestOnly | NativePreparationPhase::Retired
+                )
+            })
+        {
+            // Validate new caller authorization before changing even an unsigned predecessor.
+            let now = current_unix_ms()?;
+            eyre::ensure!(
+                last.authorization.ordinal < MAX_ATTEMPTS
+                    && deadline > Instant::now()
+                    && deadline_unix_ms > now
+                    && deadline_unix_ms - now <= MAX_WINDOW_MS,
+                "namespace successor authorization unavailable"
+            );
+            self.retire(last, deadline)?;
         }
         let new_attempt = attempts.last().is_none_or(|last| last.retirement.is_some());
         if new_attempt {

@@ -1,6 +1,7 @@
 //! Encoded CNTR/DBG1 retry and deterministic rejection at the metadata boundary.
 
 use super::*;
+use crate::error::ExecutionDeferral;
 use crate::metadata::*;
 use norito::core::with_decode_limits_scope;
 
@@ -55,25 +56,37 @@ fn encoded_sections_preserve_enclosing_refusal_then_retry_identically() {
     let debug = debug();
     let contract_bytes = interface.encode_section();
     let debug_bytes = debug.encode_section();
-    let expected = VMError::ExecutionDeferred(ExecutionDeferral::ActiveMemoryCapacity);
     for limit in [
         allocation_limit(0),
         DecodeLimits::new(0, usize::MAX, usize::MAX, usize::MAX, usize::MAX),
         DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, usize::MAX),
         DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 0),
     ] {
-        assert_eq!(
-            with_decode_limits_scope(limit, || {
-                parse_contract_interface_section(&contract_bytes, 0)
-            })
-            .unwrap_err(),
-            expected
-        );
-        assert_eq!(
-            with_decode_limits_scope(limit, || { parse_contract_debug_section(&debug_bytes, 0) })
-                .unwrap_err(),
-            expected
-        );
+        let contract_refusal = with_decode_limits_scope(limit, || {
+            parse_contract_interface_section(&contract_bytes, 0)
+        })
+        .unwrap_err();
+        let debug_refusal =
+            with_decode_limits_scope(limit, || parse_contract_debug_section(&debug_bytes, 0))
+                .unwrap_err();
+        for refusal in [contract_refusal, debug_refusal] {
+            assert_eq!(
+                refusal.execution_deferral(),
+                Some(ExecutionDeferral::ActiveMemoryCapacity)
+            );
+            let VMError::DecodeDeferred(original) = refusal else {
+                panic!("metadata must retain the original decoder refusal");
+            };
+            assert_eq!(
+                original.kind(),
+                norito::core::DecodeLocalRefusalKind::EnclosingLimit
+            );
+            assert_eq!(original.allocation_bytes(), None);
+            assert!(matches!(
+                original.into_error(),
+                norito::Error::ScopedDecodeResource(_)
+            ));
+        }
     }
     assert_eq!(
         parse_contract_interface_section(&contract_bytes, 0).unwrap(),
@@ -213,12 +226,20 @@ fn trigger_json_metadata_preserves_each_cumulative_refusal_then_retries() {
                     norito::core::DecodeAttemptErrorKind::EnclosingLimit,
                     "trigger metadata at budget {limit}: {error}"
                 );
+                let refused = with_decode_limits_scope(allocation_limit(limit), || {
+                    parse_contract_interface_section(&bytes, 0)
+                })
+                .unwrap_err();
                 assert_eq!(
-                    with_decode_limits_scope(allocation_limit(limit), || {
-                        parse_contract_interface_section(&bytes, 0)
-                    })
-                    .unwrap_err(),
-                    VMError::ExecutionDeferred(ExecutionDeferral::ActiveMemoryCapacity)
+                    refused.execution_deferral(),
+                    Some(ExecutionDeferral::ActiveMemoryCapacity)
+                );
+                let VMError::DecodeDeferred(original) = refused else {
+                    panic!("trigger metadata must retain the original decoder refusal");
+                };
+                assert_eq!(
+                    Some(original.resource_error()),
+                    error.error().decode_resource_error()
                 );
                 let Some(norito::core::DecodeResourceError::TotalAllocationExceeded {
                     attempted,

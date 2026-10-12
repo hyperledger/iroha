@@ -489,7 +489,8 @@ mod tests {
             tx.world
                 .parameters_mut_for_testing()
                 .get_mut()
-                .set_parameter(Parameter::Custom(invalid.into_custom_parameter()));
+                .set_parameter(Parameter::Custom(invalid.into_custom_parameter()))
+                .expect("valid fixture parameters");
             let error = super::sumeragi_npos_diagnostics(&tx.world)
                 .expect_err("malformed original NPoS policy must remain terminal");
             assert!(
@@ -746,6 +747,7 @@ mod tests {
             body::Body,
             http::{Request, StatusCode},
         };
+        use iroha_core::state::StateReadOnly;
         use iroha_crypto::{Algorithm, Hash, KeyPair};
         use iroha_data_model::sumeragi_finality::SumeragiFinalityAttestation;
         use iroha_model_base::peer::PeerId;
@@ -905,11 +907,14 @@ mod tests {
             .unwrap();
             attestation
                 .verify(
-                    app.state
+                    fixture
+                        .app
+                        .state
                         .view()
                         .native_execution_tip()
                         .unwrap()
-                        .result_scope(),
+                        .root_scope()
+                        .into(),
                 )
                 .unwrap();
         }
@@ -943,7 +948,8 @@ mod tests {
                         .view()
                         .native_execution_tip()
                         .unwrap()
-                        .result_scope(),
+                        .root_scope()
+                        .into(),
                 )
                 .expect("real node signature and current embedded certificate");
             let body = &attestation.body;
@@ -973,7 +979,8 @@ mod tests {
                         .view()
                         .native_execution_tip()
                         .unwrap()
-                        .result_scope(),
+                        .root_scope()
+                        .into(),
                 )
                 .expect("actual non-genesis BLS quorum proof");
             for endpoint in ["/v1/bridge/finality/2", "/v1/bridge/finality/bundle/2"] {
@@ -1044,11 +1051,14 @@ mod tests {
             .unwrap();
             attestation
                 .verify(
-                    app.state
+                    fixture
+                        .app
+                        .state
                         .view()
                         .native_execution_tip()
                         .unwrap()
-                        .result_scope(),
+                        .root_scope()
+                        .into(),
                 )
                 .unwrap();
             assert_eq!(attestation.body.challenge, challenge);
@@ -1058,11 +1068,14 @@ mod tests {
             assert!(
                 tampered
                     .verify(
-                        app.state
+                        fixture
+                            .app
+                            .state
                             .view()
                             .native_execution_tip()
                             .unwrap()
-                            .result_scope()
+                            .root_scope()
+                            .into()
                     )
                     .is_err(),
                 "node signature covers actual status"

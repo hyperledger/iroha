@@ -83,8 +83,9 @@ fn load(app: &AppState, height: u64) -> Result<StateFinalityResponse, Error> {
     let witnessed_post_state_root = finality_proof
         .decode_checked(
             view.native_execution_tip()
-                .ok_or_else(|| internal_error("missing authenticated native execution tip"))?
-                .result_scope(),
+                .ok_or_else(|| internal_error("native execution scope unavailable"))?
+                .root_scope()
+                .into(),
         )
         .map_err(|error| internal_error(format!("invalid native proof framing: {error}")))?
         .execution()

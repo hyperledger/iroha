@@ -1935,6 +1935,27 @@ fn earned_fee_payment_has_independent_exact_custody_and_missing_copy_is_not_paid
         },
     };
     let (old, mut manifest) = w.sync_manifest().unwrap();
+    let original_manifest = archive::encode(&manifest).unwrap();
+    for limits in [
+        norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+    ] {
+        let refused =
+            norito::with_decode_limits_scope(limits, || w.retain_fee_claim(&mut manifest, &step));
+        assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        assert_eq!(archive::encode(&manifest).unwrap(), original_manifest);
+        assert_eq!(w.manifest().unwrap().0, old);
+        assert!(
+            w.archive
+                .get(
+                    ArchiveKey::FeeClaim(digests.credit_id),
+                    fee_claims::FEE_CLAIM_MAX_BYTES_V1
+                )
+                .unwrap()
+                .is_none()
+        );
+    }
     w.retain_fee_claim(&mut manifest, &step).unwrap();
     w.publish_manifest(old, &manifest).unwrap();
     assert_eq!(
@@ -1943,6 +1964,25 @@ fn earned_fee_payment_has_independent_exact_custody_and_missing_copy_is_not_paid
             .map(|claim| claim.payment),
         Some(bytes.clone())
     );
+    for limits in [
+        norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+    ] {
+        let refused = norito::with_decode_limits_scope(limits, || {
+            w.require_fee_claim(&manifest, digests.credit_id, &bytes)
+        });
+        assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        let refused = norito::with_decode_limits_scope(limits, || w.fee_claim(digests.credit_id));
+        assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        w.require_fee_claim(&manifest, digests.credit_id, &bytes)
+            .unwrap();
+        assert_eq!(
+            w.fee_claim(digests.credit_id).unwrap().unwrap().payment,
+            bytes
+        );
+    }
     assert!(
         w.require_fee_claim(&manifest, digests.credit_id, b"changed payment")
             .is_err()
@@ -2773,4 +2813,36 @@ fn retry_preserves_collected_load_control_output_with_bounded_source_join() {
     );
     assert!(w.archive.reads.load(Ordering::SeqCst) - before <= 260);
     assert_eq!(w.custody.signatures, signatures);
+}
+
+#[test]
+fn retained_package_read_refusal_preserves_exact_completion_and_retry() {
+    let mut w = wallet();
+    let boot = bootstrap();
+    let operation = boot.capsule.body().operation_id;
+    let exact = w.commit(boot).unwrap();
+    let retained = match w.custody.lookup(&operation).unwrap() {
+        Lookup::Retained(retained) => retained,
+        _ => panic!("actual test custody retained Bootstrap"),
+    };
+    w.require_retained_output(&operation, &retained).unwrap();
+    let root = w.manifest().unwrap().0;
+    let signatures = w.custody.signatures;
+    for limits in [
+        norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+    ] {
+        // This direct retained-output path reads its declared Package schema before
+        // any index read, so the refusal reaches the repaired model decode itself.
+        let error = norito::with_decode_limits_scope(limits, || {
+            w.require_retained_output(&operation, &retained)
+        })
+        .unwrap_err();
+        assert!(matches!(error, Error::DecodeResource(ref cause)
+            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        assert_eq!(w.manifest().unwrap().0, root);
+        w.require_retained_output(&operation, &retained).unwrap();
+        assert_eq!(w.retry(&operation).unwrap(), Some(exact.clone()));
+        assert_eq!(w.custody.signatures, signatures);
+    }
 }

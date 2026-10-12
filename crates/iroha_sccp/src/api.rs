@@ -1,59 +1,58 @@
 //! SCCP v1 Torii read-API records (`specs/sccp.md` §6).
 //!
-//! These are the wire types every Taira peer serves from committed state and that wallets, the
-//! CLI and the SDKs decode, so Torii and the wallet agree on one layout. Each record is Norito
-//! (binary, bare or headered) and Norito JSON, with a stable schema name
-//! `iroha_sccp::api::<Type>`. JSON follows the data-model conventions of the records Torii
-//! serves next to them: fixed-size byte arrays (digests, addresses, signatures, Merkle
-//! siblings) are hex strings, and the variable-length transfer payload is padded standard
-//! base64, exactly as in `SccpOutboundMessageRecordV1`.
+//! These records use Norito binary encoding and Norito JSON. Fixed-size byte arrays are hex
+//! strings; the variable-length transfer payload is padded standard base64.
 //!
-//! Native proof bundles retain the exact 116-byte `QC_FIXED`, 221-byte finality header and
-//! 96-byte BLS aggregate signature, with an explicit direct or historical block reference.
-//! Shape checks and conversion to destination wire forms do not authenticate finality.
-//! Callers must verify against the destination's independently obtained live committee state,
-//! pinned network identity and consensus instance with `v1::destination`.
+//! [`SccpCertificateV1`] carries the Sumeragi CommitQC, its compressed aggregate signature,
+//! the 221-byte finality header and the signing committee. Both proof bundles carry their
+//! block reference and certificate; [`SccpRotationV1`] carries the successor committee.
 //!
-//! TODO: serve these native bundles after the Torii native finality and retention work is
-//! integrated. The retired attestation and roster transport is not a fallback.
+//! Decoding, conversions and `check_shape` do not authenticate these records. Torii must
+//! run [`crate::v1::finality::verify_certificate`] using its authenticated committee and
+//! consensus instance, and verify the block and leaf paths (§5.1.5). Wallets must also check
+//! chain identity, generation and destination policy against the target's live committee
+//! state before submitting (§5.1.3–§5.1.6). A committee supplied by a peer is not a trust
+//! anchor. No API record or conversion substitutes for the current certified result `X`.
 //!
-//! - [`SccpCapabilitiesV1`] (`GET /v1/sccp/capabilities`): identity, parameters, compiled
-//!   light-client profiles and page limits.
-//! - The views of [`views`]: the message status union, outbound and control pages, recent
-//!   messages, light-client detail and checkpoint cover, governance proposal detail and history
-//!   paths.
+//! [`SccpCapabilitiesV1`] and [`views`] describe committed identity, parameters, profiles,
+//! message status, pages, light-client state, governance and history paths. Stored registry
+//! and light-client records use their data-model types directly.
 //!
-//! Routes that serve stored data-model records (registry, light-client sets) use those records
-//! directly.
-//!
-//! TODO(ws35): add the governance targets beyond the proposal listing and detail (diffs,
+//! TODO(ws35): add the governance targets beyond proposal listing and detail (diffs,
 //! readiness).
 
 use iroha_data_model::bridge::SccpNetworkV1;
 use norito::codec::{Decode, Encode};
 
+mod generation;
+pub use generation::*;
 pub mod views;
 pub use views::*;
 
 use crate::v1::{
-    committee::{is_canonical_order, quorum, successor_keys_match},
+    committee::{
+        committee_root, is_canonical_order, is_valid_committee_size, successor_keys_match,
+    },
     constants::{MAX_BLOCK_PATH, MAX_HISTORY_PATH, MAX_PAYLOAD_BYTES},
-    destination::{BlockRefV1, ControlProofV1, MessageProofV1, TairaCertificateV1},
+    destination::{BlockRefV1, ControlProofV1, MessageProofV1},
     finality::{QcFixedV1, SccpFinalityHeaderV1, check_signers},
-    payload::SccpTransferPayloadV1,
 };
 
-/// A record exceeds a protocol bound before any cryptographic check (§3.4, §3.5, §3.8).
+/// A structural protocol constraint failed before authentication.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ApiShapeError {
-    /// Committee geometry, ordering, bitmap or header fields are not canonical or disagree.
-    BadCertificate,
-    /// A compressed certificate point cannot be converted to the destination wire form.
-    BadCertificatePoint,
-    /// A rotation does not name the supplied successor committee.
+    /// The committee does not have 4, 7, …, 31 keys in strictly ascending order.
+    BadCommittee,
+    /// The header violates the finality-header layout constraints X1–X7.
+    BadFinalityHeader,
+    /// The response height differs from the height encoded in its finality header.
+    CertificateHeightMismatch,
+    /// The active header's committee root differs from the supplied keys' root.
+    CommitteeRootMismatch,
+    /// The QC bitmap is not exactly a quorum of the supplied committee.
+    BadSignerSet,
+    /// A rotation lacks the ROTATION flag or does not bind its successor keys.
     BadRotation,
-    /// A decoded payload or a response label differs from the selected request or deployment.
-    MetadataMismatch,
     /// A block path longer than 9 siblings.
     BlockPathTooLong,
     /// A history path longer than 32 siblings.
@@ -65,15 +64,19 @@ pub enum ApiShapeError {
 impl core::fmt::Display for ApiShapeError {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         formatter.write_str(match self {
-            Self::BadCertificate => {
-                "a certificate has a canonical header and exactly one committee quorum"
+            Self::BadCommittee => "a committee has 4, 7, ..., 31 keys in strictly ascending order",
+            Self::BadFinalityHeader => "a finality header must satisfy X1 through X7",
+            Self::CertificateHeightMismatch => {
+                "certificate height differs from its finality header"
             }
-            Self::BadCertificatePoint => {
-                "a compressed certificate point has no canonical destination encoding"
+            Self::CommitteeRootMismatch => {
+                "committee keys differ from the active header's committee root"
             }
-            Self::BadRotation => "a rotation names the supplied canonical successor committee",
-            Self::MetadataMismatch => {
-                "a response label differs from its payload, request or destination"
+            Self::BadSignerSet => {
+                "certificate signers must be exactly a committee quorum with no spare bits"
+            }
+            Self::BadRotation => {
+                "a rotation must bind its successor committee in a ROTATION header"
             }
             Self::BlockPathTooLong => "a block path has at most 9 siblings",
             Self::HistoryPathTooLong => "a history path has at most 32 siblings",
@@ -84,144 +87,64 @@ impl core::fmt::Display for ApiShapeError {
 
 impl std::error::Error for ApiShapeError {}
 
-/// Recorded reason a committee generation began; this is peer DATA, not authority.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    Decode,
-    Encode,
-    norito::derive::JsonSerialize,
-    norito::derive::JsonDeserialize,
-    norito::NoritoSchema,
-)]
-#[norito(tag = "kind", content = "value")]
-#[norito_schema(name = "iroha_sccp::api::SccpGenerationCauseV1")]
-pub enum SccpGenerationCauseV1 {
-    /// The original signed genesis committee.
-    Genesis,
-    /// An authenticated epoch boundary changed the keys.
-    KeyChange,
-    /// A heartbeat renewed the keys.
-    Heartbeat,
-    /// A missed boundary was followed by authenticated recovery.
-    Resync,
-}
-
-/// Captured staking registration for one ordered committee member (§6).
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    Decode,
-    Encode,
-    norito::derive::JsonSerialize,
-    norito::derive::JsonDeserialize,
-    norito::NoritoSchema,
-)]
-#[norito(no_fast_from_json, decode_from_slice, deny_unknown_fields)]
-#[norito_schema(name = "iroha_sccp::api::SccpGenerationMemberV1")]
-pub struct SccpGenerationMemberV1 {
-    /// Canonical numeric wire projection of `LaneId::as_u32()`.
-    pub lane_id: u32,
-    /// Canonical domainless validator account, including its complete controller.
-    pub validator: iroha_data_model::account::AccountId,
-    /// Activation height distinguishing this registration from a later one.
-    pub activation_height: u64,
-}
-
-/// Retained outgoing boundary and successor binding (§6).
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    Decode,
-    Encode,
-    norito::derive::JsonSerialize,
-    norito::derive::JsonDeserialize,
-    norito::NoritoSchema,
-)]
-#[norito(no_fast_from_json, decode_from_slice, deny_unknown_fields)]
-#[norito_schema(name = "iroha_sccp::api::SccpGenerationEndV1")]
-pub struct SccpGenerationEndV1 {
-    /// Last height signed by this generation, inclusive.
-    pub end_height: u64,
-    /// Timestamp of the outgoing block.
-    pub end_timestamp_ms: u64,
-    /// Ordered-key root of the successor.
-    pub next_committee_root: [u8; 32],
-    /// Destination validity granted to the successor.
-    pub successor_validity_ms: u64,
-}
-
-/// Full retained generation DATA from one committed view (§6).
+/// Certificate-height selector for `?at=record|latest|<H>` (§6).
 ///
-/// `liable` uses that view's actual current-generation cell and liability clock. Even a
-/// historical generation response can change as liability progresses. Neither the offered
-/// keys nor their root establish a destination trust pin.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    Decode,
-    Encode,
-    norito::derive::JsonSerialize,
-    norito::derive::JsonDeserialize,
-    norito::NoritoSchema,
-)]
-#[norito(no_fast_from_json, decode_from_slice, deny_unknown_fields)]
-#[norito_schema(name = "iroha_sccp::api::SccpGenerationV1")]
-pub struct SccpGenerationV1 {
-    /// Generation number, starting at one.
-    pub generation: u64,
-    /// Root of the ordered keys.
-    pub committee_root: [u8; 32],
-    /// Retained creation reason.
-    pub cause: SccpGenerationCauseV1,
-    /// First height assigned to this generation.
-    pub start_height: u64,
-    /// Retained handoff or genesis/resync time.
-    pub start_timestamp_ms: u64,
-    /// Liability clock at creation.
-    pub start_lc: u64,
-    /// Captured destination validity.
-    pub validity_ms: u64,
-    /// Captured destination deadline.
-    pub deadline_ms: u64,
-    /// Captured evidence-submission grace.
-    pub grace_ms: u64,
-    /// Captured bound on destination progress extension.
-    pub progress_cap_ms: u64,
-    /// Inclusive time-based liability boundary.
-    pub liable_until_lc: u64,
-    /// Clock at which all relevant destinations passed the deadline, if observed.
-    #[norito(required)]
-    pub dest_cleared_lc: Option<u64>,
-    /// Liability computed at this same committed view.
-    pub liable: bool,
-    /// Outgoing boundary, if this generation ended.
-    #[norito(required)]
-    pub end: Option<SccpGenerationEndV1>,
-    /// Canonical ordered compressed BLS keys; bitmap positions use this order.
-    pub keys: Vec<[u8; 48]>,
-    /// Captured registration in the same key order; unresolved entries remain absent.
-    pub members: Vec<Option<SccpGenerationMemberV1>>,
+/// This is a local query value, not a Norito wire record. Explicit heights must be positive.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SccpProofHeightV1 {
+    /// Use the committed height of the message or control record.
+    #[default]
+    Record,
+    /// Use the latest durable committed height.
+    Latest,
+    /// Use this explicit committed height.
+    At(u64),
 }
 
-/// A native Sumeragi certificate as served by Torii (§6), retaining the exact signed fields.
+/// A query selector is neither `record`, `latest`, nor a positive decimal `u64`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SccpProofHeightParseError;
+
+impl core::fmt::Display for SccpProofHeightParseError {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter.write_str("proof height must be record, latest, or a positive decimal u64")
+    }
+}
+
+impl std::error::Error for SccpProofHeightParseError {}
+
+impl core::str::FromStr for SccpProofHeightV1 {
+    type Err = SccpProofHeightParseError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "record" => Ok(Self::Record),
+            "latest" => Ok(Self::Latest),
+            _ if !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()) => value
+                .parse::<u64>()
+                .ok()
+                .filter(|height| *height != 0)
+                .map(Self::At)
+                .ok_or(SccpProofHeightParseError),
+            _ => Err(SccpProofHeightParseError),
+        }
+    }
+}
+
+impl core::fmt::Display for SccpProofHeightV1 {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Record => formatter.write_str("record"),
+            Self::Latest => formatter.write_str("latest"),
+            Self::At(height) => height.fmt(formatter),
+        }
+    }
+}
+
+/// Certificate of a committed height (`GET /v1/sccp/finality/{height}`, §6).
 ///
-/// The committee is offered data. Its root agreeing with this certificate does not establish
-/// trust: only the pinned destination state or a previously authenticated rotation can do so.
+/// The keys must be checked against an authenticated committee root before the caller runs
+/// [`crate::v1::finality::verify_certificate`]. The redundant `height` must equal `X.height`.
 #[derive(
     Debug,
     Clone,
@@ -237,58 +160,42 @@ pub struct SccpGenerationV1 {
 #[norito(no_fast_from_json, decode_from_slice, deny_unknown_fields)]
 #[norito_schema(name = "iroha_sccp::api::SccpCertificateV1")]
 pub struct SccpCertificateV1 {
-    /// Height duplicated from the header for indexing; checked for equality.
+    /// Height encoded in the certified finality header.
     pub height: u64,
-    /// Exact `QC_FIXED` bytes, with the canonical big-endian signer word.
+    /// The fixed 116-byte QC layout of §3.7.
     pub qc: [u8; 116],
-    /// Compressed BLS aggregate signature of the Commit preimage.
+    /// The compressed 96-byte BLS aggregate signature.
     pub aggregate_signature: [u8; 96],
-    /// Exact finality header `X` from the original certified result preimage.
+    /// The 221-byte finality header `X` of the certified result.
     pub header: [u8; 221],
-    /// Compressed committee keys in canonical order, at most 31.
+    /// Compressed BLS keys of the signing committee in canonical order.
     pub committee: Vec<[u8; 48]>,
 }
 
 impl SccpCertificateV1 {
-    /// Check bounded committee geometry, exact quorum and the duplicated header fields.
-    /// This is a shape check, not signature verification or committee authentication.
+    /// Check the header, committee shape and exact quorum, without verifying a signature or
+    /// trusting a generation. Equality with a self-supplied root is not authentication.
     ///
     /// # Errors
-    /// Returns [`ApiShapeError::BadCertificate`] for any inconsistent field.
+    /// Returns the first structural [`ApiShapeError`].
     pub fn check_shape(&self) -> Result<(), ApiShapeError> {
-        if quorum(self.committee.len()).is_none() || !is_canonical_order(&self.committee) {
-            return Err(ApiShapeError::BadCertificate);
+        if !is_valid_committee_size(self.committee.len()) || !is_canonical_order(&self.committee) {
+            return Err(ApiShapeError::BadCommittee);
         }
-        let qc = QcFixedV1::parse(&self.qc).map_err(|_| ApiShapeError::BadCertificate)?;
-        check_signers(qc.signers, self.committee.len())
-            .map_err(|_| ApiShapeError::BadCertificate)?;
-        let header =
-            SccpFinalityHeaderV1::parse(&self.header).map_err(|_| ApiShapeError::BadCertificate)?;
-        if header.height() != self.height
-            || !header.is_active()
-            || !successor_keys_match(&self.committee, &header.committee_root())
-        {
-            return Err(ApiShapeError::BadCertificate);
+        let header = SccpFinalityHeaderV1::parse(&self.header)
+            .map_err(|_| ApiShapeError::BadFinalityHeader)?;
+        if self.height != header.height() {
+            return Err(ApiShapeError::CertificateHeightMismatch);
         }
-        Ok(())
-    }
-
-    /// Convert the exact native certificate to the EVM and TON destination wire forms.
-    /// The returned certificate still requires verification against trusted destination state.
-    ///
-    /// # Errors
-    /// Returns a shape error or [`ApiShapeError::BadCertificatePoint`] for an invalid point.
-    pub fn to_destination_certificate(&self) -> Result<TairaCertificateV1, ApiShapeError> {
-        self.check_shape()?;
-        let qc = QcFixedV1::parse(&self.qc).map_err(|_| ApiShapeError::BadCertificate)?;
-        let header =
-            SccpFinalityHeaderV1::parse(&self.header).map_err(|_| ApiShapeError::BadCertificate)?;
-        TairaCertificateV1::new(&qc, &header, &self.aggregate_signature, &self.committee)
-            .ok_or(ApiShapeError::BadCertificatePoint)
+        if header.is_active() && committee_root(&self.committee) != Some(header.committee_root()) {
+            return Err(ApiShapeError::CommitteeRootMismatch);
+        }
+        let qc = QcFixedV1::parse(&self.qc).map_err(|_| ApiShapeError::BadSignerSet)?;
+        check_signers(qc.signers, self.committee.len()).map_err(|_| ApiShapeError::BadSignerSet)
     }
 }
 
-/// A certified rotation and the ordered keys committed by its successor root (§6).
+/// An ending generation's rotation certificate and its successor committee (§6).
 #[derive(
     Debug,
     Clone,
@@ -304,21 +211,22 @@ impl SccpCertificateV1 {
 #[norito(no_fast_from_json, decode_from_slice, deny_unknown_fields)]
 #[norito_schema(name = "iroha_sccp::api::SccpRotationV1")]
 pub struct SccpRotationV1 {
-    /// Native certificate with `ROTATION` set.
+    /// Certificate whose finality header has the ROTATION flag.
     pub certificate: SccpCertificateV1,
-    /// Successor keys, including the unchanged keys for a heartbeat.
+    /// Successor keys in canonical order, matching `X.next_committee_root`.
     pub next_committee: Vec<[u8; 48]>,
 }
 
 impl SccpRotationV1 {
-    /// Check the rotation shape and successor commitment, without authenticating the handoff.
+    /// Check the structural certificate and successor binding; this does not authenticate
+    /// the rotation or authorize a transition from the destination's current generation.
     ///
     /// # Errors
-    /// Returns a certificate shape error or [`ApiShapeError::BadRotation`].
+    /// Returns the certificate's structural error or [`ApiShapeError::BadRotation`].
     pub fn check_shape(&self) -> Result<(), ApiShapeError> {
         self.certificate.check_shape()?;
         let header = SccpFinalityHeaderV1::parse(&self.certificate.header)
-            .map_err(|_| ApiShapeError::BadCertificate)?;
+            .map_err(|_| ApiShapeError::BadFinalityHeader)?;
         if !header.is_rotation()
             || !successor_keys_match(&self.next_committee, &header.next_committee_root())
         {
@@ -328,7 +236,76 @@ impl SccpRotationV1 {
     }
 }
 
-/// The direct or historical block containing one leaf, relative to a certified header (§6).
+/// A leaf's block relative to the finality header of a certificate (§5.1.5, §6).
+///
+/// A direct proof has `height == X.height`, the same root/count as `X`, history index zero
+/// and an empty history path. An older block requires inclusion in `X.history_root`.
+#[derive(
+    Debug,
+    Clone,
+    Default,
+    PartialEq,
+    Eq,
+    Hash,
+    Decode,
+    Encode,
+    norito::derive::JsonSerialize,
+    norito::derive::JsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(no_fast_from_json, decode_from_slice, deny_unknown_fields)]
+#[norito_schema(name = "iroha_sccp::api::SccpBlockRefV1")]
+pub struct SccpBlockRefV1 {
+    /// Height of the block that contains the leaf.
+    pub height: u64,
+    /// The block's commitment root.
+    pub sccp_root: [u8; 32],
+    /// The block's leaf count (transfers and controls).
+    pub message_count: u32,
+    /// Index of the block's history leaf, or zero for the certified block itself.
+    pub history_index: u64,
+    /// History path (at most 32 siblings), empty for the certified block itself.
+    pub history_path: Vec<[u8; 32]>,
+}
+
+impl SccpBlockRefV1 {
+    /// Reject an oversized history path without verifying it.
+    ///
+    /// # Errors
+    /// Returns [`ApiShapeError::HistoryPathTooLong`].
+    pub fn check_shape(&self) -> Result<(), ApiShapeError> {
+        if self.history_path.len() > MAX_HISTORY_PATH {
+            return Err(ApiShapeError::HistoryPathTooLong);
+        }
+        Ok(())
+    }
+}
+
+impl From<&SccpBlockRefV1> for BlockRefV1 {
+    fn from(block: &SccpBlockRefV1) -> Self {
+        Self {
+            height: block.height,
+            sccp_root: block.sccp_root,
+            message_count: block.message_count,
+            history_index: block.history_index,
+            history_path: block.history_path.clone(),
+        }
+    }
+}
+
+impl From<&BlockRefV1> for SccpBlockRefV1 {
+    fn from(block: &BlockRefV1) -> Self {
+        Self {
+            height: block.height,
+            sccp_root: block.sccp_root,
+            message_count: block.message_count,
+            history_index: block.history_index,
+            history_path: block.history_path.clone(),
+        }
+    }
+}
+
+/// A transfer, its block and history paths, and a finality certificate (§5.1.5, §6).
 #[derive(
     Debug,
     Clone,
@@ -342,233 +319,48 @@ impl SccpRotationV1 {
     norito::NoritoSchema,
 )]
 #[norito(no_fast_from_json, decode_from_slice, deny_unknown_fields)]
-#[norito_schema(name = "iroha_sccp::api::SccpBlockRefV1")]
-pub struct SccpBlockRefV1 {
-    /// Height of the block containing the message or control.
-    pub height: u64,
-    /// Commitment root of that block.
-    pub sccp_root: [u8; 32],
-    /// Number of committed leaves.
-    pub message_count: u32,
-    /// History leaf index, zero for the certificate's own block.
-    pub history_index: u64,
-    /// History path, empty for the certificate's own block.
-    pub history_path: Vec<[u8; 32]>,
-}
-
-impl SccpBlockRefV1 {
-    /// Bound the history path before conversion; the destination verifies its root and index.
-    ///
-    /// # Errors
-    /// Returns [`ApiShapeError::HistoryPathTooLong`] above 32 siblings.
-    pub fn check_shape(&self) -> Result<(), ApiShapeError> {
-        if self.history_path.len() > MAX_HISTORY_PATH {
-            return Err(ApiShapeError::HistoryPathTooLong);
-        }
-        Ok(())
-    }
-}
-
-impl TryFrom<&SccpBlockRefV1> for BlockRefV1 {
-    type Error = ApiShapeError;
-
-    fn try_from(block: &SccpBlockRefV1) -> Result<Self, Self::Error> {
-        if block.history_path.len() > MAX_HISTORY_PATH {
-            return Err(ApiShapeError::HistoryPathTooLong);
-        }
-        Ok(Self {
-            height: block.height,
-            sccp_root: block.sccp_root,
-            message_count: block.message_count,
-            history_index: block.history_index,
-            history_path: block.history_path.clone(),
-        })
-    }
-}
-
-impl TryFrom<&BlockRefV1> for SccpBlockRefV1 {
-    type Error = ApiShapeError;
-
-    fn try_from(block: &BlockRefV1) -> Result<Self, Self::Error> {
-        if block.history_path.len() > MAX_HISTORY_PATH {
-            return Err(ApiShapeError::HistoryPathTooLong);
-        }
-        Ok(Self {
-            height: block.height,
-            sccp_root: block.sccp_root,
-            message_count: block.message_count,
-            history_index: block.history_index,
-            history_path: block.history_path.clone(),
-        })
-    }
-}
-
-// ---------------------------------------------------------------------------------------------
-// History proof
-// ---------------------------------------------------------------------------------------------
-
-/// A historical SCCP-bearing block and the path of its history leaf (§3.5, `HistoryProofV1`
-/// of §5.2.2).
-#[derive(
-    Debug,
-    Clone,
-    Default,
-    PartialEq,
-    Eq,
-    Hash,
-    Decode,
-    Encode,
-    norito::derive::JsonSerialize,
-    norito::derive::JsonDeserialize,
-)]
-#[norito(no_fast_from_json)]
-#[norito(decode_from_slice)]
-#[norito(deny_unknown_fields)]
-#[derive(norito::NoritoSchema)]
-#[norito_schema(name = "iroha_sccp::api::SccpHistoryProofV1")]
-pub struct SccpHistoryProofV1 {
-    /// Height of the historical block.
-    pub height: u64,
-    /// Its commitment root.
-    pub sccp_root: [u8; 32],
-    /// Its leaf count (transfers and controls).
-    pub message_count: u32,
-    /// Index of its history leaf.
-    pub leaf_index: u64,
-    /// History path (at most 32 siblings).
-    pub path: Vec<[u8; 32]>,
-}
-
-impl SccpHistoryProofV1 {
-    /// Reject a path longer than 32 siblings.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ApiShapeError::HistoryPathTooLong`].
-    pub fn check_shape(&self) -> Result<(), ApiShapeError> {
-        if self.path.len() > MAX_HISTORY_PATH {
-            return Err(ApiShapeError::HistoryPathTooLong);
-        }
-        Ok(())
-    }
-}
-
-impl TryFrom<&SccpHistoryProofV1> for BlockRefV1 {
-    type Error = ApiShapeError;
-
-    fn try_from(proof: &SccpHistoryProofV1) -> Result<Self, Self::Error> {
-        if proof.path.len() > MAX_HISTORY_PATH {
-            return Err(ApiShapeError::HistoryPathTooLong);
-        }
-        Ok(Self {
-            height: proof.height,
-            sccp_root: proof.sccp_root,
-            message_count: proof.message_count,
-            history_index: proof.leaf_index,
-            history_path: proof.path.clone(),
-        })
-    }
-}
-
-impl TryFrom<&BlockRefV1> for SccpHistoryProofV1 {
-    type Error = ApiShapeError;
-
-    fn try_from(proof: &BlockRefV1) -> Result<Self, Self::Error> {
-        if proof.history_path.len() > MAX_HISTORY_PATH {
-            return Err(ApiShapeError::HistoryPathTooLong);
-        }
-        Ok(Self {
-            height: proof.height,
-            sccp_root: proof.sccp_root,
-            message_count: proof.message_count,
-            leaf_index: proof.history_index,
-            path: proof.history_path.clone(),
-        })
-    }
-}
-
-// ---------------------------------------------------------------------------------------------
-// Message proof bundle
-// ---------------------------------------------------------------------------------------------
-
-/// A transfer leaf, its block reference and the native certificate authenticating that root.
-/// Readers verify it against the destination's current committee before submitting (§6).
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    Decode,
-    Encode,
-    norito::derive::JsonSerialize,
-    norito::derive::JsonDeserialize,
-)]
-#[norito(no_fast_from_json)]
-#[norito(decode_from_slice)]
-#[norito(deny_unknown_fields)]
-#[derive(norito::NoritoSchema)]
 #[norito_schema(name = "iroha_sccp::api::SccpMessageProofBundleV1")]
 pub struct SccpMessageProofBundleV1 {
-    /// `message_id` (§3.3).
+    /// `message_id` (§3.3), to be recomputed from the payload.
     pub message_id: [u8; 32],
     /// The §3.2 transfer payload.
     #[norito(json = "crate::api::base64_json")]
     pub payload: Vec<u8>,
-    /// Destination-time mint deadline copied from the payload.
+    /// Destination-time mint deadline, to be checked against the payload.
     pub deadline_ms: u64,
     /// Commitment index of the transfer leaf in its block.
     pub leaf_index: u32,
     /// Block path of the transfer leaf (at most 9 siblings).
     pub path: Vec<[u8; 32]>,
-    /// Block containing the leaf, directly or through the certificate's history root.
+    /// Block that contains the transfer leaf and its optional history path.
     pub block: SccpBlockRefV1,
-    /// Native certificate of the selected committed height.
+    /// Finality certificate against which both paths must be verified.
     pub certificate: SccpCertificateV1,
 }
 
 impl SccpMessageProofBundleV1 {
-    /// Whether the bundle proves the message through the history root.
+    /// Whether the claimed leaf block is older than the claimed certificate height.
+    /// This comparison does not verify either height or any proof.
     #[must_use]
     pub fn is_historical(&self) -> bool {
         self.block.height < self.certificate.height
     }
 
-    /// Check the requested message id and duplicated payload labels, then convert the proof.
-    /// `taira_network_id` must come from the caller's pinned destination identity. This
-    /// checks labels and bounds only; the destination must still verify finality and paths.
-    ///
-    /// # Errors
-    /// Returns a shape error or [`ApiShapeError::MetadataMismatch`] before copying buffers.
-    pub fn message_proof(
-        &self,
-        taira_network_id: &[u8; 32],
-        expected_message_id: &[u8; 32],
-    ) -> Result<MessageProofV1, ApiShapeError> {
-        self.check_shape()?;
-        let payload = SccpTransferPayloadV1::decode(&self.payload)
-            .map_err(|_| ApiShapeError::MetadataMismatch)?;
-        if self.message_id != *expected_message_id
-            || payload.deadline_ms != self.deadline_ms
-            || payload
-                .message_id(taira_network_id)
-                .map_err(|_| ApiShapeError::MetadataMismatch)?
-                != self.message_id
-        {
-            return Err(ApiShapeError::MetadataMismatch);
-        }
-        Ok(MessageProofV1 {
+    /// The destination's current message-proof fields, without authenticating them.
+    #[must_use]
+    pub fn message_proof(&self) -> MessageProofV1 {
+        MessageProofV1 {
             payload: self.payload.clone(),
             leaf_index: self.leaf_index,
             path: self.path.clone(),
-            block: BlockRefV1::try_from(&self.block)?,
-        })
+            block: BlockRefV1::from(&self.block),
+        }
     }
 
-    /// Reject oversized fields before certificate shape checks and conversion.
+    /// Check sizes and certificate structure before verification. This does not verify the
+    /// message id, payload deadline, Merkle paths or certificate signature.
     ///
     /// # Errors
-    ///
     /// Returns the first violated [`ApiShapeError`].
     pub fn check_shape(&self) -> Result<(), ApiShapeError> {
         if self.payload.len() > MAX_PAYLOAD_BYTES {
@@ -582,12 +374,9 @@ impl SccpMessageProofBundleV1 {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// Control proof bundle
-// ---------------------------------------------------------------------------------------------
-
-/// A native Parliament or fast-pause control leaf and its certified block reference (§6).
-/// The destination computes the leaf from its own route identity and these fields.
+/// The complete control leaf, its block and history paths, and a certificate (§5.1.6, §6).
+///
+/// Verifiers derive the leaf using the destination's own network and deployment identity.
 #[derive(
     Debug,
     Clone,
@@ -598,61 +387,49 @@ impl SccpMessageProofBundleV1 {
     Encode,
     norito::derive::JsonSerialize,
     norito::derive::JsonDeserialize,
+    norito::NoritoSchema,
 )]
-#[norito(no_fast_from_json)]
-#[norito(decode_from_slice)]
-#[norito(deny_unknown_fields)]
-#[derive(norito::NoritoSchema)]
+#[norito(no_fast_from_json, decode_from_slice, deny_unknown_fields)]
 #[norito_schema(name = "iroha_sccp::api::SccpControlProofBundleV1")]
 pub struct SccpControlProofBundleV1 {
     /// Target network of the control.
     pub network: SccpNetworkV1,
     /// Route revision whose deployment the control commands.
     pub revision: u32,
-    /// Control nonce (at least 1, strictly increasing per `(network, revision)`).
+    /// Control nonce (at least 1, strictly increasing per network and revision).
     pub control_nonce: u64,
-    /// Authority track: 1 for Parliament, 2 for fast pause.
+    /// Authority track: 1 Parliament, 2 fast pause.
     pub track: u8,
-    /// Parliament pause state after the control.
+    /// Whether Parliament has paused minting.
     pub parliament_paused: bool,
-    /// Fast-pause expiry after the control, or zero for none.
+    /// Destination-time expiry of the fast pause, or zero when none is active.
     pub fast_pause_until_ms: u64,
-    /// Identity of the authorizing certificate.
+    /// Identifier of the Parliament or fast-pause certificate that enacted the change.
     pub certificate_id: [u8; 32],
-    /// Hash of that certificate's effect preimage.
+    /// Effect hash of the change's authority certificate.
     pub effect_hash: [u8; 32],
     /// Commitment index of the control leaf in its block.
     pub leaf_index: u32,
     /// Block path of the control leaf (at most 9 siblings).
     pub path: Vec<[u8; 32]>,
-    /// Block containing the leaf, directly or through the certificate's history root.
+    /// Block that contains the control leaf and its optional history path.
     pub block: SccpBlockRefV1,
-    /// Native certificate of the selected committed height.
+    /// Finality certificate against which both paths must be verified.
     pub certificate: SccpCertificateV1,
 }
 
 impl SccpControlProofBundleV1 {
-    /// Whether the bundle proves the control through the history root.
+    /// Whether the claimed leaf block is older than the claimed certificate height.
+    /// This comparison does not verify either height or any proof.
     #[must_use]
     pub fn is_historical(&self) -> bool {
         self.block.height < self.certificate.height
     }
 
-    /// Check the independently selected destination and convert the full native control proof.
-    /// This checks labels and bounds only; the destination must still verify finality and paths.
-    ///
-    /// # Errors
-    /// Returns a shape error or [`ApiShapeError::MetadataMismatch`] before copying buffers.
-    pub fn control_proof(
-        &self,
-        network: SccpNetworkV1,
-        revision: u32,
-    ) -> Result<ControlProofV1, ApiShapeError> {
-        self.check_shape()?;
-        if self.network != network || self.revision != revision {
-            return Err(ApiShapeError::MetadataMismatch);
-        }
-        Ok(ControlProofV1 {
+    /// The destination's current control-proof fields, without authenticating them.
+    #[must_use]
+    pub fn control_proof(&self) -> ControlProofV1 {
+        ControlProofV1 {
             control_nonce: self.control_nonce,
             track: self.track,
             parliament_paused: u8::from(self.parliament_paused),
@@ -661,14 +438,14 @@ impl SccpControlProofBundleV1 {
             effect_hash: self.effect_hash,
             leaf_index: self.leaf_index,
             path: self.path.clone(),
-            block: BlockRefV1::try_from(&self.block)?,
-        })
+            block: BlockRefV1::from(&self.block),
+        }
     }
 
-    /// Reject oversized fields before certificate shape checks and conversion.
+    /// Check sizes and certificate structure before verification. This does not validate
+    /// the control fields, Merkle paths, destination policy or certificate signature.
     ///
     /// # Errors
-    ///
     /// Returns the first violated [`ApiShapeError`].
     pub fn check_shape(&self) -> Result<(), ApiShapeError> {
         if self.path.len() > MAX_BLOCK_PATH {
@@ -754,61 +531,11 @@ pub struct SccpLcProfileStatusV1 {
     pub supported_until_ms: Option<u64>,
 }
 
-/// Native finality wire constants advertised with capabilities (§3.7–§3.8, §6).
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    Decode,
-    Encode,
-    norito::derive::JsonSerialize,
-    norito::derive::JsonDeserialize,
-    norito::NoritoSchema,
-)]
-#[norito(no_fast_from_json, decode_from_slice, deny_unknown_fields)]
-#[norito_schema(name = "iroha_sccp::api::SccpFinalityConstantsV1")]
-pub struct SccpFinalityConstantsV1 {
-    /// Exact finality header `X` length.
-    pub header_length: u32,
-    /// Exact `QC_FIXED` length.
-    pub qc_length: u32,
-    /// Compressed BLS aggregate signature length.
-    pub signature_length: u32,
-    /// Consensus hash-to-curve domain, as literal ASCII bytes.
-    pub signature_dst: Vec<u8>,
-    /// Outer certified result hash domain.
-    pub result_tag: Vec<u8>,
-    /// Inner execution-result body hash domain.
-    pub result_body_tag: Vec<u8>,
-}
-
-impl SccpFinalityConstantsV1 {
-    /// Constants compiled into this release, for exact comparison with an untrusted peer.
-    #[must_use]
-    pub fn current() -> Self {
-        use crate::v1::{
-            committee::SIGNATURE_LEN,
-            finality::{DST_SIG, QC_FIXED_LEN, RESULT_BODY_TAG, RESULT_TAG, X_LEN},
-        };
-        Self {
-            header_length: X_LEN as u32,
-            qc_length: QC_FIXED_LEN as u32,
-            signature_length: SIGNATURE_LEN as u32,
-            signature_dst: DST_SIG.to_vec(),
-            result_tag: RESULT_TAG.to_vec(),
-            result_body_tag: RESULT_BODY_TAG.to_vec(),
-        }
-    }
-}
-
 /// `GET /v1/sccp/capabilities`: the Taira identity, parameters and light-client profiles a
 /// wallet reads before any flow (§6, §7.1).
 ///
-/// TODO: Torii work package (TT-A1): add the current committee
-/// generation with its deadline, the liability clock, the forgery-hold summary, the seated
-/// panel ids and the launch-gate state of §6.
+/// TODO: Torii work package (TT-A1): add the coalition floor, forgery-hold summary,
+/// seated panel ids and launch-gate state when their committed owners are available.
 #[derive(
     Debug,
     Clone,
@@ -826,12 +553,17 @@ impl SccpFinalityConstantsV1 {
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "iroha_sccp::api::SccpCapabilitiesV1")]
 pub struct SccpCapabilitiesV1 {
-    /// Live Taira `NetworkId`; callers compare it with their pinned destination identity.
+    /// Live network identity; readers authenticate it against signed genesis.
     pub network_id: [u8; 32],
-    /// Original committed Global Sumeragi instance; callers compare their independent pin.
+    /// Global Sumeragi instance derived from this network and chain label.
     pub consensus_instance: [u8; 32],
-    /// Native finality encodings used by the running release.
+    /// Exact first-release finality domains and header layout.
     pub finality: SccpFinalityConstantsV1,
+    /// Current committed generation and deadline, absent before initialization.
+    #[norito(required)]
+    pub current_generation: Option<SccpCurrentGenerationV1>,
+    /// Current committed liability clock.
+    pub liability_clock: u64,
     /// SCCP parameters; `None` when SCCP does not exist on this network.
     #[norito(required)]
     pub parameters: Option<iroha_data_model::sccp::params::SccpParametersV1>,
@@ -947,139 +679,144 @@ mod tests {
     use norito::{NoritoSchema as _, codec::DecodeAll, core::DecodeFromSlice, json::Value};
 
     use super::*;
-    use crate::v1::{
-        committee::committee_root,
-        finality::{
-            FLAG_ACTIVE, FLAG_ROTATION, SccpFinalityHeaderFieldsV1, commit_preimage, outer_result,
-            verify_certificate,
-        },
-    };
-    use iroha_crypto::{
-        Algorithm, KeyPair, PrivateKey,
-        bls::consensus::{aggregate, sign_preimage},
-    };
+    use crate::v1::finality::{CertificateError, verify_certificate};
 
-    const INSTANCE: [u8; 32] = [0x51; 32];
+    fn reference() -> Value {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/sccp/finality_v1.json");
+        let text = std::fs::read_to_string(path).expect("finality reference fixture");
+        let value: Value = norito::json::from_str(&text).expect("finality reference JSON");
+        assert_eq!(
+            value.get("schema").and_then(Value::as_str),
+            Some("iroha.sccp.finality.v1")
+        );
+        value
+    }
 
-    /// Native certificate signed by an exact quorum, without claiming the synthetic roots
-    /// below are real message or history proofs.
-    fn certificate(rotation: bool) -> SccpCertificateV1 {
-        let mut members: Vec<([u8; 48], PrivateKey)> = (0_u8..4)
-            .map(|index| {
-                let pair = KeyPair::from_seed(
-                    vec![b's', b'c', b'c', b'p', b'a', index],
-                    Algorithm::BlsNormal,
-                );
-                let (public, private) = pair.into_parts();
-                let (algorithm, raw) = public.to_bytes();
-                assert_eq!(algorithm, Algorithm::BlsNormal);
-                (raw.try_into().expect("48 bytes"), private)
-            })
-            .collect();
-        members.sort_by_key(|member| member.0);
-        let keys: Vec<_> = members.iter().map(|member| member.0).collect();
-        let root = committee_root(&keys).expect("committee");
-        let header = SccpFinalityHeaderV1::from_fields(&SccpFinalityHeaderFieldsV1 {
-            network_id: [0x33; 32],
-            height: 60,
-            timestamp_ms: 1000,
-            flags: FLAG_ACTIVE | if rotation { FLAG_ROTATION } else { 0 },
-            message_count: 3,
-            sccp_root: [0xe4; 32],
-            history_size: 2,
-            history_root: [0xf5; 32],
-            generation: 1,
-            committee_root: root,
-            validity_ms: if rotation { 86_400_000 } else { 0 },
-            next_committee_root: if rotation { root } else { [0; 32] },
-        })
-        .expect("header");
-        let qc = QcFixedV1 {
-            epoch: 1,
-            epoch_context: [0x44; 32],
-            view: 2,
-            block_hash: [0x55; 32],
-            result_body: [0x66; 32],
-            signers: 0b1110,
-        };
-        let result = outer_result(&header, &qc.result_body).0;
-        let preimage = commit_preimage(&INSTANCE, &qc, header.height(), &result);
-        let shares: Vec<_> = members
+    fn field<'a>(value: &'a Value, name: &str) -> &'a Value {
+        value
+            .get(name)
+            .unwrap_or_else(|| panic!("missing reference field {name}"))
+    }
+
+    fn bytes(value: &Value) -> Vec<u8> {
+        crate::decode_hex_bytes(value.as_str().expect("hex string")).expect("hex bytes")
+    }
+
+    fn certificate_from_row(reference: &Value, row: &Value) -> SccpCertificateV1 {
+        let wire = field(row, "evm");
+        let name = field(row, "committee").as_str().expect("committee name");
+        let committee = field(field(field(reference, "committees"), name), "keys")
+            .as_array()
+            .expect("committee keys")
             .iter()
-            .skip(1)
-            .map(|(_, private)| sign_preimage(private, &preimage).expect("native signature"))
+            .map(|key| bytes(key).try_into().expect("48-byte key"))
             .collect();
         SccpCertificateV1 {
-            height: header.height(),
-            qc: qc.encode(),
-            aggregate_signature: aggregate(shares).expect("aggregate"),
-            header: *header.as_bytes(),
-            committee: keys,
+            height: field(field(row, "header_fields"), "height")
+                .as_u64()
+                .expect("height"),
+            qc: bytes(field(wire, "qc")).try_into().expect("116-byte QC"),
+            aggregate_signature: bytes(field(field(row, "aggregate_signature"), "compressed"))
+                .try_into()
+                .expect("96-byte signature"),
+            header: bytes(field(wire, "header"))
+                .try_into()
+                .expect("221-byte header"),
+            committee,
         }
     }
 
-    fn block(history: Option<SccpHistoryProofV1>) -> SccpBlockRefV1 {
-        match history {
-            Some(proof) => {
-                SccpBlockRefV1::try_from(&BlockRefV1::try_from(&proof).expect("history bound"))
-                    .expect("block bound")
-            }
-            None => SccpBlockRefV1 {
-                height: 60,
+    fn certificate() -> SccpCertificateV1 {
+        let reference = reference();
+        let row = field(&reference, "certificates")
+            .as_array()
+            .expect("certificates")
+            .first()
+            .expect("nonempty certificates");
+        certificate_from_row(&reference, row)
+    }
+
+    fn rotation() -> SccpRotationV1 {
+        let reference = reference();
+        let row = field(&reference, "certificates")
+            .as_array()
+            .expect("certificates")
+            .iter()
+            .find(|row| field(field(row, "header_fields"), "flags").as_u64() == Some(3))
+            .expect("rotation reference");
+        let certificate = certificate_from_row(&reference, row);
+        let header = SccpFinalityHeaderV1::parse(&certificate.header).expect("rotation header");
+        let next_committee = field(&reference, "committees")
+            .as_object()
+            .expect("committees")
+            .values()
+            .map(|committee| {
+                field(committee, "keys")
+                    .as_array()
+                    .expect("keys")
+                    .iter()
+                    .map(|key| bytes(key).try_into().expect("48-byte key"))
+                    .collect::<Vec<[u8; 48]>>()
+            })
+            .find(|keys| committee_root(keys) == Some(header.next_committee_root()))
+            .expect("reference successor committee");
+        SccpRotationV1 {
+            certificate,
+            next_committee,
+        }
+    }
+
+    // These paths exercise codecs and conversion only; they do not claim leaf inclusion.
+    fn block(certificate: &SccpCertificateV1, historical: bool) -> SccpBlockRefV1 {
+        let header = SccpFinalityHeaderV1::parse(&certificate.header).expect("header");
+        if historical {
+            SccpBlockRefV1 {
+                height: certificate.height - 1,
                 sccp_root: [0xe4; 32],
                 message_count: 3,
+                history_index: 2,
+                history_path: vec![[0xf5; 32]],
+            }
+        } else {
+            SccpBlockRefV1 {
+                height: certificate.height,
+                sccp_root: header.sccp_root(),
+                message_count: header.message_count(),
                 history_index: 0,
-                history_path: vec![],
-            },
+                history_path: Vec::new(),
+            }
         }
     }
 
-    fn history() -> SccpHistoryProofV1 {
-        SccpHistoryProofV1 {
-            height: 50,
-            sccp_root: [0xe4; 32],
-            message_count: 1,
-            leaf_index: 0,
-            path: vec![[0xf5; 32]],
-        }
-    }
-
-    fn message_bundle(history: Option<SccpHistoryProofV1>) -> SccpMessageProofBundleV1 {
-        let payload = SccpTransferPayloadV1::outbound(
-            SccpNetworkV1::EthereumMainnet,
-            0,
-            1,
-            1_800_086_400_000,
-            1000,
-            vec![1, 2, 3],
-            vec![0x33; 20],
-        )
-        .expect("payload");
+    fn message_bundle(historical: bool) -> SccpMessageProofBundleV1 {
+        let certificate = certificate();
         SccpMessageProofBundleV1 {
-            message_id: payload.message_id(&[0x33; 32]).expect("message id"),
-            payload: payload.encode().expect("payload encoding"),
-            deadline_ms: payload.deadline_ms,
+            message_id: [0x0a; 32],
+            payload: vec![0x02, 0x01, 0xaa, 0xbb],
+            deadline_ms: 1_800_086_400_000,
             leaf_index: 1,
             path: vec![[0x01; 32], [0x02; 32]],
-            block: block(history),
-            certificate: certificate(false),
+            block: block(&certificate, historical),
+            certificate,
         }
     }
 
-    fn control_bundle(history: Option<SccpHistoryProofV1>) -> SccpControlProofBundleV1 {
+    fn control_bundle(historical: bool) -> SccpControlProofBundleV1 {
+        let certificate = certificate();
         SccpControlProofBundleV1 {
             network: SccpNetworkV1::EthereumMainnet,
             revision: 1,
             control_nonce: 2,
-            track: 1,
+            track: 2,
             parliament_paused: true,
-            fast_pause_until_ms: 0,
-            certificate_id: [0x12; 32],
-            effect_hash: [0x34; 32],
-            leaf_index: 2,
+            fast_pause_until_ms: 1_800_000_000_000,
+            certificate_id: [0x04; 32],
+            effect_hash: [0x05; 32],
+            leaf_index: 1,
             path: vec![[0x03; 32]],
-            block: block(history),
-            certificate: certificate(false),
+            block: block(&certificate, historical),
+            certificate,
         }
     }
 
@@ -1143,64 +880,6 @@ mod tests {
     }
 
     #[test]
-    fn api_shape_errors_display_their_bounds() {
-        assert_eq!(
-            ApiShapeError::BadCertificate.to_string(),
-            "a certificate has a canonical header and exactly one committee quorum"
-        );
-        assert_eq!(
-            ApiShapeError::BlockPathTooLong.to_string(),
-            "a block path has at most 9 siblings"
-        );
-        assert_eq!(
-            ApiShapeError::HistoryPathTooLong.to_string(),
-            "a history path has at most 32 siblings"
-        );
-        let boxed: Box<dyn std::error::Error> = Box::new(ApiShapeError::PayloadTooLong);
-        assert!(boxed.to_string().contains("4096"));
-    }
-
-    #[test]
-    fn api_schema_names_are_stable() {
-        assert_eq!(
-            SccpGenerationV1::nominal_name(),
-            "iroha_sccp::api::SccpGenerationV1"
-        );
-        assert_eq!(
-            SccpGenerationCauseV1::nominal_name(),
-            "iroha_sccp::api::SccpGenerationCauseV1"
-        );
-        assert_eq!(
-            SccpGenerationMemberV1::nominal_name(),
-            "iroha_sccp::api::SccpGenerationMemberV1"
-        );
-        assert_eq!(
-            SccpGenerationEndV1::nominal_name(),
-            "iroha_sccp::api::SccpGenerationEndV1"
-        );
-        assert_eq!(
-            SccpCertificateV1::nominal_name(),
-            "iroha_sccp::api::SccpCertificateV1"
-        );
-        assert_eq!(
-            SccpHistoryProofV1::nominal_name(),
-            "iroha_sccp::api::SccpHistoryProofV1"
-        );
-        assert_eq!(
-            SccpMessageProofBundleV1::nominal_name(),
-            "iroha_sccp::api::SccpMessageProofBundleV1"
-        );
-        assert_eq!(
-            SccpControlProofBundleV1::nominal_name(),
-            "iroha_sccp::api::SccpControlProofBundleV1"
-        );
-        assert_eq!(
-            SccpLcProfileStatusV1::nominal_name(),
-            "iroha_sccp::api::SccpLcProfileStatusV1"
-        );
-    }
-
-    #[test]
     fn light_client_profile_status_roundtrips_and_is_closed() {
         let genesis = SccpLcProfileStatusV1 {
             network: SccpNetworkV1::EthereumMainnet,
@@ -1225,150 +904,6 @@ mod tests {
                 assert_requires_field(&status, field);
             }
         }
-    }
-
-    #[test]
-    fn api_records_roundtrip_in_every_codec() {
-        roundtrip(&message_bundle(None));
-        roundtrip(&message_bundle(Some(history())));
-        roundtrip(&control_bundle(None));
-        roundtrip(&control_bundle(Some(history())));
-        roundtrip(&history());
-        roundtrip(&certificate(false));
-        roundtrip(&certificate(true));
-        let rotation = SccpRotationV1 {
-            next_committee: certificate(true).committee.clone(),
-            certificate: certificate(true),
-        };
-        roundtrip(&rotation);
-        roundtrip(&block(None));
-        roundtrip(&block(Some(history())));
-    }
-
-    #[test]
-    fn api_json_objects_are_closed_and_complete() {
-        assert_rejects_unknown_field(&message_bundle(None));
-        assert_rejects_unknown_field(&control_bundle(Some(history())));
-        assert_rejects_unknown_field(&history());
-        assert_rejects_unknown_field(&certificate(false));
-        assert_rejects_unknown_field(&block(None));
-        assert_requires_field(&message_bundle(None), "block");
-        assert_requires_field(&message_bundle(None), "certificate");
-        assert_requires_field(&message_bundle(None), "payload");
-        assert_requires_field(&control_bundle(None), "block");
-        assert_requires_field(&control_bundle(None), "certificate");
-        assert_requires_field(&control_bundle(None), "control_nonce");
-    }
-
-    #[test]
-    fn bundles_carry_no_attestation_roster_or_signature_field() {
-        // The attestation transport is gone: a bundle that still names one of its fields is not
-        // a bundle.
-        let retired = [
-            "statement",
-            "digest",
-            "roster",
-            "signatures",
-            "history",
-            "message_count",
-        ];
-        let message = norito::json::to_value(&message_bundle(None)).expect("JSON value");
-        let control = norito::json::to_value(&control_bundle(None)).expect("JSON value");
-        for field in retired {
-            assert!(message.get(field).is_none(), "{field}");
-            assert!(control.get(field).is_none(), "{field}");
-            let mut hostile = message.clone();
-            hostile
-                .as_object_mut()
-                .expect("object")
-                .insert(field.to_owned(), Value::Null);
-            let text = norito::json::to_json(&hostile).expect("JSON");
-            assert!(
-                norito::json::from_json::<SccpMessageProofBundleV1>(&text).is_err(),
-                "{text}"
-            );
-            let mut hostile = control.clone();
-            hostile
-                .as_object_mut()
-                .expect("object")
-                .insert(field.to_owned(), Value::Null);
-            let text = norito::json::to_json(&hostile).expect("JSON");
-            assert!(
-                norito::json::from_json::<SccpControlProofBundleV1>(&text).is_err(),
-                "{text}"
-            );
-        }
-        let message_fields: Vec<&str> = message
-            .as_object()
-            .expect("object")
-            .keys()
-            .map(String::as_str)
-            .collect();
-        assert_eq!(
-            message_fields,
-            [
-                "block",
-                "certificate",
-                "deadline_ms",
-                "leaf_index",
-                "message_id",
-                "path",
-                "payload",
-            ]
-        );
-        let control_fields: Vec<&str> = control
-            .as_object()
-            .expect("object")
-            .keys()
-            .map(String::as_str)
-            .collect();
-        assert_eq!(
-            control_fields,
-            [
-                "block",
-                "certificate",
-                "certificate_id",
-                "control_nonce",
-                "effect_hash",
-                "fast_pause_until_ms",
-                "leaf_index",
-                "network",
-                "parliament_paused",
-                "path",
-                "revision",
-                "track",
-            ]
-        );
-    }
-
-    #[test]
-    fn api_json_uses_base64_payload_and_hex_arrays() {
-        let mut bundle = message_bundle(None);
-        bundle.payload = vec![0x02, 0x01, 0xaa, 0xbb];
-        bundle.message_id = [0x0a; 32];
-        let json = norito::json::to_value(&bundle).expect("JSON value");
-        assert_eq!(
-            json.get("payload").and_then(Value::as_str),
-            Some("AgGquw==")
-        );
-        let message_id = json
-            .get("message_id")
-            .and_then(Value::as_str)
-            .expect("message id");
-        assert_eq!(message_id, "0A".repeat(32));
-        assert!(json.get("block").expect("block key").is_object());
-        assert!(
-            json.get("certificate")
-                .expect("certificate key")
-                .is_object()
-        );
-        let mut hostile = json.clone();
-        hostile
-            .as_object_mut()
-            .expect("object")
-            .insert("payload".to_owned(), Value::from("AgGquw"));
-        let text = norito::json::to_json(&hostile).expect("JSON");
-        assert!(norito::json::from_json::<SccpMessageProofBundleV1>(&text).is_err());
     }
 
     #[test]
@@ -1403,89 +938,396 @@ mod tests {
     }
 
     #[test]
-    fn certificate_converts_exact_native_bytes_and_quorum() {
-        let view = certificate(false);
-        assert_eq!(view.check_shape(), Ok(()));
-        let qc = QcFixedV1::parse(&view.qc).expect("QC");
-        assert_eq!(qc.signers, 0b1110);
-        assert_eq!(qc.signers.count_ones(), 3);
-        let contract = view
-            .to_destination_certificate()
-            .expect("destination forms");
-        assert_eq!(contract.qc, view.qc);
-        assert_eq!(contract.header, view.header);
-        assert_eq!(contract.ton_signature, view.aggregate_signature);
-        assert_eq!(contract.committee, view.committee.concat());
-        assert_eq!(contract.signature.len(), 192);
-        assert_eq!(contract.signer_ys.len(), 3 * 48);
+    fn proof_height_selector_is_strict_and_formats_current_values() {
+        assert_eq!(SccpProofHeightV1::default(), SccpProofHeightV1::Record);
+        for (text, expected) in [
+            ("record", SccpProofHeightV1::Record),
+            ("latest", SccpProofHeightV1::Latest),
+            ("1", SccpProofHeightV1::At(1)),
+            ("18446744073709551615", SccpProofHeightV1::At(u64::MAX)),
+        ] {
+            assert_eq!(text.parse::<SccpProofHeightV1>(), Ok(expected));
+            assert_eq!(expected.to_string(), text);
+        }
         assert_eq!(
-            crate::v1::committee::signature_from_evm192(
-                contract.signature.as_slice().try_into().expect("192 bytes")
-            ),
-            Ok(view.aggregate_signature)
+            "001".parse::<SccpProofHeightV1>(),
+            Ok(SccpProofHeightV1::At(1))
         );
-        assert!(
-            verify_certificate(
-                &INSTANCE,
-                &view.qc,
-                &view.header,
-                &view.aggregate_signature,
-                &view.committee
-            )
-            .is_ok()
-        );
-        for signers in [0, 0b0110, 0b1111, 0b1_0110, 0x8000_000e] {
-            let mut changed = view.clone();
-            changed.qc = QcFixedV1 { signers, ..qc }.encode();
+        for text in [
+            "",
+            "own",
+            "Record",
+            "LATEST",
+            "0",
+            "000",
+            "+1",
+            "-1",
+            " 1",
+            "1 ",
+            "1\n",
+            "\tlatest",
+            "1_000",
+            "1.0",
+            "0x1",
+            "１",
+            "18446744073709551616",
+        ] {
             assert_eq!(
-                changed.check_shape(),
-                Err(ApiShapeError::BadCertificate),
-                "{signers:#x}"
+                text.parse::<SccpProofHeightV1>(),
+                Err(SccpProofHeightParseError),
+                "{text:?}"
             );
         }
-        for length in [0, 1, 3, 5, 32] {
-            let mut changed = view.clone();
-            changed.committee.resize(length, [0; 48]);
-            assert_eq!(
-                changed.check_shape(),
-                Err(ApiShapeError::BadCertificate),
-                "{length}"
-            );
-        }
-        let mut duplicate = view.clone();
-        duplicate.committee[1] = duplicate.committee[0];
-        assert_eq!(duplicate.check_shape(), Err(ApiShapeError::BadCertificate));
-        let mut reversed = view.clone();
-        reversed.committee.reverse();
-        assert_eq!(reversed.check_shape(), Err(ApiShapeError::BadCertificate));
-        let mut wrong_height = view.clone();
-        wrong_height.height += 1;
+        let error: Box<dyn std::error::Error> = Box::new(SccpProofHeightParseError);
         assert_eq!(
-            wrong_height.check_shape(),
-            Err(ApiShapeError::BadCertificate)
+            error.to_string(),
+            "proof height must be record, latest, or a positive decimal u64"
         );
-        let mut wrong_root = view.clone();
-        wrong_root.header[149] ^= 1;
-        assert_eq!(wrong_root.check_shape(), Err(ApiShapeError::BadCertificate));
-        let mut inactive = view.clone();
-        inactive.header = *SccpFinalityHeaderV1::inactive([0x33; 32], view.height, 1000)
-            .expect("inactive header")
-            .as_bytes();
-        assert_eq!(inactive.check_shape(), Err(ApiShapeError::BadCertificate));
     }
 
     #[test]
-    fn certificate_shape_never_claims_signature_or_root_trust() {
-        let mut changed = certificate(false);
-        changed.aggregate_signature = [0; 96];
-        assert_eq!(changed.check_shape(), Ok(()), "shape is not authentication");
+    fn api_shape_errors_display_their_bounds() {
+        for (error, text) in [
+            (
+                ApiShapeError::BadCommittee,
+                "a committee has 4, 7, ..., 31 keys in strictly ascending order",
+            ),
+            (
+                ApiShapeError::BadFinalityHeader,
+                "a finality header must satisfy X1 through X7",
+            ),
+            (
+                ApiShapeError::CertificateHeightMismatch,
+                "certificate height differs from its finality header",
+            ),
+            (
+                ApiShapeError::CommitteeRootMismatch,
+                "committee keys differ from the active header's committee root",
+            ),
+            (
+                ApiShapeError::BadSignerSet,
+                "certificate signers must be exactly a committee quorum with no spare bits",
+            ),
+            (
+                ApiShapeError::BadRotation,
+                "a rotation must bind its successor committee in a ROTATION header",
+            ),
+            (
+                ApiShapeError::BlockPathTooLong,
+                "a block path has at most 9 siblings",
+            ),
+            (
+                ApiShapeError::HistoryPathTooLong,
+                "a history path has at most 32 siblings",
+            ),
+        ] {
+            assert_eq!(error.to_string(), text);
+        }
+        let boxed: Box<dyn std::error::Error> = Box::new(ApiShapeError::PayloadTooLong);
+        assert!(boxed.to_string().contains("4096"));
+    }
+
+    #[test]
+    fn api_schema_names_are_stable() {
         assert_eq!(
-            changed.to_destination_certificate(),
-            Err(ApiShapeError::BadCertificatePoint)
+            SccpCertificateV1::nominal_name(),
+            "iroha_sccp::api::SccpCertificateV1"
+        );
+        assert_eq!(
+            SccpRotationV1::nominal_name(),
+            "iroha_sccp::api::SccpRotationV1"
+        );
+        assert_eq!(
+            SccpBlockRefV1::nominal_name(),
+            "iroha_sccp::api::SccpBlockRefV1"
+        );
+        assert_eq!(
+            SccpMessageProofBundleV1::nominal_name(),
+            "iroha_sccp::api::SccpMessageProofBundleV1"
+        );
+        assert_eq!(
+            SccpControlProofBundleV1::nominal_name(),
+            "iroha_sccp::api::SccpControlProofBundleV1"
+        );
+        assert_eq!(
+            SccpLcProfileStatusV1::nominal_name(),
+            "iroha_sccp::api::SccpLcProfileStatusV1"
+        );
+    }
+
+    #[test]
+    fn api_records_roundtrip_in_every_codec() {
+        roundtrip(&message_bundle(false));
+        roundtrip(&message_bundle(true));
+        roundtrip(&control_bundle(false));
+        roundtrip(&control_bundle(true));
+        roundtrip(&block(&certificate(), true));
+        roundtrip(&certificate());
+        roundtrip(&rotation());
+    }
+
+    #[test]
+    fn api_json_objects_are_closed_and_complete() {
+        let message = message_bundle(false);
+        let control = control_bundle(true);
+        let certificate = certificate();
+        let block = block(&certificate, true);
+        let rotation = rotation();
+        assert_rejects_unknown_field(&message);
+        assert_rejects_unknown_field(&control);
+        assert_rejects_unknown_field(&certificate);
+        assert_rejects_unknown_field(&block);
+        assert_rejects_unknown_field(&rotation);
+        for name in [
+            "message_id",
+            "payload",
+            "deadline_ms",
+            "leaf_index",
+            "path",
+            "block",
+            "certificate",
+        ] {
+            assert_requires_field(&message, name);
+        }
+        for name in [
+            "network",
+            "revision",
+            "control_nonce",
+            "track",
+            "parliament_paused",
+            "fast_pause_until_ms",
+            "certificate_id",
+            "effect_hash",
+            "leaf_index",
+            "path",
+            "block",
+            "certificate",
+        ] {
+            assert_requires_field(&control, name);
+        }
+        for name in ["height", "qc", "aggregate_signature", "header", "committee"] {
+            assert_requires_field(&certificate, name);
+        }
+        for name in [
+            "height",
+            "sccp_root",
+            "message_count",
+            "history_index",
+            "history_path",
+        ] {
+            assert_requires_field(&block, name);
+        }
+        for name in ["certificate", "next_committee"] {
+            assert_requires_field(&rotation, name);
+        }
+    }
+
+    #[test]
+    fn bundles_carry_no_attestation_roster_or_signature_field() {
+        let message = norito::json::to_value(&message_bundle(false)).expect("JSON value");
+        let control = norito::json::to_value(&control_bundle(false)).expect("JSON value");
+        for field in [
+            "statement",
+            "digest",
+            "roster",
+            "signatures",
+            "history",
+            "message_count",
+            "paused",
+        ] {
+            assert!(message.get(field).is_none(), "{field}");
+            assert!(control.get(field).is_none(), "{field}");
+            let mut hostile = message.clone();
+            hostile
+                .as_object_mut()
+                .expect("object")
+                .insert(field.to_owned(), Value::Null);
+            assert!(
+                norito::json::from_value::<SccpMessageProofBundleV1>(hostile).is_err(),
+                "{field}"
+            );
+            let mut hostile = control.clone();
+            hostile
+                .as_object_mut()
+                .expect("object")
+                .insert(field.to_owned(), Value::Null);
+            assert!(
+                norito::json::from_value::<SccpControlProofBundleV1>(hostile).is_err(),
+                "{field}"
+            );
+        }
+        let message_fields: Vec<&str> = message
+            .as_object()
+            .expect("object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            message_fields,
+            [
+                "block",
+                "certificate",
+                "deadline_ms",
+                "leaf_index",
+                "message_id",
+                "path",
+                "payload"
+            ]
+        );
+        let control_fields: Vec<&str> = control
+            .as_object()
+            .expect("object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            control_fields,
+            [
+                "block",
+                "certificate",
+                "certificate_id",
+                "control_nonce",
+                "effect_hash",
+                "fast_pause_until_ms",
+                "leaf_index",
+                "network",
+                "parliament_paused",
+                "path",
+                "revision",
+                "track"
+            ]
+        );
+    }
+
+    #[test]
+    fn api_json_uses_base64_payload_and_hex_arrays() {
+        let bundle = message_bundle(false);
+        let json = norito::json::to_value(&bundle).expect("JSON value");
+        assert_eq!(
+            json.get("payload").and_then(Value::as_str),
+            Some("AgGquw==")
+        );
+        assert_eq!(
+            field(&json, "message_id").as_str().expect("message id"),
+            "0A".repeat(32)
+        );
+        let certificate_json = field(&json, "certificate");
+        for (name, length) in [("qc", 116), ("aggregate_signature", 96), ("header", 221)] {
+            let text = field(certificate_json, name).as_str().expect("hex string");
+            assert_eq!(text.len(), 2 * length);
+            assert!(text.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        }
+        let keys = field(certificate_json, "committee")
+            .as_array()
+            .expect("keys");
+        assert_eq!(keys.len(), 4);
+        assert!(
+            keys.iter()
+                .all(|key| key.as_str().expect("hex key").len() == 96)
+        );
+        let mut hostile = json;
+        hostile
+            .as_object_mut()
+            .expect("object")
+            .insert("payload".to_owned(), Value::from("AgGquw"));
+        assert!(norito::json::from_value::<SccpMessageProofBundleV1>(hostile).is_err());
+    }
+
+    #[test]
+    fn certificate_json_rejects_wrong_fixed_widths_and_retired_fields() {
+        let value = norito::json::to_value(&certificate()).expect("JSON value");
+        for (name, length) in [("qc", 116), ("aggregate_signature", 96), ("header", 221)] {
+            for width in [length - 1, length + 1] {
+                let mut hostile = value.clone();
+                hostile
+                    .as_object_mut()
+                    .expect("object")
+                    .insert(name.to_owned(), Value::from("00".repeat(width)));
+                assert!(
+                    norito::json::from_value::<SccpCertificateV1>(hostile).is_err(),
+                    "{name}/{width}"
+                );
+            }
+        }
+        for width in [47, 49] {
+            let mut hostile = value.clone();
+            hostile.as_object_mut().expect("object").insert(
+                "committee".to_owned(),
+                Value::Array(vec![Value::from("00".repeat(width))]),
+            );
+            assert!(
+                norito::json::from_value::<SccpCertificateV1>(hostile).is_err(),
+                "key/{width}"
+            );
+        }
+        for name in [
+            "statement",
+            "digest",
+            "signer_bitmap",
+            "signatures",
+            "roster",
+        ] {
+            let mut hostile = value.clone();
+            hostile
+                .as_object_mut()
+                .expect("object")
+                .insert(name.to_owned(), Value::Null);
+            assert!(
+                norito::json::from_value::<SccpCertificateV1>(hostile).is_err(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn certificate_shape_checks_consistency_without_granting_authentication() {
+        let certificate = certificate();
+        assert_eq!(certificate.check_shape(), Ok(()));
+        let mut changed = certificate.clone();
+        changed.height += 1;
+        assert_eq!(
+            changed.check_shape(),
+            Err(ApiShapeError::CertificateHeightMismatch)
+        );
+        changed = certificate.clone();
+        changed.header[0] ^= 1;
+        assert_eq!(changed.check_shape(), Err(ApiShapeError::BadFinalityHeader));
+        changed = certificate.clone();
+        changed.committee.pop();
+        assert_eq!(changed.check_shape(), Err(ApiShapeError::BadCommittee));
+        changed = certificate.clone();
+        changed.committee.swap(0, 1);
+        assert_eq!(changed.check_shape(), Err(ApiShapeError::BadCommittee));
+        changed = certificate.clone();
+        changed.committee[1] = changed.committee[0];
+        assert_eq!(changed.check_shape(), Err(ApiShapeError::BadCommittee));
+        changed = certificate.clone();
+        changed.committee[0][47] ^= 1;
+        assert_eq!(
+            changed.check_shape(),
+            Err(ApiShapeError::CommitteeRootMismatch)
+        );
+        for signers in [0, 0b0011, 0b1111, 0b1_0011] {
+            changed = certificate.clone();
+            let mut qc = QcFixedV1::parse(&changed.qc).expect("QC");
+            qc.signers = signers;
+            changed.qc = qc.encode();
+            assert_eq!(
+                changed.check_shape(),
+                Err(ApiShapeError::BadSignerSet),
+                "{signers}"
+            );
+        }
+        changed = certificate;
+        changed.aggregate_signature = [0; 96];
+        assert_eq!(
+            changed.check_shape(),
+            Ok(()),
+            "shape checking cannot authenticate a signature"
         );
         assert!(
             verify_certificate(
-                &INSTANCE,
+                &[0x77; 32],
                 &changed.qc,
                 &changed.header,
                 &changed.aggregate_signature,
@@ -1493,299 +1335,177 @@ mod tests {
             )
             .is_err()
         );
-        let genuine = certificate(false);
-        assert!(
+    }
+
+    #[test]
+    fn certificate_codec_preserves_authenticated_finality_and_refuses_tampering() {
+        let reference = reference();
+        let row = field(&reference, "certificates")
+            .as_array()
+            .expect("certificates")
+            .first()
+            .expect("certificate");
+        let certificate = certificate_from_row(&reference, row);
+        let instance: [u8; 32] = bytes(field(
+            field(&reference, "verification_context"),
+            "consensus_instance",
+        ))
+        .try_into()
+        .expect("instance");
+        let pinned_root: [u8; 32] = bytes(field(field(row, "pin"), "committee_root"))
+            .try_into()
+            .expect("root");
+        assert_eq!(committee_root(&certificate.committee), Some(pinned_root));
+        let encoded = certificate.encode();
+        let decoded =
+            SccpCertificateV1::decode_all(&mut encoded.as_slice()).expect("decoded certificate");
+        let verify = |value: &SccpCertificateV1, instance: &[u8; 32]| {
             verify_certificate(
-                &[0x52; 32],
-                &genuine.qc,
-                &genuine.header,
-                &genuine.aggregate_signature,
-                &genuine.committee
+                instance,
+                &value.qc,
+                &value.header,
+                &value.aggregate_signature,
+                &value.committee,
             )
-            .is_err(),
-            "foreign instance"
-        );
-    }
-
-    #[test]
-    fn rotation_binds_flag_and_successor_but_requires_authentication() {
-        let cert = certificate(true);
-        let rotation = SccpRotationV1 {
-            next_committee: cert.committee.clone(),
-            certificate: cert,
         };
-        assert_eq!(rotation.check_shape(), Ok(()), "heartbeat retains keys");
-        assert_rejects_unknown_field(&rotation);
-        assert_requires_field(&rotation, "next_committee");
-        let mut changed = rotation.clone();
-        changed.certificate = certificate(false);
-        assert_eq!(changed.check_shape(), Err(ApiShapeError::BadRotation));
-        let mut changed = rotation.clone();
-        changed.next_committee.reverse();
-        assert_eq!(changed.check_shape(), Err(ApiShapeError::BadRotation));
-        let mut changed = rotation.clone();
-        changed.next_committee.clear();
-        assert_eq!(changed.check_shape(), Err(ApiShapeError::BadRotation));
-        let mut changed = rotation;
-        changed.next_committee[3] = [0xff; 48];
-        assert_eq!(changed.check_shape(), Err(ApiShapeError::BadRotation));
+        let verified = verify(&decoded, &instance).expect("genuine aggregate certificate");
+        assert_eq!(verified.header.height(), decoded.height);
+        assert_eq!(verified.header.committee_root(), pinned_root);
+        assert_eq!(verified.result.as_slice(), bytes(field(row, "r")));
+        assert_eq!(
+            verified.checkpoint_id.as_slice(),
+            bytes(field(row, "checkpoint_id"))
+        );
+        assert_eq!(
+            verify(&decoded, &[0x78; 32]),
+            Err(CertificateError::Signature)
+        );
+        let mut changed = decoded.clone();
+        changed.qc[80] ^= 1;
+        assert_eq!(
+            verify(&changed, &instance),
+            Err(CertificateError::Signature)
+        );
+        changed = decoded.clone();
+        changed.aggregate_signature[95] ^= 1;
+        assert!(verify(&changed, &instance).is_err());
+        changed = decoded;
+        changed.header[100] ^= 1;
+        assert!(verify(&changed, &instance).is_err());
     }
 
     #[test]
-    fn history_proof_converts_both_ways() {
-        let proof = history();
-        let contract = BlockRefV1::try_from(&proof).expect("history");
-        assert_eq!(contract.height, 50);
-        assert_eq!(contract.sccp_root, [0xe4; 32]);
-        assert_eq!(contract.message_count, 1);
-        assert_eq!(contract.history_index, 0);
-        assert_eq!(contract.history_path, vec![[0xf5; 32]]);
+    fn rotation_shape_requires_rotation_and_bound_successor_keys() {
+        let rotation = rotation();
+        assert_eq!(rotation.check_shape(), Ok(()));
+        let mut changed = rotation.clone();
+        changed.certificate = certificate();
+        assert_eq!(changed.check_shape(), Err(ApiShapeError::BadRotation));
+        changed = rotation.clone();
+        changed.next_committee.pop();
+        assert_eq!(changed.check_shape(), Err(ApiShapeError::BadRotation));
+        changed = rotation.clone();
+        changed.next_committee.swap(0, 1);
+        assert_eq!(changed.check_shape(), Err(ApiShapeError::BadRotation));
+        changed = rotation.clone();
+        changed.next_committee[0][47] ^= 1;
+        assert_eq!(changed.check_shape(), Err(ApiShapeError::BadRotation));
+        changed = rotation;
+        changed.certificate.height += 1;
         assert_eq!(
-            SccpHistoryProofV1::try_from(&contract).expect("history"),
-            proof
+            changed.check_shape(),
+            Err(ApiShapeError::CertificateHeightMismatch)
         );
-        let mut long = proof;
-        long.path = vec![[0; 32]; MAX_HISTORY_PATH + 1];
+    }
+
+    #[test]
+    fn block_reference_converts_both_ways() {
+        for historical in [false, true] {
+            let block = block(&certificate(), historical);
+            let contract = BlockRefV1::from(&block);
+            assert_eq!(contract.height, block.height);
+            assert_eq!(contract.sccp_root, block.sccp_root);
+            assert_eq!(contract.message_count, block.message_count);
+            assert_eq!(contract.history_index, block.history_index);
+            assert_eq!(contract.history_path, block.history_path);
+            assert_eq!(SccpBlockRefV1::from(&contract), block);
+        }
+        let mut long = block(&certificate(), true);
+        long.history_path = vec![[0; 32]; MAX_HISTORY_PATH];
+        assert_eq!(long.check_shape(), Ok(()));
+        long.history_path.push([0; 32]);
         assert_eq!(long.check_shape(), Err(ApiShapeError::HistoryPathTooLong));
     }
 
     #[test]
     fn bundle_accessors_expose_contract_structures() {
-        let direct = message_bundle(None);
-        assert!(!direct.is_historical());
-        assert_eq!(direct.block.history_index, 0);
-        assert!(direct.block.history_path.is_empty());
-        let proof = direct
-            .message_proof(&[0x33; 32], &direct.message_id)
-            .expect("message labels");
-        assert_eq!(proof.payload, direct.payload);
-        assert_eq!(proof.leaf_index, 1);
-        assert_eq!(proof.path, direct.path);
-        assert_eq!(
-            SccpBlockRefV1::try_from(&proof.block).expect("block"),
-            direct.block
-        );
-        assert_eq!(direct.check_shape(), Ok(()));
-
-        let historical = message_bundle(Some(history()));
-        assert!(historical.is_historical());
-        assert_eq!(historical.block.height, 50);
-
-        let mut oversized = direct.clone();
-        oversized.payload = vec![0; MAX_PAYLOAD_BYTES + 1];
-        assert_eq!(oversized.check_shape(), Err(ApiShapeError::PayloadTooLong));
-        let mut long_path = direct;
-        long_path.path = vec![[0; 32]; MAX_BLOCK_PATH + 1];
-        assert_eq!(
-            long_path.check_shape(),
-            Err(ApiShapeError::BlockPathTooLong)
-        );
-
-        let control = control_bundle(Some(history()));
-        assert!(control.is_historical());
-        let control_proof = control
-            .control_proof(SccpNetworkV1::EthereumMainnet, 1)
-            .expect("control labels");
-        assert_eq!(control_proof.control_nonce, 2);
-        assert_eq!(control_proof.track, 1);
-        assert_eq!(control_proof.parliament_paused, 1);
-        assert_eq!(control_proof.fast_pause_until_ms, 0);
-        assert_eq!(control_proof.certificate_id, [0x12; 32]);
-        assert_eq!(control_proof.effect_hash, [0x34; 32]);
-        assert_eq!(control_proof.leaf_index, 2);
-        assert_eq!(control_proof.block.history_index, 0);
-        assert_eq!(control.check_shape(), Ok(()));
-        let mut long_control = control;
-        long_control.path = vec![[0; 32]; MAX_BLOCK_PATH + 1];
-        assert_eq!(
-            long_control.check_shape(),
-            Err(ApiShapeError::BlockPathTooLong)
-        );
-        assert!(!control_bundle(None).is_historical());
-        // A history path beyond 32 siblings is refused through either bundle.
-        let mut long_message_history = message_bundle(Some(history()));
-        long_message_history.block.history_path = vec![[0; 32]; MAX_HISTORY_PATH + 1];
-        assert_eq!(
-            long_message_history.check_shape(),
-            Err(ApiShapeError::HistoryPathTooLong)
-        );
-        let mut long_control_history = control_bundle(Some(history()));
-        long_control_history.block.history_path = vec![[0; 32]; MAX_HISTORY_PATH + 1];
-        assert_eq!(
-            long_control_history.check_shape(),
-            Err(ApiShapeError::HistoryPathTooLong)
-        );
-    }
-    #[test]
-    fn proof_conversions_reject_oversized_buffers_and_unbound_labels() {
-        let direct = message_bundle(None);
-        let mut changed = direct.clone();
-        changed.payload = vec![0; MAX_PAYLOAD_BYTES + 1];
-        assert_eq!(
-            changed.message_proof(&[0x33; 32], &direct.message_id),
-            Err(ApiShapeError::PayloadTooLong)
-        );
-        let mut changed = direct.clone();
-        changed.deadline_ms += 1;
-        assert_eq!(
-            changed.message_proof(&[0x33; 32], &direct.message_id),
-            Err(ApiShapeError::MetadataMismatch)
-        );
-        assert_eq!(
-            direct.message_proof(&[0x33; 32], &[0x99; 32]),
-            Err(ApiShapeError::MetadataMismatch)
-        );
-        assert_eq!(
-            direct.message_proof(&[0x99; 32], &direct.message_id),
-            Err(ApiShapeError::MetadataMismatch)
-        );
-        let mut changed = direct;
-        changed.path.resize(MAX_BLOCK_PATH + 1, [0; 32]);
-        assert_eq!(
-            changed.message_proof(&[0x33; 32], &changed.message_id),
-            Err(ApiShapeError::BlockPathTooLong)
-        );
-        let mut control = control_bundle(None);
-        assert_eq!(
-            control.control_proof(SccpNetworkV1::BscMainnet, 1),
-            Err(ApiShapeError::MetadataMismatch)
-        );
-        assert_eq!(
-            control.control_proof(SccpNetworkV1::EthereumMainnet, 2),
-            Err(ApiShapeError::MetadataMismatch)
-        );
-        control.path.resize(MAX_BLOCK_PATH + 1, [0; 32]);
-        assert_eq!(
-            control.control_proof(SccpNetworkV1::EthereumMainnet, 1),
-            Err(ApiShapeError::BlockPathTooLong)
-        );
-        let mut large = block(None);
-        large.history_path.resize(MAX_HISTORY_PATH + 1, [0; 32]);
-        assert_eq!(
-            BlockRefV1::try_from(&large),
-            Err(ApiShapeError::HistoryPathTooLong)
-        );
-        let raw = BlockRefV1 {
-            history_path: large.history_path.clone(),
-            ..BlockRefV1::default()
-        };
-        assert_eq!(
-            SccpBlockRefV1::try_from(&raw),
-            Err(ApiShapeError::HistoryPathTooLong)
-        );
-        assert_eq!(
-            SccpHistoryProofV1::try_from(&raw),
-            Err(ApiShapeError::HistoryPathTooLong)
-        );
-        let mut large_history = history();
-        large_history.path = large.history_path;
-        assert_eq!(
-            BlockRefV1::try_from(&large_history),
-            Err(ApiShapeError::HistoryPathTooLong)
-        );
-    }
-
-    #[test]
-    fn native_finality_constants_are_pinned_and_roundtrip() {
-        let constants = SccpFinalityConstantsV1::current();
-        assert_eq!(
-            (
-                constants.header_length,
-                constants.qc_length,
-                constants.signature_length
-            ),
-            (221, 116, 96)
-        );
-        assert_eq!(
-            constants.signature_dst,
-            b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_"
-        );
-        assert_eq!(constants.result_tag, b"iroha/sumeragi/result/v1");
-        assert_eq!(constants.result_body_tag, b"iroha/sumeragi/result-body/v1");
-        assert_eq!(
-            (MAX_BLOCK_PATH, MAX_HISTORY_PATH, MAX_PAYLOAD_BYTES),
-            (9, 32, 4096)
-        );
-        roundtrip(&constants);
-        assert_rejects_unknown_field(&constants);
-        assert_requires_field(&constants, "signature_dst");
-    }
-    #[test]
-    fn full_generation_data_roundtrips_all_fields_without_trust_conversion() {
-        let member = SccpGenerationMemberV1 {
-            lane_id: u32::MAX,
-            validator: iroha_data_model::account::AccountId::new(
-                KeyPair::from_seed(vec![0x35; 32], Algorithm::Ed25519)
-                    .public_key()
-                    .clone(),
-            ),
-            activation_height: 7,
-        };
-        roundtrip(&member);
-        assert_rejects_unknown_field(&member);
-        let json = norito::json::to_value(&member).unwrap();
-        assert_eq!(
-            json.get("lane_id").and_then(Value::as_u64),
-            Some(u64::from(u32::MAX))
-        );
-        let end = SccpGenerationEndV1 {
-            end_height: 20,
-            end_timestamp_ms: 30,
-            next_committee_root: [0x21; 32],
-            successor_validity_ms: 40,
-        };
-        roundtrip(&end);
-        assert_rejects_unknown_field(&end);
-        for cause in [
-            SccpGenerationCauseV1::Genesis,
-            SccpGenerationCauseV1::KeyChange,
-            SccpGenerationCauseV1::Heartbeat,
-            SccpGenerationCauseV1::Resync,
-        ] {
-            for ended in [false, true] {
-                let data = SccpGenerationV1 {
-                    generation: 2,
-                    committee_root: [0x11; 32],
-                    cause,
-                    start_height: 8,
-                    start_timestamp_ms: 9,
-                    start_lc: 6,
-                    validity_ms: 10,
-                    deadline_ms: 19,
-                    grace_ms: 11,
-                    progress_cap_ms: 12,
-                    liable_until_lc: 27,
-                    dest_cleared_lc: ended.then_some(31),
-                    liable: !ended,
-                    end: ended.then_some(end.clone()),
-                    keys: vec![[0x12; 48]; 4],
-                    members: vec![Some(member.clone()), None, None, None],
-                };
-                roundtrip(&data);
-                assert_rejects_unknown_field(&data);
-                for field in [
-                    "generation",
-                    "committee_root",
-                    "cause",
-                    "start_height",
-                    "start_timestamp_ms",
-                    "start_lc",
-                    "validity_ms",
-                    "deadline_ms",
-                    "grace_ms",
-                    "progress_cap_ms",
-                    "liable_until_lc",
-                    "dest_cleared_lc",
-                    "liable",
-                    "end",
-                    "keys",
-                    "members",
-                ] {
-                    assert_requires_field(&data, field);
-                }
-                // Deliberately synthetic DATA keys: codecs do not certify a committee.
-                assert_eq!(data.keys[0], data.keys[1]);
+        for historical in [false, true] {
+            let message = message_bundle(historical);
+            assert_eq!(message.is_historical(), historical);
+            let proof = message.message_proof();
+            assert_eq!(proof.payload, message.payload);
+            assert_eq!(proof.leaf_index, message.leaf_index);
+            assert_eq!(proof.path, message.path);
+            assert_eq!(SccpBlockRefV1::from(&proof.block), message.block);
+            assert_eq!(message.check_shape(), Ok(()));
+            for paused in [false, true] {
+                let mut control = control_bundle(historical);
+                control.parliament_paused = paused;
+                assert_eq!(control.is_historical(), historical);
+                let proof = control.control_proof();
+                assert_eq!(proof.control_nonce, control.control_nonce);
+                assert_eq!(proof.track, control.track);
+                assert_eq!(proof.parliament_paused, u8::from(paused));
+                assert_eq!(proof.fast_pause_until_ms, control.fast_pause_until_ms);
+                assert_eq!(proof.certificate_id, control.certificate_id);
+                assert_eq!(proof.effect_hash, control.effect_hash);
+                assert_eq!(proof.leaf_index, control.leaf_index);
+                assert_eq!(proof.path, control.path);
+                assert_eq!(SccpBlockRefV1::from(&proof.block), control.block);
+                assert_eq!(control.check_shape(), Ok(()));
             }
         }
+    }
+
+    #[test]
+    fn bundle_shapes_enforce_payload_path_and_certificate_bounds() {
+        let mut message = message_bundle(false);
+        message.payload = vec![0; MAX_PAYLOAD_BYTES];
+        message.path = vec![[0; 32]; MAX_BLOCK_PATH];
+        message.block.history_path = vec![[0; 32]; MAX_HISTORY_PATH];
+        assert_eq!(message.check_shape(), Ok(()));
+        message.payload.push(0);
+        assert_eq!(message.check_shape(), Err(ApiShapeError::PayloadTooLong));
+        message.payload.pop();
+        message.path.push([0; 32]);
+        assert_eq!(message.check_shape(), Err(ApiShapeError::BlockPathTooLong));
+        message.path.pop();
+        message.block.history_path.push([0; 32]);
+        assert_eq!(
+            message.check_shape(),
+            Err(ApiShapeError::HistoryPathTooLong)
+        );
+        message.block.history_path.pop();
+        message.certificate.committee.clear();
+        assert_eq!(message.check_shape(), Err(ApiShapeError::BadCommittee));
+
+        let mut control = control_bundle(true);
+        control.path = vec![[0; 32]; MAX_BLOCK_PATH];
+        control.block.history_path = vec![[0; 32]; MAX_HISTORY_PATH];
+        assert_eq!(control.check_shape(), Ok(()));
+        control.path.push([0; 32]);
+        assert_eq!(control.check_shape(), Err(ApiShapeError::BlockPathTooLong));
+        control.path.pop();
+        control.block.history_path.push([0; 32]);
+        assert_eq!(
+            control.check_shape(),
+            Err(ApiShapeError::HistoryPathTooLong)
+        );
+        control.block.history_path.pop();
+        control.certificate.height += 1;
+        assert_eq!(
+            control.check_shape(),
+            Err(ApiShapeError::CertificateHeightMismatch)
+        );
     }
 }

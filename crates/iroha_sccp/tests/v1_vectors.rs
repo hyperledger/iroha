@@ -1,31 +1,18 @@
-//! Golden current SCCP v1 vectors (`specs/sccp.md` §11).
+//! Current SCCP payload, commitment, history and native-certificate EVM vectors.
 //!
-//! Regenerates `fixtures/sccp/{payload,commitment_tree,history,evm_calldata}_v1.json`
-//! and verifies exact committed bytes. The mixed commitment tree uses native 199-byte
-//! control leaves with explicit synthetic certificate/effect identities; these are DATA,
-//! not evidence of Parliament authorization. Native EVM scenarios use genuine BLS certificates.
-//! `control_v1.json` remains owned by `tests/v1_reference_control.rs`.
-//!
-//! After a reviewed change, run the ignored `regenerate_v1_vectors` test, then read back
-//! with `v1_vectors_match_committed_fixtures` and regenerate the Tolk vectors.
-
-mod reference_support;
+//! `v1_reference_finality`, `v1_reference_transitions` and `v1_reference_control`
+//! own the independent native BLS, committee and control reference fixtures.
+//! This generator preserves every payload, tree/path and source-calldata control.
+//! Regenerate with `cargo test -p iroha_sccp --test v1_vectors -- --ignored regenerate_v1_vectors`.
 
 use std::{fs, path::PathBuf};
 
 use iroha_data_model::{bridge::SccpNetworkV1, prelude::Numeric};
-use iroha_sccp::ethereum_signing::address_of_secret;
 use iroha_sccp::v1::{
     amount::taira_units,
     constants::{CODEC_CANONICAL_TEXT, CODEC_TAIRA_ACCOUNT, TON_AMOUNT_BOUND},
-    control::{ControlLeafV1, TRACK_PARLIAMENT, control_leaf, control_leaf_preimage},
-    evm_abi::{
-        TransferToTairaCallV1, TransferToTairaLogV1, ViewCallV1, VoidCallV1, VoidedLogV1,
-        apply_control_calldata, apply_control_from_checkpoint_calldata,
-        finalize_from_checkpoint_calldata, finalize_from_taira_calldata,
-        submit_checkpoints_calldata, void_expired_calldata, void_expired_from_checkpoint_calldata,
-        void_frozen_calldata,
-    },
+    control::{ControlLeafV1, control_leaf, control_leaf_preimage},
+    evm_abi::{TransferToTairaCallV1, VoidCallV1, void_frozen_calldata},
     hashes::{
         history_leaf, keccak256, message_id, node, payload_hash, to_hex, transfer_leaf,
         word_address,
@@ -37,6 +24,7 @@ use iroha_sccp::v1::{
         route_id, tag,
     },
     payload::{PayloadAccountV1, SccpTransferPayloadV1},
+    proof::DestinationV1,
 };
 use norito::json::{Map, Value};
 
@@ -121,14 +109,6 @@ fn profile(network: SccpNetworkV1) -> Value {
 // Shared deterministic inputs
 // ---------------------------------------------------------------------------------------------
 
-fn fixture_secret(index: u8) -> [u8; 32] {
-    keccak256(&[b"SCCP/FIXTURE/KEY/V1", &[index]])
-}
-
-fn fixture_address(index: u8) -> [u8; 20] {
-    address_of_secret(&fixture_secret(index)).expect("fixture secret is a valid scalar")
-}
-
 fn taira_account(seed: u8) -> Vec<u8> {
     let mut bytes = vec![0x02, 0x01, 0x20];
     bytes.extend_from_slice(&keccak256(&[b"SCCP/FIXTURE/TAIRA/V1", &[seed]]));
@@ -156,6 +136,14 @@ fn destination_word(network: SccpNetworkV1) -> [u8; 32] {
     }
 }
 
+fn eth_destination() -> DestinationV1 {
+    DestinationV1 {
+        network: SccpNetworkV1::EthereumMainnet,
+        route_revision: 1,
+        destination_word: destination_word(SccpNetworkV1::EthereumMainnet),
+    }
+}
+
 /// The ETH outbound payload with `nonce` used by the tree and calldata vectors.
 fn eth_outbound(nonce: u64) -> SccpTransferPayloadV1 {
     SccpTransferPayloadV1::outbound(
@@ -176,16 +164,15 @@ fn eth_transfer_leaf(nonce: u64) -> [u8; 32] {
     transfer_leaf(&id, &destination_word(SccpNetworkV1::EthereumMainnet))
 }
 
-// Synthetic native control fields for tree/path tests, not an enacted certificate.
-fn tree_control(control_nonce: u64, paused: bool) -> ControlLeafV1 {
+fn control_fields(control_nonce: u64, paused: bool) -> ControlLeafV1 {
     ControlLeafV1 {
         route_revision: 1,
         control_nonce,
-        track: TRACK_PARLIAMENT,
+        track: 1,
         parliament_paused: u8::from(paused),
         fast_pause_until_ms: 0,
-        certificate_id: [0x33; 32],
-        effect_hash: [0x44; 32],
+        certificate_id: [0x71; 32],
+        effect_hash: [0x72; 32],
     }
 }
 
@@ -194,9 +181,9 @@ fn eth_control_leaf(control_nonce: u64, paused: bool) -> [u8; 32] {
         &TAIRA,
         SccpNetworkV1::EthereumMainnet,
         &destination_word(SccpNetworkV1::EthereumMainnet),
-        &tree_control(control_nonce, paused),
+        &control_fields(control_nonce, paused),
     )
-    .expect("valid native control leaf")
+    .expect("valid control leaf")
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -567,20 +554,19 @@ fn commitment_tree_fixture() -> Value {
         &TAIRA,
         SccpNetworkV1::EthereumMainnet,
         &word,
-        &tree_control(3, true),
+        &control_fields(3, true),
     )
     .expect("control preimage");
-    assert_eq!(control_preimage.len(), 199);
     let control = obj([
         ("target", profile(SccpNetworkV1::EthereumMainnet)),
         ("destination_word", hex(&word)),
         ("route_revision", num(1)),
         ("control_nonce", num(3)),
-        ("track", num(u64::from(TRACK_PARLIAMENT))),
+        ("track", num(1)),
         ("parliament_paused", num(1)),
         ("fast_pause_until_ms", num(0)),
-        ("certificate_id", hex(&tree_control(3, true).certificate_id)),
-        ("effect_hash", hex(&tree_control(3, true).effect_hash)),
+        ("certificate_id", hex(&[0x71; 32])),
+        ("effect_hash", hex(&[0x72; 32])),
         ("preimage", hex(&control_preimage)),
         ("leaf", hex(&eth_control_leaf(3, true))),
     ]);
@@ -676,7 +662,7 @@ fn commitment_tree_fixture() -> Value {
     with(
         header(
             "iroha.sccp.commitment-tree.v1",
-            "specs/sccp.md §3.3, §3.4 (native control leaf)",
+            "specs/sccp.md §3.3, §3.4 (revision 5)",
         ),
         vec![
             ("taira_network_id", hex(&TAIRA)),
@@ -691,9 +677,7 @@ fn commitment_tree_fixture() -> Value {
             (
                 "leaf_rule",
                 text(
-                    "leaf i is the native control leaf (revision = 1, control_nonce = i + 1, \
-                     track = 1, parliament_paused = i even, fast_pause_until_ms = 0, \
-                     certificate_id = 0x33 repeated 32 bytes, effect_hash = 0x44 repeated 32 bytes) when \
+                    "leaf i is the control leaf (control_nonce = i + 1, parliament_paused = i even, track = 1, fast_pause_until_ms = 0, certificate_id = 0x71 repeated 32 times, effect_hash = 0x72 repeated 32 times) when \
                      i mod 3 = 2, else the transfer leaf of the ethereum-mainnet outbound payload \
                      with nonce i, amount 1000000000 + i, deadline_ms 1800086400000",
                 ),
@@ -777,7 +761,10 @@ fn history_fixture() -> Value {
         })
         .collect();
     with(
-        header("iroha.sccp.history.v1", "specs/sccp.md §3.5"),
+        header(
+            "iroha.sccp.history.v1",
+            "specs/sccp.md §3.5, §5.1.3 (revision 5)",
+        ),
         vec![
             (
                 "leaf_rule",
@@ -793,414 +780,8 @@ fn history_fixture() -> Value {
     )
 }
 
-// ---------------------------------------------------------------------------------------------
-// evm_calldata_v1.json
-// ---------------------------------------------------------------------------------------------
-
-/// The coherent scenario behind the calldata vectors.
-fn call_json(label: &str, function: &str, calldata: &[u8]) -> Value {
-    obj([
-        ("label", text(label)),
-        ("function", text(function)),
-        ("calldata", hex(calldata)),
-    ])
-}
-
-/// Native certificates are produced by the maintained independent Rust reference support.
-/// Every golden call is executed by the destination model before its bytes are recorded.
-fn evm_calldata_fixture() -> Value {
-    use iroha_sccp::v1::{
-        control::ControlLeafV1,
-        destination::{CheckpointRefV1, DeploymentV1, DestinationFlavor},
-        destination_abi,
-        evm_abi::{
-            CommitteeViewV1, InitialCommitteeViewV1, PauseStateV1, ViewReturnV1,
-            encode_committee_state_return, encode_initial_committee_return,
-            encode_pause_state_return,
-        },
-    };
-    use reference_support::{
-        insert,
-        scenario::{CertificatePool, Scenario, Source, Submission},
-        taira_sim::{CertifyOptions, Committee, Rotate, TairaSim},
-    };
-    use std::{cell::RefCell, rc::Rc};
-    let g7 = Committee::new("g7", 0..4);
-    let g8 = Committee::new("g8", 4..8);
-    let mut sim = TairaSim::new(
-        TAIRA,
-        [0x77; 32],
-        SccpNetworkV1::EthereumMainnet,
-        word_address(&[0x22; 20]),
-    );
-    sim.start(7, g7.clone(), 50, T0, 14 * DAY);
-    let recipient = [0x55; 20];
-    sim.block(
-        50,
-        T0 + 50_000,
-        vec![sim.transfer(0, 1_000_000_000, DEADLINE, &recipient)],
-        None,
-        None,
-    );
-    let ctl = ControlLeafV1 {
-        route_revision: 1,
-        control_nonce: 1,
-        track: 1,
-        parliament_paused: 1,
-        fast_pause_until_ms: 0,
-        certificate_id: [0x61; 32],
-        effect_hash: [0x62; 32],
-    };
-    let b100 = sim.block(
-        100,
-        T0 + 100_000,
-        vec![
-            sim.control(&ctl, true),
-            sim.transfer(1, 2_000_000_000, DEADLINE, &recipient),
-            sim.transfer(2, 2_000_000_000, DEADLINE, &recipient),
-        ],
-        None,
-        None,
-    );
-    let b150 = sim.block(
-        150,
-        T0 + 150_000,
-        vec![],
-        Some(Rotate::Key(g8.clone())),
-        None,
-    );
-    let b200 = sim.block(
-        200,
-        T0 + 200_000,
-        vec![sim.transfer(3, 3_000_000_000, DEADLINE, &recipient)],
-        None,
-        None,
-    );
-    let c100 = sim.certify(&b100.x(), &g7, &CertifyOptions::default());
-    let c150 = sim.certify(&b150.x(), &g7, &CertifyOptions::default());
-    let c200 = sim.certify(&b200.x(), &g8, &CertifyOptions::default());
-    let s100 = Submission::new(c100.clone(), "block100", "g7");
-    let s150 = Submission::new(c150.clone(), "rotation150", "g7").with_next(&g8);
-    let s200 = Submission::new(c200.clone(), "block200", "g8");
-    let cert = c100.wire();
-    let checkpoint = CheckpointRefV1 { header: b200.x() };
-    let direct = sim.message_proof(100, 1, &b100.header);
-    let historical = sim.message_proof(100, 2, &b200.header);
-    let control = sim.control_proof(100, 0, &b100.header);
-    let historical_control = sim.control_proof(100, 0, &b200.header);
-    let deployment = DeploymentV1 {
-        flavor: DestinationFlavor::Evm,
-        taira_network_id: TAIRA,
-        consensus_instance: [0x77; 32],
-        network: SccpNetworkV1::EthereumMainnet,
-        destination_word: word_address(&[0x22; 20]),
-        route_revision: 1,
-        max_wrapped_supply: 1_000_000_000_000_000_000,
-        pin_generation: 7,
-        pin_root: g7.root(),
-        pin_start_height: 50,
-        pin_until_ms: T0 + 14 * DAY,
-        pin_keys: None,
-    };
-    let pool = Rc::new(RefCell::new(CertificatePool::default()));
-    let fresh = |name| {
-        Scenario::new(
-            name,
-            "Native ABI golden calldata, derived and verified in Rust",
-            deployment.clone(),
-            &pool,
-            true,
-        )
-    };
-    let mut calls = Vec::new();
-    let mut add = |label: &str, function: &str, calldata: Vec<u8>, scenario: Scenario| {
-        let mut row = call_json(label, function, &calldata);
-        insert(&mut row, "scenario", scenario.as_json());
-        calls.push(row);
-    };
-    let now = T0 + 300_000;
-    let mut run = fresh("finalize_direct");
-    run.finalize(Source::Inline(&s100), &direct, now, Some("ok"))
-        .expect("direct transfer");
-    add(
-        "finalize_direct",
-        "finalizeFromTaira",
-        finalize_from_taira_calldata(&cert, &direct),
-        run,
-    );
-    let mut run = fresh("finalize_from_checkpoint");
-    run.submit(&[s150.clone(), s200.clone()], now, Some("ok"))
-        .expect("rotation and checkpoint");
-    run.finalize(
-        Source::Checkpoint(&checkpoint.header),
-        &historical,
-        now,
-        Some("ok"),
-    )
-    .expect("historical transfer");
-    add(
-        "finalize_from_checkpoint",
-        "finalizeFromCheckpoint",
-        finalize_from_checkpoint_calldata(&checkpoint, &historical),
-        run,
-    );
-    let mut run = fresh("rotate_one");
-    run.submit(std::slice::from_ref(&s150), now, Some("ok"))
-        .expect("rotation");
-    let after = &run.destination.state().committee;
-    assert_eq!(after.root, g8.root());
-    assert_eq!(after.generation, 8);
-    let committee_view = CommitteeViewV1 {
-        root: after.root,
-        until_ms: after.until_ms,
-        start: after.start,
-        high: after.high,
-        generation: after.generation,
-    };
-    let committee_return = encode_committee_state_return(&committee_view);
-    assert_eq!(
-        ViewCallV1::CommitteeState.decode_return(&committee_return),
-        Ok(ViewReturnV1::CommitteeState(committee_view))
-    );
-    add(
-        "rotate_one",
-        "submitCheckpoints",
-        submit_checkpoints_calldata(&[c150.wire()]),
-        run,
-    );
-    let mut run = fresh("apply_control_direct");
-    run.apply_control(Source::Inline(&s100), &control, now, Some("ok"))
-        .expect("direct control");
-    add(
-        "apply_control_direct",
-        "applyControl",
-        apply_control_calldata(&cert, &control),
-        run,
-    );
-    let mut run = fresh("apply_control_from_checkpoint");
-    run.submit(&[s150.clone(), s200.clone()], now, Some("ok"))
-        .expect("rotation and checkpoint");
-    run.apply_control(
-        Source::Checkpoint(&checkpoint.header),
-        &historical_control,
-        now,
-        Some("ok"),
-    )
-    .expect("historical control");
-    add(
-        "apply_control_from_checkpoint",
-        "applyControlFromCheckpoint",
-        apply_control_from_checkpoint_calldata(&checkpoint, &historical_control),
-        run,
-    );
-    let expired = void_expired_calldata(1, &cert, &direct);
-    let expired_checkpoint = void_expired_from_checkpoint_calldata(2, &checkpoint, &historical);
-    assert_eq!(
-        VoidCallV1::decode(&expired),
-        Ok(VoidCallV1::Expired {
-            nonce: 1,
-            from_checkpoint: false
-        })
-    );
-    assert_eq!(
-        VoidCallV1::decode(&expired_checkpoint),
-        Ok(VoidCallV1::Expired {
-            nonce: 2,
-            from_checkpoint: true
-        })
-    );
-    let mut run = fresh("void_expired");
-    run.void_expired(
-        1,
-        Source::Inline(&s100),
-        &direct,
-        DEADLINE + 1000,
-        Some("ok"),
-    )
-    .expect("expired direct");
-    add("void_expired", "voidExpired", expired.clone(), run);
-    let mut run = fresh("void_expired_from_checkpoint");
-    run.submit(&[s150.clone(), s200.clone()], now, Some("ok"))
-        .expect("rotation and checkpoint");
-    run.void_expired(
-        2,
-        Source::Checkpoint(&checkpoint.header),
-        &historical,
-        DEADLINE + 1000,
-        Some("ok"),
-    )
-    .expect("expired historical");
-    add(
-        "void_expired_from_checkpoint",
-        "voidExpiredFromCheckpoint",
-        expired_checkpoint.clone(),
-        run,
-    );
-    let frozen = void_frozen_calldata(4, 3);
-    assert_eq!(
-        VoidCallV1::decode(&frozen),
-        Ok(VoidCallV1::Frozen {
-            first_nonce: 4,
-            count: 3
-        })
-    );
-    let mut run = fresh("void_frozen");
-    run.void_frozen(4, 3, T0 + 14 * DAY + 1000, Some("ok"))
-        .expect("frozen void");
-    add("void_frozen", "voidFrozen", frozen, run);
-
-    let transfer_call = TransferToTairaCallV1 {
-        taira_recipient: taira_account(9),
-        token_amount: 1_500_000_000,
-        expected_nonce: 0,
-    };
-    let transfer_calldata = transfer_call.calldata();
-    assert_eq!(
-        TransferToTairaCallV1::decode(&transfer_calldata),
-        Ok(transfer_call.clone())
-    );
-    calls.push(call_json(
-        "transfer_to_taira",
-        "transferToTaira",
-        &transfer_calldata,
-    ));
-    let initial = InitialCommitteeViewV1 {
-        generation: 7,
-        root: g7.root(),
-        start: 50,
-        until_ms: T0 + 14 * DAY,
-    };
-    let pause = PauseStateV1 {
-        parliament_paused: true,
-        fast_pause_until_ms: 0,
-        control_nonce: 1,
-        effective: true,
-    };
-    let initial_return = encode_initial_committee_return(&initial);
-    let pause_return = encode_pause_state_return(&pause);
-    assert_eq!(
-        ViewCallV1::InitialCommittee.decode_return(&initial_return),
-        Ok(ViewReturnV1::InitialCommittee(initial))
-    );
-    assert_eq!(
-        ViewCallV1::PauseState.decode_return(&pause_return),
-        Ok(ViewReturnV1::PauseState(pause))
-    );
-    let views: Vec<Value> = [
-        ("committeeState", ViewCallV1::CommitteeState),
-        ("checkpointHeader", ViewCallV1::CheckpointHeader(200)),
-        ("pauseState", ViewCallV1::PauseState),
-        ("consensusInstance", ViewCallV1::ConsensusInstance),
-        ("initialCommittee", ViewCallV1::InitialCommittee),
-        ("equivocated", ViewCallV1::Equivocated),
-        ("maxValidityMs", ViewCallV1::MaxValidityMs),
-        ("isConsumed", ViewCallV1::IsConsumed(300)),
-        ("transferNonces", ViewCallV1::TransferNonces(recipient)),
-        ("tairaNetworkId", ViewCallV1::TairaNetworkId),
-        ("routeRevision", ViewCallV1::RouteRevision),
-        ("maxWrappedSupply", ViewCallV1::MaxWrappedSupply),
-        ("mintingPaused", ViewCallV1::MintingPaused),
-        ("controlNonce", ViewCallV1::ControlNonce),
-        ("opCount", ViewCallV1::OpCount),
-    ]
-    .into_iter()
-    .map(|(name, call)| call_json(name, name, &call.calldata()))
-    .collect();
-    let inbound = transfer_call
-        .inbound_payload(SccpNetworkV1::EthereumMainnet, 1, &recipient)
-        .expect("inbound payload");
-    let transfer_log = TransferToTairaLogV1 {
-        message_id: inbound.message_id(&TAIRA).expect("id"),
-        sender: recipient,
-        nonce: 0,
-        payload: inbound.encode().expect("payload"),
-    };
-    assert_eq!(
-        transfer_log.verified_payload(&TAIRA, SccpNetworkV1::EthereumMainnet, 1),
-        Ok(inbound)
-    );
-    let expired_log = VoidedLogV1 {
-        message_id: SccpTransferPayloadV1::decode(&direct.payload)
-            .expect("payload")
-            .message_id(&TAIRA)
-            .expect("id"),
-        nonce: 1,
-    };
-    let frozen_log = VoidedLogV1 {
-        message_id: [0; 32],
-        nonce: 4,
-    };
-    let mut logs = Vec::new();
-    let log_json = |label: &str, (topics, data): (Vec<[u8; 32]>, Vec<u8>)| {
-        obj([
-            ("label", text(label)),
-            ("topics", hexes(&topics)),
-            ("data", hex(&data)),
-        ])
-    };
-    let (topics, data) = transfer_log.encode();
-    assert_eq!(
-        TransferToTairaLogV1::decode(&topics, &data),
-        Ok(transfer_log.clone())
-    );
-    logs.push(log_json("transfer_to_taira", (topics, data)));
-    for (label, log) in [
-        ("voided_expired", expired_log),
-        ("voided_frozen", frozen_log),
-    ] {
-        let (topics, data) = log.encode();
-        assert_eq!(VoidedLogV1::decode(&topics, &data), Ok(log));
-        logs.push(log_json(label, (topics, data)));
-    }
-    let selectors = destination_abi::SELECTORS
-        .iter()
-        .map(|(name, signature, selector)| {
-            obj([
-                ("function", text(name)),
-                ("signature", text(signature)),
-                ("selector", hex(selector)),
-            ])
-        })
-        .collect();
-    let events = destination_abi::EVENT_TOPICS
-        .iter()
-        .map(|(_, signature, topic)| obj([("signature", text(signature)), ("topic0", hex(topic))]))
-        .collect();
-    with(
-        header(
-            "iroha.sccp.evm-calldata.v1",
-            "specs/sccp.md §5.1.3–§5.1.8, §5.2.2 (native BLS)",
-        ),
-        vec![
-            ("certificates", pool.borrow().as_json()),
-            (
-                "committees",
-                obj([("g7", g7.as_json()), ("g8", g8.as_json())]),
-            ),
-            ("selectors", Value::Array(selectors)),
-            ("events", Value::Array(events)),
-            ("calls", Value::Array(calls)),
-            ("views", Value::Array(views)),
-            ("logs", Value::Array(logs)),
-            (
-                "view_returns",
-                obj([
-                    ("committee_after_rotation", hex(&committee_return)),
-                    ("initial_committee", hex(&initial_return)),
-                    ("pause_after_control", hex(&pause_return)),
-                ]),
-            ),
-            (
-                "calldata_conformance",
-                Value::Array(calldata_conformance(
-                    &transfer_call,
-                    &expired,
-                    &expired_checkpoint,
-                )),
-            ),
-        ],
-    )
-}
+#[path = "v1_vectors/current_evm.rs"]
+mod current_evm;
 
 /// A conformance verdict: the call succeeds (contract) or decodes (Rust).
 const ACCEPT: &str = "accept";
@@ -1217,12 +798,6 @@ fn with_gap(calldata: &[u8], at: usize) -> Vec<u8> {
     out.extend_from_slice(&[0; WORD]);
     out.extend_from_slice(&calldata[4 + at..]);
     out
-}
-
-/// The `u64` value of the argument word at `at`.
-fn arg_u64(calldata: &[u8], at: usize) -> usize {
-    let low = &calldata[4 + at + 24..4 + at + WORD];
-    usize::try_from(u64::from_be_bytes(low.try_into().expect("8 bytes"))).expect("usize")
 }
 
 /// Adds `delta` to the `u64` argument word at `at`.
@@ -1245,129 +820,11 @@ fn appended(calldata: &[u8], tail: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Each mutation preserves its own Rust/contract verdict. Solidity deliberately allows
-/// noncanonical expired-void offsets/padding/trailing bytes; only the local decoder is strict.
-fn void_expired_variants(
-    base: &[u8],
-    checkpoint: bool,
-) -> Vec<(&'static str, Vec<u8>, &'static str)> {
-    let source_at = arg_u64(base, WORD);
-    let proof_at = arg_u64(base, 2 * WORD);
-    let block_at = proof_at + arg_u64(base, proof_at + 3 * WORD);
-    let source_fields = if checkpoint { 1 } else { 5 };
-    let mut fields = vec![
-        ("dirty_nonce_high_bits", 0, 8),
-        ("dirty_message_leaf_index", proof_at + WORD, 4),
-        ("dirty_block_height", block_at, 8),
-        ("dirty_block_message_count", block_at + 2 * WORD, 4),
-        ("dirty_history_index", block_at + 3 * WORD, 8),
-    ];
-    let mut offsets = vec![
-        ("source_offset_gap", source_at, vec![WORD, 2 * WORD]),
-        ("message_proof_offset_gap", proof_at, vec![2 * WORD]),
-        (
-            "payload_offset_gap",
-            proof_at + arg_u64(base, proof_at),
-            vec![proof_at, proof_at + 2 * WORD, proof_at + 3 * WORD],
-        ),
-        (
-            "path_offset_gap",
-            proof_at + arg_u64(base, proof_at + 2 * WORD),
-            vec![proof_at + 2 * WORD, proof_at + 3 * WORD],
-        ),
-        ("block_offset_gap", block_at, vec![proof_at + 3 * WORD]),
-        (
-            "history_path_offset_gap",
-            block_at + arg_u64(base, block_at + 4 * WORD),
-            vec![block_at + 4 * WORD],
-        ),
-    ];
-    let source_names = [
-        "qc_offset_gap",
-        "header_offset_gap",
-        "signature_offset_gap",
-        "committee_offset_gap",
-        "signer_ys_offset_gap",
-    ];
-    let padding_names = [
-        "nonzero_qc_padding",
-        "nonzero_header_padding",
-        "nonzero_signature_padding",
-        "nonzero_committee_padding",
-        "nonzero_signer_ys_padding",
-    ];
-    let mut paddings = Vec::new();
-    for i in 0..source_fields {
-        let at = source_at + arg_u64(base, source_at + i * WORD);
-        let mut affected: Vec<_> = (i..source_fields).map(|j| source_at + j * WORD).collect();
-        affected.push(2 * WORD);
-        offsets.push((
-            if checkpoint {
-                "checkpoint_header_offset_gap"
-            } else {
-                source_names[i]
-            },
-            at,
-            affected,
-        ));
-        let length = arg_u64(base, at);
-        if length % WORD != 0 {
-            paddings.push((
-                if checkpoint {
-                    "nonzero_checkpoint_header_padding"
-                } else {
-                    padding_names[i]
-                },
-                at,
-            ));
-        }
-    }
-    let payload = proof_at + arg_u64(base, proof_at);
-    assert_ne!(
-        arg_u64(base, payload) % WORD,
-        0,
-        "payload padding control is meaningful"
-    );
-    paddings.push(("nonzero_payload_padding", payload));
-    let mut variants = vec![
-        ("canonical", base.to_vec(), ACCEPT),
-        ("trailing_byte", appended(base, &[0]), ACCEPT),
-        ("trailing_word", appended(base, &[0; WORD]), ACCEPT),
-        ("short_byte", base[..base.len() - 1].to_vec(), EMPTY_REVERT),
-        ("offset_high_bits", dirty(base, WORD, 0), EMPTY_REVERT),
-    ];
-    variants.extend(
-        fields
-            .drain(..)
-            .map(|(label, at, width)| (label, dirty(base, at, WORD - width - 1), EMPTY_REVERT)),
-    );
-    variants.extend(offsets.into_iter().map(|(label, at, affected)| {
-        let mut bytes = with_gap(base, at);
-        for offset in affected {
-            assert!(offset < at, "offset precedes gap");
-            bump(&mut bytes, offset, 32);
-        }
-        (label, bytes, ACCEPT)
-    }));
-    variants.extend(paddings.into_iter().map(|(label, at)| {
-        let mut bytes = base.to_vec();
-        let len = arg_u64(base, at);
-        bytes[4 + at + WORD + len] = 1;
-        (label, bytes, ACCEPT)
-    }));
-    variants
-}
-
 /// The shared void and burn calldata conformance table (§5.1.7, §5.1.8, §5.2.2): every entry
 /// records the Rust decoder's verdict and the destination's outcome in a state where the
-/// canonical call succeeds. Transfer/frozen verdicts agree; expired-void canonicality is
-/// intentionally stricter locally than Solidity. `contract` is
+/// canonical call succeeds, and the two accept exactly the same entries. `contract` is
 /// `accept`, a custom error, or `empty` for a revert in Solidity's ABI decoder.
-fn calldata_conformance(
-    transfer_call: &TransferToTairaCallV1,
-    void_expired: &[u8],
-    void_expired_checkpoint: &[u8],
-) -> Vec<Value> {
+fn calldata_conformance(transfer_call: &TransferToTairaCallV1) -> Vec<Value> {
     let mut cases: Vec<(&str, String, Vec<u8>, &str)> = Vec::new();
     let mut push = |function: &'static str,
                     variants: Vec<(&'static str, Vec<u8>, &'static str)>| {
@@ -1375,12 +832,6 @@ fn calldata_conformance(
             cases.push((function, label.to_owned(), calldata, contract));
         }
     };
-
-    push("voidExpired", void_expired_variants(void_expired, false));
-    push(
-        "voidExpiredFromCheckpoint",
-        void_expired_variants(void_expired_checkpoint, true),
-    );
 
     // `voidFrozen` in a frozen state; the accepted ranges are disjoint.
     let frozen = void_frozen_calldata(4, 3);
@@ -1507,19 +958,11 @@ fn calldata_conformance(
                 Ok(()) => text(ACCEPT),
                 Err(error) => error_name(error),
             };
-            if matches!(function, "transferToTaira" | "voidFrozen") {
-                assert_eq!(
-                    decoder == text(ACCEPT),
-                    contract == ACCEPT,
-                    "{function} {label}: canonicality verdicts agree"
-                );
-            } else {
-                assert_eq!(
-                    decoder == text(ACCEPT),
-                    label == "canonical",
-                    "{function} {label}: local expired-void decoding is canonical only"
-                );
-            }
+            assert_eq!(
+                decoder == text(ACCEPT),
+                contract == ACCEPT,
+                "{function} {label}: the decoder and the contract disagree"
+            );
             obj([
                 ("function", text(function)),
                 ("label", text(&label)),
@@ -1541,7 +984,7 @@ const FIXTURES: [(&str, Generator); 4] = [
     ("payload_v1.json", payload_fixture),
     ("commitment_tree_v1.json", commitment_tree_fixture),
     ("history_v1.json", history_fixture),
-    ("evm_calldata_v1.json", evm_calldata_fixture),
+    ("evm_calldata_v1.json", current_evm::fixture),
 ];
 
 fn fixture_path(name: &str) -> PathBuf {
@@ -1585,27 +1028,4 @@ fn regenerate_v1_vectors() {
         fs::write(&path, render(&generate()))
             .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
     }
-}
-
-/// Focused native-EVM parity without rewriting the other, separately owned fixture families.
-#[test]
-fn evm_calldata_v1_matches_committed_fixture() {
-    let value = evm_calldata_fixture();
-    let actual = fs::read_to_string(fixture_path("evm_calldata_v1.json")).expect("EVM fixture");
-    assert_eq!(actual, render(&value));
-    assert_eq!(
-        norito::json::from_str::<Value>(&actual).expect("JSON"),
-        value
-    );
-}
-
-/// Regenerate only the native EVM fixture after a reviewed ABI migration.
-#[test]
-#[ignore = "rewrites only fixtures/sccp/evm_calldata_v1.json"]
-fn regenerate_evm_calldata_v1() {
-    fs::write(
-        fixture_path("evm_calldata_v1.json"),
-        render(&evm_calldata_fixture()),
-    )
-    .expect("write native EVM fixture");
 }

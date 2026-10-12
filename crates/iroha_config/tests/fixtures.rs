@@ -415,6 +415,52 @@ fn torii_max_content_len_defaults_to_sixty_four_megabytes() {
     );
 }
 #[test]
+fn sccp_history_cache_has_its_own_finite_default_and_exact_override() {
+    let default = load_config_from_fixtures("minimal_with_trusted_peers.toml").unwrap();
+    assert_eq!(default.torii.sccp_history_cache_max_bytes.get(), 8_000_000);
+    let explicit = ConfigReader::new()
+        .without_env()
+        .read_toml_with_extends(fixtures_dir().join("minimal_with_trusted_peers.toml"))
+        .unwrap()
+        .with_toml_source(TomlSource::inline(
+            "[torii]\nsccp_history_cache_max_bytes = 4096"
+                .parse()
+                .unwrap(),
+        ))
+        .read_and_complete::<UserConfig>()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert_eq!(explicit.torii.sccp_history_cache_max_bytes.get(), 4096);
+    assert_eq!(
+        explicit.torii.query_fanout_max_retained_bytes.get(),
+        default.torii.query_fanout_max_retained_bytes.get()
+    );
+    assert_eq!(
+        explicit.torii.query_fanout_max_working_set_bytes.get(),
+        default.torii.query_fanout_max_working_set_bytes.get()
+    );
+}
+
+#[test]
+fn sccp_history_cache_rejects_zero_capacity() {
+    let config = ConfigReader::new()
+        .without_env()
+        .read_toml_with_extends(fixtures_dir().join("minimal_with_trusted_peers.toml"))
+        .unwrap()
+        .with_toml_source(TomlSource::inline(
+            "[torii]\nsccp_history_cache_max_bytes = 0".parse().unwrap(),
+        ))
+        .read_and_complete::<UserConfig>()
+        .unwrap();
+    let error = config.parse().unwrap_err();
+    assert!(
+        format!("{error:?}")
+            .contains("torii.sccp_history_cache_max_bytes must be greater than zero")
+    );
+}
+
+#[test]
 fn portable_production_capabilities_default_to_enabled() {
     let config = load_config_from_fixtures("minimal_with_trusted_peers.toml")
         .expect("config should be valid");
@@ -1986,44 +2032,37 @@ fn taira_config_enables_untrusted_cid_hosting() {
         .collect();
     assert_eq!(
         dataspace_aliases,
-        ["universal", "dpn", "is", "is2", "cbsi"],
+        ["universal", "dpn", "is2", "bpng", "cbsi", "is"],
         "only physically distinct validator/storage topologies belong in the dataspace catalog"
     );
-    let external_dataspace = dataspaces
-        .iter()
-        .find(|entry| {
-            entry
-                .get("alias")
-                .and_then(TomlValue::as_str)
-                .is_some_and(|alias| alias == "is")
-        })
-        .expect("Taira profile should include the external `is` dataspace");
-    assert_eq!(
-        external_dataspace.get("id").and_then(TomlValue::as_integer),
-        Some(6_647_857_470_246_403_404),
-        "external dataspace id should match its manifest hash"
-    );
-    let mobile_dataspace = dataspaces
-        .iter()
-        .find(|entry| {
-            entry
-                .get("alias")
-                .and_then(TomlValue::as_str)
-                .is_some_and(|alias| alias == "is2")
-        })
-        .expect("Taira profile should include the mobile `is2` dataspace");
-    assert_eq!(
-        mobile_dataspace.get("id").and_then(TomlValue::as_integer),
-        Some(8_477_022_798_449_861_195),
-        "mobile dataspace id should match its manifest hash"
-    );
+    let universal = &dataspaces[0];
+    assert_eq!(universal.get("id").and_then(TomlValue::as_integer), Some(0));
+    assert!(universal.get("manifest_hash").is_none());
+    for entry in &dataspaces[1..] {
+        let alias = entry.get("alias").and_then(TomlValue::as_str).unwrap();
+        let name_hash = iroha_data_model::sns::NameSelectorV1::new(
+            iroha_data_model::sns::DATASPACE_ALIAS_SUFFIX_ID,
+            alias,
+        )
+        .expect("canonical SNS dataspace alias")
+        .name_hash();
+        assert_eq!(
+            entry.get("manifest_hash").and_then(TomlValue::as_str),
+            Some(hex::encode(name_hash).as_str()),
+            "{alias} must retain its full canonical SNS dataspace identity"
+        );
+        assert!(
+            entry.get("id").is_none(),
+            "{alias} must derive its identity from the full manifest hash"
+        );
+    }
     let nexus = doc
         .get("nexus")
         .and_then(TomlValue::as_table)
         .expect("nexus should be configured");
     assert_eq!(
         nexus.get("lane_count").and_then(TomlValue::as_integer),
-        Some(7),
+        Some(8),
         "Taira profile should reserve one logical lane for every configured workload"
     );
     let lanes = nexus
@@ -2050,9 +2089,10 @@ fn taira_config_enables_untrusted_cid_hosting() {
             ("governance", "universal"),
             ("zk", "universal"),
             ("dpn", "dpn"),
-            ("external-poc", "is"),
-            ("boi-mobile", "is2"),
+            ("is2", "is2"),
+            ("bpng", "bpng"),
             ("cbsi", "cbsi"),
+            ("is", "is"),
         ],
         "logical lanes must bind to physical dataspaces without conflating the two catalogs"
     );

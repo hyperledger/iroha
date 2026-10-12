@@ -74,7 +74,7 @@ fn exact_tip_and_alternate_certificate_keep_native_placement_results() {
         // The same block with a different corrupt QC must never inherit the exact tip verdict.
         let mut invalid = alternate;
         let header = core(&invalid);
-        let execution = result(&invalid);
+        let execution = result(&invalid, chain.root_scope());
         let mut qc = commit_qc(&invalid);
         qc.agg_sig.0[0] ^= 1;
         replace_certificate(&mut invalid, &header, &qc, &execution);
@@ -249,9 +249,26 @@ fn exact_tip_placement_preserves_active_decoder_charges_and_refusals() {
             .expect_err("an active owner must still refuse the exact retained tip");
         // Both calls borrow the same original frame and refuse before creating
         // a decoded graph: even one compact public key needs payload_bytes + 1.
+        let (
+            FinalityError::DecodeResource(actual_error),
+            FinalityError::DecodeResource(expected_error),
+        ) = (actual_error, expected_error)
+        else {
+            panic!("original decoder refusal required at allocation cap {cap}")
+        };
+        // Independent budgets retain distinct opaque origins. Their original classification
+        // and exact diagnostic fields agree; their owner identities must remain independent.
         assert_eq!(
-            format!("{actual_error:?}"),
-            format!("{expected_error:?}"),
+            actual_error.kind(),
+            norito::core::DecodeAttemptErrorKind::EnclosingLimit
+        );
+        assert_eq!(
+            expected_error.kind(),
+            norito::core::DecodeAttemptErrorKind::EnclosingLimit
+        );
+        assert_eq!(
+            actual_error.into_error().decode_resource_error(),
+            expected_error.into_error().decode_resource_error(),
             "placement refusal differs at allocation cap {cap}"
         );
         assert_eq!(

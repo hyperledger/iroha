@@ -1,13 +1,71 @@
 //! Actual original allocation custody and admission before World writer acquisition.
 
 use super::*;
-use crate::state::World;
+use crate::state::{AnchorStorage, CommitteeStorage, World, sccp_forgery_custody::OffenceStorage};
 use iroha_allocation::{AllocationBudget, AllocationRefusal};
 use mv::cell::{Cell, CellPublicationSuccessor};
 use std::{
     sync::{Arc, mpsc},
     time::Duration,
 };
+
+fn world_on(source: &AllocationBudget) -> World {
+    World::try_with_execution_budget([], [], [], source).unwrap()
+}
+
+// Measure all independently exercised prepaid tables alongside the exact Cell
+// and aggregate layouts. Their real empty-undo resets and publication owners
+// share one original refund scope, just as they do in World acquisition.
+fn prepaid_world_table_writer_bytes(mode: BlockMode, freeze: bool) -> usize {
+    use mv::BlockCapture;
+    let source = AllocationBudget::new(1 << 20);
+    let table = CommitteeStorage::try_new_admitted(source.clone()).unwrap();
+    let anchors = AnchorStorage::try_new_admitted(source.clone()).unwrap();
+    let offences = OffenceStorage::try_new_admitted(source.clone()).unwrap();
+    let baseline = source.reserved_bytes();
+    let scope = source.try_owned_refund_scope().unwrap();
+    let mut slot = table.try_block_acquisition_owned(&scope).unwrap();
+    slot.try_initialize(mode).unwrap();
+    let block = slot.take_block();
+    drop(slot);
+    let mut anchor_slot = anchors.try_block_acquisition_owned(&scope).unwrap();
+    anchor_slot.try_initialize(mode).unwrap();
+    let anchor_block = anchor_slot.take_block();
+    drop(anchor_slot);
+    let mut offence_slot = offences.try_block_acquisition_owned(&scope).unwrap();
+    offence_slot.try_initialize(mode).unwrap();
+    let offence_block = offence_slot.take_block();
+    drop(offence_slot);
+    if freeze {
+        let mut capture = block.capture_slot();
+        capture.try_capture(|_| Ok::<_, ()>(())).unwrap();
+        let (journal, cleanup) = capture.into_detached();
+        let mut anchor_capture = anchor_block.capture_slot();
+        anchor_capture.try_capture(|_| Ok::<_, ()>(())).unwrap();
+        let (anchor_journal, anchor_cleanup) = anchor_capture.into_detached();
+        let mut offence_capture = offence_block.capture_slot();
+        offence_capture.try_capture(|_| Ok::<_, ()>(())).unwrap();
+        let (offence_journal, offence_cleanup) = offence_capture.into_detached();
+        drop(cleanup);
+        drop(anchor_cleanup);
+        drop(offence_cleanup);
+        drop(scope);
+        let bytes = source.reserved_bytes() - baseline;
+        drop(journal);
+        drop(anchor_journal);
+        drop(offence_journal);
+        assert_eq!(source.reserved_bytes(), baseline);
+        bytes
+    } else {
+        let bytes = source.reserved_bytes() - baseline;
+        drop(block);
+        drop(anchor_block);
+        drop(offence_block);
+        drop(scope);
+        assert_eq!(source.reserved_bytes(), baseline);
+        bytes
+    }
+}
 
 macro_rules! count_world_successors {
     ($world:ident; [$($prefix:ident,)*] [$($privacy:ident,)*] [$($suffix:ident,)*]) => {{
@@ -42,14 +100,22 @@ fn per_store_control_demand_counts_exact_layouts_and_rejects_overflow() {
 
 #[test]
 fn original_world_shell_and_complete_successors_share_caller_pool_through_both_modes() {
-    let world = World::default();
-    let count = with_world_overlay_fields!(count_world_successors, world);
-    assert!(count > 10, "the actual full Cell census must be exercised");
-    let demand =
-        OriginalWorldFields::layout().size() + super::original_world_cell_control_bytes(&world);
     for replacement in [false, true] {
-        let source = AllocationBudget::new(demand);
-        let foreign = AllocationBudget::new(demand);
+        let mode = if replacement {
+            BlockMode::Replace
+        } else {
+            BlockMode::Ordinary
+        };
+        let source = AllocationBudget::new(16 << 20);
+        let world = world_on(&source);
+        let baseline = source.reserved_bytes();
+        let count = with_world_overlay_fields!(count_world_successors, world);
+        assert!(count > 10, "the actual full Cell census must be exercised");
+        let demand = OriginalWorldFields::layout().size()
+            + super::original_world_cell_control_bytes(&world)
+            + prepaid_world_table_writer_bytes(mode, false);
+        source.set_limit_bytes(baseline + demand);
+        let foreign = AllocationBudget::new(baseline + demand);
         let mut original = if replacement {
             world.try_block_and_revert(&source)
         } else {
@@ -60,10 +126,9 @@ fn original_world_shell_and_complete_successors_share_caller_pool_through_both_m
         assert!(fields.belongs_to(&source));
         assert!(!fields.belongs_to(&foreign));
         let pointer = std::ptr::from_ref(&**fields);
-        assert_eq!(source.reserved_bytes(), demand);
+        assert_eq!(source.reserved_bytes(), baseline + demand);
         assert_eq!(foreign.reserved_bytes(), 0);
         source.set_limit_bytes(0);
-        // Retain the very same enlarged shell through a real typed field capture.
         original.parameters.begin_freeze();
         original
             .parameters
@@ -73,25 +138,24 @@ fn original_world_shell_and_complete_successors_share_caller_pool_through_both_m
             std::ptr::from_ref(&**original.fields.as_ref().unwrap()),
             pointer
         );
-        assert_eq!(source.reserved_bytes(), demand);
-        assert_eq!(
-            original.parameters.mode(),
-            if replacement {
-                BlockMode::Replace
-            } else {
-                BlockMode::Ordinary
-            }
-        );
+        assert_eq!(source.reserved_bytes(), baseline + demand);
+        assert_eq!(original.parameters.mode(), mode);
         drop(original);
         assert_eq!(
             source.reserved_bytes(),
-            0,
-            "backing and successors release before refund"
+            baseline,
+            "backing and successors release before refund; committed roots retain their credits"
         );
-        let probe = world.try_block(&foreign).unwrap();
-        assert!(probe.fields.as_ref().unwrap().belongs_to(&foreign));
-        drop(probe);
+        // The admitted table is bound to its original pool. A fresh pool can no
+        // longer substitute capacity for the same retained current/undo graph.
+        assert!(matches!(
+            world.try_block(&foreign),
+            Err(AdmittedStorageError::ScopeIdentity)
+        ));
         assert_eq!(foreign.reserved_bytes(), 0);
+        source.set_limit_bytes(baseline + demand);
+        drop(world.try_block(&source).unwrap());
+        assert_eq!(source.reserved_bytes(), baseline);
     }
 }
 
@@ -174,34 +238,38 @@ fn original_charged_shell_outlives_capture_until_all_enclosing_writers_are_relea
     use crate::state::world_journals::{
         WorldJournalCapture, resources::WorldJournalShellReservation,
     };
-    let world = World::default();
+    let source = AllocationBudget::new(16 << 20);
+    let world = world_on(&source);
+    let baseline = source.reserved_bytes();
     let field_control_bytes = super::original_world_cell_control_bytes(&world);
     let shell_bytes = OriginalWorldFields::layout().size();
-    let source = AllocationBudget::new(shell_bytes + field_control_bytes);
+    let table_bytes = prepaid_world_table_writer_bytes(BlockMode::Ordinary, false);
     let original = world.try_block(&source).unwrap();
     let mut capture = original.capture_slot(WorldJournalShellReservation::for_test());
     assert_eq!(
         source.reserved_bytes(),
-        shell_bytes + field_control_bytes,
+        baseline + shell_bytes + field_control_bytes + table_bytes,
         "moving original writers must not refund the emptied shell"
     );
     capture.capture().unwrap();
     assert_eq!(
         source.reserved_bytes(),
-        shell_bytes + field_control_bytes,
+        baseline + shell_bytes + field_control_bytes + table_bytes,
         "capture retains charge until caller releases all enclosing writers"
     );
-    // Actual original writers are free, although their capture cleanup remains.
     drop(world.block());
     let journals = capture.into_journals(());
     assert_eq!(
         source.reserved_bytes(),
-        field_control_bytes,
-        "only the physically freed empty shell is refunded"
+        baseline
+            + field_control_bytes
+            + prepaid_world_table_writer_bytes(BlockMode::Ordinary, true)
+            + iroha_allocation::OwnedAllocationScope::allocation_layout().size(),
+        "the physically freed shell and map cursors release; original journals and their reusable refund control stay funded"
     );
     assert!(journals.matches_current(&world));
     drop(journals);
-    assert_eq!(source.reserved_bytes(), 0);
+    assert_eq!(source.reserved_bytes(), baseline);
 }
 
 #[test]
@@ -216,8 +284,9 @@ fn original_world_partial_placement_releases_both_sides_before_reclaiming_backin
     let fields = with_world_overlay_fields!(count_fields);
     for replacement in [false, true] {
         for fail_after in [1, 2, 3, fields / 2, fields - 1, fields] {
-            let world = World::default();
             let source = AllocationBudget::new(16 * 1024 * 1024);
+            let world = world_on(&source);
+            let baseline = source.reserved_bytes();
             let parameters = world
                 .parameters
                 .block()
@@ -247,7 +316,7 @@ fn original_world_partial_placement_releases_both_sides_before_reclaiming_backin
             );
             assert_eq!(
                 source.reserved_bytes(),
-                0,
+                baseline,
                 "same admitted shell and successor controls reclaim on partial placement"
             );
             assert!(parameters.matches_current(&world.parameters));
@@ -279,24 +348,25 @@ fn borrowed_original_field_initialization_preserves_refusal_and_existing_custody
     let target = Cell::new(String::from("original"));
     let source = AllocationBudget::new(1024 * 1024);
     let foreign = AllocationBudget::new(1024 * 1024);
+    let scope = source.try_owned_refund_scope().unwrap();
     let layout = CellPublicationSuccessor::allocation_layout();
     let mut reservation = source.try_reserve(layout).unwrap();
     let before = source.reserved_bytes();
     let mut slot = None;
     assert!(matches!(
-        initialize_original_field(&mut slot, &target, &foreign, &mut reservation),
+        initialize_original_field(&mut slot, &target, &foreign, &scope, &mut reservation),
         Err(AdmittedStorageError::PolicyIdentity)
     ));
     assert!(slot.is_none());
     assert_eq!(reservation.remaining_bytes(), layout.size());
     assert_eq!(source.reserved_bytes(), before);
     assert_eq!(foreign.reserved_bytes(), 0);
-    initialize_original_field(&mut slot, &target, &source, &mut reservation).unwrap();
+    initialize_original_field(&mut slot, &target, &source, &scope, &mut reservation).unwrap();
     assert_eq!(reservation.remaining_bytes(), 0);
     assert_eq!(source.reserved_bytes(), before);
     assert!(
         catch_unwind(AssertUnwindSafe(|| {
-            initialize_original_field(&mut slot, &target, &source, &mut reservation)
+            initialize_original_field(&mut slot, &target, &source, &scope, &mut reservation)
         }))
         .is_err()
     );

@@ -13,53 +13,6 @@ use norito::codec::{Decode, Encode};
 /// Depth of the fixed 4096-height closed anchor chunk.
 pub const SCCP_ANCHOR_PATH_DEPTH_V1: usize = 12;
 
-/// Deployment's independently authenticated initial native committee (§4.14.1).
-///
-/// Registration must match all four fields to the retained generation and check every
-/// intervening deadline, member attribution and destination deployment. This is DATA, not
-/// a constructor for authenticated authority.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    IntoSchema,
-    DeriveJsonSerialize,
-    DeriveJsonDeserialize,
-    norito::NoritoSchema,
-)]
-#[norito(no_fast_from_json, decode_from_slice, deny_unknown_fields)]
-#[norito_schema(name = "iroha_data_model::sccp::native::SccpCommitteePinV1")]
-pub struct SccpCommitteePinV1 {
-    /// Retained generation, starting at one.
-    pub generation: u64,
-    /// Exact native committee root of that generation.
-    pub committee_root: [u8; 32],
-    /// Generation's first certified height.
-    pub start_height: u64,
-    /// Generation's pinned wall-clock deadline, in milliseconds.
-    pub until_ms: u64,
-}
-
-impl SccpCommitteePinV1 {
-    /// Check the state-independent shape only; no signature or retained-state join is made.
-    pub fn validate_shape(&self) -> Result<(), SccpNativeDataError> {
-        if self.generation == 0 || self.start_height == 0 || self.until_ms == 0 {
-            return Err(SccpNativeDataError::ZeroPinCoordinate);
-        }
-        if self.committee_root == [0; 32] {
-            return Err(SccpNativeDataError::ZeroCommitteeRoot);
-        }
-        Ok(())
-    }
-}
-
 /// Original block anchor and fixed-depth membership path for a completed chunk (§4.9).
 #[derive(
     Debug,

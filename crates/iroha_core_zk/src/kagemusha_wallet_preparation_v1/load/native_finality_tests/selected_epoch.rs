@@ -2,7 +2,7 @@
 
 use super::*;
 use iroha_data_model::sumeragi_finality::{
-    CertifiedResultScope, CertifiedResultV1, SumeragiCommitCheckpointV1, result_of_preimage,
+    CertifiedResultV1, SumeragiCommitCheckpointV1, result_of_preimage,
 };
 
 fn successor_epoch_source() -> (NativeLoad, SumeragiCommitCheckpointV1) {
@@ -56,16 +56,14 @@ fn successor_epoch_source() -> (NativeLoad, SumeragiCommitCheckpointV1) {
     .unwrap();
     // Retain the genuine H4 header/epoch/schedule and sign a synthetic event result with
     // the actual fixture quorum. This is native BLS gate evidence, not World execution.
-    let (original_x, mut result) = CertifiedResultV1::decode(
-        &certificate.result_preimage,
-        CertifiedResultScope::TairaGlobal,
-    )
-    .unwrap()
-    .into_parts();
+    let (original_x, mut result) =
+        CertifiedResultV1::decode(&certificate.result_preimage, fixture.root_scope().into())
+            .unwrap()
+            .into_parts();
     result.execution.event_commitment = events.commitment();
     result.validate().unwrap();
     certificate.result_preimage =
-        CertifiedResultV1::new(original_x, result, CertifiedResultScope::TairaGlobal)
+        CertifiedResultV1::new(original_x, result, fixture.root_scope().into())
             .unwrap()
             .preimage()
             .unwrap();
@@ -104,9 +102,8 @@ fn resign_fixture_quorum(qc: &mut Qc) {
             iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &qc.preimage()).unwrap()
         })
         .collect();
-    let references: Vec<_> = shares.iter().collect();
     qc.agg_sig = iroha_sumeragi::types::AggregateSignature(
-        iroha_crypto::bls::consensus::aggregate(references.iter().copied()).unwrap(),
+        iroha_crypto::bls::consensus::aggregate(&shares).unwrap(),
     );
 }
 
@@ -115,10 +112,10 @@ fn requires_selected_epoch_and_preserves_authenticated_state_on_failure() {
     let (source, checkpoint) = successor_epoch_source();
     assert_eq!(source.evidence.certificate.height().unwrap(), 4);
     assert_eq!(source.evidence.certificate.epoch_id().unwrap(), 1);
-    assert_eq!(
+    assert!(matches!(
         source.check(&source.receipt, &source.evidence),
-        Err(Error::Proof)
-    );
+        Err(state::Error::Proof(_))
+    ));
 
     // Select only the exact checkpoint just exported by the authenticated H3 boundary.
     // This tests the gate's selected input, not wallet archive/manifest persistence.
@@ -130,14 +127,14 @@ fn requires_selected_epoch_and_preserves_authenticated_state_on_failure() {
     let evidence = source.evidence.to_canonical_bytes().unwrap();
     let mut wrong_event = source.evidence.clone();
     wrong_event.event_proof = source.events.get_proof(0).unwrap();
-    assert_eq!(
+    assert!(matches!(
         super::super::authenticate_originals(
             &mut reader,
             &receipt,
             &wrong_event.to_canonical_bytes().unwrap()
         ),
-        Err(Error::Proof)
-    );
+        Err(state::Error::Proof(_))
+    ));
     assert_eq!(reader.export_epoch_checkpoint(1).unwrap(), selected);
     let authenticated =
         super::super::authenticate_originals(&mut reader, &receipt, &evidence).unwrap();
@@ -163,6 +160,29 @@ fn requires_selected_epoch_and_preserves_authenticated_state_on_failure() {
 }
 
 #[test]
+fn load_resource_refusal_keeps_selected_epoch_and_retries_after_scope_retirement() {
+    let (source, selected) = successor_epoch_source();
+    let mut reader =
+        SumeragiCommitVerifierV1::from_trusted_epoch_checkpoint(&selected, &source.native).unwrap();
+    let receipt = source.receipt.to_canonical_bytes().unwrap();
+    let evidence = source.evidence.to_canonical_bytes().unwrap();
+    for allocation in [0, 64] {
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, allocation, 64);
+        let error = norito::with_decode_limits_scope(limits, || {
+            super::super::authenticate_originals(&mut reader, &receipt, &evidence)
+        })
+        .unwrap_err();
+        assert!(matches!(error, state::Error::DecodeResource(ref cause)
+            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        assert_eq!(reader.export_epoch_checkpoint(1).unwrap(), selected);
+    }
+    let authenticated =
+        super::super::authenticate_originals(&mut reader, &receipt, &evidence).unwrap();
+    assert_eq!(authenticated.0, source.receipt);
+    assert_eq!(reader.export_epoch_checkpoint(1).unwrap(), selected);
+}
+
+#[test]
 fn rejects_an_appended_certificate_as_a_framing_violation() {
     let source = NativeLoad::new("wallet-load-gate-appended-certificate");
     source.check(&source.receipt, &source.evidence).unwrap();
@@ -171,8 +191,8 @@ fn rejects_an_appended_certificate_as_a_framing_violation() {
     appended.extend_from_slice(&source.evidence.certificate.to_canonical_bytes().unwrap());
     // A second frame cannot be interpreted as a list entry in the singular envelope.
     // This is canonical framing refusal, not a duplicate-certificate semantic rule.
-    assert_eq!(
+    assert!(matches!(
         authenticate_originals(&source.native, &receipt, &appended),
-        Err(Error::Authority)
-    );
+        Err(state::Error::Invalid("Load original binding"))
+    ));
 }

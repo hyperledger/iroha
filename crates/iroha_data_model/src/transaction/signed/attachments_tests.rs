@@ -9,40 +9,61 @@ mod attachments_tests {
                 .parse()
                 .unwrap();
         let authority = AccountId::new(iroha_crypto::PublicKey::from(private_key.clone()));
-        let attachments = crate::proof::ProofAttachmentList::try_from(vec![
+        let attachment = |proof: Vec<u8>| {
             crate::proof::ProofAttachment::new_ref(
                 "halo2/ipa".into(),
-                crate::proof::ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
+                crate::proof::ProofBox::new("halo2/ipa".into(), proof),
                 crate::proof::VerifyingKeyId::new("halo2/ipa", "vk_1"),
-            ),
-        ])
-        .expect("one attachment is a valid bounded proof list");
+            )
+        };
         let tx: SignedTransaction = TransactionBuilder::new(
             network_id,
             authority,
             iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
         )
         .with_executable(Executable::Instructions(Vec::new().into()))
-        .with_attachments(attachments)
+        .with_proof_attachments([attachment(vec![1, 2, 3])])
+        .expect("one proof attachment is a valid carrier")
         .sign(&private_key);
         let bytes = norito::to_bytes(&tx).expect("encode");
         let archived = norito::from_bytes::<SignedTransaction>(&bytes).expect("archived");
         let decoded: SignedTransaction = norito::core::DeserializePayload::deserialize(archived);
-        assert!(decoded.attachments().is_some());
+        assert_eq!(decoded, tx);
+        assert_eq!(
+            decoded.proof_attachments_v1().expect("canonical carrier"),
+            vec![attachment(vec![1, 2, 3])]
+        );
+        decoded
+            .validate_signed_attachments_v1()
+            .expect("round-tripped attachments stay bound to the payload");
         decoded
             .verify_signature()
             .expect("round-tripped attachment remains signature-bound");
+        assert_eq!(
+            norito::decode_canonical::<SignedTransaction>(
+                &norito::encode_canonical(&tx).expect("canonical frame")
+            )
+            .expect("canonical decode"),
+            tx
+        );
         let original_hash = decoded.hash();
+        let original_intent = decoded.ordered_intent_digest_v1().expect("intent");
         let mut tampered = decoded;
         tampered.payload.attachments = Some(
-            crate::proof::ProofAttachmentList::try_from(vec![
-                crate::proof::ProofAttachment::new_ref(
-                    "halo2/ipa".into(),
-                    crate::proof::ProofBox::new("halo2/ipa".into(), vec![9, 9, 9]),
-                    crate::proof::VerifyingKeyId::new("halo2/ipa", "vk_1"),
-                ),
+            crate::transaction::signed_attachments::SignedAttachmentPlanV1::transaction_proofs(&[
+                attachment(vec![9, 9, 9]),
             ])
-            .expect("one attachment is a valid bounded proof list"),
+            .expect("one proof attachment is a valid carrier")
+            .declare(),
+        );
+        tampered
+            .payload
+            .bind_attachment_statements_v1()
+            .expect("bound statements");
+        assert_eq!(
+            tampered.ordered_intent_digest_v1().expect("intent"),
+            original_intent,
+            "generated proof bytes are outside the ordered intent"
         );
         assert_ne!(
             tampered.hash(),

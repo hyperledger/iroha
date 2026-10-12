@@ -20,7 +20,7 @@ use std::{
 };
 
 use crate::{
-    crypto::{Crypto, Signer},
+    crypto::{AggregationError, Crypto, Signer, SigningError},
     preimage::{KIND_COMMIT, KIND_ECHO, KIND_PREPARE, KIND_PROPOSAL, KIND_TIMEOUT, TAG_SIG},
     testing::{FakeCrypto, fake_sig},
     types::{AggregateSignature, Hash32, PublicKey, Signature},
@@ -325,18 +325,20 @@ impl Signer for SimSigner {
         &self.key
     }
 
-    fn sign(&self, preimage: &[u8]) -> Signature {
+    fn sign(&self, preimage: &[u8]) -> Result<Signature, SigningError> {
         self.log
             .lock()
             .expect("signing log")
             .record(&self.key, self.machine, preimage);
-        fake_sig(&self.key, preimage)
+        Ok(fake_sig(&self.key, preimage))
     }
 }
 
 /// Aggregate the fake signatures of `parts` (same arithmetic as [`FakeCrypto`]).
 pub fn aggregate(sigs: &[Signature]) -> AggregateSignature {
-    FakeCrypto::new().aggregate(sigs)
+    FakeCrypto::new()
+        .aggregate(sigs)
+        .expect("fixture aggregation succeeds")
 }
 
 /// The fake scheme with a pairing counter (virtual CPU cost, §13.1).
@@ -373,7 +375,7 @@ impl Crypto for SimCrypto {
         self.inner.verify(pk, msg, sig)
     }
 
-    fn aggregate(&self, sigs: &[Signature]) -> AggregateSignature {
+    fn aggregate(&self, sigs: &[Signature]) -> Result<AggregateSignature, AggregationError> {
         self.inner.aggregate(sigs)
     }
 
@@ -438,17 +440,19 @@ mod tests {
         let prep = |bh: u8| vote(VoteKind::Prepare, 5, 2, &Hash32([bh; 32]));
         let leader = SimSigner::new(key(9), None, std::sync::Arc::clone(&log));
         for bh in 1..=3u8 {
-            leader.sign(&preimage::prop_preimage(
-                &i,
-                epoch,
-                5,
-                2,
-                &Hash32([bh; 32]),
-                &i,
-            ));
+            leader
+                .sign(&preimage::prop_preimage(
+                    &i,
+                    epoch,
+                    5,
+                    2,
+                    &Hash32([bh; 32]),
+                    &i,
+                ))
+                .expect("fixture signing succeeds");
         }
-        x.sign(&prep(1));
-        x.sign(&prep(1)); // identical re-sign is fine
+        x.sign(&prep(1)).expect("fixture signing succeeds");
+        x.sign(&prep(1)).expect("fixture signing succeeds"); // identical re-sign is fine
         assert!(
             log.lock()
                 .expect("signing log")
@@ -462,7 +466,7 @@ mod tests {
                 .expect("signing log")
                 .was_signed(&key(1), &prep(1))
         );
-        x.sign(&prep(2));
+        x.sign(&prep(2)).expect("fixture signing succeeds");
         assert!(log.lock().expect("signing log").expose(&key(1), &prep(2)));
         assert!(!log.lock().expect("signing log").expose(&key(1), &prep(2)));
         log.lock().expect("signing log").retract(0, |_, _| false);
@@ -471,15 +475,16 @@ mod tests {
                 .expect("signing log")
                 .was_signed(&key(1), &prep(2))
         );
-        x.sign(&prep(3));
+        x.sign(&prep(3)).expect("fixture signing succeeds");
         assert_eq!(
             log.lock().expect("signing log").take_violations().len(),
             1,
             "equivocation"
         );
         // Timeout fence.
-        x.sign(&tmo(6, 3, None));
-        x.sign(&vote(VoteKind::Commit, 6, 3, &i));
+        x.sign(&tmo(6, 3, None)).expect("fixture signing succeeds");
+        x.sign(&vote(VoteKind::Commit, 6, 3, &i))
+            .expect("fixture signing succeeds");
         assert_eq!(
             log.lock().expect("signing log").take_violations().len(),
             1,
@@ -487,30 +492,33 @@ mod tests {
         );
         // A timeout for an earlier view: out of order (the Lemma 2 lock clause covers only
         // timeouts at views ≥ the Commit's).
-        x.sign(&tmo(6, 2, None));
+        x.sign(&tmo(6, 2, None)).expect("fixture signing succeeds");
         assert_eq!(
             log.lock().expect("signing log").take_violations().len(),
             1,
             "timeout order"
         );
         // After a Commit at view 1, a later timeout must carry hq ≥ 1.
-        x.sign(&vote(VoteKind::Commit, 7, 1, &i));
-        x.sign(&tmo(7, 1, Some(1)));
+        x.sign(&vote(VoteKind::Commit, 7, 1, &i))
+            .expect("fixture signing succeeds");
+        x.sign(&tmo(7, 1, Some(1)))
+            .expect("fixture signing succeeds");
         assert!(
             log.lock()
                 .expect("signing log")
                 .take_violations()
                 .is_empty()
         );
-        x.sign(&tmo(7, 2, Some(0)));
+        x.sign(&tmo(7, 2, Some(0)))
+            .expect("fixture signing succeeds");
         assert_eq!(
             log.lock().expect("signing log").take_violations().len(),
             1,
             "stale lock"
         );
         // Echoes are never recorded or checked.
-        x.sign(&echo(7, 7));
-        x.sign(&echo(8, 7));
+        x.sign(&echo(7, 7)).expect("fixture signing succeeds");
+        x.sign(&echo(8, 7)).expect("fixture signing succeeds");
         assert!(
             log.lock()
                 .expect("signing log")
@@ -531,8 +539,8 @@ mod tests {
         assert_eq!(log.lock().expect("signing log").commits.len(), 2);
         // Byzantine keys are logged but not checked.
         let b = SimSigner::new(key(2), None, std::sync::Arc::clone(&log));
-        b.sign(&prep(1));
-        b.sign(&prep(2));
+        b.sign(&prep(1)).expect("fixture signing succeeds");
+        b.sign(&prep(2)).expect("fixture signing succeeds");
         assert!(
             log.lock()
                 .expect("signing log")
@@ -540,7 +548,8 @@ mod tests {
                 .is_empty()
         );
         // A Prepare for a block never proposed in that view (SR3).
-        x.sign(&vote(VoteKind::Prepare, 8, 0, &i));
+        x.sign(&vote(VoteKind::Prepare, 8, 0, &i))
+            .expect("fixture signing succeeds");
         assert_eq!(
             log.lock().expect("signing log").take_violations().len(),
             1,
@@ -548,7 +557,7 @@ mod tests {
         );
         // Abstention (R2/R6).
         log.lock().expect("signing log").set_abstain(&key(1), i, 10);
-        x.sign(&tmo(9, 0, None));
+        x.sign(&tmo(9, 0, None)).expect("fixture signing succeeds");
         assert_eq!(
             log.lock().expect("signing log").take_violations().len(),
             1,
@@ -577,7 +586,7 @@ mod tests {
         let sig = fake_sig(&k, b"m");
         assert!(c.verify(&k, b"m", &sig));
         assert_eq!(c.pairings(), 2);
-        let agg = c.aggregate(&[sig]);
+        let agg = c.aggregate(&[sig]).expect("fixture aggregation succeeds");
         assert!(c.verify_aggregate(&[&k], b"m", &agg));
         assert!(c.verify_aggregate_multi(&[(vec![&k], b"m".to_vec())], &agg));
         assert_eq!(c.pairings(), 6);

@@ -1328,6 +1328,10 @@ fn generate_localnet_runtime<T: Write>(
         block_max_transactions,
         opts.consensus_mode,
     )?;
+    genesis = genesis
+        .into_builder()
+        .append_parameter(localnet_gas_custody_parameter(&gas_account_id))
+        .build_raw()?;
     genesis = append_localnet_contract_permissions_for_client(
         genesis,
         &genesis_account_id,
@@ -1454,8 +1458,9 @@ fn generate_localnet_runtime<T: Write>(
     let config = parse_localnet_peer_config(&bootstrap_config, None)?;
     let genesis = append_localnet_native_lane_policy(genesis, &config.nexus)?;
     let da_proof_policies = Some(resolve_localnet_da_proof_policies(&config));
-    let confidential_policy_hash =
-        iroha_core::state::compute_genesis_confidential_policy_hash(&config.zk);
+    // The genesis block runs under the protocol-default ZK validity policy;
+    // a chain sets other values with `zk_validity_policy_v1` in its manifest.
+    let confidential_policy_hash = iroha_core::state::default_genesis_confidential_policy_hash();
     let genesis = genesis
         .with_consensus_mode(opts.consensus_mode)
         .with_consensus_meta()?;
@@ -2759,12 +2764,6 @@ fn render_peer_config(
         );
     }
     pipeline.insert("signature_batch_max_bls".into(), Value::Integer(4i64));
-    let mut gas = Table::new();
-    gas.insert(
-        "tech_account_id".into(),
-        Value::String(gas_account_id.to_owned()),
-    );
-    pipeline.insert("gas".into(), Value::Table(gas));
     root.insert("pipeline".into(), Value::Table(pipeline));
     let mut queue = Table::new();
     queue.insert(
@@ -2955,11 +2954,6 @@ fn render_peer_config(
     confidential.insert("enabled".into(), Value::Boolean(true));
     confidential.insert("assume_valid".into(), Value::Boolean(false));
     root.insert("confidential".into(), Value::Table(confidential));
-    let mut pipa_r = Table::new();
-    pipa_r.insert("enabled".into(), Value::Boolean(true));
-    let mut zk = Table::new();
-    zk.insert("pipa_r".into(), Value::Table(pipa_r));
-    root.insert("zk".into(), Value::Table(zk));
     let mut genesis = Table::new();
     genesis.insert(
         "file".into(),
@@ -3564,6 +3558,13 @@ fn localnet_custom_parameter_id(name: &str) -> CustomParameterId {
         name.parse()
             .expect("constant custom parameter name is valid"),
     )
+}
+/// Pin the deterministic fee receiver in the signed chain parameter owner.
+fn localnet_gas_custody_parameter(account: &AccountId) -> Parameter {
+    Parameter::Custom(CustomParameter::new(
+        localnet_custom_parameter_id("ivm_gas_tech_account_id"),
+        Json::new(account.to_string()),
+    ))
 }
 fn localnet_ivm_gas_units_per_gas_payload(asset: &str) -> Json {
     let payload = format!(
@@ -5014,7 +5015,6 @@ fn generated_config_parameter_name(id: &iroha_config::base::ParameterId) -> Opti
             &["pipeline"],
             &["signature_batch_max_ed25519", "signature_batch_max_bls"],
         ),
-        (&["pipeline", "gas"], &["tech_account_id"]),
         (
             &["queue"],
             &[
@@ -5063,7 +5063,6 @@ fn generated_config_parameter_name(id: &iroha_config::base::ParameterId) -> Opti
         ),
         (&["gov", "sorafs_telemetry"], &["submitters"]),
         (&["confidential"], &["enabled", "assume_valid"]),
-        (&["zk", "pipa_r"], &["enabled"]),
         (
             &["genesis"],
             &["file", "public_key", "expected_hash", "expected_hash_file"],
@@ -5251,15 +5250,16 @@ mod config_error_tests {
             "configuration source is invalid; configuration parameter `network.address` could not be parsed"
         );
         let report = Report::new(read::Error::ParseParameter(
-            ["zk", "pipa_r", "enabled"].into(),
+            ["confidential", "enabled"].into(),
         ))
         .attach("private configuration value")
         .change_context(actual::FromTomlSourceError);
         assert_eq!(
             generated_config_error_categories(&report),
-            "configuration parameter `zk.pipa_r.enabled` could not be parsed"
+            "configuration parameter `confidential.enabled` could not be parsed"
         );
         for id in [
+            ["zk", "pipa_r", "enabled"].into(),
             ["zk", "halo2", "enabled"].into(),
             ["network.address"].into(),
             ["private-secret-value"].into(),

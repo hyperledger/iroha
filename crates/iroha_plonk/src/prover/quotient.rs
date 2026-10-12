@@ -686,6 +686,51 @@ fn evaluate_many<F: PastaField>(
     Ok(())
 }
 
+/// Reuses two already-dead gate cosets for public lookup mask weights.
+/// A short workspace or a single lookup keeps the existing fold without allocation.
+fn prepare_lookup_mask_weights<'a, F: PastaField>(
+    columns: &mut impl Iterator<Item = &'a mut [F]>,
+    masks: [&[F]; 2],
+    powers: [F; 2],
+    lookups: usize,
+    cancellation: Option<&CancellationToken>,
+) -> Result<Option<[&'a [F]; 2]>, ProverError> {
+    CancellationToken::checkpoint(cancellation)?;
+    if lookups <= 1 {
+        return Ok(None);
+    }
+    let (Some(first), Some(last)) = (columns.next(), columns.next()) else {
+        return Ok(None);
+    };
+    let n = masks[0].len();
+    for actual in [masks[1].len(), first.len(), last.len()] {
+        if actual != n {
+            return Err(KeyError::Shape {
+                what: "lookup mask weights",
+                expected: n,
+                actual,
+            }
+            .into());
+        }
+    }
+    first
+        .par_chunks_mut(ROWS_PER_TASK)
+        .zip(last.par_chunks_mut(ROWS_PER_TASK))
+        .enumerate()
+        .for_each(|(task, (first, last))| {
+            if CancellationToken::checkpoint(cancellation).is_err() {
+                return;
+            }
+            let start = task * ROWS_PER_TASK;
+            for (offset, (first, last)) in first.iter_mut().zip(last).enumerate() {
+                *first = masks[0][start + offset] * powers[0];
+                *last = masks[1][start + offset] * powers[1];
+            }
+        });
+    CancellationToken::checkpoint(cancellation)?;
+    Ok(Some([first, last]))
+}
+
 /// Updates owned key-polynomial buffers in place, or changes the borrowed
 /// slice when the key already caches every coset.
 fn refresh_key_cosets<'a, C: PastaCurve>(
@@ -1059,6 +1104,16 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
                 next_column(&mut lookup_columns)?,
                 next_column(&mut lookup_columns)?,
             ];
+            // The three streamed lookup cosets remain disjoint from these two
+            // optional public weight columns. Reuse only workspace already owned
+            // by the gate stage; never extend its allocation or any advice lifetime.
+            let mask_weights = prepare_lookup_mask_weights(
+                &mut lookup_columns,
+                [l0, l_last],
+                [y, y3],
+                shape.lookups,
+                cancellation,
+            )?;
             for (index, (lookup, numerator)) in
                 inputs.lookups.iter().zip(&lookup_numerators).enumerate()
             {
@@ -1109,9 +1164,19 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
                             );
                             // Expand five Horner positions, factoring only equal
                             // public masks. Omitted terms still retain their powers.
+                            let (first_and_start, last) = match mask_weights {
+                                Some([first_weight, last_weight]) => (
+                                    first_weight[row] * (y3 * first + start),
+                                    last_weight[row] * last,
+                                ),
+                                None => (
+                                    l0[row] * (y4 * first + y * start),
+                                    l_last[row] * (y3 * last),
+                                ),
+                            };
                             *value = *value * y5
-                                + l0[row] * (y4 * first + y * start)
-                                + l_last[row] * (y3 * last)
+                                + first_and_start
+                                + last
                                 + l_active[row] * (y2 * product_term + step);
                         }
                     });

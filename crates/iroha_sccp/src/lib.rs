@@ -15,8 +15,6 @@ extern crate alloc;
 /// Torii read-API records for SCCP v1.
 pub mod api;
 mod ethereum_native;
-/// Ethereum transaction signing and address recovery.
-pub mod ethereum_signing;
 pub mod ethereum_source;
 pub mod light_client;
 pub mod v1;

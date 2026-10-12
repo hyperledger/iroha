@@ -703,6 +703,22 @@ impl crate::seal::Instruction for SubmitPrivacyProofV1 {}
 impl SubmitPrivacyProofV1 {
     /// Canonical first-release Norito instruction identifier.
     pub const WIRE_ID: &'static str = "iroha.privacy.submit_proof.v1";
+    /// Allocation bound for a canonical instruction carrying a maximum-sized envelope.
+    ///
+    /// Consensus privacy bytes charge the complete envelope frame. This one-field wrapper
+    /// has the same alignment and replaces that frame header with its own, adding only the
+    /// envelope field's canonical length prefix. Using the complete envelope bound for that
+    /// prefix is conservative even at a compact-length transition. This is a codec bound,
+    /// not proof validation or admission under a possibly tighter committed policy.
+    #[must_use]
+    pub fn canonical_frame_byte_limit_v1() -> usize {
+        let envelope_limit = crate::privacy::TAIRA_PRIVACY_MAX_ACTION_BYTES_V1 as usize;
+        envelope_limit
+            + norito::core::len_prefix_len_with_flags(
+                envelope_limit,
+                norito::core::default_encode_flags(),
+            )
+    }
     /// Construct a privacy-proof submission instruction.
     #[must_use]
     pub fn new(envelope: PrivacyProofEnvelopeV1) -> Self {

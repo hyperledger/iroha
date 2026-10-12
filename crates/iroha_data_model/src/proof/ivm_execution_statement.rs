@@ -239,7 +239,9 @@ impl IvmExecutionStatementV1 {
         if self.abi_version != 1 {
             return Err(IvmExecutionStatementErrorV1::WrongAbi);
         }
-        if self.returns.initialized_word_count > 8_192 {
+        if usize::from(self.returns.initialized_word_count)
+            > crate::smart_contract::entrypoint::MAX_ENTRYPOINT_RETURN_WORDS
+        {
             return Err(IvmExecutionStatementErrorV1::ResultTableTooLarge);
         }
         if self.selector.is_empty() {
@@ -293,8 +295,11 @@ impl IvmExecutionStatementV1 {
 mod tests {
     use super::*;
     use crate::{
-        proof::{ProofAttachment, ProofAttachmentList, ProofBox},
-        transaction::{Executable, IvmBytecode, IvmProved, TransactionBuilder},
+        proof::{ProofAttachment, ProofBox},
+        transaction::{
+            Executable, IvmBytecode, IvmProved, TransactionBuilder,
+            signed_attachments::{PlannedActionV1, SignedAttachmentPlanV1},
+        },
     };
     use iroha_crypto::{Algorithm, KeyPair, PrivateKey, PublicKey};
     use iroha_model_base::topology::DataSpaceId;
@@ -324,7 +329,10 @@ mod tests {
             ProofBox::new("stark/fri".into(), vec![1, 2, 3]),
             VerifyingKeyId::new("stark/fri", "ivm-v1"),
         );
-        let attachments = ProofAttachmentList::try_from(vec![attachment]).expect("bounded list");
+        let mut attachments = SignedAttachmentPlanV1::new();
+        attachments.push_action(
+            PlannedActionV1::ivm_proved_execution(&attachment).expect("execution carrier"),
+        );
         let executable = Executable::IvmProved(IvmProved {
             bytecode: IvmBytecode::from_compiled(vec![1, 2, 3, 4]),
             overlay: ConstVec::new_empty(),
@@ -333,7 +341,8 @@ mod tests {
         });
         let signed = TransactionBuilder::new(network_id, authority.clone(), fee_payment.clone())
             .with_executable(executable)
-            .with_attachments(attachments)
+            .with_attachment_plan(attachments)
+            .expect("valid execution carrier")
             .sign(&private_key);
         let statement = IvmExecutionStatementV1 {
             network_id,

@@ -637,3 +637,156 @@ fn native_closure_phase_closes_callback_mutation_and_error_before_any_effect() {
     evidence.unchanged();
     assert_eq!(fixture.native.chain.height(), 4);
 }
+
+#[test]
+fn native_closure_exit_keeps_original_entry_callbacks_and_decoder_recipe() {
+    let _resources = crate::managed::native_test_guard();
+    let (fixture, history) = shared_snapshot_tests::history_with_bodies(3);
+    let head = history.current_history().unwrap();
+    let original = history.bodies[1].original.as_ref().unwrap();
+    let successor = history.successor(1).unwrap().unwrap();
+    let account = fixture.owner.wallet().unwrap();
+    let mut inspector = NativeClosureInspector::new(original, &account, fixture.options.deadline);
+    let evidence = Evidence::capture(&history);
+    let mut expected = None;
+    let mut observations = Vec::new();
+    for original_exit in [true, false] {
+        let (result, calls, work, graphs) =
+            History::test_original_phase_exit(original_exit, || {
+                run(
+                    head.test_owned_predecessor_closure_history().unwrap(),
+                    &successor,
+                    &mut inspector,
+                    true,
+                    None,
+                )
+            });
+        let receipt = complete(result);
+        if let Some(expected) = &expected {
+            same_receipt(&receipt, expected);
+        } else {
+            expected = Some(receipt);
+        }
+        assert_eq!(
+            calls,
+            Calls {
+                native: 2,
+                retired: 2
+            }
+        );
+        observations.push((calls, work, graphs));
+        evidence.unchanged();
+    }
+    assert_eq!(observations[0].0, observations[1].0);
+    assert_eq!(observations[0].1.0, observations[1].1.0 + 1);
+    assert_eq!(observations[0].1.2, observations[1].1.2);
+    assert_eq!(observations[0].2, observations[1].2);
+    assert!(observations[1].1.1 > 0);
+
+    // A decoder inherited at entry never selects the reduced exit, including its
+    // first finite-allocation refusal. Compare the actual original native recipe.
+    for allocation in [0, 1, 256 * 1024 * 1024] {
+        let mut observations = Vec::new();
+        for original_exit in [true, false] {
+            let owned = head.test_owned_predecessor_closure_history().unwrap();
+            let ((result, calls, work, graphs), usage) =
+                norito::core::with_decode_limits_measured(limits(allocation), || {
+                    History::test_original_phase_exit(original_exit, || {
+                        run(owned, &successor, &mut inspector, true, None)
+                    })
+                });
+            let result = if allocation <= 1 {
+                Err(result
+                    .err()
+                    .expect("original decoder must refuse")
+                    .to_string())
+            } else {
+                same_receipt(&complete(result), expected.as_ref().unwrap());
+                Ok(())
+            };
+            observations.push((result, calls, work, graphs, usage.total_allocated_bytes()));
+        }
+        assert_eq!(observations[0].0, observations[1].0);
+        assert_eq!(observations[0].1, observations[1].1);
+        assert_eq!(observations[0].2, observations[1].2);
+        assert_eq!(observations[0].3, observations[1].3);
+        if allocation <= 1 {
+            assert_eq!(observations[0].4, observations[1].4);
+        } else {
+            assert!(
+                observations
+                    .iter()
+                    .all(|value| value.4 > 1 && value.4 <= allocation)
+            );
+        }
+        evidence.unchanged();
+    }
+
+    // Damage introduced only after the final real wallet callback must still close
+    // the oldest predecessor. An ordinary callback refusal uses the full exit too.
+    for ordinary_error in [false, true] {
+        let mut refusals = Vec::new();
+        for original_exit in [true, false] {
+            let changed = Rc::new(RefCell::new(None));
+            let saved = Rc::clone(&changed);
+            let oldest = Arc::clone(&history.bodies[0].directory);
+            let hook: Hook = Box::new(move |ordinal, _, value| {
+                assert!(value.is_ok());
+                if ordinal == 2 {
+                    *saved.borrow_mut() = Some(ChangedRecord::replace(&oldest, "closed.nrt"));
+                    if ordinary_error {
+                        return Err(invalid("final native inspection refused"));
+                    }
+                }
+                Ok(())
+            });
+            let (result, calls, work, graphs) =
+                History::test_original_phase_exit(original_exit, || {
+                    run(
+                        head.test_owned_predecessor_closure_history().unwrap(),
+                        &successor,
+                        &mut inspector,
+                        true,
+                        Some(hook),
+                    )
+                });
+            let error = result
+                .err()
+                .expect("late predecessor mutation must refuse")
+                .to_string();
+            assert_ne!(
+                error,
+                invalid("final native inspection refused").to_string()
+            );
+            assert_eq!(
+                calls,
+                Calls {
+                    native: 2,
+                    retired: 2
+                }
+            );
+            assert!(changed.borrow().is_some());
+            refusals.push((error, calls, work, graphs));
+            drop(changed.borrow_mut().take());
+            evidence.unchanged();
+        }
+        assert_eq!(refusals[0].0, refusals[1].0);
+        assert_eq!(refusals[0].1, refusals[1].1);
+        if ordinary_error {
+            assert_eq!(refusals[0].2, refusals[1].2);
+            assert_eq!(refusals[0].3, refusals[1].3);
+        }
+    }
+    let reopened = BodyHistory::open(&fixture.owner, CustodyPurpose::Renewal(2))
+        .unwrap()
+        .unwrap();
+    let owned = head.test_owned_predecessor_closure_history().unwrap();
+    let foreign = reopened
+        .current_history()
+        .unwrap()
+        .test_owned_predecessor_closure_history()
+        .unwrap();
+    owned.test_phase_graph_owner(&foreign, &inspector).unwrap();
+    evidence.unchanged();
+    assert_eq!(fixture.native.chain.height(), 4);
+}

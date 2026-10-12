@@ -92,7 +92,11 @@ fn assert_native_fee(
         panic!("bootstrap must execute its exact native instruction vector");
     };
     assert_eq!(instructions.len(), instruction_count);
-    assert_eq!(iroha_core::gas::meter_instructions(instructions), gas);
+    let view = native.chain.state().view();
+    assert_eq!(
+        iroha_core::gas::meter_instructions(instructions, &view.zk.gas),
+        gas
+    );
     assert_eq!(
         signed.fee_payment_intent().gas_limit(),
         options.fee_payment.gas_limit()
@@ -106,7 +110,6 @@ fn assert_native_fee(
     assert_eq!(receipt.schedule.instruction_count, instruction_count as u64);
     assert_eq!(receipt.schedule.gas_used, gas);
     assert!(receipt.fee_amount <= *options.max_total_fees.get(&receipt.fee_asset_id).unwrap());
-    let view = native.chain.state().view();
     assert_eq!(
         receipt.schedule.per_instruction_fee,
         view.nexus().fees.per_instruction_fee

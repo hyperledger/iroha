@@ -1,0 +1,174 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "identities_exhausted_fails_the_workflow",
+  "category": "replacement_identity",
+  "rules": [
+    "no_replacement_while_unresolved"
+  ],
+  "description": "The replacement identity expires as well. The step has no identity left, so the workflow fails with Expired and a further explicit retry changes nothing.",
+  "plan": {
+    "kind": "issuer_bootstrap",
+    "instance": "identities-exhausted-fails-the-workflow",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction",
+        "max_transaction_identities": 2
+      },
+      {
+        "label": "activate",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "accepted"
+        ],
+        "statuses": [
+          "rejected"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "Rejected",
+          "stage": "reconcile",
+          "step": 0
+        },
+        "effects": [
+          "build:0#1",
+          "sign:0#1",
+          "dispatch:0#1",
+          "status:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "rejected",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [
+            0
+          ],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "run",
+      "options": {
+        "retry_rejected_step": true
+      },
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "accepted"
+        ],
+        "statuses": [
+          "expired"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "Expired",
+          "stage": "reconcile",
+          "step": 0,
+          "resumable": false
+        },
+        "effects": [
+          "build:0#2",
+          "sign:0#2",
+          "dispatch:0#2",
+          "status:0#2"
+        ],
+        "status": "failed",
+        "steps": [
+          "rejected",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [
+            0
+          ],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 1,
+              "possible_admissions": 1,
+              "evidence": "ledger_rejected"
+            },
+            {
+              "dispatches": 1,
+              "possible_admissions": 1,
+              "evidence": "ledger_expired"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "run",
+      "options": {
+        "retry_rejected_step": true
+      },
+      "expect": {
+        "result": {
+          "error": "Expired",
+          "stage": "reconcile",
+          "step": 0,
+          "resumable": false
+        },
+        "effects": [],
+        "status": "failed",
+        "steps": [
+          "rejected",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [
+            0
+          ],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    }
+  ]
+}

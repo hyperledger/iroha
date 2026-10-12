@@ -18,10 +18,12 @@ use iroha_wallet::operations::{
 };
 use std::ffi::OsStr;
 
+#[path = "attempts/generated_read_phase.rs"]
+mod generated_read_phase;
 #[path = "attempts/selection.rs"]
 mod selection;
 pub(in crate::managed) use selection::{
-    FirstReservation, GeneratedPrerequisite, generated, initial,
+    FirstReservation, GeneratedPrerequisite, generated, generated_native, initial,
 };
 #[path = "attempts/closure.rs"]
 mod closure;

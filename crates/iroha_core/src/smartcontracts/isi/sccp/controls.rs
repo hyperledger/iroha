@@ -1,9 +1,8 @@
-//! Native destination controls (`specs/sccp.md` §4.14.6).
+//! Current destination controls capture both pause tracks and their exact enacting cause.
 //!
-//! The caller changes its own pause state inside the isolated certified-effect transaction.
-//! Recording consumes the revision's control nonce and captures the complete resulting state;
-//! it never changes a pause flag. Controls precede transfer leaves, are recorded even when SCCP
-//! is disabled for non-retired revisions, and are never pruned.
+//! Callers first update their own Parliament flag or fast-pause record inside the isolated
+//! effect transaction. This recorder only allocates the next nonce and leaf; it never changes
+//! either pause state. Controls exist even while SCCP is disabled and are never pruned.
 
 use super::{Error, leaves, store};
 use crate::state::{StateReadOnly, StateTransaction};
@@ -16,21 +15,18 @@ use iroha_data_model::{
         registry::SccpRouteActivationV1,
     },
 };
-use iroha_sccp::v1::control::{ControlLeafV1, TRACK_PARLIAMENT, control_leaf};
+use iroha_sccp::v1::control::{ControlLeafV1, control_leaf};
 
-fn refuse(reason: impl core::fmt::Display) -> Error {
-    Error::InvariantViolation(format!("SCCP: destination control refused: {reason}").into())
-}
-
-/// Exact cause retained from the original certified-effect context.
-///
-/// Fields are private so a caller cannot substitute a proposal identifier or supply a
-/// fast-pause cause without its native authority owner.
-#[derive(Clone, Copy, Debug)]
+/// Exact cause supplied by the owning authenticated certificate effect (§4.14.6).
+/// This data carries no independent authority to enact an effect.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ControlCauseV1 {
-    track: u8,
-    certificate_id: [u8; 32],
-    effect_hash: [u8; 32],
+    /// Parliament (1) or fast pause (2).
+    pub(super) track: u8,
+    /// Identity derived from the actual enacting certificate.
+    pub(super) certificate_id: [u8; 32],
+    /// The same certificate's canonical effect-preimage hash.
+    pub(super) effect_hash: [u8; 32],
 }
 
 impl ControlCauseV1 {
@@ -48,7 +44,7 @@ impl ControlCauseV1 {
             .validate()
             .map_err(|error| refuse(format_args!("certificate: {error}")))?;
         let cause = Self {
-            track: TRACK_PARLIAMENT,
+            track: iroha_sccp::v1::control::TRACK_PARLIAMENT,
             certificate_id: *GovernanceCertificateId::derive_v1(certificate).as_bytes(),
             effect_hash: certificate.effect_preimage_hash,
         };
@@ -59,7 +55,7 @@ impl ControlCauseV1 {
     fn require_supported(self) -> Result<(), Error> {
         // TODO: implement the canonical fast-pause certificate/state/enactment owner before
         // admitting track 2. A raw claimed certificate ID is not that authority.
-        if self.track != TRACK_PARLIAMENT {
+        if self.track != iroha_sccp::v1::control::TRACK_PARLIAMENT {
             return Err(refuse("native fast-pause authority is unavailable"));
         }
         if self.certificate_id == [0; 32] || self.effect_hash == [0; 32] {
@@ -72,28 +68,29 @@ impl ControlCauseV1 {
     #[cfg(test)]
     pub(crate) fn for_test(certificate_id: [u8; 32], effect_hash: [u8; 32]) -> Self {
         Self {
-            track: TRACK_PARLIAMENT,
+            track: iroha_sccp::v1::control::TRACK_PARLIAMENT,
             certificate_id,
             effect_hash,
         }
     }
 }
 
-/// Record the post-update destination state and return its control nonce.
-///
-/// The caller must execute inside the original rollback-isolated effect transaction and
-/// discard it on any failure or local resource deferral, including a leaf-cap refusal.
+fn refuse(reason: impl core::fmt::Display) -> Error {
+    Error::InvariantViolation(format!("SCCP: destination control refused: {reason}").into())
+}
+
+/// Record the complete current pause state and exact cause of `(network, revision)`.
+/// The caller has already changed its own pause state and owns effect rollback.
 ///
 /// # Errors
-/// Refuses missing/retired revisions, unsupported authority, nonce exhaustion, invalid native
-/// fields or a full/non-dense block leaf sequence. Does not authorize a supplied certificate.
+/// Refuses absent/retired revisions, malformed causes, nonce overflow, or exhausted/non-dense
+/// block leaves. Neither pause track is changed by this function.
 pub fn record_control(
     state_transaction: &mut StateTransaction<'_, '_>,
     network: SccpNetworkV1,
     revision: u32,
     cause: ControlCauseV1,
 ) -> Result<u64, Error> {
-    cause.require_supported()?;
     let mut route = store::routes::get(&*state_transaction.world, &network)
         .cloned()
         .ok_or_else(|| refuse(format_args!("no route to {}", network.profile_key())))?;
@@ -103,12 +100,17 @@ pub fn record_control(
         .filter(|record| record.activation != SccpRouteActivationV1::Retired)
         .ok_or_else(|| refuse(format_args!("revision {revision} is absent or retired")))?;
     let control_nonce = record.next_control_nonce;
+    let next_nonce = control_nonce
+        .checked_add(1)
+        .ok_or_else(|| refuse("the control nonce is exhausted"))?;
     let parliament_paused = record.destination_paused;
-    // TODO: when the native fast-pause owner is implemented, read its canonical post-update
-    // record here: expiry iff revision belongs and block time is strictly before until_ms.
-    // Current World has no fast-pause state or enactment path. Track 2 is explicitly refused;
-    // zero describes that supported state, not a fallback for a missing/corrupt future record.
-    let fast_pause_until_ms = 0;
+    let fast_pause_until_ms = if cfg!(all(test, sumeragi_core_mutation = "HC238")) {
+        0
+    } else {
+        store::fast_pauses::get(&*state_transaction.world, &network).map_or(0, |pause| {
+            pause.destination_expiry(revision, state_transaction.block_unix_timestamp_ms())
+        })
+    };
     let fields = ControlLeafV1 {
         route_revision: revision,
         control_nonce,
@@ -125,10 +127,10 @@ pub fn record_control(
         &fields,
     )
     .map_err(|error| refuse(format_args!("control leaf: {error}")))?;
-    record.next_control_nonce = control_nonce
-        .checked_add(1)
-        .ok_or_else(|| refuse("the control nonce is exhausted"))?;
-    store::routes::insert(state_transaction, network, route)?;
+    record.next_control_nonce = next_nonce;
+    if !store::routes::valid_entry(&network, &route) {
+        return Err(refuse("the current route breaks its stored invariant"));
+    }
     let height = state_transaction._curr_block.height().get();
     let commitment_index = leaves::allocate_leaf(
         state_transaction,
@@ -138,6 +140,7 @@ pub fn record_control(
             control_nonce,
         }),
     )?;
+    store::routes::insert(state_transaction, network, route)?;
     store::control_messages::insert(
         state_transaction,
         (network, revision, control_nonce),
@@ -171,22 +174,23 @@ pub fn record_control(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::smartcontracts::isi::sccp::test_support::{blank_state, header, sample_route};
+    use crate::smartcontracts::isi::sccp::{
+        pause_record::RetainedSccpFastPause,
+        test_support::{blank_state, header, sample_fast_pause, sample_route},
+    };
+    use iroha_sccp::v1::control::{TRACK_FAST_PAUSE, TRACK_PARLIAMENT};
 
-    fn cause(seed: u8) -> ControlCauseV1 {
-        ControlCauseV1::for_test([seed; 32], [seed.wrapping_add(16); 32])
+    fn cause(track: u8, seed: u8) -> ControlCauseV1 {
+        ControlCauseV1 {
+            track,
+            certificate_id: [seed; 32],
+            effect_hash: [seed + 10; 32],
+        }
     }
-
-    fn set_pause(stx: &mut StateTransaction<'_, '_>, network: SccpNetworkV1, paused: bool) {
-        let mut route = store::routes::get(&*stx.world, &network)
-            .cloned()
-            .expect("route");
-        route
-            .revisions
-            .get_mut(&1)
-            .expect("revision")
-            .destination_paused = paused;
-        store::routes::insert(stx, network, route).expect("pause state");
+    fn parliament_flag(stx: &mut StateTransaction<'_, '_>, network: SccpNetworkV1, paused: bool) {
+        let mut route = store::routes::get(&*stx.world, &network).unwrap().clone();
+        route.revisions.get_mut(&1).unwrap().destination_paused = paused;
+        store::routes::insert(stx, network, route).unwrap();
     }
 
     #[test]
@@ -195,23 +199,27 @@ mod tests {
         let mut block = state.block(header(7));
         let mut stx = block.transaction();
         let network = SccpNetworkV1::TonMainnet;
-        record_control(&mut stx, network, 1, cause(1)).expect_err("no route");
-        store::routes::insert(&mut stx, network, sample_route(network)).expect("route");
-        set_pause(&mut stx, network, true);
-        let first = record_control(&mut stx, network, 1, cause(1)).expect("pause");
-        set_pause(&mut stx, network, false);
-        let second = record_control(&mut stx, network, 1, cause(2)).expect("resume");
+        record_control(&mut stx, network, 1, cause(TRACK_PARLIAMENT, 1)).expect_err("no route");
+        store::routes::insert(&mut stx, network, sample_route(network)).unwrap();
+        parliament_flag(&mut stx, network, true);
+        let first = record_control(&mut stx, network, 1, cause(TRACK_PARLIAMENT, 1)).unwrap();
+        parliament_flag(&mut stx, network, false);
+        let second = record_control(&mut stx, network, 1, cause(TRACK_PARLIAMENT, 2)).unwrap();
         assert_eq!(second, first + 1);
         let revision = store::routes::get(&*stx.world, &network)
-            .and_then(|route| route.revisions.get(&1))
-            .expect("revision");
+            .unwrap()
+            .revisions
+            .get(&1)
+            .unwrap();
         assert!(!revision.destination_paused);
         assert_eq!(revision.next_control_nonce, second + 1);
-        let record =
-            store::control_messages::get(&*stx.world, &(network, 1, first)).expect("record");
+        let record = store::control_messages::get(&*stx.world, &(network, 1, first)).unwrap();
         assert!(record.parliament_paused);
         assert_eq!((record.height, record.commitment_index), (7, 0));
-        assert_eq!(record.certificate_id, [1; 32]);
+        assert_eq!(
+            (record.track, record.certificate_id, record.effect_hash),
+            (1, [1; 32], [11; 32])
+        );
         assert_eq!(
             record.leaf,
             control_leaf(
@@ -225,156 +233,107 @@ mod tests {
                     parliament_paused: 1,
                     fast_pause_until_ms: 0,
                     certificate_id: [1; 32],
-                    effect_hash: [17; 32],
+                    effect_hash: [11; 32],
                 }
             )
-            .expect("leaf")
+            .unwrap()
         );
         assert_eq!(leaves::leaf_count_at(&*stx.world, 7), 2);
-        record_control(&mut stx, network, 2, cause(3)).expect_err("unknown revision");
-
-        let mut route = store::routes::get(&*stx.world, &network)
-            .cloned()
-            .expect("route");
-        route.revisions.get_mut(&1).expect("revision").activation = SccpRouteActivationV1::Retired;
-        store::routes::insert(&mut stx, network, route).expect("route");
-        let error = record_control(&mut stx, network, 1, cause(4)).expect_err("retired");
+        record_control(&mut stx, network, 2, cause(1, 3)).expect_err("unknown revision");
+        let mut route = store::routes::get(&*stx.world, &network).unwrap().clone();
+        route.revisions.get_mut(&1).unwrap().activation = SccpRouteActivationV1::Retired;
+        store::routes::insert(&mut stx, network, route).unwrap();
+        let error = record_control(&mut stx, network, 1, cause(1, 4)).expect_err("retired");
         assert!(error.to_string().contains("retired"), "{error}");
     }
+
     #[test]
-    fn native_authority_refusal_does_not_consume_nonce_leaf_or_event() {
+    fn controls_capture_both_tracks_without_modifying_pause_owners_and_expire_by_time() {
+        let state = blank_state();
+        let budget = state.ivm_execution_budget();
+        let mut block = state.block(header(7));
+        let mut stx = block.transaction();
+        let network = SccpNetworkV1::EthereumMainnet;
+        let now = stx.block_unix_timestamp_ms();
+        store::routes::insert(&mut stx, network, sample_route(network)).unwrap();
+        parliament_flag(&mut stx, network, true);
+        let mut pause = sample_fast_pause(1);
+        pause.until_ms = now + 1;
+        let original = RetainedSccpFastPause::admit(&pause, &budget).unwrap();
+        store::fast_pauses::insert(&mut stx, network, original.clone()).unwrap();
+        let first = record_control(&mut stx, network, 1, cause(TRACK_FAST_PAUSE, 5)).unwrap();
+        let row = store::control_messages::get(&*stx.world, &(network, 1, first)).unwrap();
+        assert_eq!(
+            (row.track, row.parliament_paused, row.fast_pause_until_ms),
+            (2, true, now + 1)
+        );
+        assert_eq!(
+            store::fast_pauses::get(&*stx.world, &network),
+            Some(&original)
+        );
+        parliament_flag(&mut stx, network, false);
+        let second = record_control(&mut stx, network, 1, cause(TRACK_PARLIAMENT, 6)).unwrap();
+        let row = store::control_messages::get(&*stx.world, &(network, 1, second)).unwrap();
+        assert_eq!(
+            (row.parliament_paused, row.fast_pause_until_ms),
+            (false, now + 1)
+        );
+        assert_eq!(
+            store::fast_pauses::get(&*stx.world, &network),
+            Some(&original)
+        );
+        pause.until_ms = now;
+        let expired = RetainedSccpFastPause::admit(&pause, &budget).unwrap();
+        store::fast_pauses::insert(&mut stx, network, expired.clone()).unwrap();
+        let third = record_control(&mut stx, network, 1, cause(TRACK_PARLIAMENT, 7)).unwrap();
+        let row = store::control_messages::get(&*stx.world, &(network, 1, third)).unwrap();
+        assert_eq!(row.fast_pause_until_ms, 0);
+        assert_eq!(
+            store::fast_pauses::get(&*stx.world, &network),
+            Some(&expired),
+            "recording never cleans up the fast-pause owner"
+        );
+        assert_eq!(leaves::leaf_count_at(&*stx.world, 7), 3);
+        // Parameters remain absent: recording has no enabled-only gate.
+        assert!(store::parameters::get(&*stx.world).is_none());
+    }
+
+    #[test]
+    fn malformed_cause_or_full_block_does_not_consume_control_nonce() {
         let state = blank_state();
         let mut block = state.block(header(7));
         let mut stx = block.transaction();
-        let network = SccpNetworkV1::TonMainnet;
-        store::routes::insert(&mut stx, network, sample_route(network)).expect("route");
-        let before = store::routes::get(&*stx.world, &network)
-            .cloned()
-            .expect("route");
-        let events = stx.world.internal_event_buf.len();
-        for invalid in [
+        let network = SccpNetworkV1::BscMainnet;
+        store::routes::insert(&mut stx, network, sample_route(network)).unwrap();
+        let original = store::routes::get(&*stx.world, &network).unwrap().clone();
+        for cause in [
+            cause(0, 1),
+            cause(3, 1),
+            cause(2, 1),
             ControlCauseV1 {
-                track: 2,
-                ..cause(1)
+                certificate_id: [0; 32],
+                ..cause(1, 1)
             },
             ControlCauseV1 {
-                track: 0,
-                ..cause(1)
+                effect_hash: [0; 32],
+                ..cause(1, 1)
             },
-            ControlCauseV1::for_test([0; 32], [1; 32]),
-            ControlCauseV1::for_test([1; 32], [0; 32]),
         ] {
-            record_control(&mut stx, network, 1, invalid)
-                .expect_err("authority unavailable/invalid");
-            assert_eq!(store::routes::get(&*stx.world, &network), Some(&before));
-            assert!(store::control_messages::is_empty(&*stx.world));
-            assert_eq!(leaves::leaf_count_at(&*stx.world, 7), 0);
-            assert_eq!(stx.world.internal_event_buf.len(), events);
-        }
-    }
-
-    #[test]
-    fn post_update_snapshot_preserves_staged_disabled_pause_state_and_full_cause() {
-        let state = blank_state();
-        let mut block = state.block(header(7));
-        let mut stx = block.transaction();
-        let network = SccpNetworkV1::TonMainnet;
-        let mut route = sample_route(network);
-        route.revisions.get_mut(&1).expect("revision").activation = SccpRouteActivationV1::Staged;
-        store::routes::insert(&mut stx, network, route).expect("route");
-        let mut params = iroha_data_model::sccp::params::SccpParametersV1::taira_default();
-        params.enabled = false;
-        store::parameters::set(&mut stx, Some(params));
-        for pause in [false, true] {
-            set_pause(&mut stx, network, pause);
-            let nonce =
-                record_control(&mut stx, network, 1, cause(7)).expect("record disabled staged");
-            let record =
-                store::control_messages::get(&*stx.world, &(network, 1, nonce)).expect("record");
-            assert_eq!(record.track, 1);
-            assert_eq!(record.parliament_paused, pause);
-            assert_eq!(record.fast_pause_until_ms, 0);
-            assert_eq!(record.certificate_id, [7; 32]);
-            assert_eq!(record.effect_hash, [23; 32]);
-            let revision = &store::routes::get(&*stx.world, &network)
-                .expect("route")
-                .revisions[&1];
-            assert_eq!(revision.destination_paused, pause);
-            assert_eq!(revision.activation, SccpRouteActivationV1::Staged);
-            assert_eq!(
-                record.leaf,
-                control_leaf(
-                    stx.network_id().as_bytes(),
-                    network,
-                    &revision.destination_word,
-                    &ControlLeafV1 {
-                        route_revision: 1,
-                        control_nonce: nonce,
-                        track: 1,
-                        parliament_paused: u8::from(pause),
-                        fast_pause_until_ms: 0,
-                        certificate_id: [7; 32],
-                        effect_hash: [23; 32],
-                    }
-                )
-                .expect("exact native leaf")
-            );
-        }
-    }
-
-    #[test]
-    fn failed_effect_drop_restores_pause_nonce_records_leaves_and_events() {
-        for full in [false, true] {
-            let state = blank_state();
-            let mut block = state.block(header(7));
-            let network = SccpNetworkV1::TonMainnet;
-            let original = {
-                let mut seed = block.transaction();
-                let mut route = sample_route(network);
-                route
-                    .revisions
-                    .get_mut(&1)
-                    .expect("revision")
-                    .destination_paused = false;
-                if !full {
-                    route
-                        .revisions
-                        .get_mut(&1)
-                        .expect("revision")
-                        .next_control_nonce = u64::MAX;
-                }
-                store::routes::insert(&mut seed, network, route.clone()).expect("route");
-                if full {
-                    for n in 0..leaves::MAX_LEAVES_PER_BLOCK {
-                        let mut id = [0; 32];
-                        id[..4].copy_from_slice(&n.to_le_bytes());
-                        leaves::allocate_leaf(&mut seed, SccpLeafRefV1::transfer(id))
-                            .expect("fill");
-                    }
-                }
-                seed.apply();
-                route
-            };
-            {
-                let mut failed = block.transaction();
-                set_pause(&mut failed, network, true);
-                let error =
-                    record_control(&mut failed, network, 1, cause(1)).expect_err("bounded refusal");
-                assert!(
-                    error
-                        .to_string()
-                        .contains(if full { "maximum" } else { "exhausted" })
-                );
-                // The due-certificate executor drops this whole effect overlay on failure.
-            }
-            let stx = block.transaction();
+            record_control(&mut stx, network, 1, cause)
+                .expect_err("invalid cause or missing active fast part");
             assert_eq!(store::routes::get(&*stx.world, &network), Some(&original));
             assert!(store::control_messages::is_empty(&*stx.world));
-            assert_eq!(
-                leaves::leaf_count_at(&*stx.world, 7),
-                if full { 512 } else { 0 }
-            );
-            assert!(stx.world.internal_event_buf.is_empty());
+            assert_eq!(leaves::leaf_count_at(&*stx.world, 7), 0);
         }
+        for index in 0..leaves::MAX_LEAVES_PER_BLOCK {
+            leaves::allocate_leaf(&mut stx, SccpLeafRefV1::transfer([index as u8; 32])).unwrap();
+        }
+        record_control(&mut stx, network, 1, cause(1, 1)).expect_err("full block");
+        assert_eq!(store::routes::get(&*stx.world, &network), Some(&original));
+        assert!(store::control_messages::is_empty(&*stx.world));
+        assert_eq!(
+            leaves::leaf_count_at(&*stx.world, 7),
+            leaves::MAX_LEAVES_PER_BLOCK as usize
+        );
     }
 }

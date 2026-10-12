@@ -5,6 +5,7 @@ use crate::{
     sumeragi::evidence::observe,
     test_allocations::{allocations_during, refuse_one_layout_during},
 };
+use iroha_data_model::block::consensus::EvidenceScope;
 use mv::storage::StorageReadOnly as _;
 
 fn claim() -> EvidenceRecord {

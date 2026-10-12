@@ -20,6 +20,7 @@ use std::sync::LazyLock;
 
 mod npos_json;
 pub use npos_json::{AdmittedSumeragiNposParameters, SumeragiNposJsonAdmissionError};
+pub mod resource_coherence;
 /// Maximum governed IVM heap size in bytes for ABI V1.
 ///
 /// The ABI V1 address map reserves the half-open range `0x0010_0000..0x0020_0000` for the heap.
@@ -69,10 +70,9 @@ pub enum TransactionInclusionRoute {
 /// A transaction is includable when one of those proposers can select it; the result is the
 /// smaller of the cap and the largest selection budget on the route. It is zero when no
 /// payload on the route leaves room for a transaction.
-// TODO(X.2): the default payload limit (4 MiB) is below the transaction cap (10 MiB), so this
-// bound is the payload budget today. Once parameter validation enforces
-// `max_tx_bytes + reserve <= max_block_bytes` the result is always `max_tx_bytes`
-// (`specs/zk_resource_contract.json`, `transaction_cap_fits_block_payload`).
+/// Complete committed candidates enforce `max_tx_bytes + reserve <= max_block_bytes`
+/// through [`resource_coherence::validate_successor_resource_limits`] at both applicable
+/// successor heights. This selector also handles raw authoring inputs before validation.
 #[must_use]
 pub const fn max_includable_transaction_bytes(
     max_tx_bytes: NonZeroU64,
@@ -471,7 +471,7 @@ mod model {
         #[norito(default = "defaults::sumeragi::apply_budget_ms")]
         pub apply_budget_ms: NonZeroU64,
         /// Largest payload a block may carry in bytes, `ChainParams.max_block_bytes`
-        /// (default 4 MiB). Must fit the transport frame limit with its overhead (§9.4, O10).
+        /// (default 16 MiB). Must leave room for both frame allowances (§9.4, O10).
         #[norito(default = "defaults::sumeragi::max_block_bytes")]
         pub max_block_bytes: NonZeroU32,
         /// Epoch length in heights, `ChainParams.epoch_length` (default 3600, §11.7).
@@ -1589,9 +1589,9 @@ mod defaults {
         pub const fn apply_budget_ms() -> NonZeroU64 {
             nonzero_ext::nonzero!(1_000_u64)
         }
-        /// §9.3 default block payload limit: 4 MiB.
+        /// §9.3 default block payload limit: 16 MiB, including a ceiling-sized privacy transaction.
         pub const fn max_block_bytes() -> NonZeroU32 {
-            nonzero_ext::nonzero!(4_194_304_u32)
+            nonzero_ext::nonzero!(16_777_216_u32)
         }
         /// Default epoch length: one hour at the default block time (Appendix E, E12).
         pub const fn epoch_length_blocks() -> NonZeroU64 {
@@ -2988,7 +2988,7 @@ mod tests {
         assert_eq!(params.payload_retry_interval_ms.get(), 5_000);
         assert_eq!(params.exec_budget_ms.get(), 4_000);
         assert_eq!(params.apply_budget_ms.get(), 1_000);
-        assert_eq!(params.max_block_bytes.get(), 4 * 1024 * 1024);
+        assert_eq!(params.max_block_bytes.get(), 16 * 1024 * 1024);
         assert_eq!(params.epoch_length_blocks.get(), 3_600);
         assert_eq!(params.demotion_window.get(), 128);
         // The on-chain defaults are the core's §9.3 defaults and pass its §9.4 validation.
@@ -3001,8 +3001,8 @@ mod tests {
             epoch_length: params.epoch_length_blocks.get(),
         };
         assert_eq!(chain, iroha_sumeragi::types::ChainParams::default());
-        let transport = u64::from(params.max_block_bytes.get())
-            + u64::from(iroha_sumeragi::pacemaker::FRAME_OVERHEAD);
+        let transport =
+            iroha_sumeragi::pacemaker::minimum_transport_frame_bytes(params.max_block_bytes.get());
         iroha_sumeragi::pacemaker::validate_chain(&chain, transport)
             .expect("default chain parameters are valid");
         assert_eq!(

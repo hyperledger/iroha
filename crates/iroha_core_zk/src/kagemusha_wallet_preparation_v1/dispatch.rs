@@ -34,6 +34,13 @@ pub(super) fn proof<T>(result: core::result::Result<T, Error>) -> Result<T> {
 fn model<T>(result: core::result::Result<T, KagemushaWalletValidationErrorV1>) -> Result<T> {
     result.map_err(|_| state::Error::Invalid("native operation original"))
 }
+fn load_receipt_original(bytes: &[u8]) -> Result<KagemushaWalletLoadReceiptV1> {
+    state::read_model_original(
+        || KagemushaWalletLoadReceiptV1::decode_canonical(bytes),
+        state::Error::Invalid("native Load receipt original"),
+    )
+}
+
 fn decode<T>(bytes: &[u8], maximum: usize) -> Result<T>
 where
     T: norito::NoritoSerialize,
@@ -42,8 +49,15 @@ where
     if bytes.is_empty() || bytes.len() > maximum {
         return Err(state::Error::Invalid("native original frame bound"));
     }
-    norito::decode_canonical_with_limits(bytes, norito::canonical_decode_limits(bytes.len()))
-        .map_err(|_| state::Error::Invalid("native original canonical frame"))
+    norito::core::classify_decode_attempt(|| {
+        norito::decode_canonical_with_limits(bytes, norito::canonical_decode_limits(bytes.len()))
+    })
+    .map_err(|error| {
+        state::decode_attempt_error(
+            error,
+            state::Error::Invalid("native original canonical frame"),
+        )
+    })
 }
 
 fn required_original(custody: &mut PreparationCustodyV1<'_>, role: Original) -> Result<Vec<u8>> {
@@ -489,7 +503,7 @@ impl PreparationV1<'_> {
                 .action
             {
                 Action::Load { receipt, finality } => {
-                    let decoded = model(KagemushaWalletLoadReceiptV1::decode_canonical(receipt))?;
+                    let decoded = load_receipt_original(receipt)?;
                     let leaf = KagemushaWalletLoadLeafV1 {
                         ordinal: decoded.ordinal,
                         receipt_digest: model(decoded.receipt_digest())?,
@@ -864,6 +878,46 @@ impl PreparationV1<'_> {
 #[cfg(test)]
 mod error_tests {
     use super::*;
+
+    #[test]
+    fn load_receipt_dispatch_preserves_actual_decode_refusal_and_retry() {
+        let fixture: norito::json::Value = norito::json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/kagemusha/ordinary_load_receipt_v1.json"
+        )))
+        .unwrap();
+        let bytes = hex::decode(fixture["receipt_frame_hex"].as_str().unwrap()).unwrap();
+        let expected = load_receipt_original(&bytes).unwrap();
+        let unchanged = bytes.clone();
+        let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+        let error =
+            norito::with_decode_limits_scope(limits, || load_receipt_original(&bytes)).unwrap_err();
+        assert!(matches!(error, state::Error::DecodeResource(ref original)
+            if original.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        assert_eq!(bytes, unchanged);
+        assert_eq!(load_receipt_original(&bytes).unwrap(), expected);
+        assert!(matches!(
+            load_receipt_original(&[0]),
+            Err(state::Error::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn native_original_decoder_preserves_local_refusal_and_invalid_input() {
+        let value = vec![7u8; 128];
+        let bytes = norito::encode_canonical(&value).unwrap();
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+        let error =
+            norito::with_decode_limits_scope(limits, || decode::<Vec<u8>>(&bytes, bytes.len()))
+                .unwrap_err();
+        assert!(matches!(error, state::Error::DecodeResource(ref cause)
+            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        assert_eq!(decode::<Vec<u8>>(&bytes, bytes.len()).unwrap(), value);
+        assert!(matches!(
+            decode::<Vec<u8>>(&[0], bytes.len()),
+            Err(state::Error::Invalid(_))
+        ));
+    }
 
     #[test]
     fn native_preparation_mapping_preserves_cancellation_and_artifact_unavailability() {

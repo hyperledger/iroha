@@ -10,7 +10,7 @@ use crate::{DeriveJsonDeserialize, DeriveJsonSerialize, bridge::SccpNetworkV1};
 use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
 
-/// Largest source proof (8 MiB), equal to the default `[zk.sccp]` per-proof byte limit.
+/// Largest source proof (8 MiB), equal to the protocol-default per-proof byte limit of the committed `sccp` ZK validity policy.
 pub const SCCP_SOURCE_PROOF_MAX_BYTES_V1: usize = 8 * 1024 * 1024;
 
 /// Opaque inbound or void proof (`SccpSourceProofV1` frame), `1..=8 MiB`.

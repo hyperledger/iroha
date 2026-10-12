@@ -824,14 +824,14 @@ mod tests {
             ),
             VerificationErrorCode::NonCanonicalBlockProofs
         );
-        let deframed =
-            iroha_data_model::block::deframe_versioned_signed_block_bytes(&wire).unwrap();
+        let mut headerless = vec![wire[0]];
+        headerless.extend_from_slice(&wire[1 + norito::core::Header::SIZE..]);
         assert_eq!(
             run(
                 &fixture.checkpoint,
                 fixture.block_proofs.entry_hash.as_ref(),
                 &finality,
-                deframed.bare_versioned.as_ref(),
+                &headerless,
                 &proofs
             ),
             VerificationErrorCode::NonCanonicalBlockWire

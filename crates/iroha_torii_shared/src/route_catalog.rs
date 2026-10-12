@@ -4629,33 +4629,25 @@ pub mod sccp {
         .with_projections(RouteProjections::OPENAPI)
         .with_cors_options(true)
     }
-    /// Read the Taira identity, parameters and inbound light-client profiles.
+    /// Read the Taira identity, parameters and light-client profiles.
     pub const CAPABILITIES: RouteDescriptor =
         public_get("sccp.capabilities.read", "/v1/sccp/capabilities");
+    /// Read the current native SCCP generation and liability.
+    pub const CURRENT_COMMITTEE: RouteDescriptor =
+        public_get("sccp.committee.current", "/v1/sccp/committees/current");
+    /// Read the native certificate rotation chain after one pinned generation.
+    pub const COMMITTEE_ROTATIONS: RouteDescriptor =
+        public_get("sccp.committee.rotations", "/v1/sccp/committees/rotations");
+    /// Read one native SCCP generation and liability.
+    pub const COMMITTEE: RouteDescriptor =
+        public_get("sccp.committee.read", "/v1/sccp/committees/{generation}");
     /// Read every route with its escrow, stranded balance and revisions.
     pub const REGISTRY: RouteDescriptor = public_get("sccp.registry.read", "/v1/sccp/registry");
     /// Read the status union of one message id (outbound, inbound or unknown).
     pub const MESSAGE: RouteDescriptor =
         public_get("sccp.message.read", "/v1/sccp/messages/{message_id}");
-    /// Read a message proof with its original native certificate.
-    pub const MESSAGE_PROOF: RouteDescriptor =
-        public_get("sccp.message.proof", "/v1/sccp/messages/{message_id}/proof");
-    /// Read a control proof with its original native certificate.
-    pub const CONTROL_PROOF: RouteDescriptor = public_get(
-        "sccp.control.proof",
-        "/v1/sccp/controls/{network}/{revision}/{control_nonce}/proof",
-    );
     /// Read the native certificate of an explicit height or `latest`.
     pub const FINALITY: RouteDescriptor = public_get("sccp.finality", "/v1/sccp/finality/{height}");
-    /// Read the actual current generation cell and its same-view liability.
-    pub const CURRENT_COMMITTEE: RouteDescriptor =
-        public_get("sccp.committees.current", "/v1/sccp/committees/current");
-    /// Read one retained generation with mutable same-view liability.
-    pub const COMMITTEE: RouteDescriptor =
-        public_get("sccp.committees.get", "/v1/sccp/committees/{generation}");
-    /// Read up to 16 ordered native generation transitions.
-    pub const COMMITTEE_ROTATIONS: RouteDescriptor =
-        public_get("sccp.committees.rotations", "/v1/sccp/committees/rotations");
     /// Read the newest outbound or inbound records.
     pub const MESSAGES_RECENT: RouteDescriptor =
         public_get("sccp.messages.recent", "/v1/sccp/messages/recent");
@@ -4668,6 +4660,14 @@ pub mod sccp {
     pub const CONTROLS: RouteDescriptor = public_get(
         "sccp.controls.list",
         "/v1/sccp/controls/{network}/{revision}",
+    );
+    /// Assemble the native finality proof bundle of one outbound message.
+    pub const MESSAGE_PROOF: RouteDescriptor =
+        public_get("sccp.message.proof", "/v1/sccp/messages/{message_id}/proof");
+    /// Assemble the native finality proof bundle of one destination control.
+    pub const CONTROL_PROOF: RouteDescriptor = public_get(
+        "sccp.control.proof",
+        "/v1/sccp/controls/{network}/{revision}/{control_nonce}/proof",
     );
     /// Read every installed inbound light client.
     pub const LIGHT_CLIENTS: RouteDescriptor =
@@ -4702,6 +4702,9 @@ pub mod sccp {
     /// Complete SCCP read route set.
     pub const ROUTES: &[RouteDescriptor] = &[
         CAPABILITIES,
+        CURRENT_COMMITTEE,
+        COMMITTEE_ROTATIONS,
+        COMMITTEE,
         GOVERNANCE,
         GOVERNANCE_PROPOSALS,
         GOVERNANCE_PROPOSAL,
@@ -4718,9 +4721,6 @@ pub mod sccp {
         MESSAGE_PROOF,
         CONTROL_PROOF,
         FINALITY,
-        COMMITTEE_ROTATIONS,
-        CURRENT_COMMITTEE,
-        COMMITTEE,
     ];
 }
 /// Canonical descriptors enforced by Torii's mounted-route registry. Router assembly fails when any

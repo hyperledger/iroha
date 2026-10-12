@@ -1,27 +1,39 @@
-//! SCCP v1 execution: native Sumeragi finality, committee generations and message state.
+//! SCCP v1 core: state access, the block hook, admission and the eight v1 instructions
+//! (`specs/sccp.md` §4).
 //!
-//! Each current instruction delegates to one Core entry point. SCCP committee keys come
-//! from the authenticated consensus schedule; no separate attestation-key or signing
-//! protocol participates in execution.
+//! The [`Execute`] implementations below delegate each v1 instruction to exactly one entry
+//! point. The modules, by the workstream that owns them:
 //!
-//! With SCCP absent, admission classifies no transaction as SCCP-exempt. The finalizer
-//! returns the canonical inactive header and leaves SCCP state untouched.
+//! | Modules | Owner |
+//! |---|---|
+//! | [`init`], [`params`], [`admission`], [`fees`] | ws31 (inbound eligibility arms: ws41) |
+//! | [`hook`], [`commitment`] | ws30 |
+//! | [`outbound`], [`escrow`], [`recipients`] | ws32 |
+//! | [`registry`], [`governance`], [`controls`], [`light_clients`] (Parliament half) | ws33 |
+//! | [`light_clients`] (advance half), [`inbound`], [`settle`], [`voids`], [`self_claim`] | ws41 |
+//! | [`read`] (views served by Torii) | ws35 |
+//! | [`parliament_iface`] (the one seam to Parliament-owned functions; stubs today) | WP-S5, WP-S9 |
 //!
-//! TODO: complete native forgery evidence, shared keepalive and certified read bundles in
-//! the coordinated shared-model migration before qualifying SCCP routes for release.
+//! With SCCP absent (no `sccp_parameters`), the hook is a no-op and admission classifies no
+//! transaction as SCCP-exempt, so block production and queue behavior are unchanged.
 
 pub mod admission;
+pub mod anchor_record;
+pub mod anchor_storage;
 pub mod anchors;
 pub mod commitment;
-pub mod context;
+pub mod committee_storage;
 pub mod controls;
+pub(crate) mod eligibility;
+pub(crate) mod original_read;
 pub mod escrow;
 pub mod fees;
 pub mod forgery;
-pub mod generation;
+pub mod generation_record;
+pub(super) mod generations;
 pub mod governance;
 pub mod height;
-mod holds;
+pub mod hold;
 pub mod hook;
 pub mod inbound;
 pub mod init;
@@ -30,7 +42,9 @@ pub(crate) mod liability;
 pub mod light_clients;
 pub mod outbound;
 pub mod params;
-pub mod prune;
+pub mod parliament_iface;
+pub(crate) mod pause_lifecycle;
+pub mod pause_record;
 pub mod read;
 pub mod recipients;
 pub mod registry;
@@ -60,7 +74,7 @@ use iroha_data_model::{
     },
 };
 
-/// Return whether `instruction` is a current SCCP v1 instruction.
+/// Return whether `instruction` is one of the eight SCCP v1 instructions.
 ///
 /// Every SCCP instruction routes to the universal dataspace (§4.19) and is admitted by the
 /// Initial executor because core enforces every SCCP rule.
@@ -71,8 +85,8 @@ pub fn is_sccp_instruction(instruction: &dyn Instruction) -> bool {
         || any.is::<RecordSccpMessage>()
         || any.is::<SubmitSccpInboundMessageV1>()
         || any.is::<SettleSccpV1>()
-        || any.is::<SubmitSccpOutboundVoidV1>()
         || any.is::<SubmitSccpForgeryEvidenceV1>()
+        || any.is::<SubmitSccpOutboundVoidV1>()
         || any.is::<AdvanceSccpLightClientV1>()
         || any.is::<ReportSccpLightClientEquivocationV1>()
 }
@@ -112,6 +126,7 @@ mod tests {
 
     #[test]
     fn every_v1_instruction_is_recognized_and_nothing_else_is() {
+        assert_eq!(SampleInstructions::all().len(), 8);
         for instruction in SampleInstructions::all() {
             assert!(is_sccp_instruction(&*instruction), "{instruction:?}");
         }
@@ -145,9 +160,6 @@ mod tests {
     }
 }
 
-#[cfg(test)]
-mod parameter_mutation_tests;
-
 // Execution is one-shot and cannot be authorized by an IVM or callback instruction.
 impl Execute for SubmitSccpForgeryEvidenceV1 {
     fn execute(
@@ -160,3 +172,6 @@ impl Execute for SubmitSccpForgeryEvidenceV1 {
             .map_err(|error| error.into_instruction_error(state_transaction))
     }
 }
+
+#[cfg(test)]
+mod parameter_mutation_tests;

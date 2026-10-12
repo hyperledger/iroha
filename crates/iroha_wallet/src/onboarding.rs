@@ -601,10 +601,11 @@ impl OperationJournalV1 {
         let OperationV1::Faucet(faucet) = &self.operation else {
             eyre::bail!("saved operation is not a faucet claim");
         };
+        let matches_requested_fee = faucet.requested_fee == request.fee_payment;
         if faucet.issuer != request.issuer
             || faucet.asset_definition != request.asset_definition
             || faucet.amount != request.amount
-            || faucet.requested_fee != request.fee_payment
+            || !matches_requested_fee
         {
             eyre::bail!("saved faucet differs from the exact trusted request");
         }
@@ -687,6 +688,7 @@ impl OperationJournalV1 {
     }
 }
 
+#[derive(Clone, Copy)]
 struct SavedAction<'a> {
     kind: &'static str,
     submit: bool,

@@ -2,8 +2,8 @@
 //!
 //! Audited allocation transfers are limited to the constructors below: exact buffer/key backing
 //! moves into private canonical fields without growth or export, and the same-pool ledger remains
-//! alive until those fields are destroyed. Partial construction destroys payloads before credits;
-//! an unwind conservatively retains credits when destruction cannot be established.
+//! alive until those fields are destroyed. Each private constructor declares its ledger before
+//! its payload locals, so normal refusal and unwinding destroy those payloads before credits.
 
 use super::BoundaryInputs;
 use iroha_allocation::{
@@ -225,25 +225,43 @@ impl Demand {
     }
 }
 
-/// Guard the partially constructed canonical fields across every early return and unwind.
-/// It is declared before those fields, so Rust destroys their allocations first. An unwind
-/// conservatively retains all credits rather than reporting unproven reclamation as available.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ConstructionCheckpoint {
+    NestedKey,
+    NestedCommitteeMember,
+    BeforeSharedShell,
+}
+#[cfg(test)]
+thread_local! {
+    static CONSTRUCTION_UNWIND: std::cell::Cell<Option<ConstructionCheckpoint>> = const { std::cell::Cell::new(None) };
+}
+#[cfg(test)]
+fn construction_checkpoint(stage: ConstructionCheckpoint) {
+    if CONSTRUCTION_UNWIND.with(|requested| requested.get() == Some(stage)) {
+        CONSTRUCTION_UNWIND.with(|requested| requested.set(None));
+        panic!("controlled epoch construction unwind at {stage:?}");
+    }
+}
+
+/// Ledger shared only by the four private constructors below. Each constructor declares
+/// this owner before every raw payload local; each nested helper owns its unfinished fields
+/// until it returns. Rust therefore drops all payload allocations before this ledger on
+/// normal refusal and unwind. Completed payloads move together with their exact ledger.
 struct Construction<'a> {
     budget: &'a AllocationBudget,
     reservation: AllocationReservation,
     charges: Option<ChargedBuffer<AllocationCharge>>,
 }
+// Mutation-only restoration of the retired partial-unwind credit leak.
+#[cfg(all(test, sumeragi_core_mutation = "HC239"))]
 impl Drop for Construction<'_> {
     fn drop(&mut self) {
         if std::thread::panicking() {
-            // Destruction of a partially built field may be incomplete during unwind.
             if let Some(charges) = self.charges.take() {
                 std::mem::forget(charges);
             }
         }
-        // On normal refusal, later-declared payload locals have already dropped; Option
-        // destroys the original ledger. A successful finish takes it without leaking the
-        // now-empty reservation or its budget handle.
     }
 }
 impl<'a> Construction<'a> {
@@ -274,26 +292,42 @@ impl<'a> Construction<'a> {
             charges: Some(charges),
         })
     }
-    fn retain(&mut self, charge: AllocationCharge) -> Result<(), BoundaryCaptureError> {
-        if let Err(charge) = self
-            .charges
-            .as_mut()
-            .expect("construction owns its ledger")
-            .try_push(charge)
-        {
-            // Refusing a planner mismatch must never refund a payload which still exists.
-            std::mem::forget(charge);
+    fn ensure_charge_slot(&self) -> Result<(), BoundaryCaptureError> {
+        let charges = self.charges.as_ref().expect("construction owns its ledger");
+        if charges.as_slice().len() == charges.capacity() {
             return Err(BoundaryCaptureError::Invalid(
                 "boundary charge ledger capacity changed".into(),
             ));
         }
         Ok(())
     }
+    fn retain<T>(
+        &mut self,
+        payload: T,
+        charge: AllocationCharge,
+    ) -> Result<T, BoundaryCaptureError> {
+        if let Err(charge) = self
+            .charges
+            .as_mut()
+            .expect("construction owns its ledger")
+            .try_push(charge)
+        {
+            // Preserve physical custody even if the private planner invariant is violated.
+            // The actual moved key/vector must retire before its charge is refundable.
+            drop(payload);
+            drop(charge);
+            return Err(BoundaryCaptureError::Invalid(
+                "boundary charge ledger capacity changed".into(),
+            ));
+        }
+        Ok(payload)
+    }
     #[allow(
         unsafe_code,
         reason = "audited exact canonical allocation transfer with retained original-pool custody"
     )]
     fn key(&mut self, key: &PublicKey) -> Result<PublicKey, BoundaryCaptureError> {
+        self.ensure_charge_slot()?;
         let charge = self
             .reservation
             .try_split(key.retained_allocation_layout())
@@ -318,7 +352,9 @@ impl<'a> Construction<'a> {
         // SAFETY: this exact compact key moves directly into a known model field, never grows,
         // and its charge enters the private ledger retained past destruction of that field.
         let (key, charge) = unsafe { owned.into_allocation_parts() };
-        self.retain(charge)?;
+        let key = self.retain(key, charge)?;
+        #[cfg(test)]
+        construction_checkpoint(ConstructionCheckpoint::NestedKey);
         Ok(key)
     }
     #[allow(
@@ -326,16 +362,18 @@ impl<'a> Construction<'a> {
         reason = "audited exact canonical allocation transfer with retained original-pool custody"
     )]
     fn vector<T>(&mut self, buffer: ChargedBuffer<T>) -> Result<Vec<T>, BoundaryCaptureError> {
+        // Refusal drops the still-charged buffer before any allocation is detached.
+        self.ensure_charge_slot()?;
         // SAFETY: callers move this exact backing into the declared immutable model Vec field;
         // no replacement, growth or detached clone occurs before the final payload drops.
         let (values, charge) = unsafe { buffer.into_allocation_parts() };
-        self.retain(charge)?;
-        Ok(values)
+        self.retain(values, charge)
     }
     fn buffer<T>(&mut self, count: usize) -> Result<ChargedBuffer<T>, BoundaryCaptureError> {
         ChargedBuffer::from_reservation(count, &mut self.reservation).map_err(prepaid_error)
     }
     fn quantity(&mut self, value: &Quantity) -> Result<Quantity, BoundaryCaptureError> {
+        self.ensure_charge_slot()?;
         let layout = value
             .admission_clone_layout()
             .map_err(|error| BoundaryCaptureError::Invalid(error.to_string()))?;
@@ -343,7 +381,7 @@ impl<'a> Construction<'a> {
             .reservation
             .try_split(layout)
             .map_err(|error| BoundaryCaptureError::Invalid(error.to_string()))?;
-        self.retain(charge)?;
+        self.retain((), charge)?;
         value.try_clone_for_admission().map_err(quantity_error)
     }
     fn committee<'s>(
@@ -367,6 +405,8 @@ impl<'a> Construction<'a> {
                 .map_err(|_| {
                     BoundaryCaptureError::Invalid("boundary member count changed".into())
                 })?;
+            #[cfg(test)]
+            construction_checkpoint(ConstructionCheckpoint::NestedCommitteeMember);
         }
         self.vector(output)
     }
@@ -593,26 +633,24 @@ pub(super) fn materialize(
         ));
     }
     // SAFETY: every known nested model allocation was moved unchanged from its exact charged
-    // buffer/key owner; quantities used exact admission clones. Payload destruction precedes
-    // charge release, including conservative credit retention during an unwinding destructor.
+    // buffer/key owner; quantities used exact admission clones. The payload local was
+    // declared after owner, so refusal still destroys it before its unchanged ledger.
     let charges = owner
         .charges
-        .take()
+        .as_ref()
         .expect("construction owns its complete ledger");
     if charges.as_slice().len() != charges.capacity() {
-        // Source planner mismatches must not refund any possibly live payload allocation.
-        std::mem::forget(charges);
         return Err(BoundaryCaptureError::Invalid(
             "boundary charge count changed".into(),
         ));
     }
     let budget = owner.budget;
-    drop(owner);
+    let charges = owner.charges.take().expect("checked complete ledger");
     let payload = match unsafe { RetainedPayload::try_new(payload, charges, budget) } {
         Ok(payload) => payload,
         Err((payload, charges, error)) => {
-            std::mem::forget(charges);
             drop(payload);
+            drop(charges);
             return Err(BoundaryCaptureError::Invalid(error.to_string()));
         }
     };
@@ -786,22 +824,24 @@ fn retain_slots(
     }
     let charges = owner
         .charges
-        .take()
+        .as_ref()
         .expect("canonical constructor owns ledger");
     if charges.as_slice().len() != charges.capacity() {
-        std::mem::forget(charges);
         return Err("schedule charge count changed".into());
     }
     // SAFETY: all exact canonical slots/contexts/keys were moved from the original admitted
     // allocations above. The payload keeps exclusive ownership until its ledger releases.
+    let charges = owner.charges.take().expect("checked complete ledger");
     let retained = match unsafe { RetainedPayload::try_new(canonical, charges, budget) } {
         Ok(value) => value,
         Err((value, charges, error)) => {
-            std::mem::forget(charges);
             drop(value);
+            drop(charges);
             return Err(error.to_string().into());
         }
     };
+    #[cfg(test)]
+    construction_checkpoint(ConstructionCheckpoint::BeforeSharedShell);
     match RetainedConsensusSchedule::from_retained(retained, &mut owner.reservation) {
         Ok(result) => Ok(result),
         Err((original, iroha_allocation::PrepaidSharedError::Allocator { requested_bytes })) => {
@@ -915,20 +955,23 @@ pub(crate) fn capture_continuation(
     }
     let charges = owner
         .charges
-        .take()
+        .as_ref()
         .expect("canonical constructor owns ledger");
     if charges.as_slice().len() != charges.capacity() {
-        std::mem::forget(charges);
         return Err("ordinary capture charge count changed".into());
     }
     // SAFETY: every exact canonical field was materialized above from the unchanged original
     // prepaid buffers/keys, and the ledger stays with those fields until final destruction.
+    let charges = owner.charges.take().expect("checked complete ledger");
     match unsafe { RetainedPayload::try_new(inputs, charges, budget) } {
         Ok(value) => Ok(value),
         Err((value, charges, error)) => {
-            std::mem::forget(charges);
             drop(value);
+            drop(charges);
             Err(error.to_string().into())
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

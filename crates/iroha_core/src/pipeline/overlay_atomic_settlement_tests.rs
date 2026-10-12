@@ -132,7 +132,8 @@ fn set_source_delta_limit(
     );
     parameters
         .get_mut()
-        .set_parameter(Parameter::Block(BlockParameter::FastpqSource(profile)));
+        .set_parameter(Parameter::Block(BlockParameter::FastpqSource(profile)))
+        .expect("valid fixture parameters");
     parameters.commit();
     profile
 }

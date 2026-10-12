@@ -83,7 +83,8 @@ fn transaction_privacy_admission_uses_manifest_when_cache_is_stale() {
         iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
     )
     .with_instructions([Log::new(Level::INFO, "privacy admission".into())])
-    .with_attachments(ProofAttachmentList::try_from(vec![attachment]).unwrap())
+    .with_proof_attachments(vec![attachment])
+    .expect("valid proof carriers")
     .sign(keypair.private_key());
 
     {

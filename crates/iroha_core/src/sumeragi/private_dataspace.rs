@@ -39,12 +39,7 @@ fn profile_error(
             crate::execution_attempt::ExecutionAttemptError::Rejected(invalid(message))
         }
         PrivateDataspaceAnchorError::Resource(resource) => {
-            crate::execution_attempt::ExecutionAttemptError::Deferred(match resource {
-                norito::core::DecodeResourceError::AllocationFailed { .. } => {
-                    ivm::error::ExecutionDeferral::AllocationUnavailable.into()
-                }
-                _ => ivm::error::ExecutionDeferral::ActiveMemoryCapacity.into(),
-            })
+            crate::execution_attempt::canonical_decode_attempt_error(resource, invalid)
         }
     };
     state.attempt_error_to_instruction_error(attempt)

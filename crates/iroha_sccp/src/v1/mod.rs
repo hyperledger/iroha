@@ -4,8 +4,7 @@
 //! nodes, destination contracts, wallets and tools must agree on byte for
 //! byte: profile identities and lanes, the transfer payload codec and amount
 //! rules, payload and message hashes, block commitment and history trees,
-//! native finality and committee verification, control leaves, TON cell hashing
-//! and EVM ABI helpers. Nothing here performs I/O;
+//! native BLS certificates, external transaction signatures, TON cell hashing and EVM ABI helpers. Nothing here performs I/O;
 //! network access lives in `iroha_sccp_rpc`.
 //!
 //! The revision-5 finality reference (`specs/sccp.md` §3.4, §3.6–§3.8, §5.1, §5.2.2) is in
@@ -17,6 +16,8 @@
 //! [`destination`] the executable model of the destination contracts, EVM and TON
 //! ([`destination::Destination`]); [`destination_abi`] their selectors, event topics and
 //! the shared error table with its TON exit codes.
+//!
+//! Core controls commit the complete authenticated 199-byte control leaf.
 
 /// Declare a field-less error enum with `Debug`, `Display` and `std::error::Error`.
 macro_rules! unit_error {
@@ -58,6 +59,8 @@ pub mod history;
 pub mod merkle;
 pub mod network;
 pub mod payload;
+pub mod proof;
+pub mod signature;
 pub mod ton_cell;
 
 #[cfg(test)]

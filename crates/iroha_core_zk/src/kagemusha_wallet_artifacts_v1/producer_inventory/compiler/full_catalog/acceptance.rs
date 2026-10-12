@@ -405,6 +405,7 @@ pub(crate) fn open_pinned_engineering_wallet_sources(output: &Path) -> Engineeri
         root: catalog.join("originals"),
         bytes: 0,
         count: 0,
+        new_write_remaining: 0, // This read-only transport never publishes raw originals.
     };
     regular_directory(&wallet.root).unwrap();
     let config = ReadConfig {

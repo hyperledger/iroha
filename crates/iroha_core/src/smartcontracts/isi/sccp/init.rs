@@ -1,35 +1,76 @@
 //! Genesis-only `InitializeSccpV1` (`specs/sccp.md` §4.1, §4.15, §4.18). Owner: ws31.
 //!
 //! Validates that it executes inside the genesis block under NPoS with `max_validators` in
-//! the exact `3f + 1` range 4..=31, checks the epoch and pinned staking policy plus every
-//! §4.1 parameter rule, stores the parameters and the nonzero reset nonce,
-//! creates the three route escrow accounts and an empty registry. SCCP exists on a network iff
-//! `sccp_parameters` is present, so a second initialization is refused.
+//! 4..=31, checks the §4.1 parameter table with the staking floor L1 ([`check_parameters`]),
+//! stores the parameters and the nonzero reset nonce, creates the three route escrow accounts
+//! and an empty registry, and no route. SCCP exists on a network iff `sccp_parameters` is
+//! present, so a second initialization is refused.
 //!
-//! TODO: align the specification's synchronous G1 wording with the authenticated genesis
-//! finalizer. The original block owner captures the signed committee before execution, but
-//! publishes its schedule only after reconciling the executed genesis. Generation 1 is then
-//! created by the SCCP hook in that same output seal; this instruction cannot read the private
-//! captured owner and must not reconstruct authority from authored genesis registrations.
+//! Generation 1 uses the original Global NPoS genesis context; staged World writes cannot
+//! manufacture it. The epoch guard and pinned slash policy are checked before publication.
 
-use super::{Error, escrow, params, store};
+use super::{Error, escrow, generations, parliament_iface, store};
 use crate::state::{StateTransaction, WorldReadOnly};
 use iroha_data_model::{
-    account::AccountId, block::consensus::SumeragiRootScope, isi::sccp::InitializeSccpV1,
+    account::AccountId,
+    isi::sccp::InitializeSccpV1,
+    sccp::params::{SccpParameterContextV1, SccpParametersError, SccpParametersV1},
 };
+use iroha_sccp::v1::committee::{MAX_COMMITTEE_SIZE, MIN_COMMITTEE_SIZE};
 
 fn refuse(reason: impl core::fmt::Display) -> Error {
     Error::InvariantViolation(format!("SCCP: InitializeSccpV1 refused: {reason}").into())
+}
+
+/// Check `parameters` against the §4.1 table, as `InitializeSccpV1` and the Parliament's
+/// `SetParameters` do against the complete new value.
+///
+/// Every field's own bound and every joint rule is checked. Two rules read a value from
+/// outside the table:
+///
+/// * the staking floor L1 (§4.8), `committee_validity_ms + forgery_evidence_grace_ms ≤
+///   unbonding_delay_ms`, reads `nexus.staking.unbonding_delay` of the node's genesis-pinned
+///   staking policy. The global default delay is 0, so SCCP initializes only under a staking
+///   profile that sets it (21 d for the Taira defaults);
+/// * the lower bound of `fast_pause_hold_ms` reads the Parliament attempt latency through
+///   [`parliament_iface::parliament_sccp_attempt_latency_ms`]; while the Parliament pipeline
+///   provides none, that bound is deferred, never treated as met by a zero latency.
+///
+/// TODO: WP-S5: require the attempt latency when the launch gate opens (§10.2).
+///
+/// Retained generations keep their original validity and grace; a new parameter set cannot
+/// make those existing liabilities exceed the pinned staking delay.
+///
+/// # Errors
+///
+/// Returns the first violated rule of the table.
+pub fn check_parameters(
+    state_transaction: &StateTransaction<'_, '_>,
+    parameters: &SccpParametersV1,
+) -> Result<(), SccpParametersError> {
+    let unbonding_delay = state_transaction.nexus.staking.unbonding_delay;
+    let delay_ms = u64::try_from(unbonding_delay.as_millis()).unwrap_or(u64::MAX);
+    if store::committee_generations::iter(&*state_transaction.world).any(|(_, generation)| {
+        generation
+            .validity_ms
+            .checked_add(generation.grace_ms)
+            .is_none_or(|required| required > delay_ms)
+    }) {
+        return Err(SccpParametersError::UnbondingDelayTooShort);
+    }
+    parameters.validate_against(&SccpParameterContextV1 {
+        parliament_sccp_attempt_latency_ms: parliament_iface::parliament_sccp_attempt_latency_ms(),
+        unbonding_delay_ms: delay_ms,
+    })
 }
 
 /// Execute `InitializeSccpV1`.
 ///
 /// # Errors
 ///
-/// Refuses outside the original authenticated Global genesis, when SCCP already exists,
-/// without NPoS parameters or with an invalid exact `3f + 1` committee size, epoch or
-/// staking policy, a parameter set that breaks a §4.1 rule, or a zero `reset_nonce`.
-/// Propagates an escrow creation failure and preserves local read deferral ownership.
+/// Refuses outside the genesis block, when SCCP already exists, without NPoS parameters or
+/// with `max_validators` outside 4..=31, with a parameter set that breaks a §4.1 rule or the
+/// staking floor L1, or with a zero `reset_nonce`; propagates an escrow creation failure.
 pub fn execute_initialize(
     instruction: InitializeSccpV1,
     _authority: &AccountId,
@@ -37,22 +78,6 @@ pub fn execute_initialize(
 ) -> Result<(), Error> {
     if !state_transaction._curr_block.is_genesis() {
         return Err(refuse("valid only inside the genesis block"));
-    }
-    // A height-one header or mutable metadata cannot authorize a global bridge. Preserve
-    // any local decoder/admission refusal recorded by the common scope owner.
-    let scope = match crate::executor::root_scope::execution_root_scope(state_transaction) {
-        Ok(scope) => scope,
-        Err(_) => {
-            if let Some(original) = state_transaction.execution_deferral() {
-                return Err(state_transaction.attempt_error_to_instruction_error(
-                    crate::execution_attempt::ExecutionAttemptError::Deferred(original),
-                ));
-            }
-            return Err(refuse("requires the original authenticated Global genesis"));
-        }
-    };
-    if scope != SumeragiRootScope::Global {
-        return Err(refuse("requires the original authenticated Global genesis"));
     }
     if store::parameters::get(&*state_transaction.world).is_some() {
         return Err(refuse("SCCP is already initialized"));
@@ -72,26 +97,56 @@ pub fn execute_initialize(
         .ok_or_else(|| refuse("NPoS consensus parameters are required"))?
         .max_validators();
     if !usize::try_from(max_validators)
-        .is_ok_and(iroha_data_model::block::consensus::is_valid_committee_size)
+        .is_ok_and(|max| (MIN_COMMITTEE_SIZE..=MAX_COMMITTEE_SIZE).contains(&max))
     {
         return Err(refuse(format_args!(
-            "NPoS max_validators {max_validators} must be exactly 3f + 1 in 4..=31"
+            "NPoS max_validators {max_validators} is outside {MIN_COMMITTEE_SIZE}..={MAX_COMMITTEE_SIZE}"
         )));
     }
-    params::validate_next(state_transaction, &instruction.parameters)?;
+    check_parameters(state_transaction, &instruction.parameters).map_err(refuse)?;
     if instruction.reset_nonce == [0; 32] {
         return Err(refuse("reset_nonce must be nonzero"));
     }
+    let timing = state_transaction.world.parameters().sumeragi();
+    if super::params::validate_epoch(
+        timing.epoch_length_blocks.get(),
+        timing.block_cadence_ms().get(),
+    )
+    .is_err()
+    {
+        return Err(refuse(
+            "epoch duration is below SCCP_MIN_EPOCH_MS or exceeds the u64 clock",
+        ));
+    }
+    if state_transaction.nexus.staking.max_slash_bps == 0 {
+        return Err(refuse("max_slash_bps must be at least one"));
+    }
+    let generation = generations::prepare_genesis(state_transaction, &instruction.parameters)
+        .map_err(|error| match error {
+            generations::GenerationError::Degraded(reason) => refuse(format_args!(
+                "original genesis generation unavailable: {reason:?}"
+            )),
+            generations::GenerationError::Deferred(original) => {
+                let _ = state_transaction.defer_execution(original);
+                refuse("local genesis generation admission did not complete")
+            }
+        })?;
     store::parameters::set(state_transaction, Some(instruction.parameters));
     store::reset_nonce::set(state_transaction, Some(instruction.reset_nonce));
-    escrow::create_route_escrows(state_transaction)
+    escrow::create_route_escrows(state_transaction)?;
+    generations::install_genesis(state_transaction, generation).map_err(|original| {
+        state_transaction.arm_local_storage_refusal(original);
+        refuse("local genesis generation map admission did not complete")
+    })?;
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::smartcontracts::isi::sccp::test_support::{
-        SampleInstructions, authority, blank_state, header,
+        SCCP_UNBONDING_DELAY_MS, SampleInstructions, authority, blank_state, header,
+        set_sccp_staking_profile,
     };
     use iroha_data_model::{
         bridge::SccpNetworkV1,
@@ -100,11 +155,6 @@ mod tests {
     };
 
     fn set_max_validators(stx: &mut StateTransaction<'_, '_>, max_validators: Option<u32>) {
-        stx.nexus.staking.unbonding_delay = std::time::Duration::from_secs(21 * 86_400);
-        stx.nexus.staking.max_slash_bps = 1;
-        let consensus = &mut stx.world.parameters.get_mut().sumeragi;
-        consensus.epoch_length_blocks = std::num::NonZeroU64::new(3_600).expect("epoch");
-        consensus.block_cadence_ms = std::num::NonZeroU64::new(1_000).expect("cadence");
         let Some(max_validators) = max_validators else {
             return;
         };
@@ -115,75 +165,23 @@ mod tests {
         stx.world
             .parameters
             .get_mut()
-            .set_parameter(Parameter::Custom(npos.into_custom_parameter()));
+            .set_parameter(Parameter::Custom(npos.into_custom_parameter()))
+            .expect("fixture NPoS parameters");
     }
 
-    // Authenticate the exact singleton instruction without executing it during fixture
-    // preparation: the negative policy cases must reach the real initializer themselves.
-    // This grants component bootstrap scope, not a certified output or valid NPoS policy.
-    fn with_original_initialize<T>(
-        instruction: InitializeSccpV1,
-        scope: SumeragiRootScope,
-        action: impl FnOnce(&mut StateTransaction<'_, '_>) -> T,
-    ) -> T {
-        use crate::{
-            kura::Kura,
-            query::store::LiveQueryStore,
-            state::{State, World},
+    fn original_genesis_context() -> iroha_data_model::sumeragi::epoch::ValidatorEpochContextV1 {
+        use iroha_data_model::{
+            parameter::system::SumeragiConsensusMode,
+            sumeragi_finality::{authenticated_genesis, test_fixtures::NativeFinalityFixture},
         };
-        use iroha_data_model::{NetworkId, isi::InstructionBox};
-        use iroha_model_base::chain::ChainId;
-        use iroha_test_samples::{ALICE_ID, ALICE_KEYPAIR};
-        iroha_genesis::init_instruction_registry();
-        let chain = ChainId::from("sccp-original-initialize");
-        let mut context =
-            iroha_data_model::block::consensus::SumeragiGenesisContextParameters::recommended();
-        context.root_scope = scope;
-        let original: InstructionBox = instruction.into();
-        let source = iroha_genesis::GenesisBuilder::new_without_executor(chain.clone(), ".")
-            .set_topology(
-                crate::sumeragi::test_chain::fixture_validators()
-                    .into_iter()
-                    .map(|(peer, pop)| iroha_genesis::GenesisTopologyEntry::new(peer, pop))
-                    .collect::<Vec<_>>(),
-            )
-            .with_sumeragi_context_parameters(context)
-            .next_transaction()
-            .append_instruction(original.clone())
-            .build_raw()
-            .unwrap()
-            .with_consensus_meta()
-            .unwrap()
-            .build_and_sign(&ALICE_KEYPAIR)
-            .unwrap()
-            .0;
-        let state = State::new_with_chain_and_network_id_for_testing(
-            World::new(),
-            Kura::blank_kura_for_testing(),
-            LiveQueryStore::start_test(),
-            chain,
-            NetworkId::from_genesis_hash(source.hash()),
+        let fixture = NativeFinalityFixture::start_with_mode(
+            "sccp-init-original-context",
+            SumeragiConsensusMode::Npos,
         );
-        let index = source
-            .external_transactions()
-            .position(|signed| {
-                matches!(signed.instructions(),
-                    iroha_data_model::transaction::Executable::Instructions(instructions)
-                        if instructions.iter().eq(core::iter::once(&original))
-                )
-            })
-            .expect("exact original singleton Initialize");
-        let mut block = state
-            .block_with_pristine_carrier_stage(&source, |_| Ok::<_, String>(()))
-            .expect("original signed carrier");
-        let mut stx = block
-            .transaction_for_original_genesis_testing(&source, index, &ALICE_ID, &original)
-            .expect("original signed Initialize scope");
-        assert_eq!(
-            crate::executor::root_scope::execution_root_scope(&mut stx).unwrap(),
-            scope
-        );
-        action(&mut stx)
+        authenticated_genesis(fixture.genesis())
+            .expect("signed genesis")
+            .into_parts()
+            .0
     }
 
     fn initialize(
@@ -191,17 +189,14 @@ mod tests {
         max_validators: Option<u32>,
         instruction: InitializeSccpV1,
     ) -> Result<(), Error> {
-        if height != 1 {
-            let state = blank_state();
-            let mut block = state.block(header(height));
-            let mut stx = block.transaction();
-            set_max_validators(&mut stx, max_validators);
-            return execute_initialize(instruction, &authority(1), &mut stx);
-        }
-        with_original_initialize(instruction.clone(), SumeragiRootScope::Global, |stx| {
-            set_max_validators(stx, max_validators);
-            execute_initialize(instruction, &authority(1), stx)
-        })
+        let original = original_genesis_context();
+        let state = blank_state();
+        let mut block = state.block(header(height));
+        let mut stx = block.transaction();
+        stx.native_genesis_context = Some(&original);
+        set_max_validators(&mut stx, max_validators);
+        set_sccp_staking_profile(&mut stx);
+        execute_initialize(instruction, &authority(1), &mut stx)
     }
 
     fn refusal(result: Result<(), Error>) -> String {
@@ -210,26 +205,47 @@ mod tests {
 
     #[test]
     fn genesis_initialization_stores_parameters_nonce_and_empty_routes() {
+        let original = original_genesis_context();
+        let state = blank_state();
+        let mut block = state.block(header(1));
+        let mut stx = block.transaction();
+        set_max_validators(&mut stx, Some(31));
+        set_sccp_staking_profile(&mut stx);
+        stx.native_genesis_context = Some(&original);
         let instruction = SampleInstructions::initialize();
-        with_original_initialize(instruction.clone(), SumeragiRootScope::Global, |stx| {
-            set_max_validators(stx, Some(31));
-            execute_initialize(instruction.clone(), &authority(1), stx).expect("initialize");
-            assert_eq!(
-                store::parameters::get(&*stx.world).as_ref(),
-                Some(&instruction.parameters)
-            );
-            assert_eq!(
-                *store::reset_nonce::get(&*stx.world),
-                Some(instruction.reset_nonce)
-            );
-            for network in SCCP_ROUTE_NETWORKS_V1 {
-                let route = store::routes::get(&*stx.world, &network).expect("route");
-                assert!(route.revisions.is_empty());
-            }
-            assert!(store::routes::get(&*stx.world, &SccpNetworkV1::SoraTaira).is_none());
-            let again = refusal(execute_initialize(instruction, &authority(1), stx));
-            assert!(again.contains("already initialized"), "{again}");
-        });
+        execute_initialize(instruction.clone(), &authority(1), &mut stx).expect("initialize");
+        assert_eq!(
+            store::parameters::get(&*stx.world).as_ref(),
+            Some(&instruction.parameters)
+        );
+        assert_eq!(
+            *store::reset_nonce::get(&*stx.world),
+            Some(instruction.reset_nonce)
+        );
+        assert_eq!(*store::committee_current::get(&*stx.world), 1);
+        let generation = store::committee_generations::get(&*stx.world, &1).expect("G1");
+        assert_eq!(
+            generation.cause,
+            iroha_data_model::sccp::generation::SccpGenerationCauseV1::Genesis
+        );
+        assert_eq!(
+            (
+                generation.start_height,
+                generation.start_timestamp_ms,
+                generation.start_lc
+            ),
+            (1, 4_000, 4_000)
+        );
+        assert_eq!(generation.keys.len(), original.committee.len());
+        assert_eq!(SCCP_ROUTE_NETWORKS_V1.len(), 3, "three route escrows");
+        for network in SCCP_ROUTE_NETWORKS_V1 {
+            let route = store::routes::get(&*stx.world, &network).expect("route");
+            assert!(route.revisions.is_empty(), "genesis registers no route");
+        }
+        assert_eq!(store::routes::len(&*stx.world), 3);
+        assert!(store::routes::get(&*stx.world, &SccpNetworkV1::SoraTaira).is_none());
+        let again = refusal(execute_initialize(instruction, &authority(1), &mut stx));
+        assert!(again.contains("already initialized"), "{again}");
     }
 
     #[test]
@@ -242,13 +258,7 @@ mod tests {
     fn initialization_requires_npos_with_a_bounded_committee() {
         let error = refusal(initialize(1, None, SampleInstructions::initialize()));
         assert!(error.contains("NPoS"), "{error}");
-        for size in (4..=31).step_by(3) {
-            initialize(1, Some(size), SampleInstructions::initialize()).expect("exact committee");
-        }
-        for size in [0, 3, 5, 6, 8, 32] {
-            let error = refusal(initialize(1, Some(size), SampleInstructions::initialize()));
-            assert!(error.contains("NPoS"), "{error}");
-        }
+        initialize(1, Some(4), SampleInstructions::initialize()).expect("minimum committee");
         // NPoS validation already bounds the committee, so an unbounded ceiling reads as absent.
         let error = refusal(initialize(1, Some(1), SampleInstructions::initialize()));
         assert!(error.contains("NPoS"), "{error}");
@@ -256,10 +266,27 @@ mod tests {
 
     #[test]
     fn initialization_checks_every_parameter_rule_and_the_nonce() {
+        // One field's own bound, one joint rule and the retired exempt-cap floor of 94.
         let mut instruction = SampleInstructions::initialize();
         instruction.parameters.committee_heartbeat_ms = 1;
         let error = refusal(initialize(1, Some(31), instruction));
         assert!(error.contains("committee_heartbeat_ms"), "{error}");
+
+        let mut instruction = SampleInstructions::initialize();
+        instruction.parameters.committee_validity_ms = instruction.parameters.fast_pause_hold_ms;
+        let error = refusal(initialize(1, Some(31), instruction));
+        assert!(error.contains("committee_validity_ms"), "{error}");
+
+        let mut instruction = SampleInstructions::initialize();
+        instruction.parameters.max_exempt_transactions_per_block = 8;
+        initialize(1, Some(31), instruction).expect("the smallest exempt cap");
+        let mut instruction = SampleInstructions::initialize();
+        instruction.parameters.max_exempt_transactions_per_block = 7;
+        let error = refusal(initialize(1, Some(31), instruction));
+        assert!(
+            error.contains("max_exempt_transactions_per_block"),
+            "{error}"
+        );
 
         let mut instruction = SampleInstructions::initialize();
         instruction.reset_nonce = [0; 32];
@@ -268,87 +295,131 @@ mod tests {
     }
 
     #[test]
-    fn initialization_policy_refusals_write_no_sccp_state() {
-        for bad_policy in 0..3 {
-            let instruction = SampleInstructions::initialize();
-            with_original_initialize(instruction.clone(), SumeragiRootScope::Global, |stx| {
-                set_max_validators(stx, Some(4));
-                let expected = match bad_policy {
-                    0 => {
-                        stx.world.parameters.get_mut().sumeragi.epoch_length_blocks =
-                            std::num::NonZeroU64::new(3_599).expect("epoch");
-                        "SCCP_MIN_EPOCH_MS"
-                    }
-                    1 => {
-                        stx.nexus.staking.unbonding_delay -= std::time::Duration::from_millis(1);
-                        "unbonding_delay"
-                    }
-                    _ => {
-                        stx.nexus.staking.max_slash_bps = 0;
-                        "max_slash_bps"
-                    }
-                };
-                let error = refusal(execute_initialize(instruction, &authority(1), stx));
-                assert!(error.contains(expected), "{error}");
-                assert_eq!(store::parameters::get(&*stx.world), &None);
-                assert_eq!(store::reset_nonce::get(&*stx.world), &None);
-                assert_eq!(store::routes::len(&*stx.world), 0);
-            });
+    fn initialization_checks_the_staking_floor_against_the_node_policy() {
+        use core::time::Duration;
+        let original = original_genesis_context();
+        let with_delay = |delay_ms: u64| {
+            let state = blank_state();
+            let mut block = state.block(header(1));
+            let mut stx = block.transaction();
+            set_max_validators(&mut stx, Some(31));
+            stx.native_genesis_context = Some(&original);
+            stx.nexus.staking.unbonding_delay = Duration::from_millis(delay_ms);
+            execute_initialize(SampleInstructions::initialize(), &authority(1), &mut stx)
+        };
+        // L1: the Taira defaults need 14 d + 7 d of unbonding delay.
+        assert_eq!(SCCP_UNBONDING_DELAY_MS, 21 * 86_400_000);
+        with_delay(SCCP_UNBONDING_DELAY_MS).expect("the staking profile meets L1");
+        for short in [SCCP_UNBONDING_DELAY_MS - 1, 0] {
+            let error = refusal(with_delay(short));
+            assert!(error.contains("unbonding_delay_ms"), "{short}: {error}");
         }
     }
 
     #[test]
-    fn initialization_refuses_unauthenticated_or_dataspace_genesis_without_writes() {
+    fn the_parameter_table_defers_only_the_parliament_latency() {
         let state = blank_state();
         let mut block = state.block(header(1));
         let mut stx = block.transaction();
-        set_max_validators(&mut stx, Some(4));
-        let error = refusal(execute_initialize(
-            SampleInstructions::initialize(),
-            &authority(1),
-            &mut stx,
-        ));
-        assert!(error.contains("authenticated Global genesis"), "{error}");
-        assert_eq!(store::parameters::get(&*stx.world), &None);
-        assert_eq!(store::reset_nonce::get(&*stx.world), &None);
-        assert_eq!(store::routes::len(&*stx.world), 0);
-        drop(stx);
-        drop(block);
-        let scope = SumeragiRootScope::Dataspace {
-            parent_network_id: state.network_id,
-            dataspace_id: iroha_model_base::topology::DataSpaceId::new(7),
-        };
-        let instruction = SampleInstructions::initialize();
-        with_original_initialize(instruction.clone(), scope, |stx| {
-            set_max_validators(stx, Some(4));
-            let error = refusal(execute_initialize(instruction, &authority(1), stx));
-            assert!(error.contains("authenticated Global genesis"), "{error}");
-            assert_eq!(store::parameters::get(&*stx.world), &None);
-            assert_eq!(store::reset_nonce::get(&*stx.world), &None);
-            assert_eq!(store::routes::len(&*stx.world), 0);
-        });
+        set_sccp_staking_profile(&mut stx);
+        let defaults = SccpParametersV1::taira_default();
+        assert_eq!(check_parameters(&stx, &defaults), Ok(()));
+        // The hold's own ceiling and the joint validity floor are checked here.
+        let mut long_hold = defaults;
+        long_hold.fast_pause_hold_ms = u64::MAX;
+        assert_eq!(
+            check_parameters(&stx, &long_hold),
+            Err(SccpParametersError::FastPauseHoldTooLong)
+        );
+        let mut short_validity = defaults;
+        short_validity.committee_validity_ms = short_validity.fast_pause_hold_ms;
+        assert_eq!(
+            check_parameters(&stx, &short_validity),
+            Err(SccpParametersError::CommitteeValidityTooShort)
+        );
+        // L1 reads the staking policy of the node.
+        let mut long_grace = defaults;
+        long_grace.forgery_evidence_grace_ms += 1;
+        assert_eq!(
+            check_parameters(&stx, &long_grace),
+            Err(SccpParametersError::UnbondingDelayTooShort)
+        );
+        // The Parliament latency is unavailable: the lower bound of the hold is deferred, so
+        // the smallest hold the other rules admit passes.
+        assert_eq!(parliament_iface::parliament_sccp_attempt_latency_ms(), None);
+        let mut short_hold = defaults;
+        short_hold.fast_pause_hold_ms = 2 * short_hold.fast_pause_renew_lead_ms;
+        assert_eq!(check_parameters(&stx, &short_hold), Ok(()));
     }
     #[test]
-    fn initialization_keeps_a_local_scope_refusal_retryable() {
+    fn initialization_refuses_missing_original_scope_zero_slash_and_short_epoch_without_writes() {
+        use iroha_data_model::parameter::system::SumeragiParameter;
+        let original = original_genesis_context();
+        for case in 0..3 {
+            let state = blank_state();
+            let mut block = state.block(header(1));
+            let mut stx = block.transaction();
+            set_max_validators(&mut stx, Some(4));
+            set_sccp_staking_profile(&mut stx);
+            if case != 0 {
+                stx.native_genesis_context = Some(&original);
+            }
+            if case == 1 {
+                stx.nexus.staking.max_slash_bps = 0;
+            }
+            if case == 2 {
+                stx.world
+                    .parameters
+                    .get_mut()
+                    .set_parameter(Parameter::Sumeragi(SumeragiParameter::EpochLengthBlocks(
+                        std::num::NonZeroU64::new(1).unwrap(),
+                    )))
+                    .expect("fixture short epoch");
+            }
+            let error = refusal(execute_initialize(
+                SampleInstructions::initialize(),
+                &authority(1),
+                &mut stx,
+            ));
+            assert!(
+                error.contains(match case {
+                    0 => "MissingInputs",
+                    1 => "max_slash_bps",
+                    _ => "epoch duration",
+                }),
+                "{case}: {error}"
+            );
+            assert!(store::parameters::get(&*stx.world).is_none());
+            assert!(store::committee_generations::is_empty(&*stx.world));
+            assert!(store::routes::is_empty(&*stx.world));
+            assert_eq!(*store::committee_current::get(&*stx.world), 0);
+        }
+    }
+    #[test]
+    fn parameter_update_keeps_every_retained_generation_inside_pinned_unbonding_delay() {
+        use crate::{
+            smartcontracts::isi::sccp::{
+                generation_record::RetainedSccpGeneration, test_support::sample_generation,
+            },
+            state::StateReadOnly,
+        };
         let state = blank_state();
-        let mut block = state.block(header(1));
+        let mut block = state.block(header(2));
         let mut stx = block.transaction();
-        let original = crate::execution_attempt::ExecutionDeferred::from(
-            ivm::error::ExecutionDeferral::AllocationUnavailable,
+        set_sccp_staking_profile(&mut stx);
+        let defaults = SccpParametersV1::taira_default();
+        assert_eq!(check_parameters(&stx, &defaults), Ok(()));
+        let mut source = sample_generation(1);
+        source.validity_ms += 1;
+        source.deadline_ms += 1;
+        source.liable_until_lc += 1;
+        let original = RetainedSccpGeneration::admit(&source, &stx.execution_budget()).unwrap();
+        store::committee_generations::insert(&mut stx, 1, original).unwrap();
+        assert_eq!(
+            check_parameters(&stx, &defaults),
+            Err(SccpParametersError::UnbondingDelayTooShort)
         );
-        let _ = stx.defer_execution(original.clone());
-        let error = refusal(execute_initialize(
-            SampleInstructions::initialize(),
-            &authority(1),
-            &mut stx,
-        ));
-        assert!(
-            error.contains("local instruction read did not complete"),
-            "{error}"
-        );
-        assert_eq!(stx.execution_deferral(), Some(original));
-        assert_eq!(store::parameters::get(&*stx.world), &None);
-        assert_eq!(store::reset_nonce::get(&*stx.world), &None);
-        assert_eq!(store::routes::len(&*stx.world), 0);
+        stx.nexus.staking.unbonding_delay += std::time::Duration::from_millis(1);
+        assert_eq!(check_parameters(&stx, &defaults), Ok(()));
     }
 }

@@ -1,11 +1,6 @@
 //! Real World capture releases writers and preserves the exact unpublished cut.
 
 use super::*;
-use crate::state::scalar_cell_custody::ScalarCellFixtureBlock;
-use crate::state::sccp_generation_custody::{
-    GenerationFixtureBlock as _, GenerationFixtureCommit as _,
-};
-use crate::sumeragi::amx::NativeAmxCellFixtureBlock as _;
 use crate::{
     smartcontracts::isi::triggers::specialized::{SpecializedAction, SpecializedTrigger},
     state::{DataSpaceId, LaneConfig},
@@ -37,30 +32,52 @@ macro_rules! commit_untouched_fixture_field {
             .try_with_admitted_block(|_| Ok::<_, std::convert::Infallible>(()))
             .expect("original offence fixture publication")
     };
-    ($world:ident, sccp_forgery_max_generation) => {{
-        use crate::state::world_acquisition::{
-            OriginalControlSource as _, WorldFieldAcquisition as _,
-        };
-        let cell = &$world.sccp_forgery_max_generation;
-        let budget = $world.sccp_forgery_offences.allocation_budget();
-        let layouts = cell
-            .generation_layouts()
-            .into_iter()
-            .chain([cell.successor_layout()])
-            .flatten();
-        let mut reservation = budget
-            .try_reserve_layouts(layouts)
-            .expect("original max cell fixture layouts");
-        let mut slot = cell
-            .original_acquisition(budget, &mut reservation)
-            .expect("original max cell fixture admission");
-        slot.try_initialize(mv::BlockMode::Ordinary)
-            .expect("original max cell fixture writer");
-        slot.into_block().commit();
-    }};
-    ($world:ident, $field:ident) => {
-        $world.$field.block().commit()
+    ($world:ident, sccp_anchor_chunks) => {
+        $world
+            .sccp_anchor_chunks
+            .try_with_admitted_block(|_| Ok::<_, ()>(()))
+            .unwrap()
     };
+    ($world:ident, sccp_committee_generations) => {
+        $world
+            .sccp_committee_generations
+            .try_with_admitted_block(|_| Ok::<_, ()>(()))
+            .unwrap()
+    };
+    ($world:ident, $field:ident) => {{
+        let (block, _scope) = fixture_field_block(
+            &$world.$field,
+            $world.sccp_committee_generations.allocation_budget(),
+        );
+        block.commit()
+    }};
+}
+
+// Exercise the same admitted original control source as the real World owner.
+// The returned scope drops after its one field, including charged scalar fields.
+fn fixture_field_block<'a, T: crate::state::world_acquisition::OriginalControlSource>(
+    field: &'a T,
+    budget: &iroha_allocation::AllocationBudget,
+) -> (
+    <T::Acquisition<'a> as crate::state::world_acquisition::WorldFieldAcquisition>::Block,
+    iroha_allocation::OwnedAllocationScope,
+) {
+    use crate::state::world_acquisition::WorldFieldAcquisition;
+    let scope = budget.try_owned_refund_scope().unwrap();
+    let mut reservation = budget
+        .try_reserve_layouts(
+            field
+                .generation_layouts()
+                .into_iter()
+                .chain([field.successor_layout()])
+                .flatten(),
+        )
+        .unwrap();
+    let mut slot = field
+        .original_acquisition(budget, &scope, &mut reservation)
+        .unwrap();
+    slot.try_initialize(BlockMode::Ordinary).unwrap();
+    (slot.into_block(), scope)
 }
 
 #[path = "world_publication_tests.rs"]

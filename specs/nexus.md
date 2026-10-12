@@ -165,8 +165,9 @@ playbook.
 AMX budget guardrails (NX-17)
 - `ivm::analysis::enforce_amx_budget` estimates per-dataspace and group execution
   cost from the static analysis report. At AXT commit the host enforces
-  `pipeline.amx_per_dataspace_budget_ms` (default 30 ms) and
-  `pipeline.amx_group_budget_ms` (default 140 ms); a violation rejects the
+  `amx_per_dataspace_budget_ms` (default 30 ms) and `amx_group_budget_ms`
+  (default 140 ms) of the committed `pipeline_validity_policy_v1` chain
+  parameter; a violation rejects the
   transaction with `AMX_TIMEOUT`.【crates/ivm/src/analysis.rs:795】
 
 High‑Level Architecture

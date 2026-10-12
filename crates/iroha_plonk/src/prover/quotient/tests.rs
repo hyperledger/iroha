@@ -755,3 +755,93 @@ fn lookup_compression_matches_direct_folding() {
 
 #[path = "streamed_tests.rs"]
 mod streamed;
+
+#[test]
+fn lookup_mask_weights_reuse_exact_spare_columns_on_both_fields() {
+    fn check<F: PastaField>() {
+        for workers in [1, 4] {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(workers)
+                .build()
+                .unwrap();
+            pool.install(|| {
+                let n = 2 * ROWS_PER_TASK + 1;
+                let first: Vec<_> = (0..n).map(|i| F::from(i as u64 + 2)).collect();
+                let last: Vec<_> = (0..n).map(|i| F::from(i as u64 + 5)).collect();
+                for lookups in [0, 1, 2, 10] {
+                    for spare in 0..=3 {
+                        for y in [F::ZERO, F::ONE, F::from(11)] {
+                            let mut storage = vec![vec![F::from(17); n]; spare];
+                            let pointers: Vec<_> = storage.iter().map(Vec::as_ptr).collect();
+                            let mut columns = storage.iter_mut().map(Vec::as_mut_slice);
+                            let weights = prepare_lookup_mask_weights(
+                                &mut columns,
+                                [&first, &last],
+                                [y, y.square() * y],
+                                lookups,
+                                None,
+                            )
+                            .unwrap();
+                            assert_eq!(weights.is_some(), lookups > 1 && spare >= 2);
+                            if let Some([a, b]) = weights {
+                                assert_eq!([a.as_ptr(), b.as_ptr()], [pointers[0], pointers[1]]);
+                                for row in 0..n {
+                                    assert_eq!(a[row], first[row] * y);
+                                    assert_eq!(b[row], last[row] * y * y * y);
+                                }
+                            } else {
+                                assert!(storage.iter().flatten().all(|v| *v == F::from(17)));
+                            }
+                            if spare == 3 {
+                                assert!(storage[2].iter().all(|v| *v == F::from(17)));
+                            }
+                            assert_eq!(
+                                storage.iter().map(Vec::as_ptr).collect::<Vec<_>>(),
+                                pointers
+                            );
+                        }
+                    }
+                }
+            });
+        }
+    }
+    check::<Fp>();
+    check::<Fq>();
+}
+
+#[test]
+fn lookup_mask_weight_refusal_preserves_unwritten_workspace() {
+    let masks = [Fp::ONE; 4];
+    let mut first = [Fp::from(7); 4];
+    let mut last = [Fp::from(9); 3];
+    let result = prepare_lookup_mask_weights(
+        &mut [first.as_mut_slice(), last.as_mut_slice()].into_iter(),
+        [&masks, &masks],
+        [Fp::from(2), Fp::from(8)],
+        10,
+        None,
+    );
+    assert!(matches!(
+        result,
+        Err(ProverError::Key(KeyError::Shape {
+            what: "lookup mask weights",
+            expected: 4,
+            actual: 3,
+        }))
+    ));
+    assert_eq!(first, [Fp::from(7); 4]);
+    assert_eq!(last, [Fp::from(9); 3]);
+    let token = CancellationToken::new();
+    token.cancel();
+    let mut last = [Fp::from(9); 4];
+    let result = prepare_lookup_mask_weights(
+        &mut [first.as_mut_slice(), last.as_mut_slice()].into_iter(),
+        [&masks, &masks],
+        [Fp::from(2), Fp::from(8)],
+        10,
+        Some(&token),
+    );
+    assert!(matches!(result, Err(ProverError::Cancelled)));
+    assert_eq!(first, [Fp::from(7); 4]);
+    assert_eq!(last, [Fp::from(9); 4]);
+}

@@ -1,9 +1,9 @@
 // SCCP v1 TON constants (specs/sccp.md revision 5, §3 and §5.3).
 //
-// The golden tests of the Acton suite pin these values against the shared
-// fixtures (`tests/unit/sccp-vectors.test.tolk`).
-// TODO: WP-TON (map step T7i): that suite still pins the revision 4 values.
-// Port it so that every constant below has a golden test.
+// The Acton suite pins these values against the shared fixtures and the
+// specification: `tests/unit/sccp-vectors.test.tolk` compares the constants
+// themselves, and the fixture replays of the other suites pin what they
+// encode (payloads, control leaves, certificates, opcodes and exit codes).
 
 /// All SCCP TON contracts live in the basechain.
 const SCCP_WORKCHAIN = BASECHAIN

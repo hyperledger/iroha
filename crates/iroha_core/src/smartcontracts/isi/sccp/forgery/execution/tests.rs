@@ -198,12 +198,12 @@ fn missing_s0_and_changed_header_are_source_refusals_before_publication() {
     let header = next_header(&chain);
     let mut block = chain.state().block(header);
     let mut stx = block.transaction_for_callback_testing();
-    let parent_clock = *store::liability_clock::get(&stx.sccp_parent_world_view());
+    let parent_clock = TransactionParent(&stx.world).liability_clock();
     let expected_clock = {
-        let parent = stx.sccp_parent_world_view();
-        let parameters = params::parameters(&parent).unwrap();
+        let parent = TransactionParent(&stx.world);
+        let parameters = parent.parameters().unwrap();
         let (tip, _) = original_source(&stx).unwrap();
-        super::super::super::generation::advance_liability_clock(
+        iroha_data_model::sccp::generation::next_liability_clock_v1(
             parent_clock,
             tip.creation_time_ms(),
             header.creation_time_ms,
@@ -366,10 +366,10 @@ fn prepared_record_cannot_change_execution_clock_between_verification_and_conver
     let mut block = chain.state().block(header);
     let mut stx = block.transaction_for_callback_testing();
     let prepared = {
-        let parent = stx.sccp_parent_world_view();
+        let parent = TransactionParent(&stx.world);
         let (tip, instance) = original_source(&stx).unwrap();
         let checked = verify_observation(
-            &parent,
+            parent,
             &evidence,
             SccpFinalityHeaderV1::parse(&evidence.header).unwrap(),
             Observation {

@@ -87,7 +87,9 @@ fn forced_vendor_latch_cannot_admit_development_ballot() {
     let world = iroha_core::state::World::with([domain], [account], Vec::<AssetDefinition>::new());
     let mut state = native_genesis::certified_state(world);
     state.gov.citizenship_bond_amount = 0_u64.into();
-    state.zk.pipa_r.enabled = true;
+    state
+        .edit_zk_for_testing(|zk| zk.pipa_r.enabled = true)
+        .expect("fixture ZK settings install");
     let header = iroha_data_model::block::BlockHeader::new(
         nonzero!(2_u64),
         state.view().latest_block_hash(),

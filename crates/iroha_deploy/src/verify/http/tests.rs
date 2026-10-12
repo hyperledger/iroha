@@ -8,12 +8,6 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-fn network() -> NetworkId {
-    NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
-        b"HTTP finality transport tests",
-    )))
-}
-
 fn peer(seed: u8) -> PeerId {
     PeerId::new(
         KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal)
@@ -63,7 +57,11 @@ fn endpoint_policy_only_allows_https_or_numeric_loopback() {
 
 #[test]
 fn constructor_binds_network_and_distinct_bls_peers_without_dispatch() {
-    let network = network();
+    let native = iroha_data_model::testing::native_finality::NativeFinalityFixture::start(
+        "http-scope-fixture",
+    );
+    let root_scope = native.root_scope();
+    let network = native.network_id();
     let proof = client(network, "https://parent.example/");
     let peers = vec![(peer(21), proof.clone()), (peer(22), proof.clone())];
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -73,9 +71,10 @@ fn constructor_binds_network_and_distinct_bls_peers_without_dispatch() {
         vec![proof.clone()],
         peers.clone(),
         deadline,
-        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        root_scope,
     )
     .unwrap();
+    assert_eq!(source.root_scope, root_scope);
     assert_eq!(
         source.latest_attestation(&peer(23), &[1; 32]).unwrap_err(),
         HttpFinalityError::MissingPeer
@@ -138,7 +137,7 @@ fn constructor_binds_network_and_distinct_bls_peers_without_dispatch() {
                 proofs,
                 peers,
                 deadline,
-                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
+                root_scope
             )
             .is_err()
         );
@@ -150,7 +149,7 @@ fn constructor_binds_network_and_distinct_bls_peers_without_dispatch() {
             vec![proof],
             peers,
             Instant::now(),
-            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
+            root_scope
         )
         .is_err()
     );

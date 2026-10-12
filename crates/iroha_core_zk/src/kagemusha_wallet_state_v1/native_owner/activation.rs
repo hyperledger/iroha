@@ -78,10 +78,15 @@ impl Plan {
     }
 
     fn output(&self, bytes: &[u8]) -> Result<KagemushaWalletActivationV1, Error> {
-        let value = valid(KagemushaWalletActivationV1::decode_canonical(
-            bytes,
-            &self.credential.body.scheme_id,
-        ))?;
+        let value = read_model_original(
+            || {
+                KagemushaWalletActivationV1::decode_canonical(
+                    bytes,
+                    &self.credential.body.scheme_id,
+                )
+            },
+            Error::Invalid("G1 validation"),
+        )?;
         if value.control.body != self.body()?
             || value.credential != self.credential
             || value.certificates != self.certificates

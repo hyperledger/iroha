@@ -13,9 +13,8 @@ use norito::codec::{Decode, Encode};
 
 use super::{AmxError, AmxRecordV1};
 use crate::{
-    DeriveJsonDeserialize, DeriveJsonSerialize,
-    block::CommitCertificate,
-    sumeragi_finality::{CertifiedResultScope, CertifiedResultV1},
+    DeriveJsonDeserialize, DeriveJsonSerialize, block::CommitCertificate,
+    sumeragi_finality::CertifiedResultV1,
 };
 
 /// Depth of the write-set tree.
@@ -247,7 +246,8 @@ pub struct AmxCertifiedBlockV1 {
         bounded_with = "crate::json_helpers::base64_vec::serialize_bounded"
     )]
     pub commit_qc: Vec<u8>,
-    /// Canonical preimage of `R` (`ExecutionResultCommitment`).
+    /// Canonical preimage of `R`: the fixed native header `X` followed by the
+    /// canonical `ExecutionResultCommitment` body (`CertifiedResultV1`).
     #[norito(
         with = "crate::json_helpers::base64_vec",
         bounded_with = "crate::json_helpers::base64_vec::serialize_bounded"
@@ -310,10 +310,10 @@ impl AmxRecordProofV1 {
         block: AmxCertifiedBlockV1,
         writes: impl IntoIterator<Item = (&'a [u8], &'a [u8])>,
         record: AmxRecordV1,
-        scope: CertifiedResultScope,
+        scope: crate::sumeragi_finality::CertifiedResultScope,
     ) -> Result<Self, AmxError> {
-        let certified_result = CertifiedResultV1::decode(&block.result_preimage, scope)
-            .map_err(|error| super::commitment_error(&error))?;
+        let commitment = CertifiedResultV1::decode(&block.result_preimage, scope)
+            .map_err(super::certified_result_error)?;
         let key = record.witness_key();
         let (write, value) = AmxWriteProofV1::from_writes(writes, &key)?;
         if value != record.witness_value()? {
@@ -321,8 +321,7 @@ impl AmxRecordProofV1 {
                 "the written value is not the record".into(),
             ));
         }
-        if write.root(&key, &value)? != certified_result.commitment().execution.ordinary_writes_root
-        {
+        if write.root(&key, &value)? != commitment.commitment().execution.ordinary_writes_root {
             return Err(AmxError::Proof(
                 "the write set differs from the block's ordinary-write root".into(),
             ));

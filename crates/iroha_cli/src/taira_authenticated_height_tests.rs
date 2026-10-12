@@ -5,7 +5,7 @@ use iroha_core::{
     state::World,
     sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
 };
-use iroha_crypto::{Algorithm, KeyPair, SignatureOf};
+use iroha_crypto::{Algorithm, KeyPair, SignatureOf, bls::consensus};
 use iroha_data_model::{
     block::{CommitCertificate, decode_framed_signed_block},
     sumeragi::{SumeragiFootprint, SumeragiStatus},
@@ -111,15 +111,14 @@ impl Fixture {
         let signatures: Vec<_> = chosen
             .iter()
             .map(|index| {
-                iroha_crypto::bls::consensus::sign_preimage(
+                consensus::sign_preimage(
                     self.keys[*index as usize].private_key(),
                     &certificate.preimage(),
                 )
                 .unwrap()
             })
             .collect();
-        certificate.agg_sig =
-            AggregateSignature(iroha_crypto::bls::consensus::aggregate(&signatures).unwrap());
+        certificate.agg_sig = AggregateSignature(consensus::aggregate(&signatures).unwrap());
     }
 
     fn edit_certificate(
@@ -485,10 +484,10 @@ fn authenticated_height_verifies_contiguous_chain_and_fresh_four_peer_evidence()
     assert_eq!(evidence.peers.len(), 4);
     for peer in &evidence.peers {
         peer.before
-            .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+            .verify(observer.authority.root_scope().unwrap().into())
             .unwrap();
         peer.after
-            .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+            .verify(observer.authority.root_scope().unwrap().into())
             .unwrap();
         assert_eq!(peer.before.body.challenge, [1; 32]);
         assert_eq!(peer.after.body.challenge, [2; 32]);
@@ -700,10 +699,10 @@ fn authenticated_height_repeat_current_preserves_freshness_and_advancing_contrac
         assert_eq!(peer.before.body.challenge, [3; 32]);
         assert_eq!(peer.after.body.challenge, [4; 32]);
         peer.before
-            .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+            .verify(observer.authority.root_scope().unwrap().into())
             .unwrap();
         peer.after
-            .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+            .verify(observer.authority.root_scope().unwrap().into())
             .unwrap();
     }
     assert!(
@@ -842,10 +841,10 @@ fn authenticated_height_accepts_independent_certificate_witnesses() {
         );
         assert_ne!(peer.before.body.finality_proof, fixture.proofs[2]);
         peer.before
-            .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+            .verify(observer.authority.root_scope().unwrap().into())
             .unwrap();
         peer.after
-            .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+            .verify(observer.authority.root_scope().unwrap().into())
             .unwrap();
     }
 }

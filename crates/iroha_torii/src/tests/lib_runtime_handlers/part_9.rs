@@ -222,7 +222,8 @@ async fn solo_finality_walk_fits_the_proof_egress_budget() {
                 .view()
                 .native_execution_tip()
                 .unwrap()
-                .result_scope(),
+                .root_scope()
+                .into(),
         )
         .expect("current proof verifies before measuring egress");
     node.stop();

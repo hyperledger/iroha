@@ -192,44 +192,61 @@ words, two Pallas coordinates and 32 canonical challenge limbs. Thus D_A is a
 deterministic function of the public tuple and adds no further information
 conditional on that tuple. Neither fact proves that the tuple is zero knowledge.
 
-Each non-hiding fold absorbs its salt and complete ordered inputs before
-alpha/z/zeta and the sixteen L/R challenge rounds. The inputs may include public
-step proofs and earlier visible accumulators. A composed simulation must show
-that the adversary has not already queried each hidden fold's full random-oracle
-prefix, conditioned on that public history, and then maintain consistent answers
-across both fields, all domains and adaptive queries. Fresh private salts help
-only after their conditional entropy and exposure have been established; field
-canonicality alone proves neither. Durable checkpoint reuse, retries and the
-protocol's exceptional aborts must have the same distribution in the simulation.
+C12 compares the full terminal public proof view under one persistent typed
+random-oracle interface for RP57 transcripts. Addresses are the field and
+pinned parameter/IV identity together with cumulative padded rate-two blocks;
+logical absorb/squeeze aliases are identified. This is a proof model, with
+Poseidon its stated heuristic instantiation. A programmed ROM proof simulator
+need not be executable against the unmodified fixed hash. That distinction
+neither extends the selected recursive soundness premise to privacy nor
+establishes a coherent recursive-source experiment by itself.
 
-In particular, independently sampling two challenge vectors and computing their
-G values does not provide an Omega witness. Ordinary zero knowledge for valid
-witnesses does not by itself justify simulating Omega for those chosen instances.
-TODO: complete and independently review the joint simulator and this composition
-step for the final relation and artifact set. These are explicit missing
-hypotheses/arguments, not an observed plaintext leak or an established additional
-privacy guarantee from the non-hiding local fold protocol.
+The local outer simulator samples a complete PIPA transcript and programs only
+its last IPA raw challenge. It includes c,f and the folded-generator suffix,
+uses the native challenge map, and keeps occupied-prefix, zero/identity,
+noncanonical and other failure branches explicit. Its application requires
+the actual admitted descriptor/VK/public preprocessing to satisfy M(K): masked
+domain-boundary independence, S7 residual evaluation rank, and the independent
+R-last quotient-group mask. The test-only strict-catalog checker can establish
+these algebraic conditions for the current Omega and all public sigma keys;
+historical artifacts and sampled proof tests do not establish that current join.
 
-A possible bounded-network proof has two separate hybrids. First retain the
-real accumulator pair and replace only its Omega proof using an adaptive,
-multi-theorem simulator for valid instances. Then replace the accumulator pair
-while applying that same total, polynomial-time simulator. The second step
-requires joint indistinguishability under the simulator's complete stateful
-oracle-query and programming interface. Marginal pseudorandomness of each
-challenge vector is insufficient. If these premises hold, no known Omega witness
-for the sampled pair is needed: efficient postprocessing transfers the joint
-indistinguishability, including the public verifier's acceptance result. Neither
-premise is established by the local hiding-budget checks.
+The proposed composition first simulates Omega on its genuine public tuple,
+then replaces the hidden final P/V folds under the same total simulator and
+shared oracle, and finally simulates the public sigma proofs after their
+private consumers have been erased. This order does not require an Omega
+witness for an intermediate sampled pair. Remaining obligations are an explicit
+coherent reached-source/recursive game and elimination of retained private source
+state from the final public-only simulator. A fresh sigma replacement must occur
+before its proof digest, capsule, receipt signature and Payment are published;
+the same causal suffix must recompute them and any later credit root. An existing
+signed receipt cannot be retained around a newly simulated proof, and a later
+genuine root cannot silently be fixed while replacing its ancestor Payment.
+Under auxiliary-input local ZK, a hybrid reduction can retain the original
+private prepared state and key and run the actual signing/storage suffix on
+either proof, including every refusal and retry. This needs no new signing grant
+or pointwise branch-equality premise, but does not supply that private state to
+the final public simulator. The [local auxiliary-input lemma](kagemusha_local_zk_v1.md)
+is now derived for admitted M(K) keys with ideal fresh scalar masks and the
+normalized shared transcript oracle, including the residual query service and
+joint final c/f law. Its concrete OS, hedging and ChaCha conversion costs remain
+explicit; they are not proved negligible by collision resistance or the selected
+recursive-FS assumption. Recursive shared-oracle valid-cut composition and the
+final public-only proof simulator remain unproved. The original private
+admission, signing and storage checks may remain in a common experiment wrapper
+outside that simulator; terminal proof privacy does not require those predicates
+to become publicly decidable. The actual recursive source must still be shown
+to refine that same wrapper after consumer erasure. Fresh-fold query/collision bounds
+apply to all bounded attempts without conditioning on successful release;
+exact selected replay reuses its original output and oracle answers.
 
-For fixed inputs and the implemented fixed Poseidon function, a fold is a
-deterministic function of one base-field salt. Its vector support has at most
-the base-field cardinality, far fewer than all nonzero sixteen-scalar vectors.
-Consequently the required argument is computational, not statistical uniformity
-conditioned on that fixed function. Programming a different inner hash answer
-also does not preserve a witness satisfying the concrete Poseidon arithmetic
-gates. A model connecting the stateful sponge and the outer simulator must make
-that distinction explicit. The deterministic public Q nonce is not fresh private
-entropy; the argument must trace the final folds exporting acc_P and acc_V.
+For terminal proof privacy with public18 and public sigma statements fixed,
+the head and map roots are public inputs, so no head-hash hiding premise is
+required. Hiding heads/statements generated from different private histories
+is a stronger claim: their joint public law must then be proved under an
+explicitly justified hash model. Collision resistance and the recursive-FS
+soundness selection alone do not supply that stronger hiding claim. C12
+remains open; no stronger privacy or linkability conclusion follows.
 
 There is a concrete encoding obstacle to directly replacing the sponge by an
 oracle on unrestricted logical absorb/squeeze histories. Starting from the same
@@ -1261,14 +1278,21 @@ the installed repair without proof or entropy execution
 independent review SHA
 `a59de5a32838dc35af919bdbdebfa7ccbc021529dee98b9fc39c7cc8ffc93582`).
 These are finite diagnostic bounds; the canonical descriptor limit remains
-65,535 columns. The full maintained regression now passes all 100 controls and
+65,535 columns. The preceding maintained regression passes all 100 controls and
 14 small k6 reference proofs with no failures, errors or skips (142.45 s). Its
 source/interpreter pins remain unchanged (`target/qualification/setup-current-source-controls-2`,
 result SHA `3a1d68c6ea2f92aabce9a109ab3812c58171e6da27bc2e74bffbdacfb6845efd`).
 Before execution, an exact old/current source review updated the stale commitment
 pin for the bounded-prefix helper and test-only observation changes; existing
 non-probe bodies remain byte-identical. The initial source refusal is retained.
-This establishes diagnostic regression results, not operational equivalence,
+The maintained zero-grouping successor now passes 101 controls with no failures,
+errors or skips (148.60 s), retaining all fourteen ordinary fixed-RP57 k6 proofs
+and counting two explicitly adapted x1=0 proofs separately. It exercises the
+actual simulator on both curves for public-last, masked-last and R-last groups;
+the ordinary verifier rejects the adapted proofs after the adapter is removed.
+Source pins remain unchanged (`target/qualification/c12-x1-zero-maintained-validation-1/result.json`,
+SHA `aa3d3efb56768593b08080257b52180a76668e48adc67ab188749268f90a3e6c`).
+These are diagnostic regression results, not operational equivalence,
 current setup authority or C12. Actual large A1 construction remains unexecuted,
 and unchanged inner recursive constants cannot supply coherent recursive authority.
 

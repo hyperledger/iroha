@@ -79,10 +79,10 @@ fn unload_beneficiary_original(
     match (charge, original) {
         (None, None) => Ok(None),
         (Some(charge), Some(original)) => {
-            let quote = valid(KagemushaWalletChargeQuoteV1::decode_canonical(
-                &charge.quote,
-                scheme,
-            ))?;
+            let quote = read_model_original(
+                || KagemushaWalletChargeQuoteV1::decode_canonical(&charge.quote, scheme),
+                Error::Invalid("G1 validation"),
+            )?;
             intake::account(original, &quote.body.beneficiary_account_digest)
                 .map_err(|_| Error::Invalid("review Unload beneficiary original"))?;
             Ok(Some(original.to_vec()))
@@ -290,22 +290,29 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         ) = match &action {
             OperationActionV1::Send { request } => {
                 let blacklist = if before.enforces_blacklist() {
-                    Some(valid(KagemushaWalletBlacklistV1::decode_canonical(
-                        &custody
-                            .original(PreparationOriginalV1::Blacklist)?
-                            .ok_or(Error::WitnessLost("review blacklist"))?,
-                        &self.scheme_id,
-                    ))?)
+                    let original = custody
+                        .original(PreparationOriginalV1::Blacklist)?
+                        .ok_or(Error::WitnessLost("review blacklist"))?;
+                    Some(read_model_original(
+                        || KagemushaWalletBlacklistV1::decode_canonical(&original, &self.scheme_id),
+                        Error::Invalid("G1 validation"),
+                    )?)
                 } else {
                     None
                 };
                 let share = if before.is_active(KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1) {
-                    Some(valid(KagemushaWalletQuotaShareV1::decode_canonical(
-                        &custody
-                            .original(PreparationOriginalV1::QuotaShare)?
-                            .ok_or(Error::WitnessLost("review quota share"))?,
-                        &self.scheme_id,
-                    ))?)
+                    let original = custody
+                        .original(PreparationOriginalV1::QuotaShare)?
+                        .ok_or(Error::WitnessLost("review quota share"))?;
+                    Some(read_model_original(
+                        || {
+                            KagemushaWalletQuotaShareV1::decode_canonical(
+                                &original,
+                                &self.scheme_id,
+                            )
+                        },
+                        Error::Invalid("G1 validation"),
+                    )?)
                 } else {
                     None
                 };

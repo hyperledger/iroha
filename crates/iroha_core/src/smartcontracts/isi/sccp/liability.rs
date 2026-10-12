@@ -4,7 +4,7 @@
 //! authenticate or publish evidence. Pending SCCP generations must remain retained until
 //! their penalties apply (§4.11); current pruning deliberately retains all generations.
 
-use super::store;
+use super::{original_read::OriginalRead, store};
 use crate::state::{
     WorldReadOnly,
     sccp_forgery_custody::{ForgeryStorageError, OffenceKey},
@@ -39,16 +39,16 @@ pub(crate) enum ReleaseBlocker {
 /// refuse as source invariants; they are never interpreted as absence or applied penalties.
 /// TODO: the full evidence handler and pruning owner must preserve the pending-generation
 /// retention invariant before SubmitSccpForgeryEvidence can be enabled.
-pub(crate) fn release_blocker(
-    parent: &(impl WorldReadOnly + ?Sized),
+pub(crate) fn release_blocker<'a>(
+    parent: impl OriginalRead<'a> + 'a,
     current: &(impl WorldReadOnly + ?Sized),
     validator: &PublicLaneValidatorRecord,
     slashable_through_height: Option<u64>,
     budget: &AllocationBudget,
 ) -> Result<Option<ReleaseBlocker>, ForgeryStorageError> {
-    let current_generation = *store::committee_current::get(parent);
+    let current_generation = parent.committee_current();
     let clock = *store::liability_clock::get(current);
-    for (generation, record) in store::committee_generations::iter(parent) {
+    for (generation, record) in parent.generations() {
         if !record.members.iter().flatten().any(|member| {
             member.lane_id == validator.lane_id
                 && member.validator == validator.validator

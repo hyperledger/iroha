@@ -376,7 +376,8 @@ impl World {
     fn resign_carrier(&self, r: usize, mut carrier: ProposalMessage) -> ProposalMessage {
         carrier.proposal.sig = self
             .byz_signer(r)
-            .sign(&carrier.proposal.signing_preimage(&self.hasher));
+            .sign(&carrier.proposal.signing_preimage(&self.hasher))
+            .expect("fixture signing succeeds");
         carrier
     }
 
@@ -437,7 +438,10 @@ impl World {
         let result = Hash32([0x77; 32]);
         let epoch = self.instances[inst].epoch(height).id;
         let msg = preimage::vote_preimage(kind, &instance, &epoch, height, view, &bh, &result);
-        let own = self.byz_signer(r).sign(&msg);
+        let own = self
+            .byz_signer(r)
+            .sign(&msg)
+            .expect("fixture signing succeeds");
         let indices: Vec<u32> = (0..u32::try_from(q).unwrap_or(1)).collect();
         Qc {
             epoch,
@@ -658,7 +662,10 @@ impl World {
                                 );
                                 let mut t2 = (**t).clone();
                                 t2.high_pqc = None;
-                                t2.sig = self.byz_signer(r).sign(&pre);
+                                t2.sig = self
+                                    .byz_signer(r)
+                                    .sign(&pre)
+                                    .expect("fixture signing succeeds");
                                 msg = WireMessage::Timeout(Box::new(t2));
                             }
                         }
@@ -1075,7 +1082,12 @@ impl World {
             &v.block_hash,
             &v.result,
         );
-        votes.insert(own, self.byz_signer(r).sign(&msg));
+        votes.insert(
+            own,
+            self.byz_signer(r)
+                .sign(&msg)
+                .expect("fixture signing succeeds"),
+        );
         let qc = Qc {
             epoch: v.epoch,
             kind: VoteKind::Commit,
@@ -1245,7 +1257,7 @@ impl World {
                 block_hash: bh,
                 result,
                 signer: index,
-                sig: signer.sign(&pre),
+                sig: signer.sign(&pre).expect("fixture signing succeeds"),
             };
             world.byz_send_all(r, h, WireMessage::Vote(vote), at);
         };
@@ -1260,7 +1272,10 @@ impl World {
                         view: t.view,
                         high_pqc: None,
                         signer: index,
-                        sig: self.byz_signer(r).sign(&msgs),
+                        sig: self
+                            .byz_signer(r)
+                            .sign(&msgs)
+                            .expect("fixture signing succeeds"),
                     };
                     self.byz_send_all(r, h, WireMessage::Timeout(Box::new(timeout)), at);
                 }
@@ -1466,7 +1481,7 @@ impl World {
                             block_hash: Hash32::ZERO,
                             result: Hash32::ZERO,
                             signer: index,
-                            sig: signer.sign(&pre),
+                            sig: signer.sign(&pre).expect("fixture signing succeeds"),
                         };
                         self.byz_send_all(r, height, WireMessage::Vote(vote), now);
                         let tv = view + 1_000_000_000;
@@ -1478,7 +1493,8 @@ impl World {
                             high_pqc: None,
                             signer: index,
                             sig: signer
-                                .sign(&preimage::tmo_preimage(&instance, &epoch, height, tv, None)),
+                                .sign(&preimage::tmo_preimage(&instance, &epoch, height, tv, None))
+                                .expect("fixture signing succeeds"),
                         };
                         self.byz_send_all(r, height, WireMessage::Timeout(Box::new(tmo)), now);
                         let far = self.forged_qc(r, VoteKind::Commit, height + 1_000, 0);
@@ -1637,7 +1653,10 @@ impl World {
                         .iter()
                         .filter_map(|s| old.index_of(s.public_key()))
                         .collect();
-                    let sigs: Vec<Signature> = colluders.iter().map(|s| s.sign(&pre)).collect();
+                    let sigs: Vec<Signature> = colluders
+                        .iter()
+                        .map(|s| s.sign(&pre).expect("fixture signing succeeds"))
+                        .collect();
                     let qc = Qc {
                         epoch,
                         kind: VoteKind::Commit,
@@ -1726,7 +1745,9 @@ impl World {
         let mut out = Vec::new();
         // Forged: other members' keys under this node's signature.
         for key in committee.members().iter().filter(|k| **k != me && *k != to) {
-            let sig = signer.sign(&preimage::echo_preimage(&instance, &epoch, nonce, low));
+            let sig = signer
+                .sign(&preimage::echo_preimage(&instance, &epoch, nonce, low))
+                .expect("fixture signing succeeds");
             out.push(status(
                 low,
                 crate::message::Echo {
@@ -1739,7 +1760,9 @@ impl World {
         }
         // Replayed: a genuine echo of another nonce.
         let stale = nonce ^ 0x5a5a;
-        let sig = signer.sign(&preimage::echo_preimage(&instance, &epoch, stale, low));
+        let sig = signer
+            .sign(&preimage::echo_preimage(&instance, &epoch, stale, low))
+            .expect("fixture signing succeeds");
         out.push(status(
             low,
             crate::message::Echo {
@@ -1750,7 +1773,9 @@ impl World {
             },
         ));
         // Its own valid echo, reporting a low height.
-        let sig = signer.sign(&preimage::echo_preimage(&instance, &epoch, nonce, low));
+        let sig = signer
+            .sign(&preimage::echo_preimage(&instance, &epoch, nonce, low))
+            .expect("fixture signing succeeds");
         out.push(status(
             low,
             crate::message::Echo {

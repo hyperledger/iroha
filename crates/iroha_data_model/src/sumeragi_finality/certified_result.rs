@@ -20,8 +20,10 @@
 //! never passes through `Hash::prehashed`, `HashOf` or any type that checks or sets the marker
 //! bit.
 //!
+//! Native producers retain this exact header and body together; all stored root results
+//! use this preimage and hash contract. Lane-instance results retain their separate lane tag.
 
-use iroha_crypto::{Algorithm, Hash, keccak256};
+use iroha_crypto::{Algorithm, Hash, try_keccak256_from_chunks};
 use iroha_sumeragi::types::Hash32;
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
@@ -33,6 +35,8 @@ use super::{
 use crate::{
     sccp::params::SCCP_MESSAGES_MAX_PER_BLOCK_V1, sumeragi::epoch::ValidatorEpochContextV1,
 };
+
+pub mod wire_identity;
 
 /// Exact byte length of the finality header `X`.
 pub const X_LEN: usize = 221;
@@ -480,45 +484,56 @@ fn split_preimage(preimage: &[u8]) -> Result<(SccpFinalityHeaderV1, &[u8]), Cert
 /// for any other list: an empty one, or one of more than 255 keys.
 #[must_use]
 pub fn committee_root(keys: &[[u8; 48]]) -> Option<[u8; 32]> {
-    let count = u8::try_from(keys.len()).ok().filter(|count| *count != 0)?;
-    let keys = keys.as_flattened();
-    // The count byte bounds the entire preimage at 12,258 bytes. Keep this native
-    // generation-planning hash allocation-free; it must not allocate before deferral.
-    let mut preimage = [0_u8; COMMITTEE_TAG.len() + 1 + u8::MAX as usize * 48];
-    preimage[..COMMITTEE_TAG.len()].copy_from_slice(COMMITTEE_TAG);
-    preimage[COMMITTEE_TAG.len()] = count;
-    let end = COMMITTEE_TAG.len() + 1 + keys.len();
-    preimage[COMMITTEE_TAG.len() + 1..end].copy_from_slice(keys);
-    Some(keccak256(&preimage[..end]))
+    let count = [u8::try_from(keys.len()).ok().filter(|count| *count != 0)?];
+    try_keccak256_from_chunks([
+        Ok::<_, core::convert::Infallible>(COMMITTEE_TAG),
+        Ok(count.as_slice()),
+        Ok(keys.as_flattened()),
+    ])
+    .ok()
 }
 
-/// [`committee_root`] of an epoch context's committee, in the context's own (canonical) order.
+/// [`committee_root`] of an epoch context's committee, in the context's own canonical order.
 ///
-/// Producers and readers derive the root an active `X` must carry through this one function.
-/// Returns `None` when a member is not a 48-byte BLS-normal key, or when the committee has
-/// no root (no member, or more than 255); a validated context is never either.
+/// Borrow each checked BLS-normal payload directly from the original context. No key graph
+/// or preimage buffer is allocated. A validated context has 4, 7, …, 31 members; this root
+/// function accepts only the same nonempty u8-sized domain as [`committee_root`].
 #[must_use]
 pub fn context_committee_root(context: &ValidatorEpochContextV1) -> Option<[u8; 32]> {
-    let count = usize::from(
-        u8::try_from(context.committee.len())
-            .ok()
-            .filter(|n| *n != 0)?,
-    );
-    // Active-result validation runs under its caller's original resource owner. The
-    // count byte bounds this gather, so it needs no separately owned heap allocation.
-    let mut keys = [[0_u8; 48]; u8::MAX as usize];
-    for (slot, member) in keys[..count].iter_mut().zip(&context.committee) {
-        let (algorithm, key) = member.validator.public_key().try_to_bytes().ok()?;
-        if algorithm != Algorithm::BlsNormal {
-            return None;
+    let count = [u8::try_from(context.committee.len())
+        .ok()
+        .filter(|count| *count != 0)?];
+    let prefix = [Ok(COMMITTEE_TAG), Ok(count.as_slice())];
+    let keys = context.committee.iter().map(|member| {
+        let (algorithm, key) = member
+            .validator
+            .public_key()
+            .try_to_bytes()
+            .map_err(|_| ())?;
+        if algorithm != Algorithm::BlsNormal || key.len() != 48 {
+            return Err(());
         }
-        *slot = <[u8; 48]>::try_from(key).ok()?;
-    }
-    committee_root(&keys[..count])
+        Ok(key)
+    });
+    try_keccak256_from_chunks(prefix.into_iter().chain(keys)).ok()
 }
 
 /// Which root a stored result preimage belongs to.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    norito::Encode,
+    norito::Decode,
+    norito::derive::JsonSerialize,
+    norito::derive::JsonDeserialize,
+    norito::NoritoSchema,
+    iroha_schema::IntoSchema,
+)]
+#[norito(tag = "kind", content = "value", deny_unknown_fields)]
+#[norito_schema(name = "iroha_data_model::sumeragi_finality::CertifiedResultScope")]
 pub enum CertifiedResultScope {
     /// The global chain (Taira; instance kind 0, index 0). Its `X` may be active.
     TairaGlobal,
@@ -527,13 +542,8 @@ pub enum CertifiedResultScope {
     NonGlobal,
 }
 
-impl CertifiedResultScope {
-    /// Select the result layout rules from the independently authenticated root role.
-    ///
-    /// This conversion does not authenticate the supplied role. A caller obtains it from
-    /// signed genesis or its already authenticated committed root context, never from `X`.
-    #[must_use]
-    pub const fn from_root_scope(scope: crate::block::consensus::SumeragiRootScope) -> Self {
+impl From<crate::block::consensus::SumeragiRootScope> for CertifiedResultScope {
+    fn from(scope: crate::block::consensus::SumeragiRootScope) -> Self {
         match scope {
             crate::block::consensus::SumeragiRootScope::Global => Self::TairaGlobal,
             crate::block::consensus::SumeragiRootScope::Dataspace { .. } => Self::NonGlobal,
@@ -545,7 +555,7 @@ impl CertifiedResultScope {
 ///
 /// Every variant is a deterministic verdict about the input except a
 /// [`CommitmentError::Resource`] inside [`Self::Body`], which is a local decoder refusal.
-#[derive(Clone, Debug, PartialEq, Eq, Error)]
+#[derive(Debug, Error)]
 pub enum CertifiedResultError {
     /// The preimage is shorter than `X` plus one body byte, or above
     /// [`MAX_RESULT_PREIMAGE_BYTES`].

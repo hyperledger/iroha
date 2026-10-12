@@ -560,9 +560,15 @@ fn create_election_rejects_generic_stark_vote_role_labels() {
     let account: Account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
     let world = World::with([domain], [account], Vec::new());
     let mut state = State::new_for_testing(world, kura, query);
-    state.zk.stark.enabled = true;
-    state.zk.pipa_r.enabled = false;
-    state.zk.verify_timeout = std::time::Duration::ZERO;
+    state
+        .edit_zk_for_testing(|zk| zk.stark.enabled = true)
+        .expect("fixture ZK settings install");
+    state
+        .edit_zk_for_testing(|zk| zk.pipa_r.enabled = false)
+        .expect("fixture ZK settings install");
+    state
+        .edit_zk_for_testing(|zk| zk.verify_timeout = std::time::Duration::ZERO)
+        .expect("fixture ZK settings install");
     state.gov.citizenship_bond_amount = 0_u64.into();
     state.gov.min_bond_amount = 0_u64.into();
     let header = BlockHeader::new(NonZeroU64::new(1).expect("non-zero"), None, None, 0, 0);
@@ -679,9 +685,15 @@ fn create_election_rejects_stark_vk_with_wrong_vote_circuit_role() {
         kura,
         query,
     );
-    state.zk.stark.enabled = true;
-    state.zk.pipa_r.enabled = false;
-    state.zk.verify_timeout = std::time::Duration::ZERO;
+    state
+        .edit_zk_for_testing(|zk| zk.stark.enabled = true)
+        .expect("fixture ZK settings install");
+    state
+        .edit_zk_for_testing(|zk| zk.pipa_r.enabled = false)
+        .expect("fixture ZK settings install");
+    state
+        .edit_zk_for_testing(|zk| zk.verify_timeout = std::time::Duration::ZERO)
+        .expect("fixture ZK settings install");
     let header = BlockHeader::new(NonZeroU64::new(1).expect("non-zero"), None, None, 0, 0);
     let mut block = state.block(header);
     let mut stx = block.transaction();
@@ -789,9 +801,15 @@ fn create_election_rejects_generic_stark_ballot_before_tally_resolution() {
         kura,
         query,
     );
-    state.zk.stark.enabled = true;
-    state.zk.pipa_r.enabled = false;
-    state.zk.verify_timeout = std::time::Duration::ZERO;
+    state
+        .edit_zk_for_testing(|zk| zk.stark.enabled = true)
+        .expect("fixture ZK settings install");
+    state
+        .edit_zk_for_testing(|zk| zk.pipa_r.enabled = false)
+        .expect("fixture ZK settings install");
+    state
+        .edit_zk_for_testing(|zk| zk.verify_timeout = std::time::Duration::ZERO)
+        .expect("fixture ZK settings install");
     let header = BlockHeader::new(NonZeroU64::new(1).expect("non-zero"), None, None, 0, 0);
     let mut block = state.block(header);
     let mut stx = block.transaction();
@@ -906,9 +924,15 @@ fn governance_rejects_development_native_and_generic_stark_ballot_roles() {
     let account: Account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
     let world = World::with([domain], [account], Vec::new());
     let mut state = State::new_for_testing(world, kura, query);
-    state.zk.stark.enabled = true;
-    state.zk.pipa_r.enabled = true;
-    state.zk.verify_timeout = std::time::Duration::ZERO;
+    state
+        .edit_zk_for_testing(|zk| zk.stark.enabled = true)
+        .expect("fixture ZK settings install");
+    state
+        .edit_zk_for_testing(|zk| zk.pipa_r.enabled = true)
+        .expect("fixture ZK settings install");
+    state
+        .edit_zk_for_testing(|zk| zk.verify_timeout = std::time::Duration::ZERO)
+        .expect("fixture ZK settings install");
     state.gov.citizenship_bond_amount = 0_u64.into();
     state.gov.min_bond_amount = 0_u64.into();
     let header = BlockHeader::new(NonZeroU64::new(1).expect("non-zero"), None, None, 0, 0);

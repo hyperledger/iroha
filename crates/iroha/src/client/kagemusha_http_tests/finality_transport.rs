@@ -246,21 +246,22 @@ async fn finality_refuses_noncanonical_media_frames_and_excess_depth() {
             Duration::ZERO,
             Duration::ZERO,
         );
-        assert!(matches!(
-            client
-                .account_client()
-                .unwrap()
-                .kagemusha()
-                .load_finality(&value)
-                .await,
-            Err(Error::Decode {
-                operation: FINALITY_OP,
-                ..
-            } | Error::CanonicalDecode {
-                operation: FINALITY_OP,
-                ..
-            })
-        ));
+        let error = client
+            .account_client()
+            .unwrap()
+            .kagemusha()
+            .load_finality(&value)
+            .await
+            .expect_err("malformed finality response");
+        assert!(
+            matches!(
+                &error,
+                Error::Decode {
+                    operation: FINALITY_OP,
+                    ..
+                }
+            ) || matches!(&error, Error::CanonicalDecode(failure) if failure.operation == FINALITY_OP)
+        );
         assert_eq!(requests.lock().unwrap().len(), 1);
     }
 }

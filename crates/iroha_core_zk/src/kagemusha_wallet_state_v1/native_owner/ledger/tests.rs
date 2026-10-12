@@ -24,6 +24,38 @@ fn restart(wallet: Wallet) -> Wallet {
     )
     .unwrap()
 }
+
+#[test]
+fn ledger_original_resource_refusal_keeps_selected_custody_and_retries() {
+    let mut native = NativeFinalityFixture::start("wallet-ledger-original-resource");
+    let genesis = native.verifier();
+    let original = certify(&mut native);
+    let mut w = wallet(&native);
+    let before = w.custody.archive_checkpoint().unwrap();
+    let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+    let error =
+        norito::with_decode_limits_scope(limits, || w.ingest_ledger_original(&genesis, &original))
+            .unwrap_err();
+    assert!(matches!(error, Error::DecodeResource(ref cause)
+        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+    assert_eq!(w.custody.archive_checkpoint().unwrap(), before);
+    let selected = w.ingest_ledger_original(&genesis, &original).unwrap();
+    let after = w.custody.archive_checkpoint().unwrap();
+    let error = norito::with_decode_limits_scope(limits, || w.ledger_progress_selected(&genesis))
+        .unwrap_err();
+    assert!(matches!(error, Error::DecodeResource(ref cause)
+        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+    assert_eq!(w.custody.archive_checkpoint().unwrap(), after);
+    assert_eq!(
+        w.ledger_progress_selected(&genesis).unwrap(),
+        Some(selected)
+    );
+    assert_eq!(
+        w.ingest_ledger_original(&genesis, &original).unwrap(),
+        selected
+    );
+    assert_eq!(w.custody.archive_checkpoint().unwrap(), after);
+}
 #[test]
 fn enrollment_cannot_publish_a_ledger_checkpoint_before_bootstrap() {
     let native = NativeFinalityFixture::start("wallet-ledger-before-bootstrap");
@@ -217,6 +249,42 @@ fn payout_originals_require_selected_tip_exact_world_and_row_before_custody_rele
     let original =
         archive::encode(&native.certify_with_world_root(block, world.root().unwrap())).unwrap();
     w.ingest_ledger_original(&genesis, &original).unwrap();
+    let limits =
+        |allocation| norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, allocation, 64);
+    // Fund the exact preceding payout decoder, then refuse the World read itself.
+    // A zero budget alone could stop before the repaired World reader is reached.
+    let (decoded, usage) = norito::core::with_decode_limits_measured(limits(usize::MAX), || {
+        payout_original(&payout_bytes)
+    });
+    decoded.unwrap();
+    let limit = usage.total_allocated_bytes();
+    norito::with_decode_limits_scope(limits(limit), || payout_original(&payout_bytes)).unwrap();
+    let custody_before = w.custody.archive_checkpoint().unwrap();
+    let (manifest_root_before, manifest_before) = w.manifest().unwrap();
+    let manifest_before = archive::encode(&manifest_before).unwrap();
+    let claim_before = w.archive.get(ArchiveKey::FeeClaim([2; 32]), 128).unwrap();
+    assert!(claim_before.is_some());
+    let error = norito::with_decode_limits_scope(limits(limit), || {
+        w.acknowledge_payout_originals(&genesis, [2; 32], &world_bytes, &payout_bytes)
+    })
+    .unwrap_err();
+    let Error::DecodeResource(cause) = error else {
+        panic!("unfinished World original cannot be an invalid payout");
+    };
+    norito::with_decode_limits_scope(limits(limit), || {
+        assert_eq!(
+            cause.kind(),
+            norito::core::DecodeAttemptErrorKind::EnclosingLimit
+        );
+    });
+    assert_eq!(w.custody.archive_checkpoint().unwrap(), custody_before);
+    let (manifest_root_after, manifest_after) = w.manifest().unwrap();
+    assert_eq!(manifest_root_after, manifest_root_before);
+    assert_eq!(archive::encode(&manifest_after).unwrap(), manifest_before);
+    assert_eq!(
+        w.archive.get(ArchiveKey::FeeClaim([2; 32]), 128).unwrap(),
+        claim_before
+    );
     let mut foreign = payout;
     foreign.amount += 1;
     assert!(

@@ -515,7 +515,8 @@ impl ManagedStreamTokenCustody {
             Action::Enroll { validity, .. } => Some(validity.expires_at_unix_ms),
         };
         let account = authorization.bind_account(account)?;
-        attempts::generated(
+        let inspection = body_history::NativeClosureInspector::new(original, &account, deadline);
+        attempts::generated_native(
             directory,
             purpose,
             original.digest()?,
@@ -523,6 +524,7 @@ impl ManagedStreamTokenCustody {
             authorization,
             deadline,
             body_expiry,
+            &inspection,
             |attempt| {
                 original
                     .request(attempt.terms(), attempt.observation()?, deadline)?
@@ -1041,7 +1043,14 @@ impl ManagedStreamTokenCustody {
                 current,
             });
         }
-        let (observed, current) = preflight(self, &original.selection.binding, deadline)?;
+        // Read-only signed recovery has no preparation or dispatch effect for this predecessor
+        // preflight to authorize. Its fresh post-resume carrier and current proofs stay separate.
+        let (_preflight_observation, current) = if mode.submits() {
+            let (observed, current) = preflight(self, &original.selection.binding, deadline)?;
+            (Some(observed), current)
+        } else {
+            (None, None)
+        };
         let unchanged = current.as_ref().is_some_and(|state| {
             matches_predecessor(
                 &original.selection,

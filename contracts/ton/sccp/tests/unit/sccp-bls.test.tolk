@@ -398,6 +398,13 @@ get fun `test checkpoint ids and the committee root of the worked examples`() {
     expect(vecXRotationHead().remainingBitsCount()).toEqual(SCCP_X_HEAD_BITS);
     expect(vecXRotationTail().remainingBitsCount()).toEqual(SCCP_X_TAIL_BITS);
     expect((SCCP_X_HEAD_BITS + SCCP_X_TAIL_BITS) / 8).toEqual(VEC_X_BYTES);
+    // the split of X and the tags of §3.6 and §3.7, as the fixture states them
+    expect(SCCP_X_HEAD_BITS).toEqual(VEC_X_HEAD_BYTES * 8);
+    expect(SCCP_X_TAIL_BITS).toEqual(VEC_X_TAIL_BYTES * 8);
+    expect(SCCP_X_MAGIC).toEqual(VEC_X_MAGIC);
+    expect(SCCP_RESULT_TAG).toEqual(VEC_RESULT_TAG);
+    expect(SCCP_SIG_TAG).toEqual(VEC_SIG_TAG);
+    expect(SCCP_TAG_COMMITTEE_V1).toEqual(VEC_COMMITTEE_TAG);
     val keys = vecSyntheticCommitteeKeys();
     expect(sccpCommitteeRoot(4, sccpLoadKeys(sccpBuildKeys(keys), 4).parts)).toEqual(
         VEC_SYNTHETIC_COMMITTEE_ROOT,

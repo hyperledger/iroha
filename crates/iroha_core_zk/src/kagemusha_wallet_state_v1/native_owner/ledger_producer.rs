@@ -1,10 +1,13 @@
 //! Current ledger instruction preparation and native Unload confirmation.
 use super::*;
+use crate::kagemusha_wallet_state_v1::finality_read_error;
 mod projection;
 mod unload_session;
 use iroha_data_model::{
     isi::kagemusha_wallet::{KagemushaWalletLedgerActionV1, KagemushaWalletLedgerV1},
-    sumeragi_finality::MAX_FINALITY_CHECKPOINT_BYTES,
+    sumeragi_finality::{
+        MAX_FINALITY_CHECKPOINT_BYTES, SumeragiFinalityProof, VerifiedSumeragiBlock,
+    },
 };
 pub use projection::NativePreparedLedgerLoadV1;
 /// One complete current ledger instruction, including its original signed transport.
@@ -49,6 +52,18 @@ impl UnloadConfirmation {
             block_hash: self.block_hash,
         })
     }
+}
+
+// Verify the already selected original decision before the caller checks successful Unload
+// inclusion. Keep read refusals separate from a completed invalid-proof verdict; this helper
+// selects no cursor, authenticates no claim and publishes nothing.
+fn selected_unload_decision(
+    verifier: &SumeragiFinalityVerifier,
+    tip: &SumeragiFinalityProof,
+) -> Result<VerifiedSumeragiBlock, Error> {
+    verifier.verify_retained_decision(tip).map_err(|error| {
+        finality_read_error(error, Error::Proof("Unload selected native decision"))
+    })
 }
 
 fn retained_unload_confirmation(
@@ -207,30 +222,30 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         }
         let action = match kind {
             1 => {
-                let frame = valid(KagemushaWalletActivationV1::decode_canonical(
-                    original,
-                    &self.scheme_id,
-                ))?;
+                let frame = read_model_original(
+                    || KagemushaWalletActivationV1::decode_canonical(original, &self.scheme_id),
+                    Error::Invalid("G1 validation"),
+                )?;
                 if frame.credential.body.wallet_id != self.wallet_id {
                     return Err(Error::Invalid("activation wallet"));
                 }
                 KagemushaWalletLedgerActionV1::Activate(original.to_vec())
             }
             2 => {
-                let frame = valid(KagemushaWalletUnloadClaimV1::decode_canonical(
-                    original,
-                    &self.scheme_id,
-                ))?;
+                let frame = read_model_original(
+                    || KagemushaWalletUnloadClaimV1::decode_canonical(original, &self.scheme_id),
+                    Error::Invalid("G1 validation"),
+                )?;
                 if frame.credential.body.wallet_id != self.wallet_id {
                     return Err(Error::Invalid("Unload wallet"));
                 }
                 KagemushaWalletLedgerActionV1::Unload(original.to_vec())
             }
             3 => {
-                let frame = valid(KagemushaWalletCloseLoadsV1::decode_canonical(
-                    original,
-                    &self.scheme_id,
-                ))?;
+                let frame = read_model_original(
+                    || KagemushaWalletCloseLoadsV1::decode_canonical(original, &self.scheme_id),
+                    Error::Invalid("G1 validation"),
+                )?;
                 if frame.credential.body.wallet_id != self.wallet_id {
                     return Err(Error::Invalid("CloseLoads wallet"));
                 }
@@ -253,10 +268,10 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         transaction: [u8; 32],
         original: &[u8],
     ) -> Result<LedgerProgressV1, Error> {
-        let claim = valid(KagemushaWalletUnloadClaimV1::decode_canonical(
-            original,
-            &self.scheme_id,
-        ))?;
+        let claim = read_model_original(
+            || KagemushaWalletUnloadClaimV1::decode_canonical(original, &self.scheme_id),
+            Error::Invalid("G1 validation"),
+        )?;
         if transaction == [0; 32]
             || claim.credential.body.wallet_id != self.wallet_id
             || claim.credential.body.account_digest != self.proofs.enrollment.body.account_digest
@@ -277,9 +292,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         let (verifier, checkpoint) =
             self.selected_unload_cursor(&manifest, &transaction, &original_digest)?;
         let checkpoint = checkpoint.ok_or(Error::Invalid("Unload confirmation ledger absent"))?;
-        let verified = verifier
-            .verify_retained_decision(checkpoint.tip())
-            .map_err(|_| Error::Proof("Unload selected native decision"))?;
+        let verified = selected_unload_decision(&verifier, checkpoint.tip())?;
         if !contains_successful_unload(
             &verified,
             &genesis.initial_epoch().network_id,

@@ -859,27 +859,21 @@ fn release_stranded_pays_out_only_stranded_value() {
         &mut stx,
         &release(3 * ONE_XOR + 1, &recipient),
         [1; 32],
-        crate::smartcontracts::isi::sccp::controls::ControlCauseV1::for_test(
-            [0x43; 32], [0x45; 32],
-        ),
+        crate::smartcontracts::isi::sccp::test_support::effect_cause(),
     )
     .expect_err("only 3 XOR is stranded");
     governance::enact(
         &mut stx,
         &release(ONE_XOR, &escrow),
         [2; 32],
-        crate::smartcontracts::isi::sccp::controls::ControlCauseV1::for_test(
-            [0x43; 32], [0x45; 32],
-        ),
+        crate::smartcontracts::isi::sccp::test_support::effect_cause(),
     )
     .expect_err("an escrow recipient");
     governance::enact(
         &mut stx,
         &release(2 * ONE_XOR, &recipient),
         [3; 32],
-        crate::smartcontracts::isi::sccp::controls::ControlCauseV1::for_test(
-            [0x43; 32], [0x45; 32],
-        ),
+        crate::smartcontracts::isi::sccp::test_support::effect_cause(),
     )
     .expect("release");
     assert_eq!(xor_balance(&*stx.world, &recipient), 2 * ONE_XOR);
@@ -1406,204 +1400,141 @@ fn refund_outcomes_report_changes_and_holds() {
     assert!(!SccpRefundOutcomeV1::Stranded.is_held());
 }
 
-/// Inject a revision observation to test value-path gates only. These fixtures do not
-/// authenticate evidence, enact Parliament action or qualify route registration.
-fn set_hold_fixture(
-    stx: &mut StateTransaction<'_, '_>,
-    revision: u32,
-    floor: u64,
-    quarantine: bool,
-) {
-    let mut route = store::routes::get(&*stx.world, &ETH).unwrap().clone();
-    let entry = route.revisions.get_mut(&revision).unwrap();
-    entry.forgery_floor = floor;
-    entry.quarantine = quarantine.then_some(iroha_data_model::sccp::native::SccpQuarantineV1 {
-        certificate_id: [0x82; 32],
-        since_height: 4,
-    });
-    store::routes::insert(stx, ETH, route).unwrap();
+#[test]
+fn taira_fast_pause_holds_inbound_only_without_losing_proof_money_or_retry() {
+    use crate::smartcontracts::isi::sccp::test_support::install_consumer_fast_pause;
+    for delta in [1_i64, 0, -1] {
+        let state = state();
+        let mut block = state.block(header(5));
+        let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"fast-pause-inbound"));
+        install(&mut stx);
+        set_activation(&mut stx, ETH, 1, SccpRouteActivationV1::InboundOnly);
+        fund(&mut stx, ETH, 1, 2 * ONE_XOR);
+        let recipient = authority(89);
+        let now = stx.block_unix_timestamp_ms();
+        // Taira hold is network-wide even when the destination revision list excludes 1.
+        install_consumer_fast_pause(
+            &mut stx,
+            ETH,
+            true,
+            vec![2],
+            now.checked_add_signed(delta).unwrap(),
+        );
+        let id = prove(&mut stx, 0, ONE_XOR, address_bytes(&recipient), 0);
+        assert_eq!(
+            inbound_status(&stx, &id).is_pending(),
+            delta > 0,
+            "an active Taira pause must preserve the authenticated inbound as pending"
+        );
+        if delta > 0 {
+            let SccpInboundStatusV1::Pending(pending) = inbound_status(&stx, &id) else {
+                unreachable!()
+            };
+            assert_eq!(format!("{:?}", pending.reason), "Held");
+            assert_eq!(liability(&stx, ETH, 1), 2 * ONE_XOR);
+            assert_eq!(xor_balance(&*stx.world, &recipient), 0);
+            assert!(
+                stx.world.account(&recipient).is_err(),
+                "held proof must not register a recipient"
+            );
+            execute_settle(SettleSccpV1::inbound(id), &holder(), &mut stx)
+                .expect_err("unchanged hold is no progress");
+            // Exact expiry is supplied by a later source position in production. This
+            // fixture replaces only the precondition so the same consumer retry is tested.
+            install_consumer_fast_pause(&mut stx, ETH, true, vec![2], now);
+            execute_settle(SettleSccpV1::inbound(id), &holder(), &mut stx)
+                .expect("expiry releases");
+        }
+        assert!(matches!(
+            inbound_status(&stx, &id),
+            SccpInboundStatusV1::Released(_)
+        ));
+        assert_eq!(liability(&stx, ETH, 1), ONE_XOR);
+        assert_eq!(xor_balance(&*stx.world, &recipient), ONE_XOR);
+        assert_pending_counts(&stx, "fast-pause inbound");
+        assert_escrow_invariant(&*stx.world, "fast-pause inbound");
+        drop(stx);
+        assert!(store::inbound_messages::is_empty(&block.world));
+        assert!(store::fast_pauses::is_empty(&block.world));
+    }
 }
 
 #[test]
-fn forgery_hold_keeps_inbound_proof_fee_and_value_pending_until_floor_moves() {
+fn taira_fast_pause_keeps_void_refund_pending_without_stranding_or_moving_money() {
+    use crate::smartcontracts::isi::sccp::test_support::install_consumer_fast_pause;
     let state = state();
     let mut block = state.block(header(5));
-    let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"forgery-held-inbound"));
+    let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"fast-pause-refund"));
     install(&mut stx);
-    set_activation(&mut stx, ETH, 1, SccpRouteActivationV1::InboundOnly);
-    fund(&mut stx, ETH, 1, 3 * ONE_XOR);
-    let recipient = authority(73);
-    set_fee_sink(&mut stx, Some(&holder()));
-    let holder_before = xor_balance(&*stx.world, &holder());
+    let absent = authority(90);
+    let id = seed_outbound(&mut stx, ETH, 0, &absent, ONE_XOR);
     let escrow = escrow_of(&stx, ETH);
-    let escrow_before = xor_balance(&*stx.world, &escrow);
-    *stx.world.sccp_forgery_max_generation.get_mut() = Some(1);
-    let id = prove(&mut stx, 0, ONE_XOR, address_bytes(&recipient), FEE);
-    let retained = store::inbound_messages::get(&*stx.world, &id)
-        .unwrap()
-        .clone();
-    assert_eq!(retained.status, pending(SccpPendingReasonV1::Held));
-    assert_eq!(retained.fee_due, FEE);
-    assert!(!inbound_settlement_may_progress(
-        &*stx.world,
-        &retained,
-        ONE_XOR
-    ));
+    let escrow_id = seed_outbound(&mut stx, ETH, 1, &escrow, ONE_XOR);
+    set_activation(&mut stx, ETH, 1, SccpRouteActivationV1::InboundOnly);
+    let now = stx.block_unix_timestamp_ms();
+    install_consumer_fast_pause(&mut stx, ETH, true, vec![2], now + 1);
+    void_expired(&mut stx, ETH, 0).expect("proof of void is always recorded");
+    void_expired(&mut stx, ETH, 1).expect("proof of void is always recorded");
     assert!(
-        stx.world.account(&recipient).is_err(),
-        "hold precedes registration"
+        outbound_status(&stx, &id).is_refund_pending(),
+        "fast pause must defer actual refund movement"
     );
-    assert_eq!(xor_balance(&*stx.world, &holder()), holder_before);
-    assert_eq!(xor_balance(&*stx.world, &escrow), escrow_before);
-    assert_eq!(liability(&stx, ETH, 1), 3 * ONE_XOR);
-    assert!(!settle_inbound(&mut stx, id).unwrap(), "unchanged retry");
-    assert_eq!(
-        store::inbound_messages::get(&*stx.world, &id),
-        Some(&retained)
+    assert!(
+        outbound_status(&stx, &escrow_id).is_refund_pending(),
+        "hold also precedes stranding"
     );
-    assert_pending_counts(&stx, "held proof and retry");
-    assert_escrow_invariant(&*stx.world, "held proof and retry");
-
-    // Simulate an independently enacted floor observation; this is not its authority path.
-    set_hold_fixture(&mut stx, 1, 2, false);
-    assert!(inbound_settlement_may_progress(
-        &*stx.world,
-        &retained,
-        ONE_XOR
-    ));
-    assert!(settle_inbound(&mut stx, id).unwrap());
-    assert!(matches!(
-        inbound_status(&stx, &id),
-        SccpInboundStatusV1::Released(_)
-    ));
-    assert_eq!(xor_balance(&*stx.world, &recipient), ONE_XOR - FEE);
-    assert_eq!(xor_balance(&*stx.world, &holder()), holder_before + FEE);
-    assert_eq!(liability(&stx, ETH, 1), 2 * ONE_XOR);
-    assert_pending_counts(&stx, "released after floor advance");
-    assert_escrow_invariant(&*stx.world, "released after floor advance");
-
-    // Newer evidence re-arms the inclusive hold; raising a floor is not permanent immunity.
-    *stx.world.sccp_forgery_max_generation.get_mut() = Some(2);
-    let id2 = prove(&mut stx, 1, ONE_XOR, address_bytes(&recipient), FEE);
-    assert_eq!(
-        inbound_status(&stx, &id2),
-        pending(SccpPendingReasonV1::Held)
-    );
-    assert_eq!(xor_balance(&*stx.world, &recipient), ONE_XOR - FEE);
-    assert_eq!(xor_balance(&*stx.world, &holder()), holder_before + FEE);
-    assert_pending_counts(&stx, "rearmed hold");
-    assert_escrow_invariant(&*stx.world, "rearmed hold");
-}
-
-#[test]
-fn quarantine_prevents_bounce_and_never_infers_reconciliation_from_a_floor() {
-    let state = state();
-    let mut block = state.block(header(5));
-    let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"quarantine-held-inbound"));
-    install(&mut stx);
-    fund(&mut stx, ETH, 1, 2 * ONE_XOR);
-    set_hold_fixture(&mut stx, 1, u64::MAX, true);
-    let escrow = escrow_of(&stx, ETH);
-    let leaves_before = leaves::leaf_count_at(&*stx.world, 5);
-    let id = prove(&mut stx, 0, ONE_XOR, address_bytes(&escrow), 0);
-    assert_eq!(
-        inbound_status(&stx, &id),
-        pending(SccpPendingReasonV1::Held)
-    );
-    assert_eq!(leaves::leaf_count_at(&*stx.world, 5), leaves_before);
-    assert!(store::outbound_messages::is_empty(&*stx.world));
-    set_activation(&mut stx, ETH, 1, SccpRouteActivationV1::InboundOnly);
-    assert!(!settle_inbound(&mut stx, id).unwrap());
     assert_eq!(liability(&stx, ETH, 1), 2 * ONE_XOR);
     assert_eq!(stranded(&stx, ETH), 0);
-    assert_pending_counts(&stx, "quarantine prevents bounce");
-    assert_escrow_invariant(&*stx.world, "quarantine prevents bounce");
+    assert!(stx.world.account(&absent).is_err());
+    assert_pending_counts(&stx, "held refund");
+    assert_escrow_invariant(&*stx.world, "held refund");
+    execute_settle(SettleSccpV1::refund(ETH, 1, 0), &holder(), &mut stx)
+        .expect_err("unchanged hold");
+    install_consumer_fast_pause(&mut stx, ETH, true, vec![2], now);
+    execute_settle(SettleSccpV1::refund(ETH, 1, 0), &holder(), &mut stx)
+        .expect("exact expiry credits");
+    execute_settle(SettleSccpV1::refund(ETH, 1, 1), &holder(), &mut stx)
+        .expect("exact expiry strands");
+    assert_eq!(xor_balance(&*stx.world, &absent), ONE_XOR);
+    assert_eq!(stranded(&stx, ETH), ONE_XOR);
+    assert_eq!(liability(&stx, ETH, 1), 0);
+    assert_pending_counts(&stx, "released refund");
+    assert_escrow_invariant(&*stx.world, "released refund");
 }
 
 #[test]
-fn held_refunds_keep_voids_pending_without_registration_release_or_stranding() {
-    for quarantine in [false, true] {
-        let state = state();
-        let mut block = state.block(header(5));
-        let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"held-refunds"));
-        install(&mut stx);
-        let escrow = escrow_of(&stx, ETH);
-        let absent = authority(74);
-        let ids = [
-            seed_outbound(&mut stx, ETH, 0, &holder(), ONE_XOR),
-            seed_outbound(&mut stx, ETH, 1, &escrow, ONE_XOR),
-            seed_outbound(&mut stx, ETH, 2, &absent, ONE_XOR),
-        ];
-        set_activation(&mut stx, ETH, 1, SccpRouteActivationV1::InboundOnly);
-        set_hold_fixture(&mut stx, 1, 1, quarantine);
-        if !quarantine {
-            *stx.world.sccp_forgery_max_generation.get_mut() = Some(1);
-        }
-        let holder_before = xor_balance(&*stx.world, &holder());
-        let escrow_before = xor_balance(&*stx.world, &escrow);
-        for (nonce, id) in ids.iter().enumerate() {
-            void_expired(&mut stx, ETH, u64::try_from(nonce).unwrap()).expect("void retained");
-            assert!(outbound_status(&stx, id).is_refund_pending());
-            assert_eq!(
-                attempt_refund(&mut stx, *id).unwrap(),
-                SccpRefundOutcomeV1::Held { changed: false }
-            );
-        }
-        assert!(
-            stx.world.account(&absent).is_err(),
-            "hold precedes registration"
-        );
-        assert_eq!(xor_balance(&*stx.world, &holder()), holder_before);
-        assert_eq!(xor_balance(&*stx.world, &escrow), escrow_before);
-        assert_eq!(liability(&stx, ETH, 1), 3 * ONE_XOR);
-        assert_eq!(
-            stranded(&stx, ETH),
-            0,
-            "an escrow sender cannot bypass the hold by stranding"
-        );
-        assert_eq!(store::pending_count(&*stx.world, &(ETH, 1)), (0, 3));
-        assert_pending_counts(&stx, "held voids");
-        assert_escrow_invariant(&*stx.world, "held voids");
-    }
-}
-
-#[test]
-fn bounce_never_moves_liability_into_a_held_newer_revision() {
-    for quarantine in [false, true] {
-        let state = state();
-        let mut block = state.block(header(5));
-        let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"held-bounce-target"));
-        install_value_route(
-            &mut stx,
-            ETH,
-            1,
-            SccpRouteActivationV1::InboundOnly,
-            100 * ONE_XOR,
-        );
-        install_value_route(
-            &mut stx,
-            ETH,
-            2,
-            SccpRouteActivationV1::Bidirectional,
-            100 * ONE_XOR,
-        );
-        fund(&mut stx, ETH, 1, 2 * ONE_XOR);
-        set_hold_fixture(&mut stx, 1, 2, false);
-        set_hold_fixture(&mut stx, 2, 1, quarantine);
-        if !quarantine {
-            *stx.world.sccp_forgery_max_generation.get_mut() = Some(1);
-        }
-        let escrow = escrow_of(&stx, ETH);
-        let id = prove_on(&mut stx, (ETH, 1), 0, ONE_XOR, address_bytes(&escrow), 0);
-        let SccpInboundStatusV1::Bounced(bounce) = inbound_status(&stx, &id) else {
-            panic!("unheld source remains a valid bounce target");
-        };
-        let outbound =
-            store::outbound_messages::get(&*stx.world, &bounce.bounce_message_id).unwrap();
-        assert_eq!(outbound.revision, 1);
-        assert_eq!(liability(&stx, ETH, 1), 2 * ONE_XOR);
-        assert_eq!(liability(&stx, ETH, 2), 0);
-        assert_pending_counts(&stx, "bounce avoids held target");
-        assert_escrow_invariant(&*stx.world, "bounce avoids held target");
-    }
+fn destination_fast_pause_does_not_prevent_release_refund_or_bounce() {
+    use crate::smartcontracts::isi::sccp::test_support::install_consumer_fast_pause;
+    let state = state();
+    let mut block = state.block(header(5));
+    let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"destination-pause-bounce"));
+    install(&mut stx);
+    let refund = seed_outbound(&mut stx, ETH, 0, &holder(), ONE_XOR);
+    fund(&mut stx, ETH, 1, 2 * ONE_XOR);
+    let now = stx.block_unix_timestamp_ms();
+    install_consumer_fast_pause(&mut stx, ETH, false, vec![1], now + 1);
+    let recipient = authority(91);
+    let released = prove(&mut stx, 0, ONE_XOR, address_bytes(&recipient), 0);
+    assert!(matches!(
+        inbound_status(&stx, &released),
+        SccpInboundStatusV1::Released(_)
+    ));
+    let escrow = escrow_of(&stx, ETH);
+    let bounced = prove(&mut stx, 1, ONE_XOR, address_bytes(&escrow), 0);
+    assert!(matches!(
+        inbound_status(&stx, &bounced),
+        SccpInboundStatusV1::Bounced(_)
+    ));
+    void_expired(&mut stx, ETH, 0).expect("destination-only pause does not hold refund");
+    assert!(matches!(
+        outbound_status(&stx, &refund),
+        SccpOutboundStatusV1::Refunded(_)
+    ));
+    assert_eq!(
+        liability(&stx, ETH, 1),
+        ONE_XOR,
+        "bounce retains its liability"
+    );
+    assert_pending_counts(&stx, "destination-only pause");
+    assert_escrow_invariant(&*stx.world, "destination-only pause");
 }

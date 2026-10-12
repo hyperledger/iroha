@@ -199,6 +199,33 @@ fn load_originals() -> (Vec<KagemushaWalletRetainedInputV1>, [u8; 32]) {
 }
 
 #[test]
+fn retained_load_conversion_preserves_original_refusal_and_retry() {
+    let (inputs, digest) = load_originals();
+    let expected = retained_load_source(&inputs, digest).unwrap();
+    let unchanged = inputs.clone();
+    for limits in [
+        norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+    ] {
+        let error =
+            norito::with_decode_limits_scope(limits, || retained_load_source(&inputs, digest))
+                .unwrap_err();
+        assert!(
+            matches!(error, wallet_state::Error::DecodeResource(ref original)
+            if original.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit)
+        );
+        assert_eq!(inputs, unchanged);
+        assert_eq!(retained_load_source(&inputs, digest).unwrap(), expected);
+    }
+    let mut malformed = inputs.clone();
+    malformed[1].bytes = vec![0];
+    assert!(matches!(
+        retained_load_source(&malformed, digest),
+        Err(wallet_state::Error::Proof(_))
+    ));
+}
+
+#[test]
 fn load_original_conversion_preserves_native_certificates_without_granting_finality() {
     let (inputs, digest) = load_originals();
     let (receipt, source) = retained_load_source(&inputs, digest).unwrap();

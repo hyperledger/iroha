@@ -388,9 +388,17 @@ impl Core {
             &bh,
             &ad,
         );
-        let Some(sig) = self.sign(me, &msg) else {
+        let Some(sig) = self.sign(
+            me.slot,
+            crate::api::SigningKind::Proposal,
+            self.height,
+            self.view,
+            &msg,
+        ) else {
+            self.resend_recorded = Some(bh);
             return;
         };
+        self.resend_recorded = None;
         let proposal = Proposal {
             instance: self.instance,
             height: self.height,
@@ -422,7 +430,13 @@ impl Core {
     /// §6.10 rule 0: after a restart the leader re-sends exactly the recorded proposal of the
     /// view once its body is loaded from the local store, and never builds another (SR1).
     pub(super) fn resend_recorded_proposal(&mut self) {
-        let Some(bh) = self.resend_recorded.take() else {
+        // Keep the reservation until the original body arrives and signing succeeds.
+        #[cfg(not(sumeragi_mutation = "MS63"))]
+        let pending = self.resend_recorded;
+        // MS63: a cadence retry consumes the marker before the durable body is available.
+        #[cfg(sumeragi_mutation = "MS63")]
+        let pending = self.resend_recorded.take();
+        let Some(bh) = pending else {
             return;
         };
         let Some(me) = self.signer() else {

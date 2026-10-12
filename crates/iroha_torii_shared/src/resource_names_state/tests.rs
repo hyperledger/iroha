@@ -104,9 +104,7 @@ fn fixture() -> &'static NativeResourceNamesStateV1 {
             signature: SignatureOf::try_from_hash(node.private_key(), body.signing_hash()).unwrap(),
             body,
         };
-        attestation
-            .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
-            .unwrap();
+        attestation.verify(native.root_scope().into()).unwrap();
         let verified_tip = native
             .verifier()
             .verify_retained_decision(native.latest())

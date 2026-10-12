@@ -323,7 +323,7 @@ async fn four_validator_policy_jury_uses_future_pulses_and_mandatory_timed_ovn_i
 
     let mut peer_blocks = Vec::with_capacity(network.peers().len());
     for peer in network.peers() {
-        peer_blocks.push(exact_block(&peer.client(), enacted_height).await?);
+        peer_blocks.push(exact_block(&peer.client(), enacted_height, &network).await?);
     }
     assert!(
         peer_blocks
@@ -425,7 +425,7 @@ async fn four_validator_policy_jury_uses_future_pulses_and_mandatory_timed_ovn_i
         restarted_response.state_payload_hex, enacted_response.state_payload_hex,
         "normal restart must restore the complete reducer/certificate state",
     );
-    let restarted_block = exact_block(&restart_peer.client(), enacted_height).await?;
+    let restarted_block = exact_block(&restart_peer.client(), enacted_height, &network).await?;
     assert_eq!(restarted_block.hash(), peer_blocks[0].hash());
     assert_governed_contract_binding(
         &restart_peer.client(),
@@ -611,6 +611,7 @@ async fn four_validator_mandatory_npos_epoch_boundary_threshold_beacon_release_g
         &client,
         pulse_height - 1,
         "an unrequested non-boundary height must not emit a global pulse",
+        &network,
     )
     .await?;
     network.ensure_blocks(pulse_height).await?;
@@ -622,7 +623,7 @@ async fn four_validator_mandatory_npos_epoch_boundary_threshold_beacon_release_g
 
     let mut pulses = Vec::with_capacity(network.peers().len());
     for peer in network.peers() {
-        pulses.push(pulse_at(&peer.client(), pulse_height).await?);
+        pulses.push(pulse_at(&peer.client(), pulse_height, &network).await?);
     }
     assert!(pulses.windows(2).all(|pair| pair[0] == pair[1]));
     let pulse = &pulses[0];
@@ -633,7 +634,7 @@ async fn four_validator_mandatory_npos_epoch_boundary_threshold_beacon_release_g
     assert_eq!(pulse.round, 0, "the mandatory pulse is view-independent");
     assert_eq!(pulse.finalized_chain_anchor.height + 1, pulse_height);
     assert_eq!(
-        exact_block(&client, pulse.finalized_chain_anchor.height)
+        exact_block(&client, pulse.finalized_chain_anchor.height, &network)
             .await?
             .header()
             .hash(),
@@ -680,7 +681,7 @@ async fn four_validator_mandatory_npos_epoch_boundary_threshold_beacon_release_g
         let (_, verified) =
             finality::certified_block(&network, &peer.client(), boundary_height + 1).await?;
         assert_eq!(
-            exact_block(&peer.client(), boundary_height + 1)
+            exact_block(&peer.client(), boundary_height + 1, &network)
                 .await?
                 .hash(),
             verified.block().hash(),
@@ -708,7 +709,7 @@ async fn four_validator_mandatory_npos_epoch_boundary_threshold_beacon_release_g
     network.ensure_blocks(successor_pulse_height).await?;
     let mut successor_pulses = Vec::with_capacity(network.peers().len());
     for peer in network.peers() {
-        successor_pulses.push(pulse_at(&peer.client(), successor_pulse_height).await?);
+        successor_pulses.push(pulse_at(&peer.client(), successor_pulse_height, &network).await?);
     }
     assert!(successor_pulses.windows(2).all(|pair| pair[0] == pair[1]));
     let successor_pulse = &successor_pulses[0];
@@ -770,7 +771,7 @@ async fn four_validator_mandatory_npos_epoch_boundary_threshold_beacon_release_g
         let (_, verified) =
             finality::certified_block(&network, &peer.client(), second_boundary_height + 1).await?;
         assert_eq!(
-            exact_block(&peer.client(), second_boundary_height + 1)
+            exact_block(&peer.client(), second_boundary_height + 1, &network)
                 .await?
                 .hash(),
             verified.block().hash(),
@@ -1477,11 +1478,13 @@ async fn four_validator_pending_parliament_request_never_blocks_unrelated_work_o
     );
     network.ensure_blocks(isolation_tip).await?;
 
-    let tip_hash = exact_block(&client, isolation_tip).await?.hash();
+    let tip_hash = exact_block(&client, isolation_tip, &network).await?.hash();
     for peer in network.peers() {
         let peer_client = peer.client();
         assert_eq!(
-            exact_block(&peer_client, isolation_tip).await?.hash(),
+            exact_block(&peer_client, isolation_tip, &network)
+                .await?
+                .hash(),
             tip_hash,
             "every validator must commit the same unrelated work",
         );
@@ -1490,6 +1493,7 @@ async fn four_validator_pending_parliament_request_never_blocks_unrelated_work_o
                 &peer_client,
                 height,
                 "a pending Parliament request must not create a global beacon pulse",
+                &network,
             )
             .await?;
         }
@@ -1549,7 +1553,7 @@ async fn four_validator_pending_parliament_request_never_blocks_unrelated_work_o
     .await
     .map_err(|_| eyre!("restarted validator did not recover the pending-request chain"))?;
     assert_eq!(
-        exact_block(&restart_peer.client(), isolation_tip)
+        exact_block(&restart_peer.client(), isolation_tip, &network)
             .await?
             .hash(),
         tip_hash,
@@ -1576,11 +1580,11 @@ async fn four_validator_pending_parliament_request_never_blocks_unrelated_work_o
     tokio::time::timeout(network.sync_timeout(), restart_peer.once_block(final_tip))
         .await
         .map_err(|_| eyre!("restarted validator did not catch up with later unrelated work"))?;
-    let final_hash = exact_block(&client, final_tip).await?.hash();
+    let final_hash = exact_block(&client, final_tip, &network).await?.hash();
     for peer in network.peers() {
         let peer_client = peer.client();
         assert_eq!(
-            exact_block(&peer_client, final_tip).await?.hash(),
+            exact_block(&peer_client, final_tip, &network).await?.hash(),
             final_hash
         );
         for height in isolation_tip..=final_tip {
@@ -1588,6 +1592,7 @@ async fn four_validator_pending_parliament_request_never_blocks_unrelated_work_o
                 &peer_client,
                 height,
                 "post-restart unrelated work must not create a global beacon pulse",
+                &network,
             )
             .await?;
         }

@@ -110,7 +110,7 @@ fn terminal_result_scope_comes_from_the_signed_private_root() {
     .unwrap();
     let mut reader = context.with(|| CertifiedChain::new(&view)).unwrap();
     let terminal = context.with(|| reader.certified_terminal_amx(3)).unwrap();
-    let scope = iroha_data_model::sumeragi_finality::CertifiedResultScope::from_root_scope(
+    let scope = iroha_data_model::sumeragi_finality::CertifiedResultScope::from(
         SumeragiRootScope::Dataspace {
             parent_network_id: NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
                 Hash::new(b"independent public parent"),
@@ -118,7 +118,12 @@ fn terminal_result_scope_comes_from_the_signed_private_root() {
             dataspace_id: DataSpaceId::new(u64::MAX - 15),
         },
     );
-    assert_eq!(terminal.committed().result_scope(), scope);
+    assert_eq!(
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::from(
+            terminal.committed().root_scope()
+        ),
+        scope
+    );
     assert_eq!(terminal.committed().result(), chain.committed(3).result());
 }
 
@@ -241,7 +246,7 @@ fn private_execution_tip_keeps_its_signed_role_through_successor_and_history_rea
         SumeragiRootScope::Dataspace { .. }
     ));
     assert_eq!(
-        original.result_scope(),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::from(original.root_scope()),
         iroha_data_model::sumeragi_finality::CertifiedResultScope::NonGlobal
     );
     chain.commit_at(1_100, vec![]);
@@ -251,14 +256,14 @@ fn private_execution_tip_keeps_its_signed_role_through_successor_and_history_rea
     let reader = CertifiedChain::new(&view).unwrap();
     assert_eq!(reader.root_scope(), original.root_scope());
     let receipt = reader.committed(2).unwrap();
-    assert_eq!(receipt.result_scope(), original.result_scope());
+    assert_eq!(receipt.root_scope(), original.root_scope());
     let decoded = iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
         receipt
             .block()
             .commit_certificate()
             .unwrap()
             .result_preimage(),
-        original.result_scope(),
+        original.root_scope().into(),
     )
     .unwrap();
     assert!(!decoded.header().is_active());
@@ -275,16 +280,22 @@ fn private_execution_tip_keeps_its_signed_role_through_successor_and_history_rea
 
 #[test]
 fn private_profile_export_preserves_local_resource_category_after_decode_scope_retires() {
+    let allocator = norito::core::classify_decode_attempt(|| {
+        Err::<(), _>(norito::Error::AllocationFailed { bytes: 1 })
+    })
+    .unwrap_err();
+    let capacity = norito::with_decode_limits_scope(
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 1, 64),
+        || norito::core::classify_decode_attempt(|| norito::core::reserve_decode_allocation(2)),
+    )
+    .unwrap_err();
     for (resource, expected) in [
         (
-            norito::core::DecodeResourceError::AllocationFailed { bytes: 1 },
+            allocator,
             ivm::error::ExecutionDeferral::AllocationUnavailable,
         ),
         (
-            norito::core::DecodeResourceError::TotalAllocationExceeded {
-                attempted: 2,
-                limit: 1,
-            },
+            capacity,
             ivm::error::ExecutionDeferral::ActiveMemoryCapacity,
         ),
     ] {

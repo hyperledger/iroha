@@ -10,7 +10,7 @@ public sealed class SoraFsReferenceValidatorsTests
     [Fact]
     public void GovernanceReferenceConstantsMatchNativeAbi()
     {
-        Assert.Equal(27u, SoraFsReferenceValidators.RequiredBridgeAbiVersion);
+        Assert.Equal(29u, SoraFsReferenceValidators.RequiredBridgeAbiVersion);
         Assert.Equal(-114, SoraFsReferenceValidators.BridgeReferenceError);
         Assert.Equal(67_108_864, SoraFsReferenceValidators.MaxInputBytesV1);
         Assert.Equal(1_024, SoraFsReferenceValidators.MaxLabelBytesV1);

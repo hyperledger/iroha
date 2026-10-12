@@ -16,14 +16,14 @@ Mode selection is configurable and can be overridden per request.
 ### Configuration
 
 - `pipeline.query_default_cursor_mode`: default cursor mode for server-facing iterable queries. Values: `ephemeral` (default) or `stored`.
-- `pipeline.query_stored_min_gas_units`: minimum gas units required to use stored mode (0 disables the requirement). When > 0, stored mode requires the client to provide sufficient `gas_units` in the request.
+- `query_stored_min_gas_units` (a field of the committed chain parameter `pipeline_validity_policy_v1`, not node configuration): minimum gas units required to use stored mode (0 disables the requirement). When > 0, stored mode requires the client to provide sufficient `gas_units` in the request.
 
 ### Per-request Overrides
 
 The `/v1/query` endpoint accepts optional query-string parameters (reserved for mode control):
 
 - `cursor_mode`: `ephemeral` | `stored`
-- `gas_units`: integer; required when `pipeline.query_stored_min_gas_units > 0` and `cursor_mode=stored`. When insufficient, the server rejects the request with a validation error.
+- `gas_units`: integer; required when the committed `query_stored_min_gas_units > 0` and `cursor_mode=stored`. When insufficient, the server rejects the request with a validation error.
 - Stored `Continue` requests embed the gas budget in the Norito payload via `ForwardCursor.gas_budget` so the server can re-validate stored cursors.
 - Transaction history is read through the [collection query
   endpoints](torii/collection_queries.md), with their own cursor contract.
@@ -65,7 +65,7 @@ POST /v1/query?cursor_mode=stored&gas_units=100
 Body: Norito-encoded Start request
 Response: first batch; `cursor` present for continuation
 
-If `pipeline.query_stored_min_gas_units=200`, the above is rejected with NotPermitted.
+If the committed `query_stored_min_gas_units` is 200, the above is rejected with NotPermitted.
 
 ---
 

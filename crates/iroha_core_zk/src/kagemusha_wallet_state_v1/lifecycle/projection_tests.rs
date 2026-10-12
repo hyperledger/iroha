@@ -178,6 +178,19 @@ fn receiver_projection_updates_at_covering_fold_before_collection_and_new_unfold
     for burn in [false, true] {
         let (mut wallet, receive, id) = receive_projection_wallet(burn);
         let first = wallet.receive_credit_projection(&id).unwrap().bytes();
+        let root = wallet.manifest().unwrap().0;
+        let signatures = wallet.custody.signatures;
+        let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+        let refused =
+            norito::with_decode_limits_scope(limits, || wallet.receive_credit_projection(&id));
+        assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        assert_eq!(wallet.manifest().unwrap().0, root);
+        assert_eq!(
+            wallet.receive_credit_projection(&id).unwrap().bytes(),
+            first
+        );
+        assert_eq!(wallet.custody.signatures, signatures);
         assert_eq!(&first[..8], &[1, 0, 1, 0, 0, 0, 0, 0]);
         assert!(!first[92..].is_empty());
         snapshot_test_fold(&mut wallet);
@@ -547,6 +560,21 @@ fn payer_projection_observes_later_credit_status_after_send_collection_without_a
             .bytes();
         assert_eq!(result[2..5], [if burn { 3 } else { 2 }, 2, 0]);
         assert_eq!(result.len(), 92);
+        let root = payer.manifest().unwrap().0;
+        let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+        let refused = norito::with_decode_limits_scope(limits, || {
+            payer.delivery_credit_projection(&send, &anchor, &newer)
+        });
+        assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        assert_eq!(payer.manifest().unwrap().0, root);
+        assert_eq!(
+            payer
+                .delivery_credit_projection(&send, &anchor, &newer)
+                .unwrap()
+                .bytes(),
+            result
+        );
         assert_eq!(payer.custody.signatures, 0);
         assert_eq!(payer.proofs.preparations.load(Ordering::SeqCst), 0);
         assert!(

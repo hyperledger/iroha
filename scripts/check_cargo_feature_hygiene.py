@@ -35,6 +35,7 @@ FOUNDATIONAL_DEPENDENCIES = frozenset(
 # while callers depend on the smaller vocabulary below.
 EXPECTED_FEATURES: dict[str, dict[str, tuple[str, ...]]] = {
     "norito": {
+        "mutation-testing": (),
         "default": ("node-codec",),
         "base-codec": ("json",),
         "node-codec": (
@@ -53,6 +54,7 @@ EXPECTED_FEATURES: dict[str, dict[str, tuple[str, ...]]] = {
         "gpu-compression": ("compression", "dep:gpuzstd_metal"),
         "json": (),
         "json-std-io": (),
+        "mutation-testing": (),
         "parallel-stage1": (),
         "parallel-stage1-rayon": ("rayon", "parallel-stage1"),
         "rayon": ("dep:rayon",),
@@ -425,6 +427,7 @@ EXPLICIT_OPT_IN_FEATURES: dict[str, tuple[str, ...]] = {
         "gpu-compression",
         "metal-crc64",
         "metal-stage1",
+        "mutation-testing",
         "schema-structural",
         "stage1-validate",
         "streaming-fixed-point-dct",
@@ -457,6 +460,7 @@ EXPLICIT_OPT_IN_FEATURES: dict[str, tuple[str, ...]] = {
  "proofs-full",
  "quic",
  "sm-ffi-openssl",
+ "state-commitment-prototypes",
  "test-network-parliament-signers",
  "test-network-private-settlement-evidence",
  "zk-proof-tags",

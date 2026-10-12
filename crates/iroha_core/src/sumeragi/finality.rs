@@ -21,7 +21,7 @@ use iroha_crypto::{Algorithm, Hash, KeyPair, SignatureOf};
 use iroha_data_model::{
     sumeragi::SumeragiStatus,
     sumeragi_finality::{
-        FinalityError, FinalityValidator, SumeragiFinalityAttestation,
+        FinalityError, FinalityReadError, FinalityValidator, SumeragiFinalityAttestation,
         SumeragiFinalityAttestationBody, SumeragiFinalityBundle, SumeragiFinalityCheckpoint,
         SumeragiFinalityProof, SumeragiFinalityVerifier,
     },
@@ -263,7 +263,7 @@ fn proof_from_certified(
     };
     // The native reader verifies exact BLS quorums and source-bound execution before serving.
     // Portable checks additionally enforce the independent client framing contract.
-    proof.decode_checked(certified.result_scope())?;
+    proof.decode_checked(certified.root_scope().into())?;
     Ok(proof)
 }
 
@@ -367,6 +367,15 @@ pub enum AttestationBuildError {
     /// Signing failed.
     #[error("node signing failed: {0}")]
     Signing(String),
+}
+
+// A completed body verdict and an original local read refusal are different outcomes.
+// Reuse the native finality boundary before any formatting, even after caller scopes retire.
+fn attestation_body_read_error(error: FinalityReadError) -> AttestationBuildError {
+    match ProofError::from(error) {
+        ProofError::Portable(error) => AttestationBuildError::InvalidBody(error),
+        error => AttestationBuildError::FinalityProof(error),
+    }
 }
 
 /// Whether the actual driver's public status is internally coherent.
@@ -592,16 +601,16 @@ fn finish_attestation(
         status,
         finality_proof: proofs.tip,
     };
-    body.validate_consistency(chain.result_scope())
-        .map_err(Error::InvalidBody)?;
+    body.validate_consistency(chain.root_scope().into())
+        .map_err(attestation_body_read_error)?;
     let signature = SignatureOf::try_from_hash(signer.private_key(), body.signing_hash())
         .map_err(|error| Error::Signing(error.to_string()))?;
     let attestation = SumeragiFinalityAttestation { body, signature };
     if norito::core::decode_limits_active() {
         // An enclosing owner retains the original second body decode and its charges/refusals.
         attestation
-            .verify(chain.result_scope())
-            .map_err(Error::InvalidBody)?;
+            .verify(chain.root_scope().into())
+            .map_err(attestation_body_read_error)?;
     } else {
         // This exact immutable body already passed complete consistency checks above. Its
         // move into the statement changes no proof or binding; verify the fresh signature
@@ -700,13 +709,7 @@ mod tests {
         let original = original.expect("the exact signed original prefix authenticates once");
         assert_eq!(once.frames, expected_frames);
         assert_eq!(once.qcs, expected_qcs);
-        assert!(
-            original
-                .decode_checked(
-                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
-                )
-                .is_ok()
-        );
+        assert!(original.decode_checked(chain.root_scope().into()).is_ok());
 
         let (produced, served) = relation_counts::measure(|| build_proof(&view, height));
         let produced = produced.expect("ordinary current-source proof producer");
@@ -715,13 +718,7 @@ mod tests {
             "same header, canonical signed bytes and exact epoch PoPs"
         );
         assert_eq!(produced.height(), height);
-        assert!(
-            produced
-                .decode_checked(
-                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
-                )
-                .is_ok()
-        );
+        assert!(produced.decode_checked(chain.root_scope().into()).is_ok());
         assert_eq!(
             served.frames, once.frames,
             "portable producer must use the same already authenticated source instead of reading its committee again"
@@ -776,13 +773,7 @@ mod tests {
         let proof = build_proof(&chain.state().view(), 2).unwrap();
         assert_eq!(proof.height(), 2);
         assert_eq!(proof.committee.len(), 4);
-        assert!(
-            proof
-                .decode_checked(
-                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
-                )
-                .is_ok()
-        );
+        assert!(proof.decode_checked(chain.root_scope().into()).is_ok());
         assert!(build_proof(&chain.state().view(), 1).is_ok());
         assert!(build_proof(&chain.state().view(), 0).is_err());
         assert!(build_proof(&chain.state().view(), 3).is_err());
@@ -946,13 +937,7 @@ mod tests {
         chain.commit(Vec::new());
         let proof = build_proof(&chain.state().view(), 10).unwrap();
         assert_eq!(proof.height(), 10);
-        assert!(
-            proof
-                .decode_checked(
-                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
-                )
-                .is_ok()
-        );
+        assert!(proof.decode_checked(chain.root_scope().into()).is_ok());
     }
 
     #[test]

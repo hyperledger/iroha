@@ -17,8 +17,8 @@ use norito::{
 };
 use std::num::NonZeroU64;
 
-/// Minimum number of movements in an atomic settlement.
-pub const ATOMIC_SETTLEMENT_MIN_MOVEMENTS: usize = 2;
+/// Minimum number of movements; one ordinary payment uses the same settlement owner.
+pub const ATOMIC_SETTLEMENT_MIN_MOVEMENTS: usize = 1;
 /// Maximum number of movements in an atomic settlement's V1 model.
 pub const ATOMIC_SETTLEMENT_MAX_MOVEMENTS: usize = 255;
 
@@ -91,7 +91,7 @@ pub struct ResolvedSettlementMovement {
 fn validate_atomic_movements(values: &[AtomicSettlementMovement]) -> Result<(), &'static str> {
     if !(ATOMIC_SETTLEMENT_MIN_MOVEMENTS..=ATOMIC_SETTLEMENT_MAX_MOVEMENTS).contains(&values.len())
     {
-        return Err("atomic settlement requires 2..=255 movements");
+        return Err("atomic settlement requires 1..=255 movements");
     }
     for value in values {
         if value.quantity.is_zero() || value.source.account() == &value.recipient {
@@ -110,7 +110,7 @@ fn validate_atomic_movements(values: &[AtomicSettlementMovement]) -> Result<(), 
 fn validate_resolved_movements(values: &[ResolvedSettlementMovement]) -> Result<(), &'static str> {
     if !(ATOMIC_SETTLEMENT_MIN_MOVEMENTS..=ATOMIC_SETTLEMENT_MAX_MOVEMENTS).contains(&values.len())
     {
-        return Err("atomic receipt requires 2..=255 movements");
+        return Err("atomic receipt requires 1..=255 movements");
     }
     for value in values {
         if value.quantity.is_zero()
@@ -219,7 +219,7 @@ macro_rules! bounded_movements {
                     .contains(&count)
                 {
                     return Err(ncore::Error::Message(
-                        "atomic movement count outside 2..=255".into(),
+                        "atomic movement count outside 1..=255".into(),
                     ));
                 }
                 let (values, used) = ncore::decode_field_canonical::<Vec<$item>>(field)?;
@@ -275,7 +275,7 @@ bounded_movements!(
     AtomicSettlementMovement,
     validate_atomic_movements,
     "iroha_data_model::isi::settlement::AtomicSettlementMovements",
-    "Two to 255 positive movements in strict (source, recipient) order; construction never sorts or coalesces."
+    "One to 255 positive movements in strict (source, recipient) order; construction never sorts or coalesces."
 );
 bounded_movements!(
     ResolvedSettlementMovements,

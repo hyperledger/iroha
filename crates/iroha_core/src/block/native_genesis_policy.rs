@@ -125,6 +125,7 @@ mod native_genesis_policy_tests {
             &TimeSource::new_system(),
             &prepared.state,
             iroha_data_model::parameter::system::ConsensusMode::Permissioned,
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
         )
         .unpack(|_| {})
         .unwrap_or_else(|(_, error)| panic!("original native genesis: {error}"));
@@ -137,7 +138,12 @@ mod native_genesis_policy_tests {
         assert_eq!(original_cadence, metadata.block_cadence_ms);
         let changed =
             std::num::NonZeroU64::new(original_cadence.get().checked_add(1).unwrap()).unwrap();
-        staged.world.parameters.get_mut().sumeragi.block_cadence_ms = changed;
+        {
+            let parameters = staged.world.parameters.get_mut();
+            let mut consensus = parameters.sumeragi().clone();
+            consensus.block_cadence_ms = changed;
+            parameters.set_sumeragi(consensus);
+        }
         let error = ValidBlock::validate_native_genesis_policy(genesis, &staged)
             .expect_err("signed metadata cannot bless a different final executed H1 cadence");
         let expected = format!(
@@ -151,7 +157,12 @@ mod native_genesis_policy_tests {
         );
         assert_eq!(prepared.state.committed_height(), 0);
         assert_eq!(prepared.kura.exact_durable_blocks_count().unwrap(), 0);
-        staged.world.parameters.get_mut().sumeragi.block_cadence_ms = original_cadence;
+        {
+            let parameters = staged.world.parameters.get_mut();
+            let mut consensus = parameters.sumeragi().clone();
+            consensus.block_cadence_ms = original_cadence;
+            parameters.set_sumeragi(consensus);
+        }
         ValidBlock::validate_native_genesis_policy(genesis, &staged)
             .expect("restoring the exact original staged cadence restores acceptance");
     }

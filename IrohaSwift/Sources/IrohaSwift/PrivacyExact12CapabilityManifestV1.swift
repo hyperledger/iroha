@@ -555,7 +555,8 @@ enum PrivacyExact12CapabilityManifestCodecV1 {
     }()
     private static let maximumFieldBytes = PrivacyExact12CapabilityManifestV1.maximumArchiveBytes
     private static let maximumEvidenceBytes = PrivacyExact12CapabilityManifestV1.maximumArchiveBytes
-    private static let maximumActionBytes = 9 * 1024 * 1024
+    // Whole statement plus fixed metadata/framing; the raw proof ceiling stays 9 MiB.
+    private static let maximumActionBytes = 9 * 1024 * 1024 + 256 * 1024 + 512
 
     static func decode(
         _ archive: Data,
@@ -986,8 +987,8 @@ enum PrivacyExact12CapabilityManifestCodecV1 {
         }
         try reader.requireFinished("consensus limits")
         let maxima: [UInt32] = [
-            1, 2, 9 * 1024 * 1024, 9 * 1024 * 1024,
-            9 * 1024 * 1024, 18 * 1024 * 1024, 256 * 1024, 8, 8, 2048,
+            1, 2, 9 * 1024 * 1024, UInt32(maximumActionBytes),
+            UInt32(maximumActionBytes), 16 * 1024 * 1024 - 64 * 1024, 256 * 1024, 8, 8, 2048,
         ]
         for index in values.indices where values[index] == 0 || values[index] > maxima[index] {
             throw invalid("consensus limit \(index) is zero or exceeds its V1 hard ceiling")
@@ -1677,14 +1678,17 @@ enum PrivacyExact12CapabilityManifestCodecV1 {
         consensusLimits: PrivacyConsensusLimitsV1,
         expectedNetworkId: NetworkId
     ) throws {
-        guard archive.count <= Int(consensusLimits.maxActionBytes) else {
+        let envelopeLimit = Int(consensusLimits.maxActionBytes)
+        // The Submit record adds one compact field prefix to the canonical
+        // envelope frame. Both payloads have the same 16-byte alignment.
+        guard archive.count <= envelopeLimit + compactLengthByteCount(envelopeLimit) else {
             throw invalid("submit-proof instruction exceeds committed consensus action bytes")
         }
         let frame = try strictFrame(
             archive,
             schema: submitProofSchema,
             alignment: 16,
-            maximum: maximumActionBytes,
+            maximum: maximumActionBytes + compactLengthByteCount(maximumActionBytes),
             label: "submit-proof instruction"
         )
         var instruction = WireReader(frame.payload)
@@ -1693,6 +1697,10 @@ enum PrivacyExact12CapabilityManifestCodecV1 {
             label: "proof envelope"
         )
         try instruction.requireFinished("submit-proof instruction")
+        let canonicalHeaderBytes = NoritoHeader.encodedLength + frame.paddingLength
+        guard envelope.count + canonicalHeaderBytes <= envelopeLimit else {
+            throw invalid("proof envelope exceeds committed consensus action bytes")
+        }
         var envelopeReader = WireReader(envelope)
         var fields: [Data] = []
         fields.reserveCapacity(13)
@@ -1812,6 +1820,16 @@ enum PrivacyExact12CapabilityManifestCodecV1 {
     ) throws {
         try requireAtMost(next, current, label: "\(label) tightening")
         guard next != current else { throw invalid("\(label) tightening is a no-op") }
+    }
+
+    private static func compactLengthByteCount(_ value: Int) -> Int {
+        var remaining = value
+        var count = 1
+        while remaining >= 128 {
+            remaining >>= 7
+            count += 1
+        }
+        return count
     }
 
     private static func strictFrame(

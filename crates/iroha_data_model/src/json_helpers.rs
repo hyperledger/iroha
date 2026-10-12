@@ -365,6 +365,7 @@ pub mod fixed_bytes_hex {
         let raw = parser.parse_string()?;
         parse_hex_bytes::<N>(&raw)
     }
+    #[cfg(any(test, feature = "governance"))]
     pub mod option {
         use super::*;
         #[allow(clippy::ref_option)] // Norito serializer interface requires `&Option<T>` signature

@@ -1,26 +1,33 @@
-//! Pure wallet native certificate, checkpoint, mutation and transaction-signing controls.
-//! Native calldata is checked against the canonical shared encoder and strict void decoder;
-//! independent contract-produced native calldata goldens remain a separate qualification gate.
-//! The unchanged ethers EIP-1559 vectors below retain their independent byte assertions.
-
-#[path = "../src/pure/test_support.rs"]
-mod support;
+//! Current native-certificate wallet calls against the canonical EVM calldata fixture.
+//! Original burn/log semantics and independently generated EIP-1559 signing vectors are retained.
 use iroha_data_model::bridge::SccpNetworkV1;
 use iroha_sccp::{
-    api::{SccpMessageProofBundleV1, SccpRotationV1},
+    api::{
+        ApiShapeError, SccpBlockRefV1, SccpCertificateV1, SccpControlProofBundleV1,
+        SccpMessageProofBundleV1, SccpRotationV1,
+    },
     v1::{
-        destination::{
-            CertificateSourceV1, DestinationError, DestinationFlavor, DestinationObservationV1,
-            MessagePurposeV1, PreflightError, StopReasonV1,
-        },
-        evm_abi::{self, VoidCallV1},
-        finality::{FLAG_ROTATION, SccpFinalityHeaderV1},
+        committee::{CommitteeStateV1, committee_root},
+        control::{ControlLeafV1, control_leaf},
+        destination::DestinationFlavor,
+        destination_abi::DestinationError,
+        evm_abi::TransferToTairaCallV1,
+        finality::{QcFixedV1, SccpFinalityHeaderV1, checkpoint_id},
+        hashes::{keccak256, transfer_leaf},
+        history::history_path,
+        merkle::PromoteOddTree,
         payload::SccpTransferPayloadV1,
+        proof::{DestinationV1, ProofError},
     },
 };
 use iroha_sccp_wallet::pure::{
-    bundle::{BundleError, BundleSourceV1, VerifiedMessageBundleV1, verify_message_bundle},
-    control::verify_control_bundle,
+    bundle::{
+        BundleError, BundlePurposeV1, CertificateUseV1, DestinationContextV1, verify_message_bundle,
+    },
+    control::{
+        ControlBundleError, DestinationControlStateV1, PreFinalizeActionV1, TairaControlV1,
+        plan_before_finalize, verify_control_bundle,
+    },
     evm::{
         Eip1559TransactionV1, EvmError, EvmSigningKey, SignedEip1559V1, apply_control_calldata,
         finalize_calldata, submit_checkpoints_calldata, transfer_to_taira_calldata,
@@ -28,507 +35,757 @@ use iroha_sccp_wallet::pure::{
     },
     rotation::{RotationChainError, verify_rotation_steps},
 };
-use std::collections::BTreeMap;
-use support::{DAY, Fixture, NOW, T0, reads};
-fn verify(
-    bundle: &SccpMessageProofBundleV1,
-    view: &DestinationObservationV1,
-    purpose: MessagePurposeV1,
-) -> Result<VerifiedMessageBundleV1, BundleError> {
-    verify_message_bundle(
-        bundle,
-        &bundle.message_id,
-        view,
-        BundleSourceV1::Inline,
-        purpose,
-    )
+use norito::json::Value;
+use std::{collections::BTreeMap, path::PathBuf};
+#[path = "support/current.rs"]
+pub mod support;
+const T0: u64 = 1_800_000_000_000;
+fn fixture(name: &str) -> Value {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/sccp")
+        .join(name);
+    norito::json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
 }
-// Public synthetic inputs formerly stored beside the retired attestation vectors.
-// Preserve their exact key/address identities for the independent ethers transaction assertions.
-fn fixture_secret(index: usize) -> [u8; 32] {
-    let (secret, public, address) = match index {
-        0 => (
-            "998dba6f0ff534544e377f85847d49e338287a687a30139a1e4900525c48f197",
-            "03ffc6231fa71edc1715d243ae48240e0358bc2b2a74c2143cc309337b5cf59853",
-            "7e90b4f929bcfd28c8dec8831d30dacb139d7184",
-        ),
-        3 => (
-            "95adaf16cd7a4d9a6ce6f60ee687fcc878156de1df211cac87ccab6f8c28b3bf",
-            "0301ba61fcd41f51cdab41c59f35e716e6cebd0cab91644211d22fdaf8dd77185c",
-            "6f21936622742a72e51cf9595c32d4c1db0e7ea5",
-        ),
-        _ => panic!("unsupported synthetic transaction key"),
+fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
+    value
+        .get(key)
+        .unwrap_or_else(|| panic!("missing fixture field {key}"))
+}
+fn bytes(value: &Value) -> Vec<u8> {
+    hex::decode(value.as_str().unwrap().strip_prefix("0x").unwrap()).unwrap()
+}
+fn fixed<const N: usize>(value: &Value) -> [u8; N] {
+    bytes(value).try_into().unwrap()
+}
+fn number(value: &Value) -> u64 {
+    value.as_u64().unwrap()
+}
+fn certificate(value: &Value) -> SccpCertificateV1 {
+    SccpCertificateV1 {
+        height: number(field(value, "height")),
+        qc: fixed(field(value, "qc")),
+        aggregate_signature: fixed(field(value, "aggregate_signature")),
+        header: fixed(field(value, "header")),
+        committee: field(value, "committee")
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(fixed::<48>)
+            .collect(),
+    }
+}
+struct Scenario {
+    taira: [u8; 32],
+    instance: [u8; 32],
+    destination: DestinationV1,
+    deadline_ms: u64,
+    initial: CommitteeStateV1,
+    rotated: CommitteeStateV1,
+    c100: SccpCertificateV1,
+    c150: SccpCertificateV1,
+    c200: SccpCertificateV1,
+    next_keys: Vec<[u8; 48]>,
+    payloads: Vec<Vec<u8>>,
+    message_ids: Vec<[u8; 32]>,
+    block100: PromoteOddTree,
+    history: Vec<[u8; 32]>,
+    control: ControlLeafV1,
+    checkpoints: BTreeMap<u64, [u8; 32]>,
+    empty_checkpoints: BTreeMap<u64, [u8; 32]>,
+    calls: Value,
+    secrets: Vec<[u8; 32]>,
+}
+fn scenario() -> Scenario {
+    let calldata = fixture("evm_calldata_v1.json");
+    let value = field(&calldata, "scenario");
+    let taira = fixed(field(value, "taira_network_id"));
+    let instance = fixed(field(value, "consensus_instance"));
+    let dest = field(value, "destination");
+    assert_eq!(field(dest, "target").as_str(), Some("ethereum-mainnet"));
+    let destination = DestinationV1 {
+        network: SccpNetworkV1::EthereumMainnet,
+        route_revision: u32::try_from(number(field(dest, "route_revision"))).unwrap(),
+        destination_word: fixed(field(dest, "destination_word")),
     };
-    let key: [u8; 32] = hex::decode(secret).unwrap().try_into().unwrap();
-    assert_eq!(
-        hex::encode(iroha_sccp::ethereum_signing::public_key_of(&key).unwrap()),
-        public
-    );
-    assert_eq!(
-        hex::encode(iroha_sccp::ethereum_signing::address_of_secret(&key).unwrap()),
-        address
-    );
-    key
+    let payloads: Vec<_> = field(value, "payloads")
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| bytes(field(p, "payload")))
+        .collect();
+    let message_ids: Vec<_> = field(value, "payloads")
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| fixed(field(p, "message_id")))
+        .collect();
+    for (payload, id) in payloads.iter().zip(&message_ids) {
+        assert_eq!(
+            &SccpTransferPayloadV1::decode(payload)
+                .unwrap()
+                .message_id(&taira)
+                .unwrap(),
+            id
+        );
+    }
+    let leaf = field(value, "control");
+    let control = ControlLeafV1 {
+        route_revision: destination.route_revision,
+        control_nonce: number(field(leaf, "control_nonce")),
+        track: u8::try_from(number(field(leaf, "track"))).unwrap(),
+        parliament_paused: u8::from(field(leaf, "parliament_paused").as_bool().unwrap()),
+        fast_pause_until_ms: number(field(leaf, "fast_pause_until_ms")),
+        certificate_id: fixed(field(leaf, "certificate_id")),
+        effect_hash: fixed(field(leaf, "effect_hash")),
+    };
+    let block100 = PromoteOddTree::block(&[
+        transfer_leaf(&message_ids[1], &destination.destination_word),
+        transfer_leaf(&message_ids[2], &destination.destination_word),
+        control_leaf(
+            &taira,
+            destination.network,
+            &destination.destination_word,
+            &control,
+        )
+        .unwrap(),
+    ])
+    .unwrap();
+    assert_eq!(block100.root(), fixed::<32>(field(value, "block_100_root")));
+    let c100 = certificate(field(value, "certificate_100"));
+    let c150 = certificate(field(value, "certificate_150_rotation"));
+    let c200 = certificate(field(value, "certificate_200"));
+    let pin = field(value, "pin");
+    let initial = CommitteeStateV1::from_pin(
+        number(field(pin, "generation")),
+        fixed(field(pin, "committee_root")),
+        number(field(pin, "start_height")),
+        number(field(pin, "until_ms")),
+    )
+    .unwrap();
+    let mut rotated = initial;
+    rotated
+        .apply_checkpoint(
+            &SccpFinalityHeaderV1::parse(&c150.header).unwrap(),
+            None,
+            T0 + 200_000,
+        )
+        .unwrap();
+    assert_eq!(rotated.root, committee_root(&c200.committee).unwrap());
+    let checkpoints = [&c100, &c150, &c200]
+        .into_iter()
+        .map(|c| (c.height, checkpoint_id(&c.header)))
+        .collect();
+    Scenario {
+        taira,
+        instance,
+        destination,
+        deadline_ms: number(field(value, "deadline_ms")),
+        initial,
+        rotated,
+        c100,
+        c150,
+        c200,
+        next_keys: field(value, "committee_g8")
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(fixed::<48>)
+            .collect(),
+        payloads,
+        message_ids,
+        block100,
+        history: field(value, "history_leaves")
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(fixed::<32>)
+            .collect(),
+        control,
+        checkpoints,
+        empty_checkpoints: BTreeMap::new(),
+        calls: field(&calldata, "calls").clone(),
+        secrets: (0..4_u8)
+            .map(|index| keccak256(&[b"SCCP/FIXTURE/KEY/V1", &[index]]))
+            .collect(),
+    }
 }
-
+impl Scenario {
+    fn call(&self, label: &str) -> Vec<u8> {
+        bytes(field(
+            self.calls
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|c| field(c, "label").as_str() == Some(label))
+                .unwrap(),
+            "calldata",
+        ))
+    }
+    fn g7_context(&self, now_ms: u64) -> DestinationContextV1<'_> {
+        DestinationContextV1 {
+            taira_network_id: self.taira,
+            consensus_instance: self.instance,
+            destination: self.destination,
+            flavor: DestinationFlavor::Evm,
+            committee_state: self.initial,
+            ton_keys: None,
+            checkpoints: &self.empty_checkpoints,
+            now_ms,
+        }
+    }
+    fn rotated_context(&self, now_ms: u64) -> DestinationContextV1<'_> {
+        DestinationContextV1 {
+            committee_state: self.rotated,
+            ..self.g7_context(now_ms)
+        }
+    }
+    fn block(&self, historical: bool) -> SccpBlockRefV1 {
+        SccpBlockRefV1 {
+            height: 100,
+            sccp_root: self.block100.root(),
+            message_count: 3,
+            history_index: u64::from(historical),
+            history_path: if historical {
+                history_path(&self.history, 1).unwrap()
+            } else {
+                vec![]
+            },
+        }
+    }
+    fn direct_bundle(&self) -> SccpMessageProofBundleV1 {
+        SccpMessageProofBundleV1 {
+            message_id: self.message_ids[1],
+            payload: self.payloads[1].clone(),
+            deadline_ms: self.deadline_ms,
+            leaf_index: 0,
+            path: self.block100.path(0).unwrap(),
+            block: self.block(false),
+            certificate: self.c100.clone(),
+        }
+    }
+    fn historical_bundle(&self) -> SccpMessageProofBundleV1 {
+        SccpMessageProofBundleV1 {
+            message_id: self.message_ids[2],
+            payload: self.payloads[2].clone(),
+            deadline_ms: self.deadline_ms,
+            leaf_index: 1,
+            path: self.block100.path(1).unwrap(),
+            block: self.block(true),
+            certificate: self.c200.clone(),
+        }
+    }
+    fn control_bundle(&self, historical: bool) -> SccpControlProofBundleV1 {
+        SccpControlProofBundleV1 {
+            network: self.destination.network,
+            revision: self.destination.route_revision,
+            control_nonce: self.control.control_nonce,
+            track: self.control.track,
+            parliament_paused: self.control.parliament_paused != 0,
+            fast_pause_until_ms: self.control.fast_pause_until_ms,
+            certificate_id: self.control.certificate_id,
+            effect_hash: self.control.effect_hash,
+            leaf_index: 2,
+            path: self.block100.path(2).unwrap(),
+            block: self.block(historical),
+            certificate: if historical {
+                self.c200.clone()
+            } else {
+                self.c100.clone()
+            },
+        }
+    }
+    fn rotation(&self) -> SccpRotationV1 {
+        SccpRotationV1 {
+            certificate: self.c150.clone(),
+            next_committee: self.next_keys.clone(),
+        }
+    }
+}
 #[test]
-fn direct_finalize_bundle_verifies_and_preserves_native_calldata() {
-    let f = Fixture::new(DestinationFlavor::Evm);
-    let b = f.message(false);
-    let view = f.observation(NOW, reads(&b.certificate, false));
-    let verified = verify(&b, &view, MessagePurposeV1::Finalize).unwrap();
-    assert!(!verified.is_historical());
-    assert_eq!(verified.message_id(), b.message_id);
-    assert_eq!(verified.nonce(), 5);
-    assert_eq!(verified.amount(), 1_000_000_000);
-    assert_eq!(verified.deadline_ms(), T0 + DAY);
-    let native = b.certificate.to_destination_certificate().unwrap();
-    let proof = b.message_proof(&support::NETWORK, &b.message_id).unwrap();
-    let data = finalize_calldata(&verified).unwrap();
-    assert_eq!(data, evm_abi::finalize_from_taira_calldata(&native, &proof));
-    assert_eq!(&data[..4], &[0x10, 0xef, 0xea, 0x88]);
+fn direct_finalize_bundle_verifies_and_matches_the_golden_calldata() {
+    let s = scenario();
+    let verified = verify_message_bundle(
+        &s.direct_bundle(),
+        &s.g7_context(T0 + 200_000),
+        BundlePurposeV1::Finalize,
+        CertificateUseV1::Inline,
+    )
+    .unwrap();
+    assert_eq!(verified.nonce(), 1);
+    assert_eq!(verified.transfer().message_id, s.message_ids[1]);
+    assert_eq!(
+        QcFixedV1::parse(&s.c100.qc).unwrap().signers.count_ones(),
+        3
+    );
+    assert_eq!(
+        finalize_calldata(&verified).unwrap(),
+        s.call("finalize_direct")
+    );
     assert_eq!(
         void_expired_calldata(&verified),
         Err(EvmError::WrongPurpose)
     );
-}
-#[test]
-fn historical_finalize_preserves_history_inside_native_block_reference() {
-    let f = Fixture::new(DestinationFlavor::Evm);
-    let b = f.message(true);
-    let view = f.observation(NOW, reads(&b.certificate, false));
-    let verified = verify(&b, &view, MessagePurposeV1::Finalize).unwrap();
-    assert!(verified.is_historical());
-    assert_eq!(verified.proof().block.history_path, b.block.history_path);
-    let native = b.certificate.to_destination_certificate().unwrap();
-    assert_eq!(
-        finalize_calldata(&verified).unwrap(),
-        evm_abi::finalize_from_taira_calldata(&native, verified.proof())
-    );
-    let stored = f.observation(NOW, reads(&b.certificate, true));
     let checkpoint = verify_message_bundle(
-        &b,
-        &b.message_id,
-        &stored,
-        BundleSourceV1::Checkpoint,
-        MessagePurposeV1::Finalize,
+        &s.direct_bundle(),
+        &DestinationContextV1 {
+            checkpoints: &s.checkpoints,
+            ..s.g7_context(T0 + 200_000)
+        },
+        BundlePurposeV1::Finalize,
+        CertificateUseV1::Checkpoint,
     )
     .unwrap();
-    let CertificateSourceV1::Checkpoint(reference) = checkpoint.source() else {
-        panic!("explicit checkpoint")
-    };
     assert_eq!(
         finalize_calldata(&checkpoint).unwrap(),
-        evm_abi::finalize_from_checkpoint_calldata(reference, checkpoint.proof())
+        s.call("finalize_checkpoint_direct")
     );
 }
 #[test]
-fn void_bundles_preserve_native_calldata_and_deadline_boundary() {
-    let f = Fixture::new(DestinationFlavor::Evm);
-    for historical in [false, true] {
-        let b = f.message(historical);
-        let exact = f.observation(b.deadline_ms, reads(&b.certificate, false));
-        assert!(verify(&b, &exact, MessagePurposeV1::VoidExpired).is_err());
-        let late = f.observation(b.deadline_ms + 1, reads(&b.certificate, false));
-        let verified = verify(&b, &late, MessagePurposeV1::VoidExpired).unwrap();
-        let data = void_expired_calldata(&verified).unwrap();
-        assert_eq!(
-            VoidCallV1::decode(&data).unwrap(),
-            VoidCallV1::Expired {
-                nonce: 5,
-                from_checkpoint: false
-            }
-        );
-        assert_eq!(finalize_calldata(&verified), Err(EvmError::WrongPurpose));
-        let mut tail = data.clone();
-        tail.push(0);
-        assert!(VoidCallV1::decode(&tail).is_err());
-        let stored = f.observation(b.deadline_ms + 1, reads(&b.certificate, true));
+fn historical_finalize_bundle_verifies_and_matches_the_golden_calldata() {
+    let s = scenario();
+    for (usage, label) in [
+        (CertificateUseV1::Inline, "finalize_historical"),
+        (
+            CertificateUseV1::Checkpoint,
+            "finalize_checkpoint_historical",
+        ),
+    ] {
         let verified = verify_message_bundle(
-            &b,
-            &b.message_id,
-            &stored,
-            BundleSourceV1::Checkpoint,
-            MessagePurposeV1::VoidExpired,
+            &s.historical_bundle(),
+            &DestinationContextV1 {
+                checkpoints: if usage == CertificateUseV1::Checkpoint {
+                    &s.checkpoints
+                } else {
+                    &s.empty_checkpoints
+                },
+                ..s.rotated_context(T0 + 300_000)
+            },
+            BundlePurposeV1::Finalize,
+            usage,
         )
         .unwrap();
+        assert!(verified.is_historical());
+        assert_eq!(verified.nonce(), 2);
+        assert_eq!(finalize_calldata(&verified).unwrap(), s.call(label));
+    }
+}
+#[test]
+fn void_bundles_match_the_golden_calldata_after_the_deadline() {
+    let s = scenario();
+    let after = s.deadline_ms + 1;
+    let direct = verify_message_bundle(
+        &s.direct_bundle(),
+        &s.g7_context(after),
+        BundlePurposeV1::VoidExpired,
+        CertificateUseV1::Inline,
+    )
+    .unwrap();
+    assert_eq!(
+        void_expired_calldata(&direct).unwrap(),
+        s.call("void_expired")
+    );
+    assert_eq!(finalize_calldata(&direct), Err(EvmError::WrongPurpose));
+    let historical = verify_message_bundle(
+        &s.historical_bundle(),
+        &DestinationContextV1 {
+            checkpoints: &s.checkpoints,
+            ..s.rotated_context(after)
+        },
+        BundlePurposeV1::VoidExpired,
+        CertificateUseV1::Checkpoint,
+    )
+    .unwrap();
+    assert_eq!(
+        void_expired_calldata(&historical).unwrap(),
+        s.call("void_expired_checkpoint")
+    );
+    assert_eq!(
+        verify_message_bundle(
+            &s.direct_bundle(),
+            &s.g7_context(s.deadline_ms),
+            BundlePurposeV1::VoidExpired,
+            CertificateUseV1::Inline
+        ),
+        Err(BundleError::DeadlineNotReached)
+    );
+    assert_eq!(void_frozen_calldata(4, 3).unwrap(), s.call("void_frozen"));
+}
+#[test]
+fn transfer_to_taira_calldata_matches_the_golden_calldata() {
+    let s = scenario();
+    let golden = s.call("transfer_to_taira");
+    let call = TransferToTairaCallV1::decode(&golden).unwrap();
+    assert_eq!(
+        transfer_to_taira_calldata(
+            &call.taira_recipient,
+            call.token_amount,
+            call.expected_nonce
+        )
+        .unwrap(),
+        golden
+    );
+}
+#[test]
+fn rotation_chain_verifies_and_matches_the_golden_calldata() {
+    let s = scenario();
+    let plan = verify_rotation_steps(&[s.rotation()], &s.g7_context(T0 + 200_000), 8).unwrap();
+    assert_eq!(*plan.final_state(), s.rotated);
+    assert_eq!(
+        submit_checkpoints_calldata(&plan),
+        vec![s.call("checkpoint_rotation")]
+    );
+    assert!(
+        verify_message_bundle(
+            &s.direct_bundle(),
+            &s.rotated_context(T0 + 300_000),
+            BundlePurposeV1::Finalize,
+            CertificateUseV1::Inline
+        )
+        .is_err()
+    );
+    assert!(
+        verify_message_bundle(
+            &s.direct_bundle(),
+            &s.rotated_context(T0 + 300_000),
+            BundlePurposeV1::Finalize,
+            CertificateUseV1::Checkpoint
+        )
+        .is_err()
+    );
+}
+#[test]
+fn control_bundles_verify_and_match_the_golden_calldata() {
+    let s = scenario();
+    let applied = DestinationControlStateV1::default();
+    for (historical, usage, label) in [
+        (false, CertificateUseV1::Inline, "apply_control_direct"),
+        (true, CertificateUseV1::Inline, "apply_control_historical"),
+        (
+            true,
+            CertificateUseV1::Checkpoint,
+            "apply_control_checkpoint",
+        ),
+    ] {
+        let mut context = if historical {
+            s.rotated_context(T0 + 300_000)
+        } else {
+            s.g7_context(T0 + 200_000)
+        };
+        if usage == CertificateUseV1::Checkpoint {
+            context.checkpoints = &s.checkpoints;
+        }
+        let verified =
+            verify_control_bundle(&s.control_bundle(historical), &context, &applied, usage)
+                .unwrap();
+        assert_eq!(apply_control_calldata(&verified), s.call(label));
+        assert!(!verified.finalize_allowed_after_apply(context.now_ms));
+    }
+    assert_eq!(
+        plan_before_finalize(
+            &applied,
+            Some(&TairaControlV1 {
+                control_nonce: 1,
+                parliament_paused: true,
+                fast_pause_until_ms: 0
+            }),
+            T0
+        ),
+        PreFinalizeActionV1::ApplyControl {
+            control_nonce: 1,
+            paused: true
+        }
+    );
+}
+fn finalize(
+    bundle: &SccpMessageProofBundleV1,
+    context: &DestinationContextV1<'_>,
+) -> Result<(), BundleError> {
+    verify_message_bundle(
+        bundle,
+        context,
+        BundlePurposeV1::Finalize,
+        CertificateUseV1::Inline,
+    )
+    .map(|_| ())
+}
+#[test]
+fn tampered_committees_fail() {
+    let s = scenario();
+    let selected = s.g7_context(T0 + 200_000);
+    let good = s.direct_bundle();
+    let mut swapped = good.clone();
+    swapped.certificate.committee = s.next_keys.clone();
+    assert_eq!(
+        finalize(&swapped, &selected),
+        Err(BundleError::Shape(ApiShapeError::CommitteeRootMismatch))
+    );
+    let mut forged = swapped.clone();
+    let mut fields = SccpFinalityHeaderV1::parse(&forged.certificate.header)
+        .unwrap()
+        .fields();
+    fields.committee_root = committee_root(&s.next_keys).unwrap();
+    forged.certificate.header = fields.to_bytes();
+    assert!(finalize(&forged, &selected).is_err());
+    let mut unordered = good.clone();
+    unordered.certificate.committee.swap(1, 2);
+    assert_eq!(
+        finalize(&unordered, &selected),
+        Err(BundleError::Shape(ApiShapeError::BadCommittee))
+    );
+    let mut duplicate = good.clone();
+    duplicate.certificate.committee[1] = duplicate.certificate.committee[0];
+    assert_eq!(
+        finalize(&duplicate, &selected),
+        Err(BundleError::Shape(ApiShapeError::BadCommittee))
+    );
+    let mut shrunk = good;
+    shrunk.certificate.committee.pop();
+    assert_eq!(
+        finalize(&shrunk, &selected),
+        Err(BundleError::Shape(ApiShapeError::BadCommittee))
+    );
+}
+#[test]
+fn tampered_bitmaps_and_signatures_fail() {
+    let s = scenario();
+    let selected = s.g7_context(T0 + 200_000);
+    let good = s.direct_bundle();
+    assert_eq!(QcFixedV1::parse(&good.certificate.qc).unwrap().signers, 7);
+    for bitmap in [0_u32, 3, 15, 7 | (1 << 4)] {
+        let mut bad = good.clone();
+        bad.certificate.qc[112..].copy_from_slice(&bitmap.to_be_bytes());
         assert_eq!(
-            VoidCallV1::decode(&void_expired_calldata(&verified).unwrap()).unwrap(),
-            VoidCallV1::Expired {
-                nonce: 5,
-                from_checkpoint: true
-            }
+            finalize(&bad, &selected),
+            Err(BundleError::Shape(ApiShapeError::BadSignerSet))
         );
     }
-    assert_eq!(
-        VoidCallV1::decode(&void_frozen_calldata(4, 3).unwrap()).unwrap(),
-        VoidCallV1::Frozen {
-            first_nonce: 4,
-            count: 3
-        }
-    );
-    assert!(void_frozen_calldata(0, 0).is_err());
-    assert!(void_frozen_calldata(u64::MAX, 2).is_err());
-}
-#[test]
-fn transfer_to_taira_retains_canonical_calldata_and_amount_checks() {
-    let recipient = vec![1, 2, 3];
-    let bytes = transfer_to_taira_calldata(&recipient, 1000, 5).unwrap();
-    assert_eq!(
-        bytes,
-        evm_abi::TransferToTairaCallV1 {
-            taira_recipient: recipient,
-            token_amount: 1000,
-            expected_nonce: 5
-        }
-        .calldata()
-    );
-    assert_eq!(
-        transfer_to_taira_calldata(&[], 1000, 5),
-        Err(EvmError::BadRecipient)
-    );
-    assert_eq!(
-        transfer_to_taira_calldata(&vec![1; 1025], 1000, 5),
-        Err(EvmError::BadRecipient)
-    );
-    assert_eq!(
-        transfer_to_taira_calldata(&[1], 0, 5),
-        Err(EvmError::BadAmount)
-    );
-}
-#[test]
-fn checkpoint_chain_verifies_and_preserves_native_calldata() {
-    let f = Fixture::new(DestinationFlavor::Evm);
-    let steps = f.rotations(2);
-    let view = f.observation(
-        NOW,
-        steps.iter().map(|s| (s.certificate.height, None)).collect(),
-    );
-    let plan = verify_rotation_steps(&steps, None, &view, 9).unwrap();
-    assert_eq!(plan.final_observation().committee().generation, 9);
-    assert_eq!(plan.stopped(), None);
-    let expected = steps
-        .iter()
-        .map(|s| s.certificate.to_destination_certificate().unwrap())
-        .collect::<Vec<_>>();
-    assert_eq!(
-        submit_checkpoints_calldata(&plan).unwrap(),
-        vec![evm_abi::submit_checkpoints_calldata(&expected)]
-    );
-}
-#[test]
-fn control_bundles_preserve_complete_native_calldata_and_pause_semantics() {
-    let f = Fixture::new(DestinationFlavor::Evm);
-    for historical in [false, true] {
-        for paused in [false, true] {
-            let b = f.control(historical, paused, 0);
-            let view = f.observation(NOW, reads(&b.certificate, false));
-            let verified = verify_control_bundle(&b, &view, BundleSourceV1::Inline).unwrap();
-            assert_eq!(verified.is_historical(), historical);
-            assert_eq!(verified.finalize_allowed_after_apply(), !paused);
-            let cert = b.certificate.to_destination_certificate().unwrap();
-            assert_eq!(
-                apply_control_calldata(&verified).unwrap(),
-                evm_abi::apply_control_calldata(&cert, verified.proof())
-            );
-        }
-    }
-    let b = f.control(false, false, NOW + 1000);
-    let view = f.observation(NOW, reads(&b.certificate, false));
-    assert!(
-        !verify_control_bundle(&b, &view, BundleSourceV1::Inline)
-            .unwrap()
-            .finalize_allowed_after_apply()
-    );
-}
-#[test]
-fn tampered_native_committees_fail_without_offered_root_trust() {
-    let f = Fixture::new(DestinationFlavor::Evm);
-    let b = f.message(false);
-    let view = f.observation(NOW, reads(&b.certificate, false));
-    let mut bad = b.clone();
-    bad.certificate.committee[0][3] ^= 1;
-    assert!(verify(&bad, &view, MessagePurposeV1::Finalize).is_err());
-    let mut bad = b.clone();
-    bad.certificate.committee.swap(0, 1);
-    assert!(verify(&bad, &view, MessagePurposeV1::Finalize).is_err());
-    let mut bad = b.clone();
-    bad.certificate.committee[1] = bad.certificate.committee[0];
-    assert!(verify(&bad, &view, MessagePurposeV1::Finalize).is_err());
-    let mut bad = b.clone();
-    bad.certificate.committee.pop();
-    assert!(verify(&bad, &view, MessagePurposeV1::Finalize).is_err());
-    let mut state = *view.committee();
-    state.root = [0x99; 32];
-    let other = f.observation_with(NOW, state, reads(&b.certificate, false), view.pause());
-    assert!(verify(&b, &other, MessagePurposeV1::Finalize).is_err());
-}
-#[test]
-fn tampered_exact_bitmaps_and_bls_encodings_fail() {
-    let f = Fixture::new(DestinationFlavor::Evm);
-    let b = f.message(false);
-    let view = f.observation(NOW, reads(&b.certificate, false));
-    assert_eq!(&b.certificate.qc[112..], &7_u32.to_be_bytes());
-    for bitmap in [0_u32, 3, 15, 23] {
-        let mut bad = b.clone();
-        bad.certificate.qc[112..].copy_from_slice(&bitmap.to_be_bytes());
-        assert!(verify(&bad, &view, MessagePurposeV1::Finalize).is_err());
-    }
-    let mut shifted = b.clone();
+    let no_checkpoints = BTreeMap::new();
+    let selected = DestinationContextV1 {
+        checkpoints: &no_checkpoints,
+        ..selected
+    };
+    let mut shifted = good.clone();
     shifted.certificate.qc[112..].copy_from_slice(&14_u32.to_be_bytes());
-    assert!(verify(&shifted, &view, MessagePurposeV1::Finalize).is_err());
-    let mut bad = b.clone();
-    bad.certificate.aggregate_signature[5] ^= 0x40;
-    assert!(verify(&bad, &view, MessagePurposeV1::Finalize).is_err());
-    for signature in [
-        [0; 96],
-        iroha_sccp::v1::committee::IDENTITY_SIGNATURE,
-        [0xff; 96],
-    ] {
-        let mut bad = b.clone();
-        bad.certificate.aggregate_signature = signature;
-        assert!(verify(&bad, &view, MessagePurposeV1::Finalize).is_err());
+    assert_eq!(
+        finalize(&shifted, &selected),
+        Err(BundleError::Certificate(DestinationError::BadSignature))
+    );
+    let mut substituted = good.clone();
+    substituted.certificate.aggregate_signature = s.c150.aggregate_signature;
+    assert_eq!(
+        finalize(&substituted, &selected),
+        Err(BundleError::Certificate(DestinationError::BadSignature))
+    );
+    for signature in [[0; 96], iroha_sccp::v1::committee::IDENTITY_SIGNATURE] {
+        let mut malformed = good.clone();
+        malformed.certificate.aggregate_signature = signature;
+        assert!(finalize(&malformed, &selected).is_err());
     }
+    let mut flipped = good;
+    flipped.certificate.aggregate_signature[5] ^= 0x40;
+    assert!(finalize(&flipped, &selected).is_err());
 }
 #[test]
 fn tampered_paths_payloads_and_deadlines_fail() {
-    let f = Fixture::new(DestinationFlavor::Evm);
-    let b = f.message(false);
-    let view = f.observation(NOW, reads(&b.certificate, false));
-    let mut mutants = Vec::new();
-    let mut bad = b.clone();
-    bad.path[0][31] ^= 1;
-    mutants.push(bad);
-    let mut bad = b.clone();
-    bad.path.push([0; 32]);
-    mutants.push(bad);
-    let mut bad = b.clone();
-    bad.leaf_index = 0;
-    mutants.push(bad);
-    let mut bad = b.clone();
-    bad.block.message_count = 4;
-    mutants.push(bad);
-    let mut bad = b.clone();
-    let mut payload = SccpTransferPayloadV1::decode(&bad.payload).unwrap();
-    payload.amount += 1;
-    bad.payload = payload.encode().unwrap();
-    bad.message_id = payload.message_id(&support::NETWORK).unwrap();
-    mutants.push(bad);
-    let mut bad = b.clone();
-    bad.payload.push(0);
-    mutants.push(bad);
-    let mut bad = b.clone();
-    bad.payload[9] ^= 1;
-    mutants.push(bad);
-    let mut bad = b.clone();
-    bad.message_id[0] ^= 1;
-    mutants.push(bad);
-    let mut bad = b.clone();
-    bad.deadline_ms += 1;
-    mutants.push(bad);
-    for bad in mutants {
-        assert!(verify(&bad, &view, MessagePurposeV1::Finalize).is_err());
-    }
-    assert!(
-        verify(
-            &b,
-            &f.observation(b.deadline_ms, reads(&b.certificate, false)),
-            MessagePurposeV1::Finalize
-        )
-        .is_ok()
-    );
-    assert!(
-        verify(
-            &b,
-            &f.observation(b.deadline_ms + 1, reads(&b.certificate, false)),
-            MessagePurposeV1::Finalize
-        )
-        .is_err()
-    );
-}
-#[test]
-fn foreign_identity_destination_expiry_and_retired_checkpoint_fail() {
-    let f = Fixture::new(DestinationFlavor::Evm);
-    let b = f.message(false);
-    for field in 0..5 {
-        let mut other = Fixture::new(DestinationFlavor::Evm);
-        match field {
-            0 => other.deployment.taira_network_id[0] ^= 1,
-            1 => other.deployment.consensus_instance[0] ^= 1,
-            2 => other.deployment.destination_word[31] ^= 1,
-            3 => other.deployment.route_revision += 1,
-            _ => other.deployment.network = SccpNetworkV1::BscMainnet,
-        };
-        assert!(
-            verify(
-                &b,
-                &other.observation(NOW, reads(&b.certificate, false)),
-                MessagePurposeV1::Finalize
-            )
-            .is_err()
+    let s = scenario();
+    let selected = s.g7_context(T0 + 200_000);
+    let good = s.direct_bundle();
+    for mutate in [
+        |b: &mut SccpMessageProofBundleV1| b.path[0][31] ^= 1,
+        |b: &mut SccpMessageProofBundleV1| b.path.push([0; 32]),
+        |b: &mut SccpMessageProofBundleV1| b.leaf_index = 1,
+    ] {
+        let mut bad = good.clone();
+        mutate(&mut bad);
+        assert_eq!(
+            finalize(&bad, &selected),
+            Err(BundleError::Proof(ProofError::BadBlockPath))
         );
     }
-    let mut bad = b.clone();
-    bad.certificate.height += 1;
-    assert!(
-        verify(
-            &bad,
-            &f.observation(NOW, reads(&b.certificate, false)),
-            MessagePurposeV1::Finalize
-        )
-        .is_err()
-    );
-    assert!(
-        verify(
-            &b,
-            &f.observation(T0 + 14 * DAY + 1, reads(&b.certificate, false)),
-            MessagePurposeV1::VoidExpired
-        )
-        .is_err()
-    );
-    let view = f.observation(NOW, reads(&b.certificate, true));
-    let mut state = *view.committee();
-    state.generation += 1;
-    state.start = 151;
-    state.high = 150;
-    let retired = f.observation_with(NOW, state, reads(&b.certificate, true), view.pause());
-    assert!(
-        verify_message_bundle(
-            &b,
-            &b.message_id,
-            &retired,
-            BundleSourceV1::Checkpoint,
-            MessagePurposeV1::Finalize
-        )
-        .is_err()
-    );
-    let mut historical = f.message(true);
-    let view = f.observation(NOW, reads(&historical.certificate, false));
-    historical.block.history_path[0][0] ^= 1;
-    assert!(verify(&historical, &view, MessagePurposeV1::Finalize).is_err());
-}
-#[test]
-fn rotation_successor_bounds_and_authenticated_generation_are_enforced() {
-    let f = Fixture::new(DestinationFlavor::Evm);
-    let steps = f.rotations(2);
-    let view = f.observation(
-        NOW,
-        steps.iter().map(|s| (s.certificate.height, None)).collect(),
-    );
-    let mut bad = steps.clone();
-    bad[0].next_committee.pop();
-    assert!(verify_rotation_steps(&bad, None, &view, 9).is_err());
-    let mut bad = steps.clone();
-    bad[0].next_committee[0][3] ^= 1;
-    assert!(verify_rotation_steps(&bad, None, &view, 9).is_err());
-    let fields = f.fields(150, 7);
-    let plain = SccpRotationV1 {
-        certificate: f.certificate(&fields, 7),
-        next_committee: steps[0].next_committee.clone(),
-    };
-    assert!(verify_rotation_steps(&[plain], None, &view, 8).is_err());
-    let mut gap = f.fields(150, 9);
-    gap.flags |= FLAG_ROTATION;
-    gap.validity_ms = DAY;
-    gap.next_committee_root = f.deployment.pin_root;
-    let skip = SccpRotationV1 {
-        certificate: f.certificate(&gap, 7),
-        next_committee: steps[0].next_committee.clone(),
-    };
-    assert!(verify_rotation_steps(&[skip], None, &view, 10).is_err());
-    let mut invalid = gap;
-    invalid.validity_ms = 0;
-    assert!(SccpFinalityHeaderV1::from_fields(&invalid).is_err());
-    invalid.validity_ms = 31 * DAY;
-    assert!(SccpFinalityHeaderV1::from_fields(&invalid).is_err());
-    invalid.validity_ms = DAY;
-    invalid.generation = u64::MAX;
-    assert!(SccpFinalityHeaderV1::from_fields(&invalid).is_err());
-}
-#[test]
-fn rotation_bad_signers_breaks_and_latch_are_explicit() {
-    let f = Fixture::new(DestinationFlavor::Evm);
-    let steps = f.rotations(2);
-    let view = f.observation(
-        NOW,
-        steps.iter().map(|s| (s.certificate.height, None)).collect(),
-    );
-    let mut bad = steps.clone();
-    bad[0].certificate.qc[112..].copy_from_slice(&3_u32.to_be_bytes());
-    assert!(verify_rotation_steps(&bad, None, &view, 9).is_err());
-    let mut bad = steps.clone();
-    bad[0].certificate.aggregate_signature[5] ^= 1;
-    assert!(verify_rotation_steps(&bad, None, &view, 9).is_err());
-    assert!(verify_rotation_steps(&steps[1..], None, &view, 9).is_err());
+    let mut count = good.clone();
+    count.block.message_count += 1;
     assert_eq!(
-        verify_rotation_steps(&steps[..1], Some(151), &view, 9),
-        Err(RotationChainError::ChainTooShort {
-            reached: 8,
-            target: 9,
-            first_uncertified_handoff: Some(151)
-        })
+        finalize(&count, &selected),
+        Err(BundleError::Proof(ProofError::BadBlockReference))
     );
-    let conflict = f.observation(NOW, BTreeMap::from([(150, Some([0x99; 32]))]));
-    let stopped = verify_rotation_steps(&steps, None, &conflict, 9).unwrap();
-    assert_eq!(stopped.stopped(), Some(StopReasonV1::Latch));
-    assert_eq!(stopped.checkpoints().len(), 1);
-    assert!(stopped.final_observation().committee().equivocated);
-    assert_eq!(stopped.final_observation().committee().generation, 7);
+    let mut trailing = good.clone();
+    trailing.payload.push(0);
+    assert_eq!(
+        finalize(&trailing, &selected),
+        Err(BundleError::Proof(ProofError::BadPayload))
+    );
+    let mut bsc = good.clone();
+    bsc.payload[9] = 2;
+    assert_eq!(
+        finalize(&bsc, &selected),
+        Err(BundleError::Proof(ProofError::BadPayload))
+    );
+    let mut id = good.clone();
+    id.message_id = s.message_ids[2];
+    assert_eq!(
+        finalize(&id, &selected),
+        Err(BundleError::MessageIdMismatch)
+    );
+    let mut deadline = good.clone();
+    deadline.deadline_ms += 1;
+    assert_eq!(
+        finalize(&deadline, &selected),
+        Err(BundleError::DeadlineMismatch)
+    );
+    let mut amount = good.clone();
+    let mut payload = SccpTransferPayloadV1::decode(&amount.payload).unwrap();
+    payload.amount += 1;
+    amount.payload = payload.encode().unwrap();
+    assert_eq!(
+        finalize(&amount, &selected),
+        Err(BundleError::Proof(ProofError::BadBlockPath))
+    );
+    assert_eq!(
+        finalize(&good, &s.g7_context(s.deadline_ms + 1)),
+        Err(BundleError::DeadlinePassed)
+    );
+    assert_eq!(finalize(&good, &s.g7_context(s.deadline_ms)), Ok(()));
 }
 #[test]
-fn a_lagging_destination_replays_seventeen_generations_in_two_native_calls() {
-    let f = Fixture::new(DestinationFlavor::Evm);
-    let steps = f.rotations(17);
-    let view = f.observation(
-        NOW,
-        steps.iter().map(|s| (s.certificate.height, None)).collect(),
+fn wrong_network_destination_and_expired_committees_fail() {
+    let s = scenario();
+    let good = s.direct_bundle();
+    let selected = s.g7_context(T0 + 200_000);
+    let mut wrong = selected;
+    wrong.taira_network_id[0] ^= 1;
+    assert_eq!(finalize(&good, &wrong), Err(BundleError::HeaderMismatch));
+    let mut candidate = good.clone();
+    candidate.certificate.height += 1;
+    assert_eq!(
+        finalize(&candidate, &selected),
+        Err(BundleError::Shape(ApiShapeError::CertificateHeightMismatch))
     );
-    let plan = verify_rotation_steps(&steps, None, &view, 24).unwrap();
+    wrong = selected;
+    wrong.destination.destination_word[31] ^= 1;
+    assert_eq!(
+        finalize(&good, &wrong),
+        Err(BundleError::Proof(ProofError::BadBlockPath))
+    );
+    wrong = selected;
+    wrong.destination.route_revision += 1;
+    assert_eq!(
+        finalize(&good, &wrong),
+        Err(BundleError::Proof(ProofError::WrongDestination))
+    );
+    wrong = selected;
+    wrong.destination.network = SccpNetworkV1::BscMainnet;
+    assert_eq!(
+        finalize(&good, &wrong),
+        Err(BundleError::Proof(ProofError::WrongDestination))
+    );
+    assert_eq!(
+        verify_message_bundle(
+            &good,
+            &s.g7_context(s.initial.until_ms + 1),
+            BundlePurposeV1::VoidExpired,
+            CertificateUseV1::Inline
+        )
+        .map(|_| ()),
+        Err(BundleError::Certificate(
+            DestinationError::CommitteeNotAccepted
+        ))
+    );
+    assert!(finalize(&good, &s.rotated_context(T0 + 200_000)).is_err());
+}
+#[test]
+fn control_bundles_of_another_revision_or_network_fail() {
+    let s = scenario();
+    let context = s.g7_context(T0 + 200_000);
+    let applied = DestinationControlStateV1::default();
+    let mut revision = s.control_bundle(false);
+    revision.revision = 2;
+    assert_eq!(
+        verify_control_bundle(&revision, &context, &applied, CertificateUseV1::Inline),
+        Err(ControlBundleError::WrongDeployment)
+    );
+    let mut other = context;
+    other.destination.route_revision = 2;
+    assert_eq!(
+        verify_control_bundle(&revision, &other, &applied, CertificateUseV1::Inline),
+        Err(ControlBundleError::Bundle(BundleError::Proof(
+            ProofError::BadBlockPath
+        )))
+    );
+    let mut network = s.control_bundle(false);
+    network.network = SccpNetworkV1::BscMainnet;
+    assert_eq!(
+        verify_control_bundle(&network, &context, &applied, CertificateUseV1::Inline),
+        Err(ControlBundleError::WrongDeployment)
+    );
+    for mutate in [
+        |b: &mut SccpControlProofBundleV1| b.parliament_paused = false,
+        |b: &mut SccpControlProofBundleV1| b.certificate_id[0] ^= 1,
+        |b: &mut SccpControlProofBundleV1| b.effect_hash[0] ^= 1,
+        |b: &mut SccpControlProofBundleV1| b.fast_pause_until_ms = 1,
+    ] {
+        let mut bad = s.control_bundle(false);
+        mutate(&mut bad);
+        assert_eq!(
+            verify_control_bundle(&bad, &context, &applied, CertificateUseV1::Inline),
+            Err(ControlBundleError::Bundle(BundleError::Proof(
+                ProofError::BadBlockPath
+            )))
+        );
+    }
+    let mut transfer = s.control_bundle(false);
+    transfer.leaf_index = 0;
+    transfer.path = s.block100.path(0).unwrap();
+    assert_eq!(
+        verify_control_bundle(&transfer, &context, &applied, CertificateUseV1::Inline),
+        Err(ControlBundleError::Bundle(BundleError::Proof(
+            ProofError::BadBlockPath
+        )))
+    );
+    assert_eq!(
+        verify_control_bundle(
+            &s.control_bundle(false),
+            &context,
+            &DestinationControlStateV1 {
+                control_nonce: 1,
+                parliament_paused: true,
+                fast_pause_until_ms: 0
+            },
+            CertificateUseV1::Inline
+        ),
+        Err(ControlBundleError::Stale)
+    );
+}
+#[test]
+fn a_lagging_destination_replays_seventeen_generations_in_two_calls() {
+    let f = support::Fixture::default();
+    let context = DestinationContextV1 {
+        taira_network_id: support::NETWORK,
+        consensus_instance: support::INSTANCE,
+        destination: f.destination,
+        flavor: DestinationFlavor::Evm,
+        committee_state: f.state,
+        ton_keys: None,
+        checkpoints: &f.checkpoints,
+        now_ms: support::NOW,
+    };
+    let steps: Vec<_> = (1..=17)
+        .map(|generation| f.rotation(generation, 100 + generation, &f))
+        .collect();
+    let plan = verify_rotation_steps(&steps, &context, 18).unwrap();
     assert_eq!(
         plan.batches().map(<[_]>::len).collect::<Vec<_>>(),
         vec![16, 1]
     );
-    assert_eq!(submit_checkpoints_calldata(&plan).unwrap().len(), 2);
-    assert_eq!(plan.final_observation().committee().generation, 24);
-    assert_eq!(plan.final_observation().committee().start, 167);
-    assert_eq!(plan.stopped(), None);
-}
-#[test]
-fn control_bundles_reject_foreign_route_path_effect_and_stale_nonce() {
-    let f = Fixture::new(DestinationFlavor::Evm);
-    let b = f.control(false, true, 0);
-    let view = f.observation(NOW, reads(&b.certificate, false));
-    for which in 0..7 {
-        let mut bad = b.clone();
-        match which {
-            0 => bad.network = SccpNetworkV1::BscMainnet,
-            1 => bad.revision += 1,
-            2 => bad.path[0][0] ^= 1,
-            3 => bad.certificate_id[0] ^= 1,
-            4 => bad.effect_hash[0] ^= 1,
-            5 => bad.fast_pause_until_ms = NOW + 1,
-            _ => bad.track = 2,
-        };
-        assert!(verify_control_bundle(&bad, &view, BundleSourceV1::Inline).is_err());
-    }
-    let verified = verify_control_bundle(&b, &view, BundleSourceV1::Inline).unwrap();
-    let stale = f.observation_with(
-        NOW,
-        *view.committee(),
-        reads(&b.certificate, false),
-        verified.after(),
-    );
+    assert_eq!(submit_checkpoints_calldata(&plan).len(), 2);
+    assert_eq!(plan.final_state().generation, 18);
     assert_eq!(
-        verify_control_bundle(&b, &stale, BundleSourceV1::Inline),
-        Err(BundleError::Preflight(PreflightError::Destination(
-            DestinationError::StaleControl
-        )))
+        verify_rotation_steps(&steps[..16], &context, 18),
+        Err(RotationChainError::ChainTooShort {
+            reached: 17,
+            target: 18
+        })
     );
 }
-
-// ---------------------------------------------------------------------------------------------
-// EIP-1559
-// ---------------------------------------------------------------------------------------------
 
 /// Vectors produced by `ethers` 6 (`Wallet.signTransaction`) with fixture key 0.
 struct EthersVector {
@@ -603,7 +860,8 @@ fn ethers_vectors() -> Vec<EthersVector> {
 
 #[test]
 fn eip1559_transactions_match_ethers_and_recover_the_signer() {
-    let key = EvmSigningKey::from_secret(fixture_secret(0)).expect("fixture key 0");
+    let s = scenario();
+    let key = EvmSigningKey::from_secret(s.secrets[0]).expect("fixture key 0");
     assert_eq!(
         hex::encode(key.address()),
         "7e90b4f929bcfd28c8dec8831d30dacb139d7184"
@@ -641,13 +899,17 @@ fn eip1559_transactions_match_ethers_and_recover_the_signer() {
 
 #[test]
 fn finalize_calldata_ships_in_a_signed_transaction_from_a_key_file() {
-    let f = Fixture::new(DestinationFlavor::Evm);
-    let bundle = f.message(false);
-    let observation = f.observation(NOW, reads(&bundle.certificate, false));
-    let verified = verify(&bundle, &observation, MessagePurposeV1::Finalize).expect("verifies");
+    let s = scenario();
+    let verified = verify_message_bundle(
+        &s.direct_bundle(),
+        &s.g7_context(T0 + 200_000),
+        BundlePurposeV1::Finalize,
+        CertificateUseV1::Inline,
+    )
+    .expect("verifies");
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("relayer.key");
-    std::fs::write(&path, format!("0x{}\n", hex::encode(fixture_secret(3)))).expect("write key");
+    std::fs::write(&path, format!("0x{}\n", hex::encode(s.secrets[3]))).expect("write key");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
@@ -655,8 +917,8 @@ fn finalize_calldata_ships_in_a_signed_transaction_from_a_key_file() {
     }
     let key = EvmSigningKey::load(&path).expect("owner-only key file");
     let transaction = Eip1559TransactionV1::contract_call(
-        f.deployment.network,
-        f.deployment.destination_word[12..]
+        s.destination.network,
+        s.destination.destination_word[12..]
             .try_into()
             .expect("20 bytes"),
         finalize_calldata(&verified).expect("calldata"),
@@ -668,10 +930,7 @@ fn finalize_calldata_ships_in_a_signed_transaction_from_a_key_file() {
     .expect("transaction");
     let signed = transaction.sign(&key).expect("signed");
     let decoded = SignedEip1559V1::decode(&signed.raw()).expect("decodes");
-    assert_eq!(
-        decoded.transaction.data,
-        finalize_calldata(&verified).expect("exact verified calldata")
-    );
+    assert_eq!(decoded.transaction.data, s.call("finalize_direct"));
     assert_eq!(decoded.sender().expect("sender"), key.address());
     // The --emit path: an external signer returns a signature over the exported hash.
     let export = transaction.export_unsigned();
@@ -687,275 +946,4 @@ fn finalize_calldata_ships_in_a_signed_transaction_from_a_key_file() {
     let parts = export.qr_payloads(1_000).expect("qr parts");
     assert!(parts.len() > 1);
     assert!(parts.iter().all(|part| part.len() <= 1_000));
-}
-
-#[test]
-fn native_rust_fixture_calls_keep_all_exact_calldata_assertions() {
-    use iroha_sccp::{
-        api::{SccpBlockRefV1, SccpCertificateV1, SccpControlProofBundleV1},
-        v1::{
-            destination::{CheckpointObservationsV1, DeploymentV1, Destination},
-            finality::checkpoint_id,
-        },
-    };
-    use norito::json::Value;
-    fn field<'a>(v: &'a Value, key: &str) -> &'a Value {
-        v.get(key).unwrap_or_else(|| panic!("field {key}"))
-    }
-    fn word(v: &Value) -> Vec<u8> {
-        hex::decode(v.as_str().unwrap().strip_prefix("0x").unwrap()).unwrap()
-    }
-    fn fixed<const N: usize>(v: &Value) -> [u8; N] {
-        word(v).try_into().unwrap()
-    }
-    fn num(v: &Value, key: &str) -> u64 {
-        field(v, key).as_u64().unwrap()
-    }
-    fn boolean(v: &Value, key: &str) -> bool {
-        field(v, key).as_bool().unwrap()
-    }
-    fn array(v: &Value, key: &str) -> Vec<[u8; 32]> {
-        field(v, key)
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(fixed)
-            .collect()
-    }
-    fn certificate(row: &Value) -> SccpCertificateV1 {
-        let evm = field(row, "evm");
-        let header = fixed(field(evm, "header"));
-        SccpCertificateV1 {
-            height: SccpFinalityHeaderV1::parse(&header).unwrap().height(),
-            qc: fixed(field(evm, "qc")),
-            aggregate_signature: fixed(field(field(row, "ton"), "signature")),
-            header,
-            committee: word(field(evm, "committee"))
-                .chunks_exact(48)
-                .map(|key| key.try_into().unwrap())
-                .collect(),
-        }
-    }
-    fn block(v: &Value) -> SccpBlockRefV1 {
-        SccpBlockRefV1 {
-            height: num(v, "height"),
-            sccp_root: fixed(field(v, "sccpRoot")),
-            message_count: u32::try_from(num(v, "messageCount")).unwrap(),
-            history_index: num(v, "historyIndex"),
-            history_path: array(v, "historyPath"),
-        }
-    }
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/sccp/evm_calldata_v1.json");
-    let fixture: Value = norito::json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-    let pool = field(&fixture, "certificates").as_object().unwrap();
-    let certificates: BTreeMap<_, _> = pool
-        .iter()
-        .map(|(id, row)| (id.as_str(), certificate(row)))
-        .collect();
-    let mut count = 0;
-    for call in field(&fixture, "calls").as_array().unwrap() {
-        let function = field(call, "function").as_str().unwrap();
-        let expected = word(field(call, "calldata"));
-        if function == "transferToTaira" {
-            let decoded = evm_abi::TransferToTairaCallV1::decode(&expected).unwrap();
-            assert_eq!(
-                transfer_to_taira_calldata(
-                    &decoded.taira_recipient,
-                    decoded.token_amount,
-                    decoded.expected_nonce
-                )
-                .unwrap(),
-                expected
-            );
-            count += 1;
-            continue;
-        }
-        let scenario = field(call, "scenario");
-        let dep = field(scenario, "deployment");
-        let pin = field(dep, "pin");
-        assert_eq!(field(dep, "network").as_str(), Some("ethereum-mainnet"));
-        let deployment = DeploymentV1 {
-            flavor: DestinationFlavor::Evm,
-            taira_network_id: fixed(field(dep, "taira_network_id")),
-            consensus_instance: fixed(field(dep, "consensus_instance")),
-            network: SccpNetworkV1::EthereumMainnet,
-            destination_word: fixed(field(dep, "destination_word")),
-            route_revision: u32::try_from(num(dep, "route_revision")).unwrap(),
-            max_wrapped_supply: field(dep, "max_wrapped_supply")
-                .as_str()
-                .unwrap()
-                .parse()
-                .unwrap(),
-            pin_generation: num(pin, "generation"),
-            pin_root: fixed(field(pin, "committee_root")),
-            pin_start_height: num(pin, "start_height"),
-            pin_until_ms: num(pin, "until_ms"),
-            pin_keys: None,
-        };
-        let mut destination = Destination::new(deployment).unwrap();
-        let steps = field(scenario, "steps").as_array().unwrap();
-        // Establish every checkpoint/generation by actual native verification from the fixture's
-        // independent deployment pin. Never import offered state_after or an offered root as pin.
-        for prefix in &steps[..steps.len() - 1] {
-            assert_eq!(field(prefix, "call").as_str(), Some("submitCheckpoints"));
-            let certs: Vec<_> = field(prefix, "certificates")
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|id| {
-                    certificates[id.as_str().unwrap()]
-                        .to_destination_certificate()
-                        .unwrap()
-                })
-                .collect();
-            destination
-                .submit_checkpoints(&certs, &[], num(prefix, "now_ms"))
-                .unwrap();
-        }
-        let step = steps.last().unwrap();
-        let now = num(step, "now_ms");
-        let reads = certificates
-            .values()
-            .map(|cert| {
-                (
-                    cert.height,
-                    destination.state().checkpoints.get(&cert.height).copied(),
-                )
-            })
-            .collect();
-        let observation = DestinationObservationV1::new(
-            destination.deployment().clone(),
-            destination.state().committee,
-            None,
-            CheckpointObservationsV1::Evm(reads),
-            destination.pause_state(now),
-            now,
-        )
-        .unwrap();
-        let actual = match function {
-            "submitCheckpoints" => {
-                let ids = field(step, "certificates").as_array().unwrap();
-                let mut rotations = Vec::new();
-                for id in ids {
-                    let cert = certificates[id.as_str().unwrap()].clone();
-                    let header = SccpFinalityHeaderV1::parse(&cert.header).unwrap();
-                    let next = field(&fixture, "committees")
-                        .as_object()
-                        .unwrap()
-                        .values()
-                        .find(|committee| {
-                            fixed::<32>(field(committee, "root")) == header.next_committee_root()
-                        })
-                        .expect("successor committed root");
-                    rotations.push(SccpRotationV1 {
-                        certificate: cert,
-                        next_committee: field(next, "keys")
-                            .as_array()
-                            .unwrap()
-                            .iter()
-                            .map(fixed)
-                            .collect(),
-                    });
-                }
-                let target =
-                    observation.committee().generation + u64::try_from(rotations.len()).unwrap();
-                let plan = verify_rotation_steps(&rotations, None, &observation, target).unwrap();
-                assert_eq!(plan.stopped(), None);
-                let calls = submit_checkpoints_calldata(&plan).unwrap();
-                assert_eq!(calls.len(), 1);
-                calls[0].clone()
-            }
-            "voidFrozen" => void_frozen_calldata(
-                field(step, "firstNonce").as_str().unwrap().parse().unwrap(),
-                num(step, "count"),
-            )
-            .unwrap(),
-            _ => {
-                let (cert, source) = if let Some(id) = step.get("certificate") {
-                    (
-                        certificates[id.as_str().unwrap()].clone(),
-                        BundleSourceV1::Inline,
-                    )
-                } else {
-                    let raw = word(field(field(step, "checkpoint"), "header"));
-                    let cert = certificates
-                        .values()
-                        .find(|cert| cert.header.as_slice() == raw)
-                        .unwrap()
-                        .clone();
-                    assert_eq!(
-                        observation.checkpoint(cert.height).unwrap(),
-                        Some(checkpoint_id(&cert.header))
-                    );
-                    (cert, BundleSourceV1::Checkpoint)
-                };
-                let proof = field(step, "proof");
-                if function.starts_with("applyControl") {
-                    let b = SccpControlProofBundleV1 {
-                        network: observation.deployment().network,
-                        revision: observation.deployment().route_revision,
-                        control_nonce: num(proof, "controlNonce"),
-                        track: u8::try_from(num(proof, "track")).unwrap(),
-                        parliament_paused: boolean(proof, "parliamentPaused"),
-                        fast_pause_until_ms: num(proof, "fastPauseUntilMs"),
-                        certificate_id: fixed(field(proof, "certificateId")),
-                        effect_hash: fixed(field(proof, "effectHash")),
-                        leaf_index: u32::try_from(num(proof, "leafIndex")).unwrap(),
-                        path: array(proof, "path"),
-                        block: block(field(proof, "block")),
-                        certificate: cert,
-                    };
-                    let verified = verify_control_bundle(&b, &observation, source).unwrap();
-                    assert_eq!(
-                        verified.finalize_allowed_after_apply(),
-                        !verified.after().effective
-                    );
-                    apply_control_calldata(&verified).unwrap()
-                } else {
-                    let payload = word(field(proof, "payload"));
-                    let decoded = SccpTransferPayloadV1::decode(&payload).unwrap();
-                    let b = SccpMessageProofBundleV1 {
-                        message_id: decoded
-                            .message_id(&observation.deployment().taira_network_id)
-                            .unwrap(),
-                        payload,
-                        deadline_ms: decoded.deadline_ms,
-                        leaf_index: u32::try_from(num(proof, "leafIndex")).unwrap(),
-                        path: array(proof, "path"),
-                        block: block(field(proof, "block")),
-                        certificate: cert,
-                    };
-                    let purpose = if function.starts_with("void") {
-                        MessagePurposeV1::VoidExpired
-                    } else {
-                        MessagePurposeV1::Finalize
-                    };
-                    let verified =
-                        verify_message_bundle(&b, &b.message_id, &observation, source, purpose)
-                            .unwrap();
-                    assert_eq!(verified.nonce(), decoded.nonce);
-                    assert_eq!(verified.deadline_ms(), decoded.deadline_ms);
-                    if purpose == MessagePurposeV1::Finalize {
-                        assert_eq!(
-                            verified.message_id(),
-                            fixed(field(field(step, "expected"), "return"))
-                        );
-                        finalize_calldata(&verified).unwrap()
-                    } else {
-                        assert_eq!(verified.nonce(), num(step, "nonce"));
-                        void_expired_calldata(&verified).unwrap()
-                    }
-                }
-            }
-        };
-        assert_eq!(
-            actual,
-            expected,
-            "native golden {}",
-            field(call, "label").as_str().unwrap()
-        );
-        count += 1;
-    }
-    assert_eq!(count, 9, "all native golden calls remain covered");
 }

@@ -7,8 +7,10 @@
 //! The message id binds the escrow lock, so the record is planned ([`plan`]) before the lock
 //! and written ([`write_planned`]) after it; a failed transaction rolls back both.
 
-use super::{Error, escrow, holds, leaves, store};
-use crate::state::{StateReadOnly, StateTransaction, WorldReadOnly};
+use super::{
+    Error, eligibility::TransactionParent, escrow, hold, leaves, original_read::OriginalRead, store,
+};
+use crate::state::{StateReadOnly, StateTransaction};
 use iroha_data_model::{
     account::{AccountAddress, AccountId},
     bridge::SccpNetworkV1,
@@ -94,8 +96,8 @@ fn check_recipient(
 }
 
 /// Check §4.4 step 2 against the committed parent, not this block's own updates.
-fn check_finality(parent: &(impl WorldReadOnly + ?Sized)) -> Result<(), Error> {
-    if *store::degraded_run::get(parent) != 0 {
+fn check_finality<'a>(parent: impl OriginalRead<'a> + 'a) -> Result<(), Error> {
+    if parent.degraded_run() != 0 {
         return Err(refuse(
             "SccpFinalityDegraded: the committed parent has degraded finality",
         ));
@@ -140,14 +142,17 @@ pub fn execute_record(
     if revision.destination_paused {
         return Err(refuse("the destination is paused by the Parliament"));
     }
-    if holds::forgery_or_quarantine(world, revision) {
+    if hold::forgery_or_quarantine(world, revision) {
         return Err(refuse("SccpForgeryHold: the revision is held"));
     }
-    // TODO: WP-S5: apply authenticated fast-pause state when that authority lands.
-    // RegisterRoute remains refused until every launch requirement is complete;
-    // existing injected-state tests do not qualify deployable routes.
+    let timestamp_ms = state_transaction.block_unix_timestamp_ms();
+    if hold::fast_taira(world, network, Some(timestamp_ms))
+        || hold::fast_destination(world, network, instruction.expected_revision, timestamp_ms)
+    {
+        return Err(refuse("the revision is fast-paused"));
+    }
     // Step 2 is exactly the committed parent's degraded state (§4.4, §4.6).
-    check_finality(&state_transaction.sccp_parent_world_view())?;
+    check_finality(TransactionParent(&state_transaction.world))?;
     let height = state_transaction._curr_block.height().get();
     // Step 3: exact Taira units within the floor and the lane bound.
     let amount = taira_units(&instruction.amount)
@@ -228,7 +233,7 @@ pub fn plan(
         .and_then(|route| route.revisions.get(&args.revision))
         .ok_or_else(|| refuse(format_args!("revision {} is unknown", args.revision)))?;
     // Internal bounce callers obey the same permanent quarantine and forgery gate.
-    if holds::forgery_or_quarantine(world, revision) {
+    if hold::forgery_or_quarantine(world, revision) {
         return Err(refuse("SccpForgeryHold: the revision is held"));
     }
     let nonce = revision.next_outbound_nonce;
@@ -285,7 +290,7 @@ pub fn write_planned(
         .filter(|revision| revision.next_outbound_nonce == planned.nonce)
         .ok_or_else(|| refuse("the planned nonce is stale"))?;
     // The hold may have changed since planning; refuse before the first write.
-    if holds::forgery_or_quarantine(&*state_transaction.world, revision) {
+    if hold::forgery_or_quarantine(&*state_transaction.world, revision) {
         return Err(refuse("SccpForgeryHold: the revision is held"));
     }
     revision.next_outbound_nonce = planned
@@ -358,7 +363,9 @@ mod tests {
     use crate::{
         kura::Kura,
         query::store::LiveQueryStore,
-        smartcontracts::isi::sccp::test_support::{ONE_XOR, authority, header, sample_generation},
+        smartcontracts::isi::sccp::test_support::{
+            ONE_XOR, authority, header, sample_generation_at,
+        },
         state::{State, World},
     };
     use iroha_data_model::{
@@ -408,7 +415,12 @@ mod tests {
     fn setup(stx: &mut StateTransaction<'_, '_>, max_wrapped_supply: u128) {
         store::parameters::set(stx, Some(SccpParametersV1::taira_default()));
         escrow::create_route_escrows(stx).expect("escrows");
-        store::committee_generations::insert(stx, 1, sample_generation(1, 1)).expect("generation");
+        crate::smartcontracts::isi::sccp::test_support::install_generation(
+            stx,
+            1,
+            sample_generation_at(1, 1),
+        )
+        .expect("generation");
         store::committee_current::set(stx, 1);
         let mut route = store::routes::get(&*stx.world, &SccpNetworkV1::EthereumMainnet)
             .cloned()
@@ -659,7 +671,7 @@ mod tests {
             b"a_current_block_degradation_does_not_rewrite_the_parent_gate",
         ));
         setup(&mut stx, 100 * ONE_XOR);
-        assert_eq!(*store::degraded_run::get(&stx.sccp_parent_world_view()), 0);
+        assert_eq!(TransactionParent(&stx.world).degraded_run(), 0);
         store::degraded_run::set(&mut stx, 2);
         execute_record(record(2, [0x22; 20]), &authority(1), &mut stx).expect("healthy parent");
         assert_eq!(leaves::leaf_count_at(&*stx.world, 5), 1);
@@ -669,6 +681,44 @@ mod tests {
         let revision = route.revisions.get(&1).expect("revision");
         assert_eq!(revision.liability, 2 * ONE_XOR);
         assert_eq!(revision.next_outbound_nonce, 1);
+    }
+
+    #[test]
+    fn replacement_recording_uses_reverted_parent_finality() {
+        for (original_run, successor_run) in [(1, 0), (0, 1)] {
+            let state = funded_state();
+            for run in [original_run, successor_run] {
+                let mut world = state.world.block();
+                *world.sccp_degraded_run.get_mut() = run;
+                world.commit();
+            }
+            assert_eq!(
+                *store::degraded_run::get(&state.world_view()),
+                successor_run
+            );
+            let mut block = state.block_and_revert(header(5));
+            let mut stx = block.transaction_for_fastpq_testing(iroha_crypto::Hash::new(
+                b"replacement_recording_uses_reverted_parent_finality",
+            ));
+            setup(&mut stx, 100 * ONE_XOR);
+            // This transaction cannot substitute either the published successor or
+            // its own repaired/degraded value for the replacement's actual parent.
+            store::degraded_run::set(&mut stx, successor_run);
+            let result = execute_record(record(2, [0x22; 20]), &authority(1), &mut stx);
+            if original_run == 0 {
+                result.expect("reverted parent is healthy");
+                assert_eq!(leaves::leaf_count_at(&*stx.world, 5), 1);
+                assert_eq!(store::outbound_messages::len(&*stx.world), 1);
+            } else {
+                let error = refusal(result);
+                assert!(error.contains("SccpFinalityDegraded"), "{error}");
+                assert_eq!(leaves::leaf_count_at(&*stx.world, 5), 0);
+                assert_eq!(store::outbound_messages::len(&*stx.world), 0);
+                let route = store::routes::get(&*stx.world, &SccpNetworkV1::EthereumMainnet)
+                    .expect("route");
+                assert_eq!(route.revisions.get(&1).unwrap().liability, 0);
+            }
+        }
     }
 
     #[test]

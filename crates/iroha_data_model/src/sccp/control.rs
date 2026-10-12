@@ -2,7 +2,7 @@
 //! §4.14.6).
 //!
 //! A block commits its SCCP messages as leaves in `commitment_index` order. A leaf is either a
-//! transfer (an outbound record) or a control (the complete destination pause state after a certified change).
+//! transfer (an outbound record) or a control (the combined Parliament and fast-pause state).
 //! `sccp_block_leaves[(height, commitment_index)]` stores a [`SccpLeafRefV1`] that points at
 //! the record whose stored leaf hash enters the block root.
 //!
@@ -145,15 +145,15 @@ impl SccpLeafRefV1 {
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "iroha_data_model::sccp::control::SccpControlRecordV1")]
 pub struct SccpControlRecordV1 {
-    /// Enacting authority: 1 for Parliament, 2 for fast pause.
+    /// Enacting track: 1 for Parliament, 2 for the fast-pause panel.
     pub track: u8,
-    /// Parliament pause flag after the change.
+    /// Parliament pause flag after the enacting effect.
     pub parliament_paused: bool,
-    /// Active fast-pause expiry after the change, or zero when none is active.
+    /// Active destination fast-pause expiry, or zero when that part is not held.
     pub fast_pause_until_ms: u64,
-    /// Exact enacting certificate identity; never a proposal identifier.
+    /// Content identifier of the exact enacting certificate, never the proposal id.
     pub certificate_id: [u8; 32],
-    /// Effect preimage hash authenticated by that certificate.
+    /// Effect hash carried by that certificate.
     pub effect_hash: [u8; 32],
     /// Taira height that recorded the control.
     pub height: u64,
@@ -164,16 +164,17 @@ pub struct SccpControlRecordV1 {
 }
 
 impl SccpControlRecordV1 {
-    /// Check the native control fields and the bounded block-leaf index.
+    /// Whether the stored scalar fields satisfy the current control shape (§3.4).
     ///
-    /// This is structural validation; the recorder and native proof reader must
-    /// separately bind the exact certificate authority, route, and leaf hash.
+    /// The key supplies target/revision/nonce. This structural check authenticates neither
+    /// the certificate nor the leaf; Core recomputes the leaf from the complete effect.
     #[must_use]
-    pub fn is_well_formed(&self) -> bool {
+    pub fn has_valid_shape(&self) -> bool {
         matches!(self.track, 1 | 2)
             && (self.track != 2 || self.fast_pause_until_ms != 0)
             && self.certificate_id != [0; 32]
             && self.effect_hash != [0; 32]
+            && self.height != 0
             && self.commitment_index < super::params::SCCP_MESSAGES_MAX_PER_BLOCK_V1
     }
 }
@@ -197,7 +198,7 @@ mod tests {
             commitment_index: 511,
             leaf: [3; 32],
             certificate_id: [4; 32],
-            effect_hash: [0x45; 32],
+            effect_hash: [5; 32],
         });
         assert_rejects_unknown_field(&control, &["reference"]);
         assert_rejects_unknown_field(&transfer, &[]);
@@ -234,57 +235,111 @@ mod tests {
         .expect("json");
         assert!(json.contains("\"leaf\":\"control\""), "{json}");
     }
-    #[test]
-    fn native_control_fields_are_bounded_and_both_tracks_roundtrip() {
-        let mut record = SccpControlRecordV1 {
+    fn record() -> SccpControlRecordV1 {
+        SccpControlRecordV1 {
             track: 1,
-            parliament_paused: false,
+            parliament_paused: true,
             fast_pause_until_ms: 0,
-            certificate_id: [3; 32],
-            effect_hash: [4; 32],
+            certificate_id: [1; 32],
+            effect_hash: [2; 32],
             height: 7,
-            commitment_index: 511,
-            leaf: [5; 32],
-        };
-        assert!(record.is_well_formed());
-        roundtrip(&record);
-        record.track = 2;
-        assert!(!record.is_well_formed());
-        record.fast_pause_until_ms = 1;
-        assert!(record.is_well_formed());
-        roundtrip(&record);
-        for invalid_track in [0, 3, u8::MAX] {
-            let invalid = SccpControlRecordV1 {
-                track: invalid_track,
-                ..record
-            };
-            assert!(!invalid.is_well_formed());
+            commitment_index: 0,
+            leaf: [3; 32],
         }
-        for invalid in [
-            SccpControlRecordV1 {
-                certificate_id: [0; 32],
-                ..record
-            },
-            SccpControlRecordV1 {
-                effect_hash: [0; 32],
-                ..record
-            },
-            SccpControlRecordV1 {
-                commitment_index: 512,
-                ..record
-            },
+    }
+
+    #[test]
+    fn current_control_requires_every_field_and_rejects_retired_layout() {
+        // Exact old five-field wire shape exists only as adversarial bytes in this test.
+        #[derive(Encode, norito::NoritoSchema)]
+        #[norito_schema(name = "test::RetiredControlShape")]
+        struct RetiredControlShape {
+            paused: bool,
+            height: u64,
+            commitment_index: u32,
+            leaf: [u8; 32],
+            proposal_id: [u8; 32],
+        }
+
+        let row = record();
+        roundtrip(&row);
+        assert_rejects_unknown_field(&row, &[]);
+        for key in [
+            "track",
+            "parliament_paused",
+            "fast_pause_until_ms",
+            "certificate_id",
+            "effect_hash",
+            "height",
+            "commitment_index",
+            "leaf",
         ] {
-            assert!(!invalid.is_well_formed());
+            let mut raw = norito::json::to_value(&row).unwrap();
+            let norito::json::Value::Object(fields) = &mut raw else {
+                unreachable!()
+            };
+            fields.remove(key);
+            assert!(
+                norito::json::from_json::<SccpControlRecordV1>(
+                    &norito::json::to_json(&raw).unwrap()
+                )
+                .is_err(),
+                "missing {key}"
+            );
         }
-        assert_rejects_unknown_field(&record, &[]);
-        for retired in ["paused", "proposal_id"] {
-            let mut value = norito::json::to_value(&record).expect("record JSON");
-            value
-                .as_object_mut()
-                .expect("object")
-                .insert(retired.into(), norito::json::Value::Bool(true));
-            let text = norito::json::to_json(&value).expect("JSON");
-            assert!(norito::json::from_json::<SccpControlRecordV1>(&text).is_err());
+        let mut raw = norito::json::to_value(&row).unwrap();
+        let norito::json::Value::Object(fields) = &mut raw else {
+            unreachable!()
+        };
+        let paused = fields.remove("parliament_paused").unwrap();
+        let proposal = fields.remove("certificate_id").unwrap();
+        for key in ["track", "fast_pause_until_ms", "effect_hash"] {
+            fields.remove(key);
         }
+        fields.insert("paused".into(), paused);
+        fields.insert("proposal_id".into(), proposal);
+        assert!(
+            norito::json::from_json::<SccpControlRecordV1>(&norito::json::to_json(&raw).unwrap())
+                .is_err()
+        );
+        let bytes = norito::to_bytes(&RetiredControlShape {
+            paused: true,
+            height: 7,
+            commitment_index: 0,
+            leaf: [3; 32],
+            proposal_id: [1; 32],
+        })
+        .unwrap();
+        assert!(norito::decode_canonical::<SccpControlRecordV1>(&bytes).is_err());
+    }
+
+    #[test]
+    fn current_control_shape_requires_cause_and_fast_track_expiry() {
+        let original = record();
+        assert!(original.has_valid_shape());
+        let mut fast = original;
+        fast.track = 2;
+        assert!(!fast.has_valid_shape());
+        fast.fast_pause_until_ms = 10;
+        assert!(fast.has_valid_shape());
+        for track in [0, 3, u8::MAX] {
+            let mut row = original;
+            row.track = track;
+            assert!(!row.has_valid_shape());
+        }
+        let mut row = original;
+        row.certificate_id = [0; 32];
+        assert!(!row.has_valid_shape());
+        let mut row = original;
+        row.effect_hash = [0; 32];
+        assert!(!row.has_valid_shape());
+        let mut row = original;
+        row.height = 0;
+        assert!(!row.has_valid_shape());
+        let mut row = original;
+        row.commitment_index = 512;
+        assert!(!row.has_valid_shape());
+        row.commitment_index = 511;
+        assert!(row.has_valid_shape());
     }
 }

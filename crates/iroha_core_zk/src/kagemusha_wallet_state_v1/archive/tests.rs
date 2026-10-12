@@ -8,6 +8,56 @@ use crate::kagemusha_wallet_advance_v1::{
 };
 use crate::kagemusha_wallet_state_v1::ObjectStore;
 
+#[test]
+fn canonical_archive_read_preserves_retired_scope_refusal_and_malformed_custody_verdict() {
+    let value = vec![7u8; 128];
+    let bytes = encode(&value).unwrap();
+    let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+    let error = norito::with_decode_limits_scope(limits, || decode::<Vec<u8>>(&bytes)).unwrap_err();
+    // Classify at the actual decode, then move the original through a retired scope.
+    let Error::DecodeResource(original) = error else {
+        panic!("archive resource refusal became a custody verdict: {error:?}");
+    };
+    assert_eq!(
+        original.kind(),
+        norito::core::DecodeAttemptErrorKind::EnclosingLimit
+    );
+    norito::with_decode_limits_scope(limits, || {
+        assert_eq!(
+            original.kind(),
+            norito::core::DecodeAttemptErrorKind::EnclosingLimit
+        );
+    });
+    assert_eq!(decode::<Vec<u8>>(&bytes).unwrap(), value);
+    let mut malformed = bytes;
+    malformed.push(0);
+    assert!(matches!(
+        decode::<Vec<u8>>(&malformed),
+        Err(Error::WitnessLost(_))
+    ));
+}
+
+#[test]
+fn intrinsic_archive_decode_ceiling_under_outer_scope_remains_completed_invalid() {
+    let bytes = encode(&vec![7u8; 128]).unwrap();
+    let generous = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 64);
+    let error = norito::with_decode_limits_scope(generous, || {
+        norito::decode_canonical_for_admission::<Vec<u8>>(
+            &bytes,
+            norito::DecodeLimits::new(usize::MAX, 1, usize::MAX, usize::MAX, 64),
+        )
+    })
+    .unwrap_err();
+    assert_eq!(error.kind(), norito::core::DecodeAttemptErrorKind::Invalid);
+    assert!(matches!(
+        crate::kagemusha_wallet_state_v1::decode_attempt_error(
+            error,
+            Error::WitnessLost("intrinsic archive ceiling")
+        ),
+        Error::WitnessLost("intrinsic archive ceiling")
+    ));
+}
+
 fn prepared() -> (SimFs, Dir, FsArchive<SimFs>) {
     let fs = SimFs::new();
     let slot = Slot([0x55; 32]);

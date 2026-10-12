@@ -1155,6 +1155,19 @@ mod block {
             self.assert_operable();
             self.blocks.as_ref().expect("live transaction current root")
         }
+        /// Iterate the original enclosing block's preimage in canonical key order.
+        /// Includes applied siblings and this child's undo entries; a replacement
+        /// starts at its reverted baseline. Values remain borrowed from original roots.
+        pub fn iter_before_block(&self) -> impl Iterator<Item = (&K, &V)> {
+            self.assert_operable();
+            super::history::before_block_iter(
+                self.current().iter(),
+                self.revert
+                    .as_ref()
+                    .expect("live transaction undo root")
+                    .iter(),
+            )
+        }
         /// Create a read-only view into this private transaction state.
         pub fn view(&self) -> View<'_, K, V, M> {
             View::from_snapshot(self.current().to_snapshot())

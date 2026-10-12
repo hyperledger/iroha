@@ -1,11 +1,14 @@
 //! DATA-only L3 gates; no fixture record authenticates a forgery or grants execution.
+
 use super::*;
+use crate::smartcontracts::isi::sccp::committee_storage::CommitteeFixtureStorage as _;
+use crate::state::scalar_cell_custody::ScalarCellFixtureBlock as _;
 use crate::{
-    smartcontracts::isi::sccp::{
-        generation::{SccpCommitteeGenerationV1, SccpGenerationEndV1, SccpGenerationMemberV1},
-        test_support::{authority, sample_generation},
-    },
-    state::{World, sccp_generation_custody::GenerationFixtureStorage as _},
+    smartcontracts::isi::sccp::test_support::{authority, sample_generation_at},
+    state::World,
+};
+use iroha_data_model::sccp::generation::{
+    SccpCommitteeGenerationV1, SccpGenerationEndV1, SccpGenerationMemberV1,
 };
 use iroha_data_model::{
     nexus::PublicLaneValidatorStatus, sumeragi_finality::certified_result::SccpFinalityHeaderV1,
@@ -14,7 +17,7 @@ use iroha_model_base::{metadata::Metadata, peer::PeerId, topology::LaneId};
 use iroha_primitives::numeric::Quantity;
 
 // Mutate fixture scalar cells through their actual MV writer/publication API.
-fn set_cell(cell: &mv::cell::Cell<u64>, value: u64) {
+fn set_cell(cell: &mv::cell::Cell<u64, iroha_allocation::AllocationCharge>, value: u64) {
     let mut block = cell.block();
     *block.get_mut() = value;
     block.commit();
@@ -24,7 +27,7 @@ fn set_cell(cell: &mv::cell::Cell<u64>, value: u64) {
 fn validator() -> PublicLaneValidatorRecord {
     let account = authority(0x71);
     PublicLaneValidatorRecord {
-        lane_id: LaneId::new(7),
+        lane_id: LaneId::SINGLE,
         validator: account.clone(),
         peer_id: PeerId::new(account.try_signatory().expect("single-key fixture").clone()),
         stake_account: account,
@@ -39,7 +42,7 @@ fn validator() -> PublicLaneValidatorRecord {
 }
 
 fn generation(v: &PublicLaneValidatorRecord) -> SccpCommitteeGenerationV1 {
-    let mut g = sample_generation(7, 1);
+    let mut g = sample_generation_at(7, 2);
     g.members[0] = Some(SccpGenerationMemberV1 {
         lane_id: v.lane_id,
         validator: v.validator.clone(),
@@ -51,6 +54,7 @@ fn generation(v: &PublicLaneValidatorRecord) -> SccpCommitteeGenerationV1 {
         successor_validity_ms: g.validity_ms,
         next_committee_root: g.committee_root,
     });
+    assert!(g.is_well_formed());
     g
 }
 
@@ -70,7 +74,7 @@ fn check(
     through: Option<u64>,
 ) -> Result<Option<ReleaseBlocker>, ForgeryStorageError> {
     release_blocker(
-        &parent.view(),
+        crate::smartcontracts::isi::sccp::eligibility::Current(&parent.view()),
         &current.view(),
         validator,
         through,
@@ -101,6 +105,7 @@ fn insert_pending_claim(
         .unwrap()
         .as_bytes();
     data.attribution.authority_generation = generation.committee_root;
+    data.attribution.height = generation.start_height;
     let budget = world.sccp_forgery_offences.allocation_budget();
     let encoded = norito::json::to_json(&data).unwrap();
     let record = parse_record(&mut norito::json::Parser::new(&encoded), budget).unwrap();
@@ -129,10 +134,13 @@ fn liability_is_inclusive_at_h_and_clock_and_matches_captured_registration() {
         g.liable_until_lc + g.progress_cap_ms,
     );
     assert_eq!(
-        check(&parent, &current, &v, Some(1)).unwrap(),
+        check(&parent, &current, &v, Some(g.start_height)).unwrap(),
         Some(ReleaseBlocker::LiabilityActive)
     );
-    assert_eq!(check(&parent, &current, &v, Some(0)).unwrap(), None);
+    assert_eq!(
+        check(&parent, &current, &v, Some(g.start_height - 1)).unwrap(),
+        None
+    );
     set_cell(
         &current.sccp_liability_clock,
         g.liable_until_lc + g.progress_cap_ms + 1,

@@ -52,18 +52,137 @@ enforcement sites, tests and class: consensus bound, local resource that defers,
 local scheduling limit or engineering target. It also records the relations
 between bounds. `python3 scripts/check_zk_resource_contract.py` reads each owner
 from the source and fails on drift. The checker scans the owner files, the
-committed-parameter modules and every production source of the directories on
-the path (the transaction, block, proof, parameter and instruction models, the
-consensus core and its node driver, the pipeline, the IVM and its ABI, and the
-P2P layer): a limit defined there is a listed bound or is excluded with a
-reason. It reads the fields of five typed catalogs and fails on a field that is
-neither listed nor excluded: `execution_policy_digest_v1`,
-`compute_zk_consensus_policy_hash` and the Nexus consensus-policy preimage for
-node configuration, and the committed `ExecutionOutputPolicyV1` and
-`FastpqSourcePolicyV1`. A site records how often its text occurs, and a named
-test must be compiled into its crate. `--refresh` rewrites values, expressions
-and site counts from the source and keeps the classifications; `--propose`
-prints a skeleton with candidate sites and tests for an unlisted limit.
+committed-parameter modules and every production source of the crates on the
+path: the data model (`iroha_data_model`), Torii (`iroha_torii`), the node
+(`iroha_core`) and the proof-verification crate (`iroha_core_zk`) whole, with
+the consensus core, the IVM and its ABI and the P2P layer. A limit defined
+there, as a constant or an immutable `static`, is a listed bound or is excluded
+with a reason; no directory of those four crates is skipped. An exclusion
+records the defining expression of its limit, so a changed value of an excluded
+limit fails the checker until its reason is reviewed and `--refresh` records the
+new expression, and a second definition of a listed name fails as well.
+`--mutate` changes every scanned limit in memory, one at a time, and fails when
+a change goes unnoticed.
+
+A limit is found by its name (MAX, LIMIT, BUDGET, CAP and the like) in every
+scanned source. In the four crates on the path it is also found by how the code
+uses it, whatever its name:
+
+- an integer constant that takes part in a `<`, `<=`, `>` or `>=` comparison
+  (also written as the methods `.lt`, `.le`, `.gt`, `.ge`), in a capping call
+  (`.min`, `.max`, `.clamp`, `.take`, `.truncate`), in either of the two called
+  as a function, bare or behind any path (`cmp::max(a, b)`,
+  `u32::clamp(n, 2, 64)`), or in a range tested with `.contains`, the tested
+  value included. A call compares its arguments and, for `.min`, `.max`,
+  `.clamp` and the comparison methods, its receiver: the whole method chain in
+  front of the call, on one line or broken across several (`ROWS.min(n)`,
+  `n.saturating_mul(ROWS).saturating_add(1).min(cap)`);
+- an integer constant that the defining expression of a scanned limit names: a
+  term of that limit, followed until no new constant appears. An excluded term
+  records under `term_of` the limits it is part of, and `--refresh` rewrites
+  that list;
+- a limit-named function without parameters that returns an integer, an
+  `Option` of one or a `Result` of one;
+- an integer constant that another source of the workspace defines and the
+  code of the four crates names: in a compared position, bare or behind a
+  module path (also under the name a `use` of the file gives it), or in the
+  defining expression of a scanned limit. The name stands for every integer
+  constant of that name in a production source the naming crate can reach: any
+  item of its own crate, and a `pub` item of a workspace crate it depends on,
+  directly or through other workspace crates. The constant is scanned where it
+  is defined: it is a listed bound or is excluded with a pinned expression, its
+  terms are followed from its own source, and `--mutate` changes it. The
+  resolution is by name, so each reachable crate that defines the name is
+  scanned;
+- a literal comparison: a comparison, capping call or tested range of those
+  kinds that holds an integer literal of 2 or more. The literal may be a whole
+  operand (`len > 4096`), a part of one (`len > MAX + 1024`,
+  `len / 2 >= MAX`, `timeout > Duration::from_secs(30)`) or a part of a capped
+  receiver (`delta.saturating_mul(10_000).saturating_div(n).min(cap)`): a part
+  moves the limit like a whole operand does. A whole-operand literal is
+  recorded with its operand and operator, a part literal with the whole
+  comparison or, where it stands above the last element of a receiver chain,
+  with the chain from its head. A comparison inside an enforcement site of a
+  listed bound belongs to that bound when the site holds its text whole. Every
+  other one is recorded under `completeness.literals` as `text: count` of its
+  file, in a group whose reason says why it is not a resource bound of the
+  path. A changed literal, a removed comparison and a new one each fail the
+  checker, and `--mutate` raises every literal of every recorded comparison by
+  one to prove it.
+
+A source whose name looks like a test or fixture file is scanned when its crate
+compiles it outside test builds. A source that every declaration gates by
+`cfg(test)` is read by name only. An inline module is test code when one of its
+`cfg` gates holds only in test builds, in whatever order the gate is written
+(`all(feature = "..", test)`); its block is read on the code alone, so a brace
+in a character literal or a raw string of the tests hides nothing after it.
+
+No textual scan sees the following, and the contract does not claim them:
+
+- a limit that reaches its comparison only through a function argument, a
+  struct field or a local variable and is neither limit-named nor compared by
+  name;
+- a limit a function returns when the function takes parameters, its name has
+  no limit word, or it returns neither an integer nor an `Option` or `Result`
+  of one;
+- a limit computed at run time;
+- a constant of a non-integer type, such as a `Duration` or a range, or an
+  integer typed through a type alias, that its name does not mark;
+- a literal below 2 or that is no integer;
+- a comparison the scan does not read, for a constant that no name marks as for
+  a literal: one with `==`, `!=`, `cmp` or `partial_cmp`; a `match` pattern;
+  a range test written as a function (`RangeInclusive::contains`); a
+  relational operator written without whitespace around it; checked arithmetic
+  that refuses by underflow (`limit.checked_sub(64)?`); the receiver of `.take`
+  and `.truncate`, which is the collection that is cut (`(0..ROWS).take(n)`);
+  what a block yields when the block is the receiver of a cap or an operand
+  (`match kind { .. }.min(cap)`); the head of a receiver chain in front of a
+  blank outside brackets (the first arguments of a turbofish, as in
+  `rows::<A, B>().min(cap)`); a cap or comparison function called under another
+  name (an alias of `use`); and a constant or literal further than 600
+  characters from the operator of its relational comparison (no comparison of
+  the four crates is that long);
+- for an excluded limit, what its expression names besides the integer
+  constants of the workspace: an associated constant of a type
+  (`Header::SIZE`), a constant of a crate outside the workspace and a value a
+  function computes. An exclusion pins the text of the expression and its
+  terms. A listed bound has no such gap, because its expression is resolved
+  through other listed bounds;
+- of the constants other crates define: an associated constant of a type of
+  another crate (`Shape::SIZE`) that the four crates compare, a constant
+  another crate re-exports under a new name (`pub use a::ROWS as B_ROWS;`),
+  and the root of a binary target, whose items no other crate can name;
+- in the consensus core, the IVM and its ABI and the P2P layer, and in every
+  other crate, a limit that its name does not mark and the four crates do not
+  name: those sources are scanned by name, or for the named constants only.
+
+The proof ceilings of single products (the confidential-asset proof, the
+execution-proof envelope, the Soracloud FHE envelopes, the private-dataspace
+record proof and the SCCP light-client proof) are pinned exclusions, not listed
+bounds. The declared item `proof.product_proof_ceilings` names each of them and
+its owner.
+
+The checker also reads the fields of five typed catalogs and fails on a field
+that is neither listed nor excluded: `execution_policy_digest_v1` and the Nexus
+consensus-policy preimage for node configuration, and the committed
+`compute_zk_consensus_policy_hash` inventory (the ZK validity policy),
+`ExecutionOutputPolicyV1` and `FastpqSourcePolicyV1`. A site records how often its text occurs, and a named
+test must be reached by text from a target of its crate. A test behind Cargo
+features records them (`features`, read from the `cfg` attributes on the test,
+on every inline module around it and on the way from its file to its target,
+and from `required-features`); a feature its crate does not declare fails. A
+gate that never holds where the test is compiled fails as well: `any()` or the
+boolean literal `false` at any depth of the predicate (`not(true)` too),
+`not(test)`, and a predicate that is false with the default features and the
+recorded ones (`not(feature = "..")` of a default feature). A `cfg(Q)` applied
+through `cfg_attr(P, cfg(Q))` is read as
+`any(not(P), Q)`. Other predicates (`target_os = ".."`, `unix`, a `--cfg` of
+the build) are not judged: a test behind one is taken as compiled.
+`--test-commands` prints the cargo command that runs every named test with its
+features. `--refresh` rewrites values,
+expressions, pinned exclusion expressions, test features and site counts from
+the source and keeps the classifications; `--propose` prints a skeleton with
+candidate sites and tests for an unlisted limit.
 
 Facts it records about the current tree:
 
@@ -82,9 +201,16 @@ Facts it records about the current tree:
 - A default block carries at most eleven of its own transactions, not 512: the
   proposer selects up to the Network input cap of the committed FASTPQ source
   policy.
-- The proof attachment list of a signed transaction is at most 16 attachments
-  and 8 MiB of canonical frame, below the 9,437,184-byte proof ceiling. A
-  ceiling-sized proof cannot travel as an attachment today.
+- A signed transaction carries proofs and admitted key material as signed
+  inline attachment occurrences next to an ordered intent descriptor
+  (`SignedAttachmentsV1`, layout in `norito.md`): at most 16 occurrences of at
+  most 9,437,184 bytes each, 16 declared actions and 9,502,720 bytes of
+  canonical frame. A ceiling-sized proof is one occurrence and its signed
+  transaction is within the 10 MiB cap. Only the transaction-level proof
+  carriers are consumed today: a declared native instruction action is refused
+  at admission until invocation-scoped handles and the typed bridge exist. The
+  8 MiB proof attachment list remains the body of Torii's non-consensus prover
+  API and is no longer a transaction field.
 - The privacy action bound equals the proof ceiling, so an action carrying a
   ceiling-sized proof is rejected as too large; two maximum actions per block
   do not fit any payload limit.
@@ -92,20 +218,25 @@ Facts it records about the current tree:
   `sync_max_bytes`; the largest payload with one is 16,512,992 bytes.
 - Transaction gossip frames are 256 KiB: a larger transaction stays with the
   node that admitted it.
-- 74 limits and gas charges that decide validity are read from node
-  configuration and bound into State only as a hash: decoded-instruction,
-  overlay, quarantine and query limits of `[pipeline]`, the proof, SCCP and
-  confidential limits of `[zk]` and `[confidential]`, and the atomic private
-  settlement, uploaded-model and DA ingest quota limits of `[nexus]`. Eight of
-  them are bound into the hash and compared by no state transition; four of
-  those (the settlement leg proof, capsule and sidecar sizes) are compared only
-  by Torii's settlement service.
+- 25 limits and charges that decide validity are still read from node
+  configuration and bound into State only as a hash: the decoded-instruction,
+  overlay, quarantine and query limits of `[pipeline]`, and the atomic private
+  settlement, uploaded-model and DA ingest quota limits of `[nexus]`. The 49
+  proof, SCCP and confidential limits and gas charges of `[zk]` and
+  `[confidential]` are committed State (see "Committed ZK validity policy"
+  below). Eight of the 74 are bound into a hash and compared by no state
+  transition; four of those (the settlement leg proof, capsule and sidecar
+  sizes) are compared only by Torii's settlement service.
 - The configured settlement carrier limit (4,194,304 bytes) is above the
   includable transaction bound of the default payload (4,128,768 bytes): a
   carrier near its limit passes the State check and is refused at queue
   admission.
 - An executed block may be 256 MiB of wire; the authenticated block-proof
-  carrier a client confirms inclusion through serves at most 32 MiB.
+  carrier a client confirms inclusion through serves at most 32 MiB, and so
+  does the portable finality-proof reader.
+- One section of a ZK1 envelope is at most 8 MiB, below the 9,437,184-byte
+  proof ceiling. zk-X509 proofs do not use that envelope; a ceiling-sized proof
+  could not travel in it.
 
 These are open relations and defects with owning tasks in the contract, not
 accepted behavior. The 300-second CRL age and presentation window are consensus
@@ -117,6 +248,428 @@ RAM-LFE budgets cover the registered program, key registration, request,
 evaluation, receipt, verification, opening, threshold opening, validator scratch
 and each class; those that need a selected profile have formulas and inputs and
 no number.
+
+## Committed ZK validity policy
+
+Every value that `compute_zk_consensus_policy_hash` binds is chain policy: the
+native PIPA-R and STARK proof and envelope limits, the shared batch limit and
+their enable switches, the
+SCCP proof and verifier-work limits, proof retention, bridge-proof windows, the
+relation-selecting Kaigi verifying-key references and parameter-set
+identifiers, the confidential anchor age, policy-transition windows and
+registry caps, and the verification gas schedule (58 fields). Its source is the
+committed custom parameter `zk_validity_policy_v1`. The type, the protocol
+default and the canonical validation are in
+`iroha_data_model::zk_validity_policy`; `iroha_core::zk_validity_policy` applies
+a policy to State.
+
+An ordinary authorized `SetParameter` installs or changes the policy, in
+genesis or later. Block construction freezes the policy of the predecessor's
+committed parameters for the whole block, so a change governs the next block,
+the genesis block runs under the protocol default, and a proof is judged by the
+policy of the block that executes it (no grandfathering). A payload is
+rejected, identically on every validator, when it is malformed, breaks a
+structural rule (a zero count, a size above the fixed protocol maximum, an
+invalid verifying-key reference) or is incoherent: a per-proof limit above the
+per-transaction limit, a per-transaction limit above the per-block limit, a
+proof limit above its envelope, or retained commitment-tree roots that do not
+cover the admissible anchor age. Limits may shrink while those rules hold;
+widening a retention window does not restore pruned records. A new per-height
+transition limit below a committed pending count is rejected. Executor
+data-model reconciliation can neither insert, replace nor remove the parameter.
+A chain that commits none uses the protocol default, so a default chain's
+genesis and World root are unchanged.
+
+A node configuration has no ZK validity key. `[zk]` and `[confidential]` hold
+local resources only (diagnostic workers, queues, retry and wall-clock budgets,
+polynomial-opening bounds and FASTPQ prover settings). A file that names a
+removed validity key fails with an unknown-parameter error; retired environment
+aliases are never read. Genesis generators
+sign the protocol-default confidential policy hash and cannot hash a node
+configuration into a header. The tracked Taira deployment carries its two
+non-default limits (8 MiB per confidential proof, 16 MiB per block) in
+`configs/soranexus/taira/genesis.template.json`. Torii's configuration record,
+the telemetry gauges and `iroha confidential gas get` report the gas schedule
+State charges. The P2P handshake advertises the protocol-default policy hash of
+the release, not the committed policy, so a node that restarts after a policy
+change still connects to peers that did not; block headers carry the committed
+policy hash and decide.
+
+The execution limits of the transaction pipeline follow the same design. The
+committed custom parameter `pipeline_validity_policy_v1`
+(`iroha_data_model::pipeline_validity_policy`, applied by
+`iroha_core::pipeline_validity_policy`) carries the overlay bounds, the IVM
+cycle and decoded-program bounds, the quarantine lane, the IVM query limits,
+the AMX budget model and `dynamic_prepass` (16 fields, 15 of them resource
+bounds of the contract). An authorized `SetParameter` installs or changes it
+and the change governs the next block; executor reconciliation cannot write
+it; a node installs local pipeline resources and the fee policy only
+(`State::install_node_pipeline`), and `[pipeline]` has no key or environment
+alias for a limit. The default ballot and tally verifying keys of `[gov]` are
+removed from the node schema: an election's proof relations are selected only
+by the keys the election commits.
+
+A Cargo feature that changes validity is measured as well as listed. The unit
+test `feature_parity_record` prints a record of one fixed scenario (a certified
+history with an authorized policy change, policy identities, limit decisions
+and verification gas) and `python3 scripts/check_zk_feature_parity.py` builds
+`iroha_core` under several feature selections and compares the records. Every
+`must_equal` record has to agree; a `gated` record (today the real native STARK
+proof, which a build without `zk-stark` does not compile) may differ only while
+the census lists that feature as an open gate.
+
+Verification gas is metered with the schedule frozen in each block's settings.
+`iroha_core::gas::meter_instruction`, `meter_instructions` and
+`confidential_gas_cost` take the schedule as an argument: the executor and
+trigger execution pass the transaction's frozen `zk.gas`, the IVM host the
+settings it was configured with for the block, queue admission and the fee
+quotes the schedule of the view they read. No process-wide schedule exists, so
+two States with different committed schedules run in one process; a certified
+chain test accepts a real proof priced at exactly the block gas limit under a
+committed schedule and rejects it one gas unit above, on nodes with divergent
+settings (`gas.process_wide_schedule`, done).
+
+Custom parameters whose payload Core validates and reads as committed State
+(the two validity policies, the lane policy, the governed gas rates, the DA
+ingest admission policy, the Nexus runtime catalog, the Hijiri, validation-fee,
+account-admission and private-root-fee policies, the corridor registry, their
+transition commands, alias bootstrap grants and Hijiri account risks) are
+written only by a validated `SetParameter`: executor data-model reconciliation
+neither inserts, replaces nor removes them
+(`is_consensus_owned_custom_parameter`).
+
+Open in this family, each a census entry with its owner:
+
+- `halo2.enabled` and `stark.enabled` are committed fields. The plan author
+  decided they are deleted; that changes the consensus-policy hash preimage and
+  needs the pinned first-release history regenerated in a declared cutover
+  (`switch.zk.backend_enabled`). `zk-stark` is still a Cargo feature
+  (`feature.zk_stark`).
+- `confidential.enabled`, `assume_valid` and `verifier_backend` are still
+  node-local and compared in the P2P handshake; the plan author decided they
+  are deleted (`cfg.confidential.node_switches`).
+- The AMX budget values are tested at their boundary through the budget
+  check with the limits a block freezes
+  (`amx_budgets_accept_exactly_the_committed_budget_and_reject_one_unit_above`);
+  no test drives that check through the host's `AXT_COMMIT` syscall.
+- The fee policy `[pipeline.gas]` and the `[nexus]`, `[gov]` and `[crypto]`
+  validity values are still node configuration (`cfg.pipeline.gas_identity`,
+  `cfg.nexus.*`, `cfg.governance`, `cfg.crypto.algorithms`); ten `[nexus]`
+  resource bounds remain node-local defects of the resource contract.
+
+## Runtime-validity census
+
+[`zk_runtime_validity_census.json`](zk_runtime_validity_census.json) lists
+every place where the validity or availability of a ZK, privacy, FHE or proof
+operation depends on an environment variable, node-local configuration, a Cargo
+feature, a source, build or catalog digest, a chain condition, a readiness or
+qualification record, an activation or lifecycle switch, a global manifest or a
+wall clock, with what it gates, the committed source that decides it instead
+(or its removal) and the owning plan task.
+`python3 scripts/check_zk_runtime_validity.py` scans 29 crates (the proof,
+privacy, FHE and execution crates, the node with its configuration, P2P
+handshake and Torii, the genesis and deployment tools, the test network, the
+command line, the Rust SDK and the native bridges of the other SDKs) and the
+SDK sources. It fails when a detector finds a site no entry lists, when a
+listed site is gone, when a field of a node-configuration catalog or a Cargo
+feature is unclassified, or when a `done` entry loses its test. Besides gate
+names it detects any installation of a complete ZK or pipeline settings value
+into a State, any write to a `zk` or `pipeline` settings field (plain or
+compound assignment), any mutable borrow or `clone_from` of one, every
+production use of a protocol-default gas schedule or settings value, and every
+read of a field of the node-configuration policy catalogs that is not
+committed yet. The settings fields of `State` are private: the installers are
+their only production writers and other code reads them through
+`installed_zk`, `installed_pipeline`, the snapshots, a view or a block. A
+typed failure of a node's own entropy, allocator, storage or platform is
+recorded as a local resource, not as unfinished work; a version check, a
+block-height deadline and the outcome name of a passed deadline
+(`...DeadlineExpired`) are recorded as not a gate, and `fully_qualified`
+parsing names and `build_sha<bits>_...` builder functions are not matched. Two
+classes are derived from the source: a lifecycle enum whose variants are only
+`Active` and `Revoked` (with or without `Superseded`) is the revocation state
+of a committed record, not an activation gate, and a `bool` constant that is
+`true` gates nothing; a `bool` constant on the proof path that is `false` and
+named as an availability or completion flag is listed as unfinished work. A
+test module renamed with `#[path = "file.rs"]` is recognized as test code. The
+census states what the text scan cannot see. An entry is written
+from reading its code (`read`) or assigned by a path rule (`path_rule`); a
+path-rule entry records where a class of names occurs and who owns that code,
+not a site-by-site reading. Every entry with status `open` or `unsupported`
+was read site by site; the remaining path-rule entries are local resources,
+names that are not a gate and code outside the plan. Listing a gate does not
+remove it.
+
+## Operation and admission-route inventory
+
+[`zk_operation_inventory.json`](zk_operation_inventory.json) maps each
+operation of the plan's products through its native instruction and wire id,
+handler, proof relation and verifier (or the typed refusal that stands where a
+relation is missing), authority checks, Kotodama binding, Torii routes and the
+files of the six SDK families and of the native bridges that reference it. It
+also lists the proof-admission routes (generic verification, IVM syscalls,
+Torii, preverification, verifying-key registration, direct protocol
+instructions, genesis, restore), the native and in-circuit digests each
+product uses, and every site where an uploaded key, a source hash or catalog
+membership selects which proof is accepted. Each entry records presence,
+verification, state effects and delivery separately; a registered type is not
+a usable operation, and no operation is recorded as delivered.
+
+`implemented` verification means a compiled verifier that the operation
+reaches by a recorded path from its handler. `test_evidence` then says whether
+a cited test that runs by default calls that verifier (`default`), only an
+ignored or feature-gated test does (`not_default`), or none does (`none`). A
+cited test that is no such evidence says what it covers instead.
+
+`python3 scripts/check_zk_operation_inventory.py` reads the source and fails
+when the instruction registry, the twelve-protocol list, a closed relation,
+class, job-kind or executable list, the family syscalls and Kotodama builtins,
+the Torii route catalog, an SDK or a native bridge gains or loses an entry in
+these families that the inventory does not record; when a handler gains an
+authority check or a proof-verifier call the inventory does not list; when a
+verifier or restore-validator entry point is called in a file or a number of
+times that no admission route class records; when a recorded path from a
+handler no longer names its verifier, or a cited test no longer reaches it;
+and when a recorded symbol or test is gone. `--refresh` recomputes the scanned
+parts and keeps every classification; `--propose` prints a skeleton for an
+unlisted instruction or route. The reading is textual; the script's
+documentation states what that does not show. Primitive parameters and
+deterministic vectors are in
+[`zk_primitive_workloads.json`](zk_primitive_workloads.json), and the gates on
+validity in the runtime-validity census above; the inventory points at both by
+key.
+
+Facts it records about the current tree:
+
+- 81 instructions are registered in these families. Twelve operations have no
+  instruction. Seven travel another way: a complete IVM proof is a separate
+  executable variant, the ordinary FASTPQ artifact is produced and checked
+  only by the node that proves it, RAM-LFE execution is a Torii route, the
+  leg proofs of an atomic private settlement are verified by committee
+  validators before they sign the certificate the instruction checks, and an
+  AXT envelope, a dataspace proof inside it and an anchored spend inside it
+  are assembled by syscalls. Five do not exist: the WG witness assertion,
+  confidential shield, transfer and unshield, RAM-LFE opening, RAM-LFE
+  threshold opening and SoraCloud threshold decryption.
+- The twelve protocols share one instruction and one dispatch. This binary
+  refuses the compiled profile of ZK-ACE, ZK-AMS, Vega and ZK-X509 and
+  constructs the other eight, which a default test asserts. The effects of
+  all twelve are behind the activation and all-twelve qualification records.
+- The twelve protocols have thirteen typed roles (`PrivacyActionRoleV1`;
+  ZK-AMS has two actions). `exact12.roles` records, for each role and as
+  separate facts, whether the dispatch runs a native verifier for it, which
+  ledger-effect class it hands to the state executor and whether that effect
+  is applied, and that the operation is not delivered. The typed registry
+  `PRIVACY_ROLE_DISPATCH_TABLE_V1` in `iroha_core_privacy` is authoritative;
+  a Rust test compares the inventory rows with it. Five roles of four
+  protocols are refused by the dispatch itself with a typed
+  `UnsupportedOperation` error that names the role and its concrete
+  limitation, so the refusal does not depend on an activation record.
+- `exact12.single_route` is the guard of the single path. The envelope is
+  assembled only by `PrivacyProofEnvelopeV1::bind_v1`, which derives every
+  identity and the statement digest from the typed statement; builders and
+  adapters supply a statement and a proof. `SubmitPrivacyProofV1` is the only
+  instruction that carries an envelope; its handler resolves the role once,
+  calls the dispatch once and applies the sealed effect once. The action
+  driver builds a transaction for one role and returns it only when it is
+  that single canonical instruction. Generic verification and contract or
+  proved executables are recorded as routes that refuse an Exact12
+  submission. The check fails when a second assembler, carrier, dispatch
+  call, native-verifier caller or effect consumer appears.
+- A typed refusal stands where a relation is missing for the proved IVM
+  executable, RAM-LFE proof mode, both BFV backends, every SoraCloud FHE job,
+  standalone ZK ballots and tallies, and bridge proofs. Two more refusals
+  close AXT: the host refuses every dataspace FASTPQ proof a contract carries
+  into an envelope, because its only production admission mode is the
+  unanchored one, and block validation refuses every envelope that carries a
+  spend before any proof is examined. The one instruction that consumes an
+  AXT FASTPQ proof is the fee-sponsor vault allocation. The accepted HKDF
+  RAM-LFE backend has no consumer, and identifier claims rest on a resolver
+  signature.
+- Fourteen operations have an `implemented` verifier. For ten a default test
+  calls it. For two only an ignored or feature-gated test does: RaceV1
+  verification and Kaigi usage recording with a proof. For two none does:
+  game settlement and committee validation of a settlement leg. Among the
+  twelve protocols no test calls the IVM private-note verifier, and the
+  default PQ-MASP test shows rejections only.
+- Kaigi creation and ending verify a host authorization proof in a private
+  session, like joining and leaving. `VerifyProof` requires no relation: the
+  circuit of the registered key selects it.
+- A contract can queue only `SubmitBallot` through the instruction bridge.
+  The only other Kotodama bindings are the AXT builtins of the three AXT
+  carriers.
+- World restore verifies no proof. It validates the RAM-LFE policies, the
+  six AXT counter, incarnation, budget and replay ledgers, the privacy
+  consensus policy at the committed height, privacy activations and the
+  qualification record, the persisted privacy and
+  atomic-settlement state, the proof-tag and verifying-key indexes, identifier
+  claims, the timed-OVN and Parliament records and the SoraCloud service
+  history; State construction rebuilds the proof-status index and validates
+  standalone election state. The content of a verifying-key record is
+  validated at use, not at restore.
+- Of 19 selection sites, a substituted Halo2 key, a generic STARK key under a
+  semantic name, an election key without a vote role, an uploaded RAM-LFE
+  verifier description, a drifted SoraCloud role key, a changed envelope
+  digest, a release manifest with another catalog commitment and a fee-sponsor
+  proof under another policy are each rejected by a test that reaches the
+  site. Still open, with owners in the inventory: the all-twelve
+  qualification record decides admission (its registration also requires the
+  running binary's ABI hash and syscall list, the chain id and the
+  four-validator roster), the compiled-profile digests bind implementation
+  provenance, the RaceV1 and classed-race profile ids hash Rust source bytes,
+  a Cargo feature decides whether a SoraCloud key payload is validated, and
+  atomic settlement needs a node-configured activation.
+
+## Economic invariant matrix
+
+The [economic invariant matrix](zk_economic_invariants.json) classifies every
+operation of the operation inventory as moving value or not, and records each
+economic effect of the value-bearing products as one row: its class (private
+issuance, transparent supply change, deposit, withdrawal, reserve movement,
+settlement, inter-pool movement), handler, the ledger invariants that hold
+whatever the proof verifier returns with their enforcement sites, who may issue
+the units, what stays exposed when a proof is accepted wrongly, and the tests
+that mutate it. Hidden inflation, reserve theft and transparent minting are
+three separate answers per row. Per protocol it records how retained state
+stays readable, how an effect is cancelled or expires, how a failure rolls
+back, and how assets leave under key revocation, policy revocation and
+correction.
+
+An invariant recorded as `enforced` says that a named site refuses a named
+mutation. It is not a statement about any proof relation: a reserve balance
+bounds what can leave a pool and shows nothing about what is inside it, and
+every such row lists proof soundness and hidden conservation as not
+established.
+
+What the matrix records about the tree, each pinned by the checker:
+
+- Two protocols may own a public reserve: Orchard and private-IVM notes
+  (`PRIVACY_PUBLIC_RESERVE_PROTOCOLS_V1`). A reserve is debited only by the
+  exact verified bridge of its own pool, by exactly the credited amount and
+  never below zero; a deposit moves units the depositor holds. With
+  verification forced to succeed in a test-only harness, a withdrawal cannot
+  exceed the reserve, cannot reach another pool, asset, balance scope or
+  ordinary balance, and mints nothing. The same harness shows the exposure
+  that remains: the whole reserve of the one pool is paid out.
+- FCMP++, PQ-MASP, Anonymous PGC and atomic-settlement pools are closed: no
+  instruction moves a transparent unit for them. A wrongly accepted proof is
+  hidden inflation confined to the pool.
+- No pool has a turnstile counter or a committed supply cap. The genesis
+  notes of a private-IVM pool are matched by no reserve deposit. The supply of
+  an FCMP++, PQ-MASP or settlement pool is the hidden value of a genesis set
+  governance supplies, and the total supply of an Anonymous PGC pool is bound
+  to no asset. A ZK-ACE policy carries no amount. Cross-pool conservation of a
+  settlement is checked by the committee off the ledger only.
+- Confidential assets have committed pool state and no shield, transfer or
+  unshield instruction. An anchored AXT spend is refused and its replay
+  reservation is not connected.
+- Root publication and history follow the committed root policy, with one
+  class of exception: the protocol lifecycle (Proposed, Suspended, Retired),
+  the lifecycle read in generic root publication and the node-configured
+  settlement activation each stop effects, roots or exits. In a suspended or
+  retired protocol an unshield is refused, and Retired is terminal, so
+  shielded value has no exit. No path carries a pool to a corrected relation.
+  These are recorded as open defects with their owners, not as accepted
+  behaviour.
+
+`python3 scripts/check_zk_economic_invariants.py` fails when an operation of
+the operation inventory is not classified, a value-bearing operation has no
+row, the handler of an operation recorded as moving no value starts to name a
+ledger-value identifier, a closed list the matrix mirrors changes (the twelve
+protocols, the ledger-effect classes, the reserve owners, the root roles, the
+lifecycle states, the value-balance directions), a cited handler, enforcement
+site or test is gone or no longer names what the row says, a closed pool's
+apply code starts to name an asset movement, a bound is described as
+soundness, or a gap has no open defect with an owning task. `--show` prints
+one line per effect and `--defects` one per open defect. The reading is
+textual and the tests are not run by the script; its documentation states the
+limits.
+
+## Primitive and workload specification
+
+The [primitive and workload specification](zk_primitive_workloads.json) is the
+delivery-plan task H.1 output, and its `semantic_profiles` section is the task
+H.2 output. `python3 scripts/check_zk_primitive_workloads.py`
+checks it against the source and fails when a file of the proof, privacy, FHE,
+IVM and primitive-owner scope starts to name a digest, or a listed wrapper of
+one, that is not listed for it, and when a production function of the catalog,
+Kaigi, spentness, MKHE or privacy-model owners calls a digest without a
+recorded role. It establishes consistency, not cryptographic qualification or
+performance. What it records:
+
+- The catalog commitment, the Kaigi authorization identities, the confidential
+  spentness tree and the MKHE proof digest all hash today with the six-lane
+  `GoldilocksDigest384V1`, which
+  [the digest boundary](fastpq_compact_digest_security.md) records as
+  unqualified. H.2 selected raw BLAKE3-256 over one canonical byte frame as the
+  canonical native commitment for the moving roles other than the spentness
+  tree, and records the required property and the accepted level of each role:
+  about 128 bits against classical and about 85 bits against quantum collision
+  search in the query model, so no composition that binds one of these digests
+  may be labelled 128 bits against quantum collision search. The spentness
+  tree is selected with the State commitment in G.3 and never stays on the
+  six-lane digest. F.5 implements the selection. `iroha_crypto::Hash` stays the
+  ledger identity hash.
+- H.2 froze the shared backend transcript: the FIPS 202-based atomic
+  whole-tape transcript of the committed q77 engine, whose every hash input now
+  absorbs one complete typed profile descriptor in place of a legacy
+  parameter-set name and a hand-written identity string. Each frozen profile
+  has a SHA3-256 identity computed from its declared parameters only; workloads
+  name those identities and a measurement taken under another identity is
+  inapplicable. The transcript's classical random-oracle claim is conditional
+  on B.2's exact-geometry reduction, its quantum claim and complete hiding are
+  open, and no numerical soundness level is established. The in-circuit
+  Goldilocks digest of ZK-ACE and of the RAM-LFE phone-control relation is
+  blocked: no analysed replacement of the six-lane digest exists.
+- Every native commitment that moves is bound into a proof, so none can be
+  re-hashed on its own. The catalog commitment is the catalog field of every
+  frame of the privacy STARK substrate, of the generic native STARK verifier
+  and of the MKHE proof hash; the Kaigi identities are instance values of the
+  authorization relation; the execution catalog identity is the catalog field
+  of every frame of the execution fork. Each changes in the same cutover as the
+  proof profile that consumes it. The spentness tree is provisional on G.2/G.3;
+  no relation opens it today.
+- MKHE: the commitment, transcript and challenge hash of the qPCS is
+  proof-internal and follows the shared backend. Its outer parameter, release,
+  source and receipt identities are domain-tagged Keccak-256 digests; the
+  release manifest digest and the readiness digest seed the admission proof
+  through the compiled profile digest. The ceremony identities and the BLAKE3
+  payload digests exist in test-only code only. The statement identity shared
+  by all twelve protocols is BLAKE3-256 and is absorbed by every engine.
+- Two Pasta Poseidon parameterizations are compiled: 57 partial rounds (the
+  Axiom tables of the confidential relations and the PLONK gadgets) and 56
+  (P128Pow5T3 of the Kaigi relation and the SoraFS credential circuit). The
+  56-round owner in `iroha_zkp_poseidon::pasta` is a candidate without
+  production callers. The thirteen public RAM-LFE commitments use the ledger
+  identity hash; only the private ones use BLAKE3.
+- BN254 Poseidon: an independent Grain and Cauchy regeneration reproduces all
+  621 fixed field elements and every square MDS minor is nonzero. The
+  width-three table uses 56 partial rounds where the published BN254
+  instantiation uses 57, so no constant is shared with it. The width-six table
+  is one partial round below the paper's margin rule as evaluated here (a
+  margin-rule defect candidate, not an attack). The two- and six-input helpers
+  are single permutations without capacity or domain separation. H.2 froze the
+  corrections: the published width-three instantiation with 57 partial rounds,
+  width six with 8 full and 60 partial rounds (the deployed circomlib table
+  values; equality of the generated table with that table is not yet checked),
+  and fixed-arity sponges with one tagged capacity coordinate, the six-input
+  hash over two rate-5 blocks. F.5 implements them with I.5; the parameters in
+  the tree are unchanged until then.
+- Post-quantum: `Cargo.lock` holds no pre-standard package. ML-KEM-512/768/1024
+  and ML-DSA-44/65/87 reproduce the official known-answer response and the
+  identities that separate FIPS 203 and FIPS 204 from the round-three
+  algorithms. Kyber and Dilithium names still label these bytes in types,
+  configuration keys and telemetry, and ACVP vectors are not covered. The
+  Falcon-512 trapdoor arithmetic of the Bootle Lantern issuer is adapted in
+  tree from a pre-standard implementation and is invisible to a lockfile audit.
+  H.2 froze it as a Falcon-512-derived Lantern trapdoor profile, never labelled
+  FN-DSA, and the ML-KEM and ML-DSA profiles as the final FIPS 203 and FIPS 204
+  parameter sets; the known answers for the adaptation and ACVP coverage are
+  F.5 and P.13 work.
+- Exploratory workloads for the shared backend and the product roles name the
+  frozen profiles they depend on and the selections they still wait for; H.3
+  measures only those whose selections are complete. Every recorded
+  measurement is a single exploratory run.
 
 ## Current implementation and evidence
 
@@ -415,6 +968,18 @@ The [canonical V1 contract](ram_lfe_execution_proof.md#canonical-v1-contract)
 (roles, leakage bound and lifetime query limit, three classes, function identity,
 policy, receipt, opening and cleartext reference) is implemented as types,
 commitments and tests; no evaluator, relation or Core path consumes it yet.
+It requires a proved normalizing lowering under one fixed public schedule for
+each class profile, because instruction-by-instruction evaluation of the
+RNS-BGV starting candidates does not hold the maximum shape. That lowering is
+specified with a cleartext oracle; no encrypted normalizer, schedule or proof
+of it exists.
+
+The [provider-backed phone-control contract](ram_lfe_execution_proof.md#provider-backed-phone-control)
+(challenge, credential, provider key policy and a hiding number commitment over
+the unqualified six-lane Goldilocks digest) is implemented as types and tests.
+Nothing consumes it: phone claims still name the pinned canonicality attestor
+and still refuse, and the private relation, State enforcement and the one-call
+flow are open.
 
 The candidate [packing](ram_lfe_plaintext_packing.md) and
 [semantic](ram_lfe_semantic_commitments.md) interfaces preserve private length,

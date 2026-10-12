@@ -27,12 +27,11 @@ impl Client {
     /// The canonical POST signs the entire original body plus exact URI/timestamp/nonce.
     /// Its body-derived challenge is echoed once in the finality header and native statement.
     ///
+    /// `root_scope` must come from the caller's independently selected signed genesis.
     /// This is data-only: callers must authenticate all four independently selected node
     /// statements with that derived challenge, full current finality and World schema,
     /// complete fixed keys, exact original values and independently admitted catalog.
     /// The retained request preimage must be compared, not replaced with a query challenge.
-    ///
-    /// `scope` comes from the independently selected chain root, not response contents.
     ///
     /// # Errors
     /// Invalid native selector/challenge/root/default credentials, transport/signature failure,
@@ -41,7 +40,7 @@ impl Client {
         &self,
         selector: NativeAuthorityOriginalsSelectorV1,
         challenge: [u8; 32],
-        scope: iroha_data_model::sumeragi_finality::CertifiedResultScope,
+        root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
     ) -> Result<NativeAuthorityOriginalsReadV1> {
         let request = NativeAuthorityOriginalsRequestV1 {
             network_id: self.network_id,
@@ -141,9 +140,12 @@ impl Client {
         original.validate_request_correlation(&request)
             .map_err(|_| eyre!("native authority originals response changed exact signed request or private shape"))?;
         // A self-signed node statement supplies structure only; installed selection is external.
-        original.attestation.verify(scope).map_err(|_| {
-            eyre!("native authority originals statement has invalid structure/signature")
-        })?;
+        original
+            .attestation
+            .verify(root_scope.into())
+            .map_err(|_| {
+                eyre!("native authority originals statement has invalid structure/signature")
+            })?;
         Ok(NativeAuthorityOriginalsReadV1 {
             request_wire,
             response_wire,

@@ -158,7 +158,7 @@ mod tests {
             commitment_index: index,
             leaf,
             certificate_id: [9; 32],
-            effect_hash: [0x45; 32],
+            effect_hash: [5; 32],
         }
     }
 

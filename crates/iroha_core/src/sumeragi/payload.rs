@@ -296,11 +296,16 @@ pub(crate) fn recheck_sccp_forgery_for_proposal(
 ) -> Result<(), PayloadError> {
     use crate::smartcontracts::isi::sccp::admission;
 
+    let committed_time_ms = crate::smartcontracts::isi::sccp::hold::committed_time_ms(view)
+        .map_err(|error| PayloadError::SignatureCustodyInvariant(error.to_string()))?;
     loop {
         // Empty and ordinary selections need no extra original-history or pairing work.
         if !selected.iter().any(|transaction| {
-            admission::exempt_class_of_entrypoint(view.world(), transaction.entrypoint())
-                == Some(admission::SccpExemptClassV1::ForgeryEvidence)
+            admission::exempt_class_of_entrypoint(
+                view.world(),
+                transaction.entrypoint(),
+                committed_time_ms,
+            ) == Some(admission::SccpExemptClassV1::ForgeryEvidence)
         }) {
             return Ok(());
         }
@@ -327,8 +332,11 @@ pub(crate) fn recheck_sccp_forgery_for_proposal(
         let mut kept_forgery = false;
         selected.retain(|transaction| {
             if refusal.is_some()
-                || admission::exempt_class_of_entrypoint(view.world(), transaction.entrypoint())
-                    != Some(admission::SccpExemptClassV1::ForgeryEvidence)
+                || admission::exempt_class_of_entrypoint(
+                    view.world(),
+                    transaction.entrypoint(),
+                    committed_time_ms,
+                ) != Some(admission::SccpExemptClassV1::ForgeryEvidence)
             {
                 return true;
             }
@@ -674,6 +682,8 @@ pub fn select(
     });
     let mut selected = Vec::new();
     let mut bytes = 0usize;
+    let committed_time_ms = crate::smartcontracts::isi::sccp::hold::committed_time_ms(view)
+        .map_err(|error| PayloadError::SignatureCustodyInvariant(error.to_string()))?;
     let mut sccp_budget = SccpExemptBlockBudgetV1::new(view.world());
     let mut forgery_selected = false;
     let mut original_parent = None;
@@ -696,7 +706,8 @@ pub fn select(
         if next > max_bytes {
             continue;
         }
-        let class = exempt_class_of_entrypoint(view.world(), transaction.entrypoint());
+        let class =
+            exempt_class_of_entrypoint(view.world(), transaction.entrypoint(), committed_time_ms);
         if class == Some(SccpExemptClassV1::ForgeryEvidence) {
             if forgery_selected {
                 continue;

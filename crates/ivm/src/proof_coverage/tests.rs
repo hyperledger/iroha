@@ -87,9 +87,23 @@ fn vm_error_samples() -> Vec<VMError> {
         .try_reserve_bytes(1)
         .expect_err("an exhausted budget refuses");
     drop(occupied);
+    let bytes = norito::encode_canonical(&vec![7_u8; 16]).unwrap();
+    let decoded = norito::core::with_decode_limits_scope(
+        norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+        || {
+            norito::decode_canonical_for_admission::<Vec<u8>>(
+                &bytes,
+                norito::canonical_decode_limits(bytes.len()),
+            )
+        },
+    )
+    .unwrap_err()
+    .into_local_refusal()
+    .unwrap();
     vec![
         VMError::ExecutionDeferred(ExecutionDeferral::AllocationUnavailable),
         VMError::AllocationDeferred(refusal),
+        VMError::DecodeDeferred(decoded),
         VMError::Metered {
             gas: 1,
             source: Box::new(VMError::OutOfGas),
@@ -1261,6 +1275,7 @@ fn every_vm_error_projects_only_completed_deterministic_faults() {
     let excluded = [
         "ExecutionDeferred",
         "AllocationDeferred",
+        "DecodeDeferred",
         "HostUnavailable",
         "SyscallGasQuoteExceeded",
         "SyscallMeteringModeMismatch",

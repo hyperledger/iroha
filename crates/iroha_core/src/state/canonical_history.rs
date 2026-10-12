@@ -516,7 +516,7 @@ impl<'a> CanonicalHistorySource<'a> {
             .ok_or_else(|| {
                 invalid("canonical history lacks its authenticated native root scope".into())
             })?
-            .result_scope();
+            .root_scope();
         let mut expected_iroha = start.iroha;
         let mut expected_core = start.core;
         let mut expected_result = start.result;

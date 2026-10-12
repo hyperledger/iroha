@@ -129,16 +129,29 @@ impl NativeChoicesV1 {
         request: &NativeIntentV1,
         source: &PreparationSourceV1<'_>,
     ) -> Result<Self> {
+        let value = Self::decode_original(bytes)?;
+        value.require(manifest, request, source)?;
+        Ok(value)
+    }
+
+    fn decode_original(bytes: &[u8]) -> Result<Self> {
         if bytes.is_empty() || bytes.len() > MAX_BYTES {
             return Err(state::Error::WitnessLost("native choices bound"));
         }
-        let value: Self = norito::decode_canonical_with_limits(
-            bytes,
-            norito::canonical_decode_limits(bytes.len()),
-        )
-        .map_err(|_| state::Error::WitnessLost("native choices canonical frame"))?;
-        value.require(manifest, request, source)?;
-        Ok(value)
+        // A refused local read does not establish that durable choices were lost.
+        // Keep the original attempt classification before leaving its decode scope.
+        norito::core::classify_decode_attempt(|| {
+            norito::decode_canonical_with_limits(
+                bytes,
+                norito::canonical_decode_limits(bytes.len()),
+            )
+        })
+        .map_err(|error| {
+            state::decode_attempt_error(
+                error,
+                state::Error::WitnessLost("native choices canonical frame"),
+            )
+        })
     }
 
     fn require(
@@ -324,6 +337,49 @@ mod tests {
         assert_eq!(fills, 128);
     }
     #[test]
+    fn retained_choices_decode_refusal_preserves_originals_for_exact_retry() {
+        let value = NativeChoicesV1 {
+            version: 1,
+            manifest: [1; 32],
+            source: [2; 32],
+            request: [3; 32],
+            nonce: Fp::from(9).to_repr(),
+            observation: Some(Observation {
+                boot: [4; 32],
+                milliseconds: 123,
+            }),
+        };
+        let bytes = value.encode().unwrap();
+        let unchanged = bytes.clone();
+        // A zero enclosing field budget refuses before any source-binding decision.
+        let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+        let error =
+            norito::with_decode_limits_scope(limits, || NativeChoicesV1::decode_original(&bytes))
+                .unwrap_err();
+        let state::Error::DecodeResource(original) = error else {
+            panic!("temporary choices read refusal became a custody verdict: {error:?}");
+        };
+        assert_eq!(
+            original.kind(),
+            norito::core::DecodeAttemptErrorKind::EnclosingLimit
+        );
+        assert_eq!(bytes, unchanged);
+        let restored = NativeChoicesV1::decode_original(&bytes).unwrap();
+        assert_eq!(restored.encode().unwrap(), unchanged);
+        assert_eq!(restored.nonce(), value.nonce());
+        assert_eq!(restored.time(), value.time());
+        restored
+            .require_binding([1; 32], [2; 32], [3; 32], Fp::from(7).to_repr(), true)
+            .unwrap();
+        for malformed in [Vec::new(), vec![0], vec![0; MAX_BYTES + 1]] {
+            assert!(matches!(
+                NativeChoicesV1::decode_original(&malformed),
+                Err(state::Error::WitnessLost(_))
+            ));
+        }
+    }
+
+    #[test]
     fn retained_choices_bind_every_source_and_optional_clock_without_resampling() {
         let mut value = NativeChoicesV1 {
             version: 1,
@@ -345,7 +401,7 @@ mod tests {
         require(&value, true).unwrap();
         assert!(require(&value, false).is_err());
         let bytes = value.encode().unwrap();
-        let restored: NativeChoicesV1 = norito::decode_canonical(&bytes).unwrap();
+        let restored = NativeChoicesV1::decode_original(&bytes).unwrap();
         assert_eq!(restored.nonce(), value.nonce());
         assert_eq!(restored.time(), value.time());
         require(&restored, true).unwrap();

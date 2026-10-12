@@ -1,0 +1,137 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "duplicate_resume_while_pending_only_reads",
+  "category": "duplicate_resume",
+  "rules": [
+    "reconcile_before_decide",
+    "no_replacement_while_unresolved"
+  ],
+  "description": "Resuming a pending workflow several times performs one read per call and nothing else, with or without an explicit retry authorization.",
+  "plan": {
+    "kind": "issuer_bootstrap",
+    "instance": "duplicate-resume-while-pending-only-reads",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "accepted"
+        ],
+        "statuses": [
+          "observed"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "FinalityPending",
+          "stage": "reconcile",
+          "step": 0
+        },
+        "effects": [
+          "build:0#1",
+          "sign:0#1",
+          "dispatch:0#1",
+          "status:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "pending"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        },
+        "sequence": 7
+      }
+    },
+    {
+      "op": "run",
+      "options": {
+        "retry_rejected_step": true
+      },
+      "script": {
+        "statuses": [
+          "observed"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "FinalityPending",
+          "stage": "reconcile",
+          "step": 0
+        },
+        "effects": [
+          "status:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "pending"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        },
+        "sequence": 7
+      }
+    },
+    {
+      "op": "recover",
+      "script": {
+        "statuses": [
+          "observed"
+        ]
+      },
+      "driver": "absent",
+      "expect": {
+        "result": "ok",
+        "effects": [
+          "status:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "pending"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        },
+        "sequence": 7
+      }
+    }
+  ]
+}

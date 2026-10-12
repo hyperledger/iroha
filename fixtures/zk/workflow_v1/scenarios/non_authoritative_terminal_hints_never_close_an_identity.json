@@ -1,0 +1,121 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "non_authoritative_terminal_hints_never_close_an_identity",
+  "category": "reconciliation",
+  "rules": [
+    "authoritative_outcomes_only"
+  ],
+  "description": "Terminal kinds that are not resolved from state and a response that is not bound to the requested identity leave the step pending. Only the state-resolved Expired closes it, and it is reported as Expired.",
+  "plan": {
+    "kind": "issuer_bootstrap",
+    "instance": "non-authoritative-terminal-hints-never-close-an-identity",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "options": {
+        "observation_timeout_ms": 2000,
+        "poll_interval_ms": 1000
+      },
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "accepted"
+        ],
+        "statuses": [
+          "hint_applied",
+          "hint_rejected",
+          "unbound_response"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "FinalityPending",
+          "stage": "reconcile",
+          "step": 0
+        },
+        "effects": [
+          "build:0#1",
+          "sign:0#1",
+          "dispatch:0#1",
+          "status:0#1",
+          "sleep:1000",
+          "status:0#1",
+          "sleep:1000",
+          "status:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "pending"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "statuses": [
+          "expired"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "Expired",
+          "stage": "reconcile",
+          "step": 0,
+          "resumable": false
+        },
+        "effects": [
+          "status:0#1"
+        ],
+        "status": "failed",
+        "steps": [
+          "rejected"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [
+            0
+          ],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 1,
+              "possible_admissions": 1,
+              "evidence": "ledger_expired"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

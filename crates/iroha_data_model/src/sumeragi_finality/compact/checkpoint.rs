@@ -115,16 +115,16 @@ impl SumeragiCommitCheckpointV1 {
     ///
     /// # Errors
     /// Rejects an empty, oversized, noncanonical or structurally malformed record.
-    pub fn decode_canonical(bytes: &[u8]) -> Result<Self, FinalityError> {
+    pub fn decode_canonical(bytes: &[u8]) -> Result<Self, FinalityReadError> {
         need(
             !bytes.is_empty() && bytes.len() <= MAX_COMMIT_CHECKPOINT_BYTES,
             "compact checkpoint frame exceeds bound",
         )?;
-        let value: Self = norito::decode_canonical_with_limits(
+        let value: Self = norito::decode_canonical_for_admission(
             bytes,
             norito::canonical_decode_limits(bytes.len()),
         )
-        .map_err(malformed)?;
+        .map_err(FinalityReadError::from)?;
         value.validate_bounds()?;
         Ok(value)
     }

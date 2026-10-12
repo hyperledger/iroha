@@ -197,7 +197,8 @@ impl PreparationV1<'_> {
     ///
     /// # Errors
     /// Changed receipt, anchor, source state, finality originals or recovery root;
-    /// missing/reordered paths, occupied insertion slot, or another operation.
+    /// missing/reordered paths, occupied insertion slot, or another operation. Local
+    /// decoder refusals retain their original cause and permit an unchanged retry.
     #[allow(clippy::too_many_arguments)]
     pub fn load_native_inputs(
         &self,
@@ -207,7 +208,7 @@ impl PreparationV1<'_> {
         public: &KagemushaWalletLineagePublicV1,
         q: [load::QInput; 3],
         budget: MemoryBudget,
-    ) -> Result<load::Inputs, Error> {
+    ) -> Result<load::Inputs, wallet_state::Error> {
         self.load_fold_fields(owner, step, predecessor, public, budget)
             .map(|fields| fields.with_q(q))
     }
@@ -221,10 +222,10 @@ impl PreparationV1<'_> {
         predecessor: &FoldedStateV1,
         public: &KagemushaWalletLineagePublicV1,
         budget: MemoryBudget,
-    ) -> Result<LoadFoldFieldsV1, Error> {
+    ) -> Result<LoadFoldFieldsV1, wallet_state::Error> {
         let capsule = &step.frozen.capsule;
         let fields = self.load_fields(owner, step, predecessor, public, budget)?;
-        let insertion = load_recovery(
+        let insertion = super::dispatch::proof(load_recovery(
             &capsule.body().statement.effect,
             &capsule.body().map_openings,
             &predecessor.source_state.core.load_redeem_recovery_root,
@@ -233,7 +234,7 @@ impl PreparationV1<'_> {
                 .successor_state
                 .core
                 .load_redeem_recovery_root,
-        )?;
+        ))?;
         Ok(LoadFoldFieldsV1 {
             state: fields.state,
             sigma: fields.sigma,

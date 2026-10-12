@@ -413,7 +413,9 @@ fn persist_fx_policy_registry(
     let previous = {
         let parameters = stx.world.parameters.get_mut();
         let previous = parameters.custom().get(next.id()).cloned();
-        parameters.set_parameter(Parameter::Custom(next.clone()));
+        parameters
+            .set_parameter(Parameter::Custom(next.clone()))
+            .expect("FX corridor registry is not a pipeline fee parameter");
         previous.unwrap_or_else(|| next.clone())
     };
     stx.world

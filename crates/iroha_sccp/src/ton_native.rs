@@ -69,7 +69,7 @@ const TON_MAX_BOC_BYTES: usize = 256 * 1024;
 const TON_MAX_BOC_CELLS: usize = 8_192;
 const TON_MAX_REFS: usize = 4;
 /// Maximum cell depth admitted by TON's reference cell traits.
-const TON_MAX_CELL_DEPTH: u16 = 1_024;
+pub const TON_MAX_CELL_DEPTH: u16 = 1_024;
 const TON_MAX_VALIDATORS: usize = 1_024;
 const TON_MAX_SIGNATURES: usize = 1_024;
 const TON_MAX_TOTAL_VALIDATOR_WEIGHT: u64 = 1_u64 << 61;
@@ -1008,6 +1008,20 @@ pub fn parse_ton_boc(bytes: &[u8]) -> Option<TonBoc> {
     if root >= cells_count {
         return None;
     }
+    // Every cell needs two descriptor bytes. Bind both the count and optional index
+    // to physical input before allocating from either advertised count.
+    let index_bytes = if has_index {
+        cells_count.checked_mul(offset_bytes)?
+    } else {
+        0
+    };
+    let expected_bytes = cursor
+        .checked_add(index_bytes)?
+        .checked_add(total_cells_size)?
+        .checked_add(if has_crc32c { 4 } else { 0 })?;
+    if cells_count > total_cells_size / 2 || expected_bytes != bytes.len() {
+        return None;
+    }
     let roots = vec![root];
     let index_offsets = if has_index {
         let mut offsets = Vec::with_capacity(cells_count);
@@ -1108,44 +1122,40 @@ fn ton_write_sized_uint(out: &mut Vec<u8>, value: usize, size: usize) -> Option<
 }
 
 fn ton_canonical_cell_order(boc: &TonBoc, root: usize) -> Option<Vec<usize>> {
-    fn visit(
-        boc: &TonBoc,
-        index: usize,
-        visiting: &mut [bool],
-        visited: &mut [bool],
-        postorder: &mut Vec<usize>,
-    ) -> Option<()> {
-        if *visited.get(index)? {
-            return Some(());
-        }
-        if *visiting.get(index)? {
-            return None;
-        }
-        *visiting.get_mut(index)? = true;
-        for reference in boc.cells.get(index)?.refs.iter().rev() {
-            visit(boc, *reference, visiting, visited, postorder)?;
-        }
-        *visiting.get_mut(index)? = false;
-        *visited.get_mut(index)? = true;
-        postorder.push(index);
-        Some(())
-    }
-
-    let mut visiting = vec![false; boc.cells.len()];
-    let mut visited = vec![false; boc.cells.len()];
+    // 0 unseen, 1 in this DFS ancestry, 2 fully emitted. A borrowed heap work stack
+    // preserves the original reverse-child DFS without recursion on hostile depth.
+    let mut state = vec![0_u8; boc.cells.len()];
     let mut postorder = Vec::with_capacity(boc.cells.len());
-    visit(boc, root, &mut visiting, &mut visited, &mut postorder)?;
-    if visited.iter().any(|seen| !seen) {
+    let mut work = vec![(root, false)];
+    while let Some((index, finish)) = work.pop() {
+        if finish {
+            *state.get_mut(index)? = 2;
+            postorder.push(index);
+            continue;
+        }
+        match *state.get(index)? {
+            2 => continue,
+            1 => return None,
+            _ => {}
+        }
+        *state.get_mut(index)? = 1;
+        work.push((index, true));
+        // Stack LIFO visits children in reverse, exactly as the original DFS.
+        for reference in &boc.cells.get(index)?.refs {
+            work.push((*reference, false));
+        }
+    }
+    if state.iter().any(|state| *state != 2) {
         return None;
     }
     postorder.reverse();
     (postorder.first() == Some(&root)).then_some(postorder)
 }
 
-fn ton_reject_duplicate_subgraphs(boc: &TonBoc) -> Option<()> {
+fn ton_reject_duplicate_subgraphs(boc: &TonBoc, order: &[usize]) -> Option<()> {
     let mut class_by_cell = vec![0_usize; boc.cells.len()];
     let mut classes = BTreeMap::<TonCellStructuralKey, usize>::new();
-    for index in (0..boc.cells.len()).rev() {
+    for index in order.iter().copied().rev() {
         let cell = boc.cells.get(index)?;
         let key = TonCellStructuralKey {
             descriptor: cell.descriptor,
@@ -1171,8 +1181,18 @@ fn ton_reject_duplicate_subgraphs(boc: &TonBoc) -> Option<()> {
 
 /// Encode the selected root in canonical cell order, rejecting invalid or duplicate subgraphs.
 pub fn encode_canonical_ton_boc(boc: &TonBoc, root: usize) -> Option<Vec<u8>> {
+    // A parsed graph has physical bounds, but its native levels/depths still need
+    // validation. Use the canonical order so crate-local builders may also supply
+    // an acyclic graph whose physical cells are not yet in topological order.
     let order = ton_canonical_cell_order(boc, root)?;
-    ton_reject_duplicate_subgraphs(boc)?;
+    ton_boc_cell_hashes_in_order(boc, order.iter().copied().rev())?;
+    encode_ton_boc_in_order(boc, &order)
+}
+
+// Private to this module: callers have validated the same graph's hashes and
+// obtained this complete topological order from ton_canonical_cell_order.
+fn encode_ton_boc_in_order(boc: &TonBoc, order: &[usize]) -> Option<Vec<u8>> {
+    ton_reject_duplicate_subgraphs(boc, order)?;
     let mut canonical_index = vec![usize::MAX; boc.cells.len()];
     for (index, old_index) in order.iter().copied().enumerate() {
         *canonical_index.get_mut(old_index)? = index;
@@ -1182,7 +1202,7 @@ pub fn encode_canonical_ton_boc(boc: &TonBoc, root: usize) -> Option<Vec<u8>> {
         return None;
     }
     let mut cell_data = Vec::new();
-    for old_index in &order {
+    for old_index in order {
         let cell = boc.cells.get(*old_index)?;
         if usize::from(cell.descriptor & 0x07) != cell.refs.len()
             || (cell.descriptor & 0x08 != 0) != cell.exotic
@@ -1255,10 +1275,11 @@ fn parse_canonical_single_root_boc(bytes: &[u8]) -> Option<(TonBoc, Vec<TonCompu
         }
     }
     // Validate descriptors, exotic payloads, and the 1,024-cell depth bound
-    // iteratively before the canonical-order DFS. This prevents a deeply
-    // nested hostile BOC from reaching recursive canonicalization first.
+    // iteratively before canonicalization, retaining the authenticated hashes for the
+    // caller. Canonical ordering also uses an iterative walk for every public entry point.
     let computed = ton_boc_cell_hashes(&boc)?;
-    if encode_canonical_ton_boc(&boc, root)?.as_slice() != bytes {
+    let order = ton_canonical_cell_order(&boc, root)?;
+    if encode_ton_boc_in_order(&boc, &order)?.as_slice() != bytes {
         return None;
     }
     Some((boc, computed, root))
@@ -1272,7 +1293,6 @@ pub fn ton_canonical_boc_v1(bytes: &[u8]) -> Option<Vec<u8>> {
     if boc.roots.len() != 1 {
         return None;
     }
-    ton_boc_cell_hashes(&boc)?;
     encode_canonical_ton_boc(&boc, *boc.roots.first()?)
 }
 
@@ -1331,13 +1351,20 @@ fn ton_boc_child_for_hash_level(
 /// Compute every cell's level mask, per-level hashes and depths bottom-up.
 /// Compute the level hashes and depths of every cell, rejecting invalid cell structure.
 pub fn ton_boc_cell_hashes(boc: &TonBoc) -> Option<Vec<TonComputedCell>> {
+    ton_boc_cell_hashes_in_order(boc, (0..boc.cells.len()).rev())
+}
+
+fn ton_boc_cell_hashes_in_order(
+    boc: &TonBoc,
+    children_first: impl Iterator<Item = usize>,
+) -> Option<Vec<TonComputedCell>> {
     let empty = TonComputedCell {
         mask: 0,
         hashes: [[0_u8; 32]; 4],
         depths: [0_u16; 4],
     };
     let mut computed = vec![empty; boc.cells.len()];
-    for index in (0..boc.cells.len()).rev() {
+    for index in children_first {
         let cell = boc.cells.get(index)?;
         let cell_type = ton_cell_type(cell)?;
         let pruned = match cell_type {
@@ -4671,5 +4698,113 @@ mod tests {
         }
         assert_eq!(multi_root.len(), 14 + 4 * usize::from(count));
         assert_eq!(parse_ton_boc(&multi_root), None);
+    }
+}
+
+#[cfg(test)]
+mod encoder_tests {
+    use super::*;
+
+    // Construct physical bytes directly: no encoder under test constructs this input.
+    fn chain_wire(depth: u16) -> Vec<u8> {
+        let count = depth + 1;
+        let body_bytes = usize::from(depth) * 4 + 2;
+        let mut wire = vec![0xb5, 0xee, 0x9c, 0x72, 2, 2];
+        wire.extend_from_slice(&count.to_be_bytes());
+        wire.extend_from_slice(&1_u16.to_be_bytes());
+        wire.extend_from_slice(&0_u16.to_be_bytes());
+        wire.extend_from_slice(&u16::try_from(body_bytes).unwrap().to_be_bytes());
+        wire.extend_from_slice(&0_u16.to_be_bytes());
+        for index in 0..depth {
+            wire.extend_from_slice(&[1, 0]);
+            wire.extend_from_slice(&(index + 1).to_be_bytes());
+        }
+        wire.extend_from_slice(&[0, 0]);
+        wire
+    }
+    fn graph(refs: &[&[usize]]) -> TonBoc {
+        TonBoc {
+            roots: vec![0],
+            cells: refs
+                .iter()
+                .enumerate()
+                .map(|(index, refs)| TonBocCell {
+                    descriptor: u8::try_from(refs.len())
+                        .expect("fixture cell reference count fits u8"),
+                    data_descriptor: 2,
+                    data: vec![
+                        u8::try_from(index).expect("fixture cell index fits its one-byte marker"),
+                    ],
+                    refs: refs.to_vec(),
+                    exotic: false,
+                })
+                .collect(),
+        }
+    }
+    #[test]
+    fn public_canonical_encoder_checks_native_depth_without_a_wrapper() {
+        let wire = chain_wire(TON_MAX_CELL_DEPTH);
+        let graph = parse_ton_boc(&wire).unwrap();
+        assert_eq!(encode_canonical_ton_boc(&graph, 0), Some(wire));
+        let excessive = parse_ton_boc(&chain_wire(TON_MAX_CELL_DEPTH + 1)).unwrap();
+        assert!(encode_canonical_ton_boc(&excessive, 0).is_none());
+    }
+    #[test]
+    fn canonical_order_walk_handles_the_physical_cell_limit_without_recursion() {
+        let depth = u16::try_from(TON_MAX_BOC_CELLS - 1).unwrap();
+        let graph = parse_ton_boc(&chain_wire(depth)).unwrap();
+        assert_eq!(
+            ton_canonical_cell_order(&graph, 0).unwrap(),
+            (0..TON_MAX_BOC_CELLS).collect::<Vec<_>>()
+        );
+        assert!(
+            encode_canonical_ton_boc(&graph, 0).is_none(),
+            "physical parse bounds do not grant native depth validity"
+        );
+    }
+    #[test]
+    fn canonical_order_preserves_shared_dags_and_refuses_cycles_or_unreachable_cells() {
+        let shared = graph(&[&[2, 1], &[3], &[3], &[]]);
+        assert_eq!(ton_canonical_cell_order(&shared, 0), Some(vec![0, 2, 1, 3]));
+        let encoded = encode_canonical_ton_boc(&shared, 0).unwrap();
+        // A crate-local builder may store a child before its parent. Preserve
+        // the same canonical bytes rather than imposing a new physical order.
+        let mut reordered = shared.clone();
+        reordered.cells.reverse();
+        for cell in &mut reordered.cells {
+            for reference in &mut cell.refs {
+                *reference = 3 - *reference;
+            }
+        }
+        reordered.roots = vec![3];
+        assert_eq!(
+            ton_canonical_cell_order(&reordered, 3),
+            Some(vec![3, 1, 2, 0])
+        );
+        assert_eq!(
+            encode_canonical_ton_boc(&reordered, 3),
+            Some(encoded.clone())
+        );
+        let canonical = parse_ton_boc(&encoded).unwrap();
+        assert_eq!(canonical.cells.len(), 4);
+        assert_eq!(canonical.cells[1].data, [2]);
+        assert_eq!(canonical.cells[2].data, [1]);
+        assert_eq!(canonical.cells[1].refs, [3]);
+        assert_eq!(canonical.cells[2].refs, [3]);
+        for invalid in [
+            graph(&[&[0]]),
+            graph(&[&[1], &[0]]),
+            graph(&[&[2], &[]]),
+            graph(&[&[], &[]]),
+        ] {
+            assert!(ton_canonical_cell_order(&invalid, 0).is_none());
+            assert!(encode_canonical_ton_boc(&invalid, 0).is_none());
+        }
+        assert!(ton_canonical_cell_order(&shared, 4).is_none());
+        assert!(encode_canonical_ton_boc(&shared, 4).is_none());
+        let duplicate = graph(&[&[1, 2], &[], &[]]);
+        let mut duplicate = duplicate;
+        duplicate.cells[2].data = duplicate.cells[1].data.clone();
+        assert!(encode_canonical_ton_boc(&duplicate, 0).is_none());
     }
 }

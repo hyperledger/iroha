@@ -243,6 +243,8 @@ impl PrefixVerifierContext {
         parent: &CommittedBlock,
         current: &CommittedBlock,
     ) -> Result<CertificateVerdict, VerificationReadError> {
+        check_result_scope(parent, self.root_scope)?;
+        check_result_scope(current, self.root_scope)?;
         let (authority, config) = executed_successor_authority(parent, current)?;
         let certificate = self.prepare_certificate_with_scratch_admission(
             current,
@@ -447,7 +449,7 @@ mod allocation_tests {
         let refused = AdmittedCommittedBlock::read(
             block.clone(),
             3,
-            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            chain.root_scope(),
             &mut validation,
             &budget,
         );
@@ -464,7 +466,7 @@ mod allocation_tests {
         let receipt = AdmittedCommittedBlock::read(
             block.clone(),
             3,
-            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            chain.root_scope(),
             &mut validation,
             &budget,
         )
@@ -508,10 +510,7 @@ mod allocation_tests {
             .unwrap();
         let baseline = budget.reserved_bytes();
         let receipt_bytes = Layout::array::<CommittedBlock>(1).unwrap().size();
-        let result_bytes =
-            Layout::array::<iroha_data_model::sumeragi_finality::CertifiedResultV1>(1)
-                .unwrap()
-                .size();
+        let result_bytes = Layout::array::<CertifiedResultV1>(1).unwrap().size();
         let occupied_bytes = budget
             .limit_bytes()
             .checked_sub(baseline + receipt_bytes + result_bytes - 1)
@@ -531,7 +530,7 @@ mod allocation_tests {
         let refused = AdmittedCommittedBlock::read(
             block.clone(),
             3,
-            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            chain.root_scope(),
             &mut validation,
             &budget,
         );
@@ -564,7 +563,7 @@ mod allocation_tests {
         let receipt = AdmittedCommittedBlock::read(
             block.clone(),
             3,
-            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            chain.root_scope(),
             &mut validation,
             &budget,
         )
@@ -1130,3 +1129,6 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
         }))
     }
 }
+
+#[cfg(test)]
+mod authority_regressions;

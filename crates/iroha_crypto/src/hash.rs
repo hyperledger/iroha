@@ -121,6 +121,23 @@ pub fn sha256_reader_bounded(
 pub fn keccak256(bytes: impl AsRef<[u8]>) -> [u8; Hash::LENGTH] {
     Keccak256::digest(bytes.as_ref()).into()
 }
+/// Compute raw Keccak-256 over borrowed chunks without collecting their concatenation.
+///
+/// The first input error is returned unchanged; subsequent chunks are never requested.
+/// This permits a caller to stream checked key payloads without allocating a key list or
+/// a preimage buffer. The digest has no Iroha hash marker semantics.
+///
+/// # Errors
+/// Returns the first error produced by the input iterator.
+pub fn try_keccak256_from_chunks<E>(
+    chunks: impl IntoIterator<Item = Result<impl AsRef<[u8]>, E>>,
+) -> Result<[u8; Hash::LENGTH], E> {
+    let mut hasher = Keccak256::new();
+    for chunk in chunks {
+        Digest::update(&mut hasher, chunk?.as_ref());
+    }
+    Ok(hasher.finalize().into())
+}
 impl Hash {
     /// Hash the given bytes.
     #[must_use]
@@ -638,6 +655,47 @@ mod tests {
         assert_eq!(reader.0, 2);
     }
     #[test]
+    fn keccak256_chunks_match_concatenation_across_rate_boundaries() {
+        let bytes = [0x9a; 300];
+        for boundary in [0, 1, 135, 136, 137, 272, 300] {
+            let chunks = [&bytes[..boundary], &[], &bytes[boundary..]];
+            assert_eq!(
+                try_keccak256_from_chunks(
+                    chunks.into_iter().map(Ok::<_, core::convert::Infallible>)
+                ),
+                Ok(keccak256(bytes))
+            );
+        }
+    }
+
+    #[test]
+    fn borrowed_keccak_chunks_match_one_shot_and_preserve_first_error() {
+        for parts in [
+            vec![],
+            vec![&b""[..]],
+            vec![&b"SCCP/COMMITTEE/V1"[..], &[4_u8][..], &[7_u8; 192][..]],
+            vec![&b"a"[..], &b""[..], &b"bc"[..]],
+        ] {
+            let expected = keccak256(parts.concat());
+            assert_eq!(
+                try_keccak256_from_chunks(parts.into_iter().map(Ok::<_, &'static str>)),
+                Ok(expected),
+            );
+        }
+        assert_eq!(
+            try_keccak256_from_chunks([[1_u8, 2], [3, 4]].into_iter().map(Ok::<_, &'static str>)),
+            Ok(keccak256([1_u8, 2, 3, 4])),
+            "owned fixed-size chunks use the same raw digest contract",
+        );
+        let inspected = std::cell::Cell::new(0);
+        let chunks = [Ok(&b"prefix"[..]), Err(37_u8), Ok(&b"unread"[..])]
+            .into_iter()
+            .inspect(|_| inspected.set(inspected.get() + 1));
+        assert_eq!(try_keccak256_from_chunks(chunks), Err(37));
+        assert_eq!(inspected.get(), 2);
+    }
+
+    #[test]
     fn keccak256_returns_raw_digest_bytes() {
         assert_eq!(
             keccak256(b""),
@@ -1115,6 +1173,10 @@ mod prehashed_tests {
         assert_eq!(hash.as_ref()[Hash::LENGTH - 1] & 1, 1);
     }
 }
+
+#[cfg(test)]
+#[path = "hash_native_candidate_tests.rs"]
+mod native_candidate_tests;
 
 #[cfg(test)]
 mod hash_raw_wire_tests {

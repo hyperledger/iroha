@@ -4,6 +4,7 @@ fn contract_dispatch_context_rejects_no_selector_self_describing_artifact_withou
         contract_program_with_entrypoint("run", Some("RunPermission"));
     let metadata = Metadata::default();
     let err = parse_contract_call_execution_context(&metadata, &program)
+        .map_err(crate::execution_attempt::expect_completed_rejection)
         .expect_err("self-describing default dispatch without main should reject");
     assert!(matches!(
         err,
@@ -95,6 +96,7 @@ fn malformed_invocation_arguments_fail_during_context_preparation() {
         invocation.contract_address.subject_id(),
         u64::MAX,
     )
+    .map_err(crate::execution_attempt::expect_completed_rejection)
     .expect_err("malformed arguments must fail before a VM is constructed or entered");
     assert!(matches!(
         error,
@@ -113,6 +115,7 @@ fn trigger_dispatch_rejects_static_payload_and_implicit_entrypoint() {
         &event_args,
         u64::MAX,
     )
+    .map_err(crate::execution_attempt::expect_completed_rejection)
     .expect_err("trigger callback selection must be explicit");
     assert!(matches!(
         err,
@@ -130,6 +133,7 @@ fn trigger_dispatch_rejects_static_payload_and_implicit_entrypoint() {
     );
     let err =
         parse_prepared_trigger_call_execution_context(&metadata, &contract, &event_args, u64::MAX)
+            .map_err(crate::execution_attempt::expect_completed_rejection)
             .expect_err("fixed metadata payload must not shadow event arguments");
     assert!(matches!(
         err,

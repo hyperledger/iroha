@@ -317,10 +317,10 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         else {
             return Ok(completion);
         };
-        let payment = valid(KagemushaWalletPaymentV1::decode_canonical(
-            payment,
-            &self.scheme_id,
-        ))?;
+        let payment = read_model_original(
+            || KagemushaWalletPaymentV1::decode_canonical(payment, &self.scheme_id),
+            Error::Invalid("G1 validation"),
+        )?;
         let identity = valid(payment.digests())?;
         let (_, manifest) = self.sync_manifest()?;
         let credit = self

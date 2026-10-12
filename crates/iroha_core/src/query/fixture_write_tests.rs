@@ -305,7 +305,7 @@ fn phase_vote_evidence() -> Evidence {
         };
         vote.sig = NativeSignature(
             iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &vote.preimage())
-                .unwrap(),
+                .expect("canonical native vote signature"),
         );
         vote
     };

@@ -35,8 +35,8 @@ fn instruction_self_registers_authority(
 
 /// Return whether the executable's first instruction registers its exact authority.
 ///
-/// Self-registering transactions are the only single-signature transactions that may enter
-/// admission before their authority exists in world state. Keeping this recognition in Core lets
+/// Exact self-registration is one permitted shape for entering admission before the authority
+/// exists in world state. Keeping this recognition in Core lets
 /// pre-admission services, such as fee quoting, apply the same instruction-shape rule.
 #[must_use]
 pub fn executable_self_registers_authority(executable: &Executable, authority: &AccountId) -> bool {

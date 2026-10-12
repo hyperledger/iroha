@@ -1,9 +1,9 @@
 //! EVM destination transactions (spec §5.2.2, §7.1 step 7, §7.2 step 2, §7.3, §7.4, §8).
 //!
 //! - Calldata of every state-changing `SccpTairaXor` entry point, built with
-//!   `iroha_sccp::v1::evm_abi` from verified inputs only: `finalizeFromTaira` and its checkpoint
-//!   form, `submitCheckpoints` in batches of at most 16, `applyControl` and its checkpoint form,
-//!   `voidExpired` and its checkpoint form, `voidFrozen` and the canonical `transferToTaira`.
+//!   `iroha_sccp::v1::evm_abi` from verified inputs only: inline or stored-checkpoint finalize,
+//!   control and expired-void calls, native committee checkpoints in batches of at most sixteen,
+//!   `voidFrozen` and the canonical `transferToTaira`.
 //! - EIP-1559 (type 2) transactions for Ethereum (chain id 1) and BSC (chain id 56): canonical
 //!   RLP with an empty access list, and secp256k1 signing over
 //!   `keccak256(0x02 ‖ rlp([chainId, nonce, maxPriorityFeePerGas, maxFeePerGas, gasLimit, to,
@@ -20,12 +20,10 @@ use core::fmt;
 use std::path::Path;
 
 use iroha_data_model::bridge::SccpNetworkV1;
-use iroha_sccp::ethereum_signing::{self as signature, SignatureError};
 use iroha_sccp::v1::{
     constants::{
         BSC_CHAIN_ID, ETHEREUM_CHAIN_ID, MAX_TAIRA_ACCOUNT_BYTES, MAX_VOID_FROZEN_RANGE_EVM,
     },
-    destination::{CertificateSourceV1, MessagePurposeV1},
     evm_abi::{
         TransferToTairaCallV1, apply_control_calldata as abi_apply_control,
         apply_control_from_checkpoint_calldata, finalize_from_checkpoint_calldata,
@@ -34,11 +32,14 @@ use iroha_sccp::v1::{
         void_frozen_calldata as abi_void_frozen,
     },
     hashes::keccak256,
+    signature::{self, SignatureError},
 };
 use zeroize::Zeroizing;
 
 use super::{
-    bundle::VerifiedMessageBundleV1, control::VerifiedControlBundleV1, rotation::CheckpointPlanV1,
+    bundle::{BundlePurposeV1, VerifiedCertificateSourceV1, VerifiedMessageBundleV1},
+    control::VerifiedControlBundleV1,
+    rotation::RotationPlanV1,
 };
 
 /// EIP-2718 type byte of EIP-1559 transactions.
@@ -135,93 +136,63 @@ impl From<KeyFileError> for EvmError {
 // Calldata
 // ---------------------------------------------------------------------------------------------
 
-/// Encode the explicitly selected inline or stored-checkpoint native finalize call.
+/// Encode a current finalize call from its immutable verified source and proof.
 ///
 /// # Errors
-/// Returns [`EvmError::WrongPurpose`] for proof evidence qualified for voiding.
+/// Returns `WrongPurpose` for a bundle verified for voiding.
 pub fn finalize_calldata(bundle: &VerifiedMessageBundleV1) -> Result<Vec<u8>, EvmError> {
-    if !matches!(
-        bundle.network(),
-        SccpNetworkV1::EthereumMainnet | SccpNetworkV1::BscMainnet
-    ) {
-        return Err(EvmError::UnsupportedNetwork(bundle.network()));
-    }
-    if bundle.purpose() != MessagePurposeV1::Finalize {
+    if bundle.purpose != BundlePurposeV1::Finalize {
         return Err(EvmError::WrongPurpose);
     }
-    Ok(match bundle.source() {
-        CertificateSourceV1::Inline(certificate) => {
-            finalize_from_taira_calldata(certificate, bundle.proof())
+    Ok(match &bundle.certificate.source {
+        VerifiedCertificateSourceV1::Inline(cert) => {
+            finalize_from_taira_calldata(cert, &bundle.proof)
         }
-        CertificateSourceV1::Checkpoint(reference) => {
-            finalize_from_checkpoint_calldata(reference, bundle.proof())
+        VerifiedCertificateSourceV1::Checkpoint(reference) => {
+            finalize_from_checkpoint_calldata(reference, &bundle.proof)
         }
     })
 }
-/// Encode the explicitly selected native expired-transfer call with the authenticated nonce.
+/// Encode the verified nonce's current expired-void call.
 ///
 /// # Errors
-/// Returns [`EvmError::WrongPurpose`] for proof evidence qualified for minting.
+/// Returns `WrongPurpose` for a bundle verified for minting.
 pub fn void_expired_calldata(bundle: &VerifiedMessageBundleV1) -> Result<Vec<u8>, EvmError> {
-    if !matches!(
-        bundle.network(),
-        SccpNetworkV1::EthereumMainnet | SccpNetworkV1::BscMainnet
-    ) {
-        return Err(EvmError::UnsupportedNetwork(bundle.network()));
-    }
-    if bundle.purpose() != MessagePurposeV1::VoidExpired {
+    if bundle.purpose != BundlePurposeV1::VoidExpired {
         return Err(EvmError::WrongPurpose);
     }
-    Ok(match bundle.source() {
-        CertificateSourceV1::Inline(certificate) => {
-            abi_void_expired(bundle.nonce(), certificate, bundle.proof())
+    Ok(match &bundle.certificate.source {
+        VerifiedCertificateSourceV1::Inline(cert) => {
+            abi_void_expired(bundle.nonce(), cert, &bundle.proof)
         }
-        CertificateSourceV1::Checkpoint(reference) => {
-            void_expired_from_checkpoint_calldata(bundle.nonce(), reference, bundle.proof())
-        }
-    })
-}
-/// Encode the explicitly selected native control call, including the complete control leaf.
-///
-/// # Errors
-/// Rejects proof evidence qualified for another destination profile.
-pub fn apply_control_calldata(bundle: &VerifiedControlBundleV1) -> Result<Vec<u8>, EvmError> {
-    if !matches!(
-        bundle.network(),
-        SccpNetworkV1::EthereumMainnet | SccpNetworkV1::BscMainnet
-    ) {
-        return Err(EvmError::UnsupportedNetwork(bundle.network()));
-    }
-    Ok(match bundle.source() {
-        CertificateSourceV1::Inline(certificate) => abi_apply_control(certificate, bundle.proof()),
-        CertificateSourceV1::Checkpoint(reference) => {
-            apply_control_from_checkpoint_calldata(reference, bundle.proof())
+        VerifiedCertificateSourceV1::Checkpoint(reference) => {
+            void_expired_from_checkpoint_calldata(bundle.nonce(), reference, &bundle.proof)
         }
     })
 }
-/// One native `submitCheckpoints` calldata per verified batch, in order.
-/// A stopped plan includes only its actually processed prefix; it does not imply target reach.
-///
-/// # Errors
-/// Rejects a plan qualified for another destination profile.
-pub fn submit_checkpoints_calldata(plan: &CheckpointPlanV1) -> Result<Vec<Vec<u8>>, EvmError> {
-    let network = plan.final_observation().deployment().network;
-    if !matches!(
-        network,
-        SccpNetworkV1::EthereumMainnet | SccpNetworkV1::BscMainnet
-    ) {
-        return Err(EvmError::UnsupportedNetwork(network));
+/// Encode the verified two-track control with its selected current certificate source.
+#[must_use]
+pub fn apply_control_calldata(bundle: &VerifiedControlBundleV1) -> Vec<u8> {
+    match &bundle.certificate.source {
+        VerifiedCertificateSourceV1::Inline(cert) => abi_apply_control(cert, &bundle.control),
+        VerifiedCertificateSourceV1::Checkpoint(reference) => {
+            apply_control_from_checkpoint_calldata(reference, &bundle.control)
+        }
     }
-    Ok(plan
-        .batches()
+}
+/// Encode one `submitCheckpoints` call per verified batch of at most sixteen, in order.
+#[must_use]
+pub fn submit_checkpoints_calldata(plan: &RotationPlanV1) -> Vec<Vec<u8>> {
+    plan.batches()
         .map(|batch| {
-            let certificates: Vec<_> = batch
-                .iter()
-                .map(|step| step.certificate().clone())
-                .collect();
-            abi_submit_checkpoints(&certificates)
+            abi_submit_checkpoints(
+                &batch
+                    .iter()
+                    .map(|step| step.certificate().clone())
+                    .collect::<Vec<_>>(),
+            )
         })
-        .collect())
+        .collect()
 }
 
 /// `voidFrozen(firstNonce, count)` with the contract's range bounds.
@@ -1159,7 +1130,7 @@ mod tests {
         let high_s = {
             let mut out = signature;
             let s: [u8; 32] = signature[32..64].try_into().expect("s");
-            let mut n = iroha_sccp::ethereum_signing::SECP256K1_N;
+            let mut n = iroha_sccp::v1::constants::SECP256K1_N;
             // n - s, with borrow.
             let mut borrow = 0_i16;
             for index in (0..32).rev() {

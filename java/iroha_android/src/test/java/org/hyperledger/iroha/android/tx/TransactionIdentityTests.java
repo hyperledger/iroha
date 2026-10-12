@@ -65,22 +65,23 @@ public final class TransactionIdentityTests {
             "halo2",
             new byte[] {0x01, 0x02, 0x03},
             new ProofVerifierKeyRef("halo2", "vk1"));
-    final SignedTransaction withAttachment =
-        signed(
-            CODEC.encodeTransaction(
-                samplePayload(Collections.emptyMap(), Collections.singletonList(attachment))),
-            (byte) 0x33);
 
     assertNotEquals(
         SignedTransactionHasher.hashHex(base), SignedTransactionHasher.hashHex(changedMetadata));
-    assertNotEquals(
-        SignedTransactionHasher.hashHex(base), SignedTransactionHasher.hashHex(withAttachment));
-    assertEquals(
-        Collections.singletonList(attachment),
-        CODEC
-            .decodeTransaction(withAttachment.encodedPayload())
-            .attachments()
-            .orElseThrow(() -> new IllegalStateException("attachments missing")));
+    // The wire field is SignedAttachmentsV1, which this codec does not implement: a payload with
+    // attachments is refused instead of being encoded in the retired list layout.
+    try {
+      CODEC.encodeTransaction(
+          samplePayload(Collections.emptyMap(), Collections.singletonList(attachment)));
+      throw new AssertionError("a payload with attachments must be refused");
+    } catch (final NoritoException refusal) {
+      Throwable cause = refusal;
+      while (cause.getCause() != null) {
+        cause = cause.getCause();
+      }
+      assertEquals(
+          true, String.valueOf(cause.getMessage()).contains("SignedAttachmentsV1"));
+    }
   }
 
   @Test

@@ -1,381 +1,317 @@
-//! Native committee checkpoint plans, with the destination's actual latch/frozen semantics.
+//! Native committee catch-up through authenticated checkpoint certificates (§5.1.2, §7.1).
 //!
-//! Every handoff is authenticated by the independently observed current committee. Offered
-//! successor keys are checked against the signed successor root and never become an initial
-//! trust pin. Plans are preflight only: callers re-read state/time before each submitted call.
+//! Every step is verified against the current destination root before it may install the
+//! announced successor. The scalar committee machine owns Live, V1–V3 and deadline rules;
+//! TON successor keys remain bound to the signed next root. A plan never silently submits a
+//! latch or a rotation that would leave the destination frozen.
 
+use super::bundle::{BundleError, DestinationContextV1, certificate_wire, committee_error};
+use core::fmt;
 use iroha_sccp::{
-    api::{ApiShapeError, SccpRotationV1},
+    api::SccpRotationV1,
     v1::{
-        committee::CommitteeStateV1,
+        committee::{CheckpointOutcomeV1, CommitteeStateV1, ViolationV1, successor_keys_match},
         destination::{
-            DestinationFlavor, DestinationObservationV1, MAX_CERTIFICATES_PER_CALL, PreflightError,
-            StopReasonV1, TairaCertificateV1,
+            CertificateAuthorityV1, DestinationFlavor, MAX_CERTIFICATES_PER_CALL,
+            TairaCertificateV1,
         },
+        destination_abi::DestinationError,
     },
 };
+use std::collections::BTreeMap;
 
-/// Failure before a checkpoint plan can be returned.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Why a requested catch-up cannot safely be submitted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RotationChainError {
-    /// Malformed bounded certificate/successor at the indexed step.
-    Shape {
-        /// Zero-based offered step.
-        index: usize,
-        /// Failed shape check.
-        error: ApiShapeError,
-    },
-    /// Native destination refusal or missing independently observed checkpoint.
+    /// A candidate certificate or successor failed verification.
     Step {
-        /// Zero-based offered step.
+        /// Zero-based candidate index.
         index: usize,
-        /// Shared preflight refusal.
-        error: PreflightError,
+        /// Concrete failed check.
+        error: BundleError,
     },
-    /// The available certified prefix cannot reach the requested generation.
+    /// A certificate would latch the destination; ordinary wallet catch-up must stop.
+    Latch {
+        /// Zero-based candidate index.
+        index: usize,
+        /// The authenticated violation, suitable for explicit evidence handling.
+        violation: ViolationV1,
+    },
+    /// A verified successor is already expired at destination time.
+    Frozen {
+        /// Zero-based candidate index.
+        index: usize,
+    },
+    /// The ordered chain did not reach the requested generation.
     ChainTooShort {
-        /// Reached generation.
+        /// Last generation reached.
         reached: u64,
-        /// Required generation.
+        /// Requested generation.
         target: u64,
-        /// First known unavailable certified handoff, if reported.
-        first_uncertified_handoff: Option<u64>,
     },
 }
-impl core::fmt::Display for RotationChainError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Display for RotationChainError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Shape { index, error } => write!(f, "checkpoint step {index}: {error}"),
             Self::Step { index, error } => write!(f, "checkpoint step {index}: {error}"),
-            Self::ChainTooShort {
-                reached,
-                target,
-                first_uncertified_handoff,
-            } => write!(
+            Self::Latch { index, violation } => write!(
                 f,
-                "checkpoint chain reaches generation {reached}, not {target}; first uncertified handoff: {first_uncertified_handoff:?}"
+                "checkpoint step {index} requires a latch: {:?}",
+                violation.reason
+            ),
+            Self::Frozen { index } => {
+                write!(f, "checkpoint step {index} installs an expired successor")
+            }
+            Self::ChainTooShort { reached, target } => write!(
+                f,
+                "committee chain reaches generation {reached}, not {target}"
             ),
         }
     }
 }
 impl std::error::Error for RotationChainError {}
 
-/// One immutable, preflighted checkpoint message, including TON successor keys when needed.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct VerifiedCheckpointV1 {
-    flavor: DestinationFlavor,
+/// One verified current certificate and, when required, the original announced TON keys.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedRotationV1 {
     certificate: TairaCertificateV1,
     next_keys: Option<Vec<[u8; 48]>>,
 }
-impl VerifiedCheckpointV1 {
-    /// Contract family whose state was actually preflighted.
-    #[must_use]
-    pub const fn flavor(&self) -> DestinationFlavor {
-        self.flavor
-    }
-
-    /// Exact native certificate, unchanged by preflight.
+impl VerifiedRotationV1 {
+    /// Certificate exactly as verified, borrowed for the current destination encoder.
     #[must_use]
     pub const fn certificate(&self) -> &TairaCertificateV1 {
         &self.certificate
     }
-    /// Successor keys for a key-changing TON rotation; absent for EVM or a heartbeat.
+    /// TON keys only for a key-changing rotation; a heartbeat retains the stored keys.
     #[must_use]
     pub fn next_keys(&self) -> Option<&[[u8; 48]]> {
         self.next_keys.as_deref()
     }
 }
-/// A checkpoint prefix and the exact projected native state. A persisted stop is explicit.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CheckpointPlanV1 {
-    checkpoints: Vec<VerifiedCheckpointV1>,
-    final_observation: DestinationObservationV1,
-    stopped: Option<StopReasonV1>,
+/// An immutable ordered catch-up plan and its verified resulting scalar state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RotationPlanV1 {
+    steps: Vec<VerifiedRotationV1>,
+    initial_state: CommitteeStateV1,
+    final_state: CommitteeStateV1,
+    minimum_until_ms: u64,
 }
-impl CheckpointPlanV1 {
-    /// Whether the destination was already at or beyond the target generation.
+impl RotationPlanV1 {
+    /// Whether the destination already meets the requested generation.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.checkpoints.is_empty()
+        self.steps.is_empty()
     }
-    /// Exact verified prefix; unprocessed certificates are never included.
+    /// Current certificates in verified application order.
     #[must_use]
-    pub fn checkpoints(&self) -> &[VerifiedCheckpointV1] {
-        &self.checkpoints
+    pub fn steps(&self) -> &[VerifiedRotationV1] {
+        &self.steps
     }
-    /// EVM groups at most sixteen certificates; TON sends one certificate per message.
-    pub fn batches(&self) -> impl Iterator<Item = &[VerifiedCheckpointV1]> {
-        self.checkpoints.chunks(
-            if self.final_observation.deployment().flavor == DestinationFlavor::Evm {
-                MAX_CERTIFICATES_PER_CALL
-            } else {
-                1
-            },
-        )
+    /// EVM batches of at most sixteen; TON submits each certificate as a checkpoint message.
+    pub fn batches(&self) -> impl Iterator<Item = &[VerifiedRotationV1]> {
+        self.steps.chunks(MAX_CERTIFICATES_PER_CALL)
     }
-    /// Projected state; callers refresh the real observation after submission.
+    /// Scalar committee state after every planned checkpoint.
     #[must_use]
-    pub const fn final_observation(&self) -> &DestinationObservationV1 {
-        &self.final_observation
+    pub const fn final_state(&self) -> &CommitteeStateV1 {
+        &self.final_state
     }
-    /// A successfully persisted latch/frozen outcome, distinct from an atomic refusal.
+    /// Earliest trust deadline among the destination's original and every successor generation.
     #[must_use]
-    pub const fn stopped(&self) -> Option<StopReasonV1> {
-        self.stopped
+    pub const fn minimum_until_ms(&self) -> u64 {
+        self.minimum_until_ms
     }
 }
-/// Verify certified rotations until the target or an explicit persisted stop is reached.
-/// Steps past that prefix are ignored. A new chain starts only from the independently
-/// observed current committee. The shared transition enforces exact heights, time bounds,
-/// successor identity and latch semantics; it never accepts a previous-roster grace path.
+
+fn record_checkpoint(
+    checkpoints: &mut BTreeMap<u64, [u8; 32]>,
+    flavor: DestinationFlavor,
+    height: u64,
+    id: [u8; 32],
+) {
+    if checkpoints.contains_key(&height) {
+        return;
+    }
+    if let Some(slots) = flavor.checkpoint_slots()
+        && checkpoints.len() >= slots
+    {
+        if checkpoints
+            .first_key_value()
+            .is_none_or(|(lowest, _)| height <= *lowest)
+        {
+            return;
+        }
+        checkpoints.pop_first();
+    }
+    checkpoints.insert(height, id);
+}
+
+/// Verify ordered current rotation records up to the required generation.
+/// Candidates beyond the requested target are not used. All checked steps use the actual
+/// selected destination clock; callers re-observe and re-verify after each submitted batch.
 ///
 /// # Errors
-/// Returns the indexed shape/native refusal, or the exact reached/target shortfall.
+/// Returns a concrete certificate, committee, successor, latch, expiry or missing-step error.
 pub fn verify_rotation_steps(
     steps: &[SccpRotationV1],
-    first_uncertified_handoff: Option<u64>,
-    observation: &DestinationObservationV1,
+    context: &DestinationContextV1<'_>,
     target_generation: u64,
-) -> Result<CheckpointPlanV1, RotationChainError> {
-    let mut current = observation.clone();
-    let mut checkpoints = Vec::new();
-    let mut stopped = None;
+) -> Result<RotationPlanV1, RotationChainError> {
+    let mut current = context.committee_state;
+    let mut keys = context.ton_keys.map(<[[u8; 48]]>::to_vec);
+    let mut checkpoints = context.checkpoints.clone();
+    let mut verified_steps = Vec::new();
+    let mut minimum_until_ms = current.until_ms;
+    current
+        .require_live(context.now_ms)
+        .map_err(|e| RotationChainError::Step {
+            index: 0,
+            error: committee_error(e).into(),
+        })?;
     for (index, step) in steps.iter().enumerate() {
-        if current.committee().generation >= target_generation {
+        if current.generation >= target_generation {
             break;
         }
-        step.check_shape()
-            .map_err(|error| RotationChainError::Shape { index, error })?;
-        let certificate = step
-            .certificate
-            .to_destination_certificate()
-            .map_err(|error| RotationChainError::Shape { index, error })?;
-        let next_keys = (current.deployment().flavor == DestinationFlavor::Ton
-            && iroha_sccp::v1::finality::SccpFinalityHeaderV1::parse(&step.certificate.header)
-                .map_err(|_| RotationChainError::Shape {
-                    index,
-                    error: ApiShapeError::BadCertificate,
-                })?
-                .next_committee_root()
-                != current.committee().root)
-            .then(|| step.next_committee.clone());
-        let result = current
-            .preflight_checkpoints(
-                std::slice::from_ref(&certificate),
-                std::slice::from_ref(&next_keys),
+        let failed = |error: BundleError| RotationChainError::Step { index, error };
+        step.certificate
+            .check_shape()
+            .map_err(|e| failed(e.into()))?;
+        let wire = certificate_wire(&step.certificate).map_err(failed)?;
+        let authority = CertificateAuthorityV1::new(
+            context.flavor,
+            &context.taira_network_id,
+            &context.consensus_instance,
+            &current,
+            keys.as_deref(),
+        )
+        .map_err(|e| failed(e.into()))?;
+        let checked = authority
+            .verify(&wire, |height| checkpoints.get(&height).copied())
+            .map_err(|e| failed(e.into()))?;
+        let needs_keys = current.successor_needs_keys(&checked.header);
+        let outcome = current
+            .apply_checkpoint(
+                &checked.header,
+                checkpoints.get(&checked.header.height()),
+                context.now_ms,
             )
-            .map_err(|error| RotationChainError::Step { index, error })?;
-        current = result.observation().clone();
-        stopped = result.stopped();
-        checkpoints.push(VerifiedCheckpointV1 {
-            flavor: current.deployment().flavor,
-            certificate,
+            .map_err(|e| failed(committee_error(e).into()))?;
+        match outcome {
+            CheckpointOutcomeV1::Latched(violation) => {
+                return Err(RotationChainError::Latch { index, violation });
+            }
+            CheckpointOutcomeV1::Applied { live: false, .. } => {
+                return Err(RotationChainError::Frozen { index });
+            }
+            CheckpointOutcomeV1::Applied { .. } => {}
+        }
+        step.check_shape().map_err(|e| failed(e.into()))?;
+        // V1–V3 run before TON's key-change check, as the destination specifies.
+        let next_keys = if context.flavor == DestinationFlavor::Ton && needs_keys {
+            if !successor_keys_match(&step.next_committee, &checked.header.next_committee_root()) {
+                return Err(failed(DestinationError::BadCommittee.into()));
+            }
+            keys = Some(step.next_committee.clone());
+            Some(step.next_committee.clone())
+        } else {
+            None
+        };
+        record_checkpoint(
+            &mut checkpoints,
+            context.flavor,
+            checked.header.height(),
+            checked.checkpoint_id,
+        );
+        minimum_until_ms = minimum_until_ms.min(current.until_ms);
+        verified_steps.push(VerifiedRotationV1 {
+            certificate: wire,
             next_keys,
         });
-        if stopped.is_some() {
-            break;
-        }
     }
-    if stopped.is_none() && current.committee().generation < target_generation {
+    if current.generation < target_generation {
         return Err(RotationChainError::ChainTooShort {
-            reached: current.committee().generation,
+            reached: current.generation,
             target: target_generation,
-            first_uncertified_handoff,
         });
     }
-    Ok(CheckpointPlanV1 {
-        checkpoints,
-        final_observation: current,
-        stopped,
+    Ok(RotationPlanV1 {
+        steps: verified_steps,
+        initial_state: context.committee_state,
+        final_state: current,
+        minimum_until_ms,
     })
 }
 
-/// A committee expires too early for the wallet's selected finalize horizon, or is not live.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// A destination cannot safely accept a new transfer for the requested time horizon.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommitteeHorizonError {
-    /// Expired or irreversibly equivocated.
-    NotLive,
-    /// The observed trust deadline precedes the required completion horizon.
+    /// The plan was verified against a different destination committee observation.
+    ContextChanged,
+    /// The requested TTL and margin extend beyond the representable time range.
+    HorizonOverflow,
+    /// The actual destination is already expired or latched.
+    Frozen,
+    /// A required generation expires before the requested deadline plus margin.
     ExpiresTooSoon {
-        /// Actual destination trust deadline.
+        /// Earliest deadline on the actual verified chain.
         until_ms: u64,
-        /// Checked deadline plus clock/inclusion margin.
+        /// Required destination deadline.
         required_until_ms: u64,
     },
 }
-impl core::fmt::Display for CommitteeHorizonError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Display for CommitteeHorizonError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NotLive => f.write_str("destination committee is not live"),
+            Self::ContextChanged => {
+                f.write_str("committee state changed since catch-up verification")
+            }
+            Self::HorizonOverflow => {
+                f.write_str("requested committee trust horizon exceeds the timestamp range")
+            }
+            Self::Frozen => f.write_str("destination committee is frozen"),
             Self::ExpiresTooSoon {
                 until_ms,
                 required_until_ms,
             } => write!(
                 f,
-                "committee ends at {until_ms}, before required horizon {required_until_ms}"
+                "committee trust expires at {until_ms} ms before the required {required_until_ms} ms"
             ),
         }
     }
 }
 impl std::error::Error for CommitteeHorizonError {}
-/// Require this generation's lifetime to cover the full intended mint horizon (§7.1).
-/// Apply the check to every projected generation as well; mere availability of a future
-/// rotation does not waive the currently observed deadline.
+/// Check both the actual destination and all generations in a verified catch-up plan.
+/// A mere claim that a rotation is available never bypasses the deadline requirement.
 ///
 /// # Errors
-/// Returns non-live or an insufficient trust deadline; arithmetic saturates without wrapping.
+/// Refuses a changed context, a frozen or short-lived committee, and an unrepresentable
+/// requested interval. An overflowing TTL or margin is never silently shortened.
 pub fn check_committee_horizon(
     state: &CommitteeStateV1,
+    plan: &RotationPlanV1,
     now_ms: u64,
     outbound_ttl_ms: u64,
-    clock_and_inclusion_margin_ms: u64,
+    margin_ms: u64,
 ) -> Result<(), CommitteeHorizonError> {
+    if *state != plan.initial_state {
+        return Err(CommitteeHorizonError::ContextChanged);
+    }
     if !state.is_live(now_ms) {
-        return Err(CommitteeHorizonError::NotLive);
+        return Err(CommitteeHorizonError::Frozen);
     }
     let required_until_ms = now_ms
-        .saturating_add(outbound_ttl_ms)
-        .saturating_add(clock_and_inclusion_margin_ms);
-    if state.until_ms < required_until_ms {
-        Err(CommitteeHorizonError::ExpiresTooSoon {
-            until_ms: state.until_ms,
+        .checked_add(outbound_ttl_ms)
+        .and_then(|until| until.checked_add(margin_ms))
+        .ok_or(CommitteeHorizonError::HorizonOverflow)?;
+    let until_ms = state.until_ms.min(plan.minimum_until_ms);
+    if until_ms < required_until_ms {
+        return Err(CommitteeHorizonError::ExpiresTooSoon {
+            until_ms,
             required_until_ms,
-        })
-    } else {
-        Ok(())
+        });
     }
+    Ok(())
 }
-
 #[cfg(test)]
-mod tests {
-    use super::super::test_support::{DAY, Fixture, NOW, T0};
-    use super::*;
-    use std::collections::BTreeMap;
-    fn setup(count: u64) -> (Vec<SccpRotationV1>, DestinationObservationV1) {
-        let f = Fixture::new(DestinationFlavor::Evm);
-        let steps = f.rotations(count);
-        let view = f.observation(
-            NOW,
-            steps
-                .iter()
-                .map(|step| (step.certificate.height, None))
-                .collect(),
-        );
-        (steps, view)
-    }
-    #[test]
-    fn a_long_native_chain_verifies_and_splits_into_sixteen() {
-        let (steps, view) = setup(17);
-        let plan = verify_rotation_steps(&steps, None, &view, 24).unwrap();
-        assert_eq!(plan.checkpoints().len(), 17);
-        assert_eq!(plan.final_observation().committee().generation, 24);
-        assert_eq!(
-            plan.batches()
-                .map(<[VerifiedCheckpointV1]>::len)
-                .collect::<Vec<_>>(),
-            vec![16, 1]
-        );
-        assert!(!plan.is_empty());
-        assert_eq!(plan.stopped(), None);
-        assert!(
-            plan.checkpoints()
-                .iter()
-                .all(|step| step.certificate().qc[112..] == 0b111_u32.to_be_bytes())
-        );
-    }
-    #[test]
-    fn native_chain_stops_at_target_and_reports_exact_shortfall() {
-        let (steps, view) = setup(3);
-        let plan = verify_rotation_steps(&steps, None, &view, 8).unwrap();
-        assert_eq!(plan.checkpoints().len(), 1);
-        let empty = verify_rotation_steps(&steps, None, &view, 7).unwrap();
-        assert!(empty.is_empty());
-        assert_eq!(empty.final_observation(), &view);
-        assert_eq!(
-            verify_rotation_steps(&steps, Some(777), &view, 13),
-            Err(RotationChainError::ChainTooShort {
-                reached: 10,
-                target: 13,
-                first_uncertified_handoff: Some(777)
-            })
-        );
-        assert_eq!(
-            verify_rotation_steps(&steps[..1], None, &view, 9),
-            Err(RotationChainError::ChainTooShort {
-                reached: 8,
-                target: 9,
-                first_uncertified_handoff: None
-            })
-        );
-    }
-    #[test]
-    fn native_rotation_bounds_and_signatures_are_enforced() {
-        let (steps, view) = setup(2);
-        assert!(matches!(
-            verify_rotation_steps(&steps[1..], None, &view, 9),
-            Err(RotationChainError::Step { index: 0, .. })
-        ));
-        let f = Fixture::new(DestinationFlavor::Evm);
-        let expired = f.observation(
-            T0 + 14 * DAY + 1,
-            steps
-                .iter()
-                .map(|step| (step.certificate.height, None))
-                .collect(),
-        );
-        assert!(verify_rotation_steps(&steps, None, &expired, 9).is_err());
-        let mut bad = steps.clone();
-        bad[0].certificate.qc[80] ^= 1;
-        assert!(matches!(
-            verify_rotation_steps(&bad, None, &view, 9),
-            Err(RotationChainError::Step { index: 0, .. })
-        ));
-        let mut bad = steps.clone();
-        bad[0].next_committee.swap(0, 1);
-        assert!(matches!(
-            verify_rotation_steps(&bad, None, &view, 9),
-            Err(RotationChainError::Shape { index: 0, .. })
-        ));
-        let mut bad = steps.clone();
-        bad[0].certificate.header[88] ^= 1;
-        assert!(verify_rotation_steps(&bad, None, &view, 9).is_err());
-    }
-    #[test]
-    fn committee_horizon_has_no_available_rotation_waiver() {
-        let f = Fixture::new(DestinationFlavor::Evm);
-        let view = f.observation(NOW, BTreeMap::new());
-        let mut state = *view.committee();
-        state.until_ms = 1000;
-        assert_eq!(check_committee_horizon(&state, 100, 400, 500), Ok(()));
-        assert_eq!(
-            check_committee_horizon(&state, 101, 400, 500),
-            Err(CommitteeHorizonError::ExpiresTooSoon {
-                until_ms: 1000,
-                required_until_ms: 1001
-            })
-        );
-        assert_eq!(
-            check_committee_horizon(&state, 1001, 0, 0),
-            Err(CommitteeHorizonError::NotLive)
-        );
-        state.equivocated = true;
-        assert_eq!(
-            check_committee_horizon(&state, 100, 0, 0),
-            Err(CommitteeHorizonError::NotLive)
-        );
-        assert!(
-            CommitteeHorizonError::NotLive
-                .to_string()
-                .contains("not live")
-        );
-        assert!(
-            RotationChainError::ChainTooShort {
-                reached: 1,
-                target: 2,
-                first_uncertified_handoff: None
-            }
-            .to_string()
-            .contains("generation 1")
-        );
-    }
-}
+mod tests;

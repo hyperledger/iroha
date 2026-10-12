@@ -28,6 +28,7 @@ use iroha_data_model::{
         epoch::{ValidatorEpochBoundaryV1, ValidatorEpochContextV1},
         finality::NativeFinalityArtifact,
     },
+    sumeragi_finality::{CertifiedResultScope, CertifiedResultV1},
     transaction::signed::TransactionResult,
 };
 use iroha_model_base::peer::PeerId;
@@ -194,7 +195,8 @@ fn certify(keys: &[KeyPair], header: &BlockHeader, bytes: &[u8]) -> iroha_sumera
             };
             vote.sig = KeyPairSigner::new(&keys[index as usize])
                 .unwrap()
-                .sign(&vote.preimage());
+                .sign(&vote.preimage())
+                .unwrap();
             vote
         })
         .collect::<Vec<_>>();
@@ -257,15 +259,20 @@ fn evidence_fixture() -> ValidatorCommitteeProvisioningEvidenceV1 {
         .unwrap(),
     )
     .unwrap();
+    let initial_x = iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+        *network.as_bytes(),
+        1,
+        u64::try_from(genesis.header().creation_time().as_millis()).unwrap(),
+    )
+    .unwrap();
     let initial = iroha_data_model::sumeragi_finality::CertifiedResultV1::new(
-        iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
-            *network.as_bytes(),
-            1,
-            genesis.header().creation_time_ms,
-        )
-        .unwrap(),
+        initial_x,
         initial,
-        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        iroha_genesis::signed_genesis_consensus_metadata(&genesis)
+            .unwrap()
+            .sumeragi_context
+            .root_scope
+            .into(),
     )
     .unwrap();
     let mut parent_result = result_of_preimage(&initial.preimage().unwrap()).unwrap();
@@ -448,15 +455,20 @@ fn evidence_fixture() -> ValidatorCommitteeProvisioningEvidenceV1 {
             .unwrap(),
         )
         .unwrap();
+        let x = iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+            *network.as_bytes(),
+            height,
+            u64::try_from(block.header().creation_time().as_millis()).unwrap(),
+        )
+        .unwrap();
         let result = iroha_data_model::sumeragi_finality::CertifiedResultV1::new(
-            iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
-                *network.as_bytes(),
-                height,
-                block.header().creation_time_ms,
-            )
-            .unwrap(),
+            x,
             result,
-            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            iroha_genesis::signed_genesis_consensus_metadata(&history[0])
+                .unwrap()
+                .sumeragi_context
+                .root_scope
+                .into(),
         )
         .unwrap();
         let preimage = result.preimage().unwrap();
@@ -556,12 +568,12 @@ fn committee_boundary_requires_exact_native_quorum() {
     let block = selecting.decode_block(limits()).unwrap();
     let certificate = block.commit_certificate().unwrap();
     let header: BlockHeader = norito::decode_canonical(certificate.consensus_header()).unwrap();
-    let certified_result = iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+    let result = CertifiedResultV1::decode(
         certificate.result_preimage(),
-        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        CertifiedResultScope::TairaGlobal,
     )
     .unwrap();
-    let result = certified_result.commitment();
+    let result = result.commitment();
     let qc: iroha_sumeragi::message::Qc =
         norito::decode_canonical(certificate.commit_qc()).unwrap();
     assert_eq!(header.height, 10);
@@ -609,7 +621,7 @@ fn committee_boundary_requires_exact_native_quorum() {
             .take(count)
             .map(|key| {
                 iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &qc.preimage())
-                    .unwrap()
+                    .expect("canonical native quorum share")
             })
             .collect::<Vec<_>>();
         qc.agg_sig = iroha_sumeragi::types::AggregateSignature(

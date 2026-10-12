@@ -471,8 +471,13 @@ impl ManagedInitialReservePolicy {
                 };
             return Ok(progress(&original, status, None, None));
         }
-        // Existing signed work remains observable during a current-state/quorum outage.
-        let (observed, current) = preflight(self, &original.policy, deadline);
+        // Only preparation or dispatch can consume this absence preflight. Signed read-only
+        // recovery still resumes the exact wallet and authenticates fresh finality below.
+        let (_preflight_observation, current) = if mode.submits() {
+            preflight(self, &original.policy, deadline)
+        } else {
+            (None, None)
+        };
         let absent = current
             .as_ref()
             .is_some_and(|state| state.current().is_none());

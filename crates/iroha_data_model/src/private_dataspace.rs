@@ -49,14 +49,14 @@ pub const MAX_PRIVATE_DATASPACE_ANCHOR_BYTES: usize =
 pub const MAX_PRIVATE_DATASPACE_REGISTRATION_BYTES: usize = 32 * 1024;
 
 /// Why a private-root registration or certified extension was refused.
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum PrivateDataspaceAnchorError {
     /// The supplied registration, anchor or transition is invalid.
     #[error("private dataspace anchor: {0}")]
     Invalid(String),
     /// The enclosing decoder or allocator refused; no protocol verdict was produced.
     #[error("local private dataspace codec resource refusal: {0}")]
-    Resource(norito::core::DecodeResourceError),
+    Resource(#[source] norito::core::DecodeAttemptError),
 }
 
 fn require(condition: bool, reason: &'static str) -> Result<(), PrivateDataspaceAnchorError> {
@@ -70,16 +70,15 @@ fn failure(error: impl std::fmt::Display) -> PrivateDataspaceAnchorError {
     PrivateDataspaceAnchorError::Invalid(error.to_string())
 }
 
-// The intrinsic finite wire limits are protocol bounds. Only an enclosing caller's
-// active scope or an actual allocator refusal is local resource unavailability.
-fn codec_failure(error: norito::Error) -> PrivateDataspaceAnchorError {
-    if (norito::core::decode_limits_active()
-        || matches!(error, norito::Error::AllocationFailed { .. }))
-        && let Some(resource) = error.decode_resource_error()
-    {
-        return PrivateDataspaceAnchorError::Resource(resource);
+// The admission decoder retains the enforcing boundary; intrinsic ceilings remain invalid.
+fn codec_failure(error: norito::core::DecodeAttemptError) -> PrivateDataspaceAnchorError {
+    match error.kind() {
+        norito::core::DecodeAttemptErrorKind::Allocator
+        | norito::core::DecodeAttemptErrorKind::EnclosingLimit => {
+            PrivateDataspaceAnchorError::Resource(error)
+        }
+        norito::core::DecodeAttemptErrorKind::Invalid => failure(error),
     }
-    failure(error)
 }
 
 fn certified_failure(
@@ -171,7 +170,7 @@ impl PrivateDataspaceRegistration {
             bytes.len() <= MAX_PRIVATE_DATASPACE_REGISTRATION_BYTES,
             "registration exceeds its wire bound",
         )?;
-        let value: Self = norito::decode_canonical_with_limits(
+        let value: Self = norito::decode_canonical_for_admission(
             bytes,
             part_limits(MAX_PRIVATE_DATASPACE_REGISTRATION_BYTES),
         )
@@ -371,7 +370,7 @@ impl PrivateDataspaceAnchor {
             bytes.len() <= MAX_PRIVATE_DATASPACE_ANCHOR_BYTES,
             "anchor exceeds its wire bound",
         )?;
-        let anchor: Self = norito::decode_canonical_with_limits(
+        let anchor: Self = norito::decode_canonical_for_admission(
             bytes,
             part_limits(MAX_PRIVATE_DATASPACE_ANCHOR_BYTES),
         )
@@ -397,13 +396,13 @@ impl PrivateDataspaceAnchor {
             &block.commit_qc,
             &block.result_preimage,
         )?;
-        let header: CoreHeader = norito::decode_canonical_with_limits(
+        let header: CoreHeader = norito::decode_canonical_for_admission(
             &block.consensus_header,
             part_limits(MAX_AMX_HEADER_BYTES),
         )
         .map_err(codec_failure)?;
         let _: Qc =
-            norito::decode_canonical_with_limits(&block.commit_qc, part_limits(MAX_AMX_QC_BYTES))
+            norito::decode_canonical_for_admission(&block.commit_qc, part_limits(MAX_AMX_QC_BYTES))
                 .map_err(codec_failure)?;
         let result =
             CertifiedResultV1::decode(&block.result_preimage, CertifiedResultScope::NonGlobal)
@@ -476,9 +475,12 @@ impl PrivateDataspaceAnchorState {
         registration: PrivateDataspaceRegistration,
     ) -> Result<Self, PrivateDataspaceAnchorError> {
         registration.validate()?;
-        let tracker =
-            AmxForeignInstanceV1::new(registration.instance, registration.initial_epoch.clone())
-                .map_err(amx_failure)?;
+        let tracker = AmxForeignInstanceV1::new(
+            registration.instance,
+            registration.initial_epoch.clone(),
+            crate::sumeragi_finality::CertifiedResultScope::NonGlobal,
+        )
+        .map_err(amx_failure)?;
         let cursor = registration.genesis_cursor;
         Ok(Self {
             registration,
@@ -498,7 +500,9 @@ impl PrivateDataspaceAnchorState {
         self.registration.validate()?;
         self.tracker.validate().map_err(amx_failure)?;
         require(
-            self.tracker.instance == self.registration.instance && self.tracker.previous.is_none(),
+            self.tracker.instance == self.registration.instance
+                && self.tracker.result_scope == CertifiedResultScope::NonGlobal
+                && self.tracker.previous.is_none(),
             "tracker differs from the registered fixed private root",
         )?;
         self.registration.fixed_context(&self.tracker.current)?;
@@ -548,7 +552,7 @@ impl PrivateDataspaceAnchorState {
         let commitment = certified_result.commitment();
         let verified = self
             .tracker
-            .verify_block(&anchor.certificate, CertifiedResultScope::NonGlobal)
+            .verify_block(&anchor.certificate)
             .map_err(amx_failure)?;
         self.registration
             .fixed_context(&commitment.schedule.current)?;

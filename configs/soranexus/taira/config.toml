@@ -275,47 +275,13 @@ stop_grace_ms = 10000
 
 [confidential]
 enabled = true
-max_proof_size_bytes = 8388608
-max_proof_bytes_block = 16777216
+# Confidential and ZK proof limits, windows, SCCP verifier-work limits and the
+# verification gas schedule are chain policy: the `zk_validity_policy_v1`
+# parameter of genesis.template.json sets them (8 MiB per confidential proof,
+# 16 MiB per block; every other value is the protocol default). A node
+# configuration cannot set them.
 
-[zk.sccp]
-# One inbound source proof fits below the governed 10 MiB transaction ceiling. Four independent
-# proofs may share a block; native verifier work is reserved before cryptographic dispatch.
-max_proofs_per_transaction = 1
-max_proofs_per_block = 4
-max_proof_bytes_per_proof = 8388608
-max_proof_bytes_per_transaction = 8388608
-max_proof_bytes_per_block = 33554432
-max_native_headers_per_transaction = 4096
-max_native_headers_per_block = 16384
-max_ethereum_light_client_updates_per_transaction = 128
-max_ethereum_light_client_updates_per_block = 512
-max_native_header_bytes_per_transaction = 8388608
-max_native_header_bytes_per_block = 33554432
-max_ed25519_signature_checks_per_transaction = 65536
-max_ed25519_signature_checks_per_block = 262144
-max_bls_vote_attestations_per_transaction = 64
-max_bls_vote_attestations_per_block = 256
-
-[zk.pipa_r]
-enabled = true
-
-[zk.stark]
-enabled = true
-
-[pipeline.gas]
-tech_account_id = "testuﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"
-# Fee quoting selects this canonical Base58 asset for the signature-bound
-# pipeline-gas component. The live `xor#universal` alias resolves to this id.
-accepted_assets = ["6TEAJqbb8oEPmLncoNiMRbLEK6tw"]
-[[pipeline.gas.units_per_gas]]
-asset = "6TEAJqbb8oEPmLncoNiMRbLEK6tw"
-# Nexus fees already charge gas via [nexus.fees].per_gas_unit_fee; this admits
-# signature-bound gas in `FeePaymentIntent` without a second pipeline transfer.
-units_per_gas = 0
-twap_local_per_xor = "1"
-liquidity_profile = "tier1"
-volatility_class = "stable"
+# Pipeline gas assets, rates and fee receiver are committed in genesis.template.json.
 
 [genesis]
 public_key = "ed0120403BA31890B09C40B7108A0AC1319D27C10FE5442027CF8333C5C3A09CBB0343"

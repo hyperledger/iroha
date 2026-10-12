@@ -1,7 +1,7 @@
 //! Original native signed evidence for endpoint transport tests.
 //!
 //! Attribution is fixture-only; these helpers do not establish historical authority or finality.
-use iroha_crypto::{Algorithm, KeyPair};
+use iroha_crypto::{Algorithm, KeyPair, bls::consensus};
 use iroha_data_model::block::consensus::{Evidence, EvidenceAttribution, EvidenceOffender};
 use iroha_model_base::peer::PeerId;
 use iroha_sumeragi::{
@@ -39,8 +39,8 @@ pub(super) fn make_phase_vote_evidence(height: u64, seed: u8) -> Evidence {
             sig: NativeSignature([0; SIGNATURE_LEN]),
         };
         vote.sig = NativeSignature(
-            iroha_crypto::bls::consensus::sign_preimage(keys[0].private_key(), &vote.preimage())
-                .unwrap(),
+            consensus::sign_preimage(keys[0].private_key(), &vote.preimage())
+                .expect("allowlisted native Prepare signature"),
         );
         vote
     };
@@ -86,23 +86,29 @@ fn evidence_fixture_authenticates_and_rejects_modified_signed_bytes() {
         assert_eq!(first.epoch, second.epoch);
         assert_eq!(first.signer, second.signer);
         assert_ne!(first.block_hash, second.block_hash);
-        let public: [u8; 48] = keys[0]
-            .public_key()
-            .try_to_bytes()
-            .unwrap()
-            .1
-            .try_into()
-            .unwrap();
-        let verify = |vote: &Vote| {
-            let digest =
-                iroha_crypto::bls::consensus::ConsensusDigest::from_preimage(&vote.preimage())
-                    .unwrap();
-            iroha_crypto::bls::consensus::verify_single(&public, &digest, &vote.sig.0)
-        };
+        let key = keys[0].public_key().try_to_bytes().unwrap().1;
+        let key: [u8; 48] = key.try_into().expect("native committee key width");
         for vote in [&first, &second] {
-            assert!(verify(vote), "original native signature");
+            let digest = consensus::ConsensusDigest::from_preimage(&vote.preimage())
+                .expect("allowlisted native Prepare preimage");
+            assert!(consensus::verify_fast_aggregate_committed(
+                &[key],
+                &digest,
+                &vote.sig.0
+            ));
+            assert!(
+                iroha_crypto::Signature::from_bytes(&vote.sig.0)
+                    .verify(keys[0].public_key(), &vote.preimage())
+                    .is_err(),
+                "native evidence does not use the generic signing suite"
+            );
         }
         second.block_hash = Hash32([0xCC; 32]);
-        assert!(!verify(&second));
+        let changed = consensus::ConsensusDigest::from_preimage(&second.preimage()).unwrap();
+        assert!(!consensus::verify_fast_aggregate_committed(
+            &[key],
+            &changed,
+            &second.sig.0
+        ));
     }
 }

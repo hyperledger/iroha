@@ -66,6 +66,37 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     },
     OtherDomains {
         usage: Use::Record,
+        reason: "SCCP fast-pause effect binds its network identity, external network and head; certificate identity binds the exact certificate content. These are record identities, not a commitment over the complete State",
+        literals: &[
+            r"iroha.sccp.fast_pause.certificate.id.v1",
+            r"iroha.sccp.fast_pause.effect.v1",
+        ],
+    },
+    OtherDomains {
+        usage: Use::Name,
+        reason: "Name of the native certified-result descriptor in the release wire identity. The descriptor binds the compiled header layout, body framing, hash recipe and bounds; this format name is not a hash domain or a commitment over current State data",
+        literals: &[r"iroha.sumeragi.certified_result.v1"],
+    },
+    OtherDomains {
+        usage: Use::Record,
+        reason: "Canonical hashes of one phone-control provider policy and one challenge, and the signing preimage of one provider credential. These bind supplied records; they establish no State provider-policy authority, challenge consumption or private phone-control relation",
+        literals: &[
+            r"iroha.ram_lfe.v1.phone_control.challenge",
+            r"iroha.ram_lfe.v1.phone_control.credential",
+            r"iroha.ram_lfe.v1.phone_control.provider_policy",
+        ],
+    },
+    OtherDomains {
+        usage: Use::BlockContent,
+        reason: "Digests of the normalized ordered transaction intent, one ordered action statement and one proof-free proof-carrier attachment. They bind transaction content and generated-proof exclusions, not State tables or cells",
+        literals: &[
+            r"iroha.transaction.action-statement-digest.v1",
+            r"iroha.transaction.ordered-intent-digest.v1",
+            r"iroha.transaction.proof-carrier-public-inputs-digest.v1",
+        ],
+    },
+    OtherDomains {
+        usage: Use::Record,
         reason: "Hashes of the finite variant names and codes of one ordinary enum or application-error schema, excluding nominal identity. Each binds one supplied descriptor's content and commits no State tables or cells",
         literals: &[
             r"iroha:kotodama:enum-schema:v1\0",
@@ -86,6 +117,11 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
         usage: Use::Name,
         reason: "Exact RegisterDataspaceAssetDefinition instruction wire identifier, used both by the instruction and the built-in dispatch registry; it names one instruction layout and computes no digest",
         literals: &[r"iroha.asset_definition.dataspace.register.v1"],
+    },
+    OtherDomains {
+        usage: Use::Name,
+        reason: "Exact Keepalive instruction wire identifier in the built-in dispatch registry; it names one instruction layout and computes no digest",
+        literals: &[r"iroha.chain.keepalive.v1"],
     },
     OtherDomains {
         usage: Use::Name,
@@ -268,8 +304,9 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     },
     OtherDomains {
         usage: Use::Precondition,
-        reason: "Expected-value hashes of one State value that a transaction or a State record names (lane catalog, lane incarnations, runtime catalog, dataspace catalog, fee-sponsor vault snapshot): execution recomputes and compares them, and the value itself is an entry of the keyed State root",
+        reason: "Expected-value hashes of one State value that a transaction or a State record names (lane catalog, lane incarnations, runtime catalog, dataspace catalog, fee-sponsor vault snapshot, the contract manifest that a native compilation receipt names): execution recomputes and compares them, and the value itself is an entry of the keyed State root",
         literals: &[
+            r"iroha.contract.native-source-manifest.v1\0",
             r"iroha.nexus.fee-sponsor-vault.allocation-claim.v1",
             r"iroha.nexus.fee-sponsor-vault.source-state.v1",
             r"iroha:nexus:dataspace-catalog:v1\0",
@@ -745,11 +782,8 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     },
     OtherDomains {
         usage: Use::Record,
-        reason: "Content commitments of one complete supplied Kotodama source inventory and its exact admitted contract manifest, recorded in the native compilation receipt draft: hashes of these immutable input records, not digests computed from State tables",
-        literals: &[
-            r"iroha.contract.native-source-inventory.v1\0",
-            r"iroha.contract.native-source-manifest.v1\0",
-        ],
+        reason: "Content commitment of one complete supplied Kotodama source inventory, recorded in the native compilation receipt draft: a hash of this immutable input record, not a digest computed from State tables; the separate admitted-manifest expected-value hash is classified as a precondition",
+        literals: &[r"iroha.contract.native-source-inventory.v1\0"],
     },
     OtherDomains {
         usage: Use::Record,

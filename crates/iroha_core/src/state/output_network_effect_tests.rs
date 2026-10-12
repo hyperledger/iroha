@@ -41,9 +41,10 @@ fn preparation_refusal_is_fee_free_but_admitted_business_failure_charges_actual_
                 &iroha_config::parameters::defaults::nexus::fees::fee_asset_id(),
             )
             .expect("canonical network XOR fee asset");
-            let mut state = fixture_with_fee_asset(65_536, None, Some(asset.clone()));
-            state.pipeline.overlay_max_instructions = maximum;
-            state.pipeline.overlay_max_bytes = 0;
+            let state = fixture_with_pipeline_policy(65_536, None, Some(asset.clone()), |policy| {
+                policy.overlay_max_instructions = maximum;
+                policy.overlay_max_bytes = 0;
+            });
             let source = carrier(
                 &state,
                 vec![input(
@@ -126,11 +127,13 @@ fn preparation_refusal_is_fee_free_but_admitted_business_failure_charges_actual_
 
 #[test]
 fn actual_by_call_callback_keeps_its_separate_instruction_scope() {
-    let mut state = fixture(65_536, Some(512));
     let root: InstructionBox = ExecuteTrigger::new("network_callback".parse().unwrap()).into();
-    let direct_gas = crate::gas::meter_instructions(std::slice::from_ref(&root));
-    state.pipeline.overlay_max_instructions = 1;
-    state.pipeline.overlay_max_bytes = u64::try_from(root.encode().len()).unwrap();
+    let state = fixture_with_pipeline_policy(65_536, Some(512), None, |policy| {
+        policy.overlay_max_instructions = 1;
+        policy.overlay_max_bytes = u64::try_from(root.encode().len()).unwrap();
+    });
+    let direct_gas =
+        crate::gas::meter_instructions(std::slice::from_ref(&root), &crate::gas::DEFAULT_ZK_GAS);
     let source = carrier(
         &state,
         vec![input(
@@ -163,11 +166,16 @@ fn actual_by_call_callback_keeps_its_separate_instruction_scope() {
 fn actual_generic_ivm_callback_output(quarantine: bool) -> (NetworkExecutionOutputV1, u64) {
     use iroha_data_model::{isi::Grant, transaction::IvmBytecode};
     use ivm::{encoding::wide, instruction::wide as opcode, pointer_abi::PointerType};
-    let mut state = fixture(65_536, None);
-    // Both executions have the same policy. The selected signed root may spend
-    // one VM cycle; the actual five-opcode callback keeps its own trigger scope.
-    state.pipeline.quarantine_max_txs_per_block = 1;
-    state.pipeline.quarantine_tx_max_cycles = 1;
+    let id: TriggerId = "generic_effect_callback".parse().unwrap();
+    let instruction: InstructionBox = ExecuteTrigger::new(id.clone()).into();
+    // Both executions have the same committed policy. The selected signed root may
+    // spend one VM cycle; the five-opcode callback keeps its own trigger scope.
+    let state = fixture_with_pipeline_policy(65_536, None, None, |policy| {
+        policy.quarantine_max_txs_per_block = 1;
+        policy.quarantine_tx_max_cycles = 1;
+        policy.overlay_max_instructions = 1;
+        policy.overlay_max_bytes = u64::try_from(instruction.encode().len()).unwrap();
+    });
     let key: Name = "generic_callback_write".parse().unwrap();
     let literals: Vec<Vec<u8>> = [
         (
@@ -231,7 +239,6 @@ fn actual_generic_ivm_callback_output(quarantine: bool) -> (NetworkExecutionOutp
         IvmCache::new().summarize_executable(&program).unwrap(),
         crate::smartcontracts::ivm::cache::ExecutableProgramSummary::Generic(_)
     ));
-    let id: TriggerId = "generic_effect_callback".parse().unwrap();
     {
         let (mut setup, _setup_recording) = output_fixture_setup(&state);
         let mut transaction = setup.transaction_for_callback_testing();
@@ -260,10 +267,10 @@ fn actual_generic_ivm_callback_output(quarantine: bool) -> (NetworkExecutionOutp
         transaction.apply();
         setup.commit_world_overlay_for_testing().unwrap();
     }
-    let instruction: InstructionBox = ExecuteTrigger::new(id).into();
-    let direct_gas = crate::gas::meter_instructions(std::slice::from_ref(&instruction));
-    state.pipeline.overlay_max_instructions = 1;
-    state.pipeline.overlay_max_bytes = u64::try_from(instruction.encode().len()).unwrap();
+    let direct_gas = crate::gas::meter_instructions(
+        std::slice::from_ref(&instruction),
+        &crate::gas::DEFAULT_ZK_GAS,
+    );
     let entrypoint = if quarantine {
         let mut metadata = iroha_model_base::metadata::Metadata::default();
         metadata.insert("quarantine".parse().unwrap(), Json::new(true));

@@ -402,12 +402,31 @@ pub fn root_instance(
     genesis: &SignedBlock,
     chain_id: &str,
 ) -> Result<Hash32, crate::execution_attempt::ExecutionAttemptError<String>> {
-    iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(genesis)
-        .map_err(|error| {
-            crate::execution_attempt::genesis_read_attempt_error(error, |error| error.to_string())
-        })?
-        .sumeragi_context
-        .root_scope
+    root_identity(genesis, chain_id).map(|(instance, _)| instance)
+}
+
+// Retain the same signed scalar used to derive the instance. No mutable World or local
+// configuration can turn a private root into the global result scope.
+fn root_identity(
+    genesis: &SignedBlock,
+    chain_id: &str,
+) -> Result<
+    (
+        Hash32,
+        iroha_data_model::block::consensus::SumeragiRootScope,
+    ),
+    crate::execution_attempt::ExecutionAttemptError<String>,
+> {
+    let root_scope =
+        iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(genesis)
+            .map_err(|error| {
+                crate::execution_attempt::genesis_read_attempt_error(error, |error| {
+                    error.to_string()
+                })
+            })?
+            .sumeragi_context
+            .root_scope;
+    let instance = root_scope
         .instance_id(
             &BlsCrypto::new(),
             iroha_data_model::NetworkId::from_genesis_hash(genesis.hash()),
@@ -415,7 +434,8 @@ pub fn root_instance(
         )
         .map_err(|error| {
             crate::execution_attempt::ExecutionAttemptError::Rejected(error.to_string())
-        })
+        })?;
+    Ok((instance, root_scope))
 }
 
 /// The original failed startup replay operation, retaining local refusal ownership.
@@ -591,49 +611,51 @@ pub fn prepare(inputs: PrepareInputs) -> Result<Prepared, NodeError> {
         ));
     }
     // Genesis: re-execute the stored one, or apply the supplied one.
-    let (tip, config_fingerprint, instance): (GenesisTip, iroha_crypto::Hash, Hash32) =
-        match startup::stored_genesis(&state)? {
-            Some((block, certificate, stored)) => {
-                if let Some(supplied) = &genesis
-                    && startup::core_hash_of(supplied) != stored.block_hash
-                {
-                    return Err(NodeError::Input(
-                        "the supplied genesis differs from the one Kura holds".into(),
-                    ));
-                }
-                let fingerprint =
-                    consensus_configuration_fingerprint(&block).map_err(node_policy_error)?;
-                let instance = root_instance(&block, &chain_id).map_err(node_policy_error)?;
-                (
-                    startup::apply_genesis(
-                        &state,
-                        block,
-                        &genesis_account,
-                        consensus_mode,
-                        Some(&certificate),
-                    )?,
-                    fingerprint,
-                    instance,
-                )
+    let (tip, config_fingerprint, instance, root_scope): (
+        GenesisTip,
+        iroha_crypto::Hash,
+        Hash32,
+        iroha_data_model::block::consensus::SumeragiRootScope,
+    ) = match startup::stored_genesis(&state)? {
+        Some((block, certificate, stored)) => {
+            if let Some(supplied) = &genesis
+                && startup::core_hash_of(supplied) != stored.block_hash
+            {
+                return Err(NodeError::Input(
+                    "the supplied genesis differs from the one Kura holds".into(),
+                ));
             }
-            None => {
-                let genesis = genesis.ok_or(NodeError::NoGenesis)?;
-                let fingerprint =
-                    consensus_configuration_fingerprint(&genesis).map_err(node_policy_error)?;
-                let instance = root_instance(&genesis, &chain_id).map_err(node_policy_error)?;
-                (
-                    startup::apply_genesis(
-                        &state,
-                        genesis,
-                        &genesis_account,
-                        consensus_mode,
-                        None,
-                    )?,
-                    fingerprint,
-                    instance,
-                )
-            }
-        };
+            let fingerprint =
+                consensus_configuration_fingerprint(&block).map_err(node_policy_error)?;
+            let (instance, root_scope) =
+                root_identity(&block, &chain_id).map_err(node_policy_error)?;
+            (
+                startup::apply_genesis(
+                    &state,
+                    block,
+                    &genesis_account,
+                    consensus_mode,
+                    Some(&certificate),
+                )?,
+                fingerprint,
+                instance,
+                root_scope,
+            )
+        }
+        None => {
+            let genesis = genesis.ok_or(NodeError::NoGenesis)?;
+            let fingerprint =
+                consensus_configuration_fingerprint(&genesis).map_err(node_policy_error)?;
+            let (instance, root_scope) =
+                root_identity(&genesis, &chain_id).map_err(node_policy_error)?;
+            (
+                startup::apply_genesis(&state, genesis, &genesis_account, consensus_mode, None)?,
+                fingerprint,
+                instance,
+                root_scope,
+            )
+        }
+    };
     let genesis_epoch = {
         let view = state.view();
         let config = view
@@ -673,14 +695,10 @@ pub fn prepare(inputs: PrepareInputs) -> Result<Prepared, NodeError> {
         Arc::clone(&kura),
         Arc::clone(&shared),
         GENESIS_HEIGHT,
+        root_scope,
         staging.clone(),
         state.ivm_execution_budget(),
         availability,
-        state
-            .view()
-            .native_execution_tip()
-            .ok_or_else(|| NodeError::Input("block store lacks authenticated root scope".into()))?
-            .result_scope(),
     ));
     let applied_watch = Arc::new(crate::sumeragi::lanes::global::AppliedWatch::new(
         GENESIS_HEIGHT,
@@ -710,6 +728,7 @@ pub fn prepare(inputs: PrepareInputs) -> Result<Prepared, NodeError> {
         events,
         genesis_account,
         consensus_mode,
+        root_scope,
         applied: (GENESIS_HEIGHT, tip.block_hash),
         crypto: Some(Arc::clone(&crypto)),
         applied_watch: Arc::clone(&applied_watch),
@@ -2528,14 +2547,18 @@ mod tests {
             .expect("availability authority bound to original applied genesis"),
         );
         let staging = Staging::new();
+        let root_scope = super::super::epoch::authenticated_genesis(&chain.genesis)
+            .expect("original signed genesis scope")
+            .into_parts()
+            .1;
         let blocks = KuraBlockStore::new(
             kura,
             shared,
             GENESIS_HEIGHT,
+            root_scope,
             staging.clone(),
             state.ivm_execution_budget(),
             availability,
-            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
         );
         let mut executor = StateExecutor::spawn(ExecutorContext {
             state: Arc::clone(&state),
@@ -2552,6 +2575,7 @@ mod tests {
             events: tokio::sync::broadcast::channel(16).0,
             genesis_account: SAMPLE_GENESIS_ACCOUNT_ID.clone(),
             consensus_mode: ConsensusMode::Permissioned,
+            root_scope,
             applied: (GENESIS_HEIGHT, tip.block_hash),
             crypto: Some(Arc::clone(&crypto)),
             applied_watch: Arc::new(crate::sumeragi::lanes::global::AppliedWatch::new(
@@ -2591,9 +2615,10 @@ mod tests {
                 KeyPairSigner::new(key)
                     .expect("original BLS signer")
                     .sign(&preimage)
+                    .unwrap()
             })
             .collect::<Vec<_>>();
-        forged.agg_sig = crypto.aggregate(&signatures);
+        forged.agg_sig = crypto.aggregate(&signatures).unwrap();
         let error = executor
             .replay(&body, &forged)
             .expect_err("a differing certified result");

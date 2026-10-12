@@ -108,9 +108,7 @@ fn account_fixture() -> &'static (
             signature: SignatureOf::try_from_hash(node.private_key(), body.signing_hash()).unwrap(),
             body,
         };
-        attestation
-            .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
-            .unwrap();
+        attestation.verify(native.root_scope().into()).unwrap();
         let response = NativeAuthorityOriginalsV1 {
             request_sha256,
             selector: request.selector.clone(),

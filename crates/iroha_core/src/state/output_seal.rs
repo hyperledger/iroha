@@ -92,6 +92,21 @@ impl SealedExecutionOutputs {
 }
 
 impl StateBlock<'_> {
+    /// Return the original header after rejoining the exact completed output owner.
+    /// No current World view can replace or recompute this retained fixed-size value.
+    pub(crate) fn sealed_sccp_finality_header(
+        &self,
+        block: &SignedBlock,
+    ) -> Result<iroha_data_model::sumeragi_finality::certified_result::SccpFinalityHeaderV1, String>
+    {
+        self.verify_execution_output_seal(block)?;
+        let Some(ExecutionOutputPlanState::Sealed(sealed)) = self.execution_output_plan.as_ref()
+        else {
+            return Err("SCCP header requires the original completed output seal".into());
+        };
+        Ok(sealed.sccp_finality_header)
+    }
+
     /// Bind the recorder's actual complete witness before extraction. A second
     /// capture cannot replace the first witness owned by this execution.
     pub(in crate::state) fn bind_execution_output_witness(
@@ -416,12 +431,6 @@ impl StateBlock<'_> {
             }
             let metadata = finalize(state, block, sources.carrier_network_routes())
                 .map_err(ExecutionOutputSealError::Finalizer)?;
-            if metadata.sccp_finality_header.network_id() != *state.network_id.as_bytes()
-                || metadata.sccp_finality_header.height() != block.header().height().get()
-                || metadata.sccp_finality_header.timestamp_ms() != block.header().creation_time_ms
-            {
-                return Err("finality header differs from its original execution source".into());
-            }
             if !matches!(
                 state.execution_output_plan,
                 Some(ExecutionOutputPlanState::Sealing)
@@ -430,6 +439,12 @@ impl StateBlock<'_> {
             }
             if !state.batch_transfer_outcomes.is_empty() {
                 return Err("output finalizer introduced unowned business receipts".into());
+            }
+            if metadata.sccp_finality_header.network_id() != *state.network_id.as_bytes()
+                || metadata.sccp_finality_header.height() != block.header().height().get()
+                || metadata.sccp_finality_header.timestamp_ms() != block.header().creation_time_ms
+            {
+                return Err("SCCP finality header differs from its original execution".into());
             }
             let fragments = u64::try_from(state.committed_fragment_count())
                 .map_err(|_| "committed fragment count exceeds u64")?;
@@ -516,23 +531,6 @@ impl StateBlock<'_> {
                 Err(error)
             }
         }
-    }
-
-    /// Borrow the original finalizer's fixed X only while its complete seal still matches.
-    /// Result preparation must take this value before publication mutates the overlay.
-    ///
-    /// # Errors
-    /// The output owner, exact executed wire, World delta or captured witness changed.
-    pub(crate) fn sealed_sccp_finality_header(
-        &self,
-        block: &SignedBlock,
-    ) -> Result<iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1, String> {
-        self.verify_execution_output_seal(block)?;
-        let Some(ExecutionOutputPlanState::Sealed(sealed)) = self.execution_output_plan.as_ref()
-        else {
-            return Err("finality header requires the original sealed output owner".into());
-        };
-        Ok(sealed.sccp_finality_header)
     }
 
     /// Check the exact attached wire while publication is still gated. Later

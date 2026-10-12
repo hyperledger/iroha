@@ -37,7 +37,10 @@ pin_torii_urls = [
     let actual = load_root(table);
     let publish = actual.torii.sorafs_discovery.publish;
     assert_eq!(
-        publish.gateway_base_url.as_ref().map(actual::SorafsPublishBaseUrl::as_str),
+        publish
+            .gateway_base_url
+            .as_ref()
+            .map(actual::SorafsPublishBaseUrl::as_str),
         Some("https://taira.sora.org")
     );
     assert_eq!(
@@ -1136,7 +1139,7 @@ fn execution_proof_transport_overlay_preserves_ordinary_defaults() {
     let default = load_root(base_table());
     assert_eq!(default.network.max_frame_bytes_health, 32_768);
     assert_eq!(default.network.max_frame_bytes_connect, 131_072);
-    assert_eq!(default.network.max_frame_bytes_tx_gossip, 262_144);
+    assert_eq!(default.network.max_frame_bytes_tx_gossip, 17 * 1024 * 1024);
     assert_eq!(default.torii.connect.frame_max_bytes, 64_000);
     let overlay: Table = toml::from_str(include_str!(
         "../../../../configs/soranexus/execution-proof-transport.toml"
@@ -1159,7 +1162,7 @@ fn execution_proof_transport_overlay_preserves_ordinary_defaults() {
     assert_eq!(configured.network.max_frame_bytes_connect, 8 * 1024 * 1024);
     assert_eq!(
         configured.network.max_frame_bytes_tx_gossip,
-        8 * 1024 * 1024
+        17 * 1024 * 1024
     );
     assert_eq!(
         configured.torii.connect.frame_max_bytes,

@@ -407,9 +407,20 @@ never accepted as a signing domain.
 from `TransactionEntrypoint::External` plus the canonical signed
 `TransactionPayload`. Authorization signatures and multisig proofs remain in
 the submitted `SignedTransaction` wire but do not create alternate IDs for the
-same intent. Proof attachments are carried by `TransactionPayload.attachments`,
-so adding, removing, or replacing an attachment changes the signature preimage
-and transaction ID.
+same intent. `TransactionPayload.attachments` is the immutable `SignedAttachmentsV1` ordered descriptor and inline occurrence model.
+`NoritoJavaCodecAdapter.withProofAttachments` constructs and binds transaction proof carriers;
+`orderedIntentProjection`, `orderedIntentDigest`, and `bindAttachmentStatements` expose the canonical
+proof-free binding flow. The codec checks occurrence hashes, lengths, order, roles, invocation targets,
+carrier public inputs, and statement digests before signing. Adding, removing, or replacing an attachment changes the signature preimage
+and transaction ID. The shared Rust corpus in `fixtures/zk/signed_attachments_v1/vectors.json`
+pins full payload bytes, carrier options and lane witnesses, explicit account/contract bindings,
+and normalized digest preimages. `Executable.IvmProved` carries bytecode, the claimed overlay,
+and marked event/gas commitments; `withIvmExecutionProof` binds its single execution carrier.
+Its intent projection excludes the generated overlay and output commitments. Typed privacy
+submission projection uses the current Rust model through `PrivacyNativeBridge`, with canonical
+bounded decoding for all twelve protocols in direct and batch forms. This requires the matching
+native bridge; its encode-only projection path grants no privacy construction admission.
+Cryptographic proof verification and state admission remain node responsibilities.
 
 ### One-shot signed HTTP requests
 

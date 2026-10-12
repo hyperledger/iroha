@@ -542,10 +542,18 @@ fn staged_genesis_with_projection_on_bounded_stack<T>(
     project: impl FnOnce(&iroha_core::state::StateBlock<'_>) -> Result<T, color_eyre::eyre::Error>,
 ) -> Result<StagedGenesisProjection<T>, color_eyre::eyre::Error> {
     let _chain_discriminant = staged_genesis_chain_discriminant(genesis);
-    let consensus_mode = match genesis.consensus_mode() {
+    let signed_metadata = iroha_genesis::signed_genesis_consensus_metadata(&provisional.0)
+        .wrap_err("read signed genesis consensus context before staging")?;
+    if signed_metadata.mode != genesis.consensus_mode() {
+        return Err(eyre!(
+            "genesis manifest consensus mode differs from signed metadata"
+        ));
+    }
+    let consensus_mode = match signed_metadata.mode {
         SumeragiConsensusMode::Permissioned => ConsensusMode::Permissioned,
         SumeragiConsensusMode::Npos => ConsensusMode::Npos,
     };
+    let root_scope = signed_metadata.sumeragi_context.root_scope;
     let (state, _, authority) = configured_initial_genesis_state(genesis, config, &provisional)?;
     let voters = iroha_core::sumeragi::schedule::genesis_validators(&provisional)
         .map_err(|error| eyre!("invalid signed Sumeragi genesis roster: {error}"))?;
@@ -562,6 +570,7 @@ fn staged_genesis_with_projection_on_bounded_stack<T>(
         &TimeSource::new_system(),
         &state,
         consensus_mode,
+        root_scope,
     )
     .unpack(|_| {})
     .map_err(|(block, error)| {
@@ -634,11 +643,20 @@ pub fn configured_initial_genesis_state(
         .ok_or_else(|| {
             eyre!("prepared genesis authority must be one canonical single-key account")
         })?;
-    let mut world = World::with(
+    // World storage and its State must retain this same original pool; equal limits
+    // on a second pool cannot authorize the World's prepaid table acquisition.
+    let execution_budget = iroha_core::state::AllocationBudget::new(
+        config.map_or(defaults::pipeline::IVM_EXECUTION_MAX_BYTES, |config| {
+            config.pipeline.ivm_execution_max_bytes
+        }),
+    );
+    let mut world = World::try_with_execution_budget(
         [Domain::new(iroha_genesis::GENESIS_DOMAIN_ID.clone()).build(&authority)],
         [Account::new(authority.clone()).build(&authority)],
         [],
-    );
+        &execution_budget,
+    )
+    .wrap_err("initialize original World storage for staged genesis")?;
     let nexus = match config {
         Some(config) => config.nexus.clone(),
         None => staged_default_nexus(genesis)?,
@@ -662,10 +680,7 @@ pub fn configured_initial_genesis_state(
     )
     .map_err(|error| eyre!("initialize isolated Kura for staged genesis: {error}"))?;
     let mut state = State::try_new_with_chain_and_network_id_with_default_telemetry(
-        iroha_core::state::AllocationBudget::new(config.map_or(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-            |config| config.pipeline.ivm_execution_max_bytes,
-        )),
+        execution_budget,
         world,
         Arc::clone(&kura),
         LiveQueryStore::start_test(),
@@ -808,17 +823,26 @@ fn configure_staged_genesis_state(
     // the views taken while configuring and reconciling the pre-genesis lane catalog.
     install_staged_nexus_policies(state, genesis, &nexus)?;
     if let Some(config) = config {
-        state.set_pipeline(staged_genesis_pipeline(config.pipeline.clone()));
+        // Execution limits are committed chain policy too: a genesis that needs
+        // non-default ones carries the `pipeline_validity_policy_v1` parameter.
+        state
+            .install_node_pipeline(staged_genesis_pipeline(config.pipeline.clone()))
+            .map_err(|error| eyre!("invalid pipeline config for staged genesis: {error}"))?;
         state.set_oracle(config.oracle.clone());
         state.set_fraud_monitoring(config.fraud_monitoring.clone());
         state.set_gov(config.gov.clone());
         state.content = config.content.clone();
         state.set_settlement(config.settlement);
+        // ZK validity values are committed chain policy: a genesis that needs
+        // non-default ones carries the `zk_validity_policy_v1` parameter. The
+        // staging configuration supplies local resource settings only.
         state
-            .set_zk(config.zk.clone())
+            .install_node_zk(config.zk.clone())
             .map_err(|error| eyre!("invalid ZK config for staged genesis: {error}"))?;
     } else {
-        state.set_pipeline(staged_default_pipeline(genesis)?);
+        state
+            .install_node_pipeline(staged_default_pipeline(genesis)?)
+            .map_err(|error| eyre!("invalid pipeline config for staged genesis: {error}"))?;
     }
     state
         .prepare_configured_primary_geometry_anchor(&nexus.configured_lane_catalog)
@@ -883,6 +907,63 @@ mod tests {
             .collect::<Vec<_>>();
         entries.sort_by(|left, right| left.peer.cmp(&right.peer));
         entries
+    }
+
+    #[test]
+    fn configured_genesis_world_retains_original_state_pool_across_pipeline_installation() {
+        let key = KeyPair::try_from_seed(vec![0x6D; 32], Algorithm::Ed25519)
+            .expect("deterministic staging authority");
+        let raw = GenesisBuilder::new_without_executor(ChainId::from("genesis-original-pool"), ".")
+            .set_topology(default_test_topology())
+            .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
+            .build_raw()
+            .unwrap()
+            .with_consensus_mode(SumeragiConsensusMode::Permissioned)
+            .with_consensus_meta()
+            .unwrap();
+        let provisional = build_signed_genesis(
+            raw.clone(),
+            &key,
+            None,
+            iroha_core::state::default_genesis_confidential_policy_hash(),
+            Some(1_700_000_000_000),
+        )
+        .unwrap();
+        let (mut state, _, _) = configured_initial_genesis_state(&raw, None, &provisional)
+            .expect("construct the actual fresh-node World and State");
+        let original = state.ivm_execution_budget();
+        let reserved = original.reserved_bytes();
+        assert!(
+            reserved > 0,
+            "the original pool funds real retained storage"
+        );
+        drop(
+            state
+                .world
+                .try_block(&original)
+                .expect("original World acquisition"),
+        );
+        assert_eq!(original.reserved_bytes(), reserved);
+
+        let mut pipeline = staged_default_pipeline(&raw).unwrap();
+        pipeline.ivm_execution_max_bytes = original.limit_bytes() - 1;
+        state.install_node_pipeline(pipeline).unwrap();
+        assert!(original.same_pool(&state.ivm_execution_budget()));
+        let before = original.reserved_bytes();
+        let foreign = iroha_core::state::AllocationBudget::new(original.limit_bytes());
+        assert!(matches!(
+            state.world.try_block(&foreign),
+            Err(mv::storage::AdmittedStorageError::ScopeIdentity)
+        ));
+        assert_eq!(foreign.reserved_bytes(), 0);
+        assert_eq!(original.reserved_bytes(), before);
+        drop(
+            state
+                .world
+                .try_block(&original)
+                .expect("retry with original pool"),
+        );
+        assert_eq!(original.reserved_bytes(), before);
     }
 
     #[test]
@@ -967,5 +1048,14 @@ mod tests {
         );
         iroha_data_model::nexus::decode_nexus_amx_context_v1(&restaged.nexus_amx_context_preimage)
             .expect("the staged preimage is a canonical Nexus/AMX context");
+        let different_mode = bound_manifest.with_consensus_mode(SumeragiConsensusMode::Npos);
+        let mismatch = restage_signed_sumeragi_context_hashes(&different_mode, None, &signed.0)
+            .err()
+            .expect("a manifest cannot replace the signed consensus mode");
+        assert!(
+            mismatch
+                .to_string()
+                .contains("genesis manifest consensus mode differs from signed metadata")
+        );
     }
 }

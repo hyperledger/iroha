@@ -50,7 +50,8 @@ fn install_catalog(state: &State, catalog: NexusRuntimeCatalogV1) {
             catalog
                 .into_custom_parameter()
                 .expect("canonical protected fixture"),
-        ));
+        ))
+        .expect("valid fixture parameters");
     world.commit();
     drop(publication);
     drop(notice);
@@ -279,7 +280,8 @@ fn authorization_reader_rejects_malformed_or_foreign_catalog_authority() {
                     NexusRuntimeCatalogV1::parameter_id(),
                     iroha_primitives::json::Json::new(norito::json!({"version": 255})),
                 ),
-            ));
+            ))
+            .expect("valid fixture parameters");
         world.commit();
         assert!(matches!(
             state.try_with_authorization_view(&counter, |_| ()),

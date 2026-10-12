@@ -1,21 +1,20 @@
 //! EVM destination actions of `iroha sccp` for Ethereum and BSC (`specs/sccp.md` §7.1, §7.4).
 //!
 //! Every bundle and rotation chain read from Taira is verified locally against the
-//! destination's native `committeeState()` before a transaction is built; the key comes only from an
+//! destination's current committee and original consensus instance before a transaction is built; the key comes only from an
 //! owner-only key file.
 
-use std::path::Path;
+use std::{collections::BTreeMap, path::Path};
 
-use eyre::{Result, WrapErr as _, eyre};
+use eyre::{Result, WrapErr as _, ensure, eyre};
+use iroha::data_model::{bridge::SccpNetworkV1, sccp::deployment::SccpCommitteePinV1};
 use iroha_sccp::{
     api::{SccpMessageProofBundleV1, SccpRotationV1},
     v1::{
         committee::CommitteeStateV1,
-        destination::{
-            CheckpointObservationsV1, DeploymentV1, DestinationObservationV1, MessagePurposeV1,
-            PauseStateV1,
-        },
-        evm_abi::{ViewCallV1, ViewReturnV1, decode_u128_return},
+        destination::DestinationFlavor,
+        evm_abi::{PauseViewV1, ViewCallV1, ViewReturnV1},
+        proof::DestinationV1,
     },
 };
 use iroha_sccp_rpc::{
@@ -23,7 +22,7 @@ use iroha_sccp_rpc::{
     evm::{BlockId, BlockTag, EvmCallRequest},
 };
 use iroha_sccp_wallet::pure::{
-    bundle::{BundleSourceV1, verify_message_bundle},
+    bundle::{BundlePurposeV1, CertificateUseV1, DestinationContextV1, verify_message_bundle},
     evm::{
         Eip1559TransactionV1, EvmSigningKey, eip1559_chain_id, finalize_calldata,
         submit_checkpoints_calldata,
@@ -31,214 +30,199 @@ use iroha_sccp_wallet::pure::{
     rotation::verify_rotation_steps,
 };
 
-use iroha::data_model::bridge::SccpNetworkV1;
+/// One coherent observation from a selected destination block hash.
+struct Observation {
+    network: [u8; 32],
+    instance: [u8; 32],
+    committee: CommitteeStateV1,
+    pause: PauseViewV1,
+    checkpoints: BTreeMap<u64, [u8; 32]>,
+    now_ms: u64,
+}
+impl Observation {
+    fn context(&self, destination: DestinationV1) -> DestinationContextV1<'_> {
+        DestinationContextV1 {
+            taira_network_id: self.network,
+            consensus_instance: self.instance,
+            destination,
+            flavor: DestinationFlavor::Evm,
+            committee_state: self.committee,
+            ton_keys: None,
+            checkpoints: &self.checkpoints,
+            now_ms: self.now_ms,
+        }
+    }
+}
 
-/// A destination RPC observation is independent of Torii carriers and bound to local pins.
-/// It still relies on the explicitly selected external-chain RPC; it is not a light client.
+/// One EVM deployment reached through a JSON-RPC endpoint.
 pub(super) struct EvmDestination {
     client: EvmClient,
     network: SccpNetworkV1,
     contract: [u8; 20],
-    deployment: DeploymentV1,
+    destination: DestinationV1,
+    code_hash: [u8; 32],
 }
 impl EvmDestination {
+    /// Connect to the selected deployment; every observation checks its original code hash.
     pub(super) fn connect(
         rpc_url: &str,
         network: SccpNetworkV1,
         contract: [u8; 20],
-        deployment: DeploymentV1,
+        destination: DestinationV1,
+        code_hash: [u8; 32],
     ) -> Result<Self> {
-        eyre::ensure!(
-            deployment.destination_word == iroha_sccp::v1::hashes::word_address(&contract),
-            "registry destination word/address mismatch"
-        );
-        let mut init = super::locked_creation_template()?;
-        init.extend(constructor_for_deployment(&deployment));
-        eyre::ensure!(
-            created_address(&init) == contract,
-            "destination address is not the locked native CREATE2 deployment under the selected initial pin"
-        );
         Ok(Self {
             client: connect_chain(rpc_url, network)?,
             network,
             contract,
-            deployment,
+            destination,
+            code_hash,
         })
     }
-    fn view(&self, view: ViewCallV1, block: BlockId) -> Result<ViewReturnV1> {
-        let data = self
-            .client
-            .call(&EvmCallRequest::new(self.contract, view.calldata()), block)
-            .map_err(|error| eyre!("native destination view {view:?}: {error}"))?;
-        view.decode_return(&data)
-            .map_err(|error| eyre!("native view {view:?} decoding: {error:?}"))
-    }
-    fn snapshot(&self) -> Result<(BlockId, u64)> {
+
+    fn observe(&self, heights: impl IntoIterator<Item = u64>) -> Result<Observation> {
         let block = self
             .client
             .block_by_number(BlockTag::Latest)
-            .map_err(|error| eyre!("latest block: {error}"))?
-            .ok_or_else(|| eyre!("RPC has no latest block"))?;
-        Ok((
-            BlockId::Hash(block.header.hash),
-            block
-                .header
-                .timestamp
-                .checked_mul(1000)
-                .ok_or_else(|| eyre!("block time overflow"))?,
-        ))
+            .map_err(|e| eyre!("latest block: {e}"))?
+            .ok_or_else(|| eyre!("the RPC endpoint has no latest block"))?;
+        let at = BlockId::Hash(block.header.hash);
+        let now_ms = block
+            .header
+            .timestamp
+            .checked_mul(1000)
+            .ok_or_else(|| eyre!("block timestamp overflows"))?;
+        let code = self
+            .client
+            .code(&self.contract, at)
+            .map_err(|e| eyre!("eth_getCode: {e}"))?;
+        ensure!(
+            !code.is_empty() && iroha_sccp::v1::hashes::keccak256(&[&code]) == self.code_hash,
+            "destination code differs from the selected registered deployment"
+        );
+        read_observation(self.destination.route_revision, now_ms, heights, |call| {
+            let data = self
+                .client
+                .call(&EvmCallRequest::new(self.contract, call.calldata()), at)
+                .map_err(|e| eyre!("destination view {call:?}: {e}"))?;
+            call.decode_return(&data)
+                .map_err(|e| eyre!("destination view {call:?}: {e}"))
+        })
     }
-    pub(super) fn observation(&self, heights: &[u64]) -> Result<DestinationObservationV1> {
-        let (block, now) = self.snapshot()?;
-        self.observe_at(block, now, heights)
+
+    /// Read the actual current committee and latch from one destination block.
+    pub(super) fn committee_state(&self) -> Result<CommitteeStateV1> {
+        Ok(self.observe([])?.committee)
     }
-    fn observe_at(
-        &self,
-        block: BlockId,
-        now: u64,
-        heights: &[u64],
-    ) -> Result<DestinationObservationV1> {
-        let d = &self.deployment;
-        for (view, expected) in [
-            (
-                ViewCallV1::TairaNetworkId,
-                ViewReturnV1::Bytes32(d.taira_network_id),
-            ),
-            (
-                ViewCallV1::ConsensusInstance,
-                ViewReturnV1::Bytes32(d.consensus_instance),
-            ),
-            (
-                ViewCallV1::RouteRevision,
-                ViewReturnV1::U32(d.route_revision),
-            ),
-            (
-                ViewCallV1::MaxWrappedSupply,
-                ViewReturnV1::U128(d.max_wrapped_supply),
-            ),
-            (
-                ViewCallV1::MaxValidityMs,
-                ViewReturnV1::U64(iroha_sccp::v1::finality::MAX_VALIDITY_MS),
-            ),
-            (
-                ViewCallV1::InitialCommittee,
-                ViewReturnV1::InitialCommittee(iroha_sccp::v1::evm_abi::InitialCommitteeViewV1 {
-                    generation: d.pin_generation,
-                    root: d.pin_root,
-                    start: d.pin_start_height,
-                    until_ms: d.pin_until_ms,
-                }),
-            ),
-        ] {
-            eyre::ensure!(
-                self.view(view, block)? == expected,
-                "destination immutable {view:?} does not match independently selected pin"
-            );
-        }
-        let ViewReturnV1::CommitteeState(c) = self.view(ViewCallV1::CommitteeState, block)? else {
-            return Err(eyre!("committee view type"));
-        };
-        let ViewReturnV1::Bool(equivocated) = self.view(ViewCallV1::Equivocated, block)? else {
-            return Err(eyre!("latch view type"));
-        };
-        let ViewReturnV1::PauseState(p) = self.view(ViewCallV1::PauseState, block)? else {
-            return Err(eyre!("pause view type"));
-        };
-        let mut checkpoints = std::collections::BTreeMap::new();
-        for &height in heights {
-            let ViewReturnV1::Bytes32(id) =
-                self.view(ViewCallV1::CheckpointHeader(height), block)?
-            else {
-                return Err(eyre!("checkpoint view type"));
-            };
-            checkpoints.insert(height, (id != [0; 32]).then_some(id));
-        }
-        DestinationObservationV1::new(
-            d.clone(),
-            CommitteeStateV1 {
-                root: c.root,
-                generation: c.generation,
-                start: c.start,
-                high: c.high,
-                until_ms: c.until_ms,
-                equivocated,
-            },
-            None,
-            CheckpointObservationsV1::Evm(checkpoints),
-            PauseStateV1 {
-                parliament_paused: p.parliament_paused,
-                fast_pause_until_ms: p.fast_pause_until_ms,
-                control_nonce: p.control_nonce,
-                effective: p.effective,
-            },
-            now,
-        )
-        .map_err(|error| eyre!("native destination observation: {error}"))
-    }
+    /// Verify against selected destination identity and encode an accepted current source.
     pub(super) fn finalize_call(
         &self,
         bundle: &SccpMessageProofBundleV1,
-        expected_id: &[u8; 32],
-        source: BundleSourceV1,
+        network: [u8; 32],
+        instance: [u8; 32],
     ) -> Result<Vec<u8>> {
-        let (block, now) = self.snapshot()?;
-        let observation = self.observe_at(block, now, &[bundle.certificate.height])?;
+        let observed = self.observe([bundle.certificate.height])?;
+        ensure!(
+            observed.network == network && observed.instance == instance,
+            "Taira and the selected deployment have different network or consensus identities"
+        );
+        ensure!(!observed.pause.effective, "the destination is paused");
+        let source = if observed
+            .checkpoints
+            .contains_key(&bundle.certificate.height)
+        {
+            CertificateUseV1::Checkpoint
+        } else {
+            CertificateUseV1::Inline
+        };
         let verified = verify_message_bundle(
             bundle,
-            expected_id,
-            &observation,
+            &observed.context(self.destination),
+            BundlePurposeV1::Finalize,
             source,
-            MessagePurposeV1::Finalize,
-        )?;
-        eyre::ensure!(
-            self.view(ViewCallV1::IsConsumed(verified.nonce()), block)?
-                == ViewReturnV1::Bool(false),
-            "nonce was already consumed"
-        );
-        let supply = self
-            .client
-            .call(
-                &EvmCallRequest::new(self.contract, vec![0x18, 0x16, 0x0d, 0xdd]),
-                block,
-            )
-            .map_err(|error| eyre!("totalSupply: {error}"))?;
-        let supply =
-            decode_u128_return(&supply).map_err(|error| eyre!("totalSupply: {error:?}"))?;
-        eyre::ensure!(
-            supply <= self.deployment.max_wrapped_supply
-                && verified.amount() <= self.deployment.max_wrapped_supply - supply,
-            "mint exceeds current supply cap"
-        );
-        finalize_calldata(&verified).map_err(|error| eyre!("native finalize encoding: {error}"))
+        )
+        .map_err(|e| eyre!("proof bundle: {e}"))?;
+        finalize_calldata(&verified).map_err(|e| eyre!("finalize calldata: {e:?}"))
     }
-    pub(super) fn checkpoint_calls(&self, steps: &[SccpRotationV1]) -> Result<Vec<Vec<u8>>> {
-        eyre::ensure!(steps.len() <= 16, "rotation page exceeds 16");
-        let heights = steps
-            .iter()
-            .map(|step| step.certificate.height)
-            .collect::<Vec<_>>();
-        let observation = self.observation(&heights)?;
-        let target = super::rotation_target(steps, observation.committee().generation)?;
-        let plan = verify_rotation_steps(steps, None, &observation, target)?;
-        // This submits only the checked prefix, including an explicit persisted freeze/latch.
-        submit_checkpoints_calldata(&plan)
-            .map_err(|error| eyre!("native checkpoint encoding: {error}"))
+    /// Verify a bounded current rotation page and return its checkpoint calldata.
+    /// The next invocation re-observes the destination; a page is never authority by itself.
+    pub(super) fn rotation_calls(
+        &self,
+        steps: &[SccpRotationV1],
+        target: u64,
+        network: [u8; 32],
+        instance: [u8; 32],
+    ) -> Result<Vec<Vec<u8>>> {
+        let observed = self.observe(steps.iter().map(|step| step.certificate.height))?;
+        ensure!(
+            observed.network == network && observed.instance == instance,
+            "Taira and the selected deployment have different network or consensus identities"
+        );
+        let plan = verify_rotation_steps(steps, &observed.context(self.destination), target)
+            .map_err(|e| eyre!("committee checkpoint chain: {e}"))?;
+        Ok(submit_checkpoints_calldata(&plan))
     }
+    /// Sign and broadcast verified calldata with the selected fee-paying key.
     pub(super) fn send(&self, key: &EvmSigningKey, data: Vec<u8>) -> Result<[u8; 32]> {
-        send_transaction(&self.client, self.network, key, self.contract, data).map(|(hash, _)| hash)
+        send_transaction(&self.client, self.network, key, Some(self.contract), data)
+            .map(|(hash, _)| hash)
     }
 }
 
-/// Timestamp of the selected latest external block, in milliseconds.
-pub(super) fn now_ms(client: &EvmClient) -> Result<u64> {
-    client
-        .block_by_number(BlockTag::Latest)
-        .map_err(|error| eyre!("latest block: {error}"))?
-        .ok_or_else(|| eyre!("RPC has no latest block"))?
-        .header
-        .timestamp
-        .checked_mul(1000)
-        .ok_or_else(|| eyre!("block time overflow"))
+fn read_observation(
+    revision: u32,
+    now_ms: u64,
+    heights: impl IntoIterator<Item = u64>,
+    mut read: impl FnMut(ViewCallV1) -> Result<ViewReturnV1>,
+) -> Result<Observation> {
+    let ViewReturnV1::CommitteeState(committee) = read(ViewCallV1::CommitteeState)? else {
+        return Err(eyre!("invalid committee view"));
+    };
+    let ViewReturnV1::Bool(latched) = read(ViewCallV1::Equivocated)? else {
+        return Err(eyre!("invalid latch view"));
+    };
+    let ViewReturnV1::PauseState(pause) = read(ViewCallV1::PauseState)? else {
+        return Err(eyre!("invalid pause view"));
+    };
+    let ViewReturnV1::Bytes32(network) = read(ViewCallV1::TairaNetworkId)? else {
+        return Err(eyre!("invalid network view"));
+    };
+    let ViewReturnV1::Bytes32(instance) = read(ViewCallV1::ConsensusInstance)? else {
+        return Err(eyre!("invalid consensus instance view"));
+    };
+    let ViewReturnV1::U32(actual_revision) = read(ViewCallV1::RouteRevision)? else {
+        return Err(eyre!("invalid revision view"));
+    };
+    ensure!(
+        actual_revision == revision,
+        "destination route revision differs from selected registry record"
+    );
+    ensure!(
+        network != [0; 32] && instance != [0; 32],
+        "destination identity is zero"
+    );
+    ensure!(
+        pause.effective == (pause.parliament_paused || now_ms < pause.fast_pause_until_ms),
+        "destination pause projection is inconsistent at the selected block time"
+    );
+    let mut checkpoints = BTreeMap::new();
+    for height in heights {
+        ensure!(height != 0, "checkpoint height must be positive");
+        let ViewReturnV1::Bytes32(id) = read(ViewCallV1::CheckpointHeader(height))? else {
+            return Err(eyre!("invalid checkpoint view"));
+        };
+        if id != [0; 32] {
+            checkpoints.insert(height, id);
+        }
+    }
+    Ok(Observation {
+        network,
+        instance,
+        committee: committee.with_equivocated(latched),
+        pause,
+        checkpoints,
+        now_ms,
+    })
 }
 
 /// Connect to `rpc_url` and check that it serves `network`.
@@ -261,24 +245,30 @@ pub(super) fn connect_chain(rpc_url: &str, network: SccpNetworkV1) -> Result<Evm
     Ok(client)
 }
 
-/// Sign and broadcast a call of `to` with `key`, returning
+/// Sign and broadcast a call of `to` (a contract creation when `None`) with `key`, returning
 /// the transaction hash and the sender nonce it used.
 pub(super) fn send_transaction(
     client: &EvmClient,
     network: SccpNetworkV1,
     key: &EvmSigningKey,
-    to: [u8; 20],
+    to: Option<[u8; 20]>,
     data: Vec<u8>,
 ) -> Result<([u8; 32], u64)> {
     let sender = key.address();
     let nonce = client
         .transaction_count(&sender, BlockId::Tag(BlockTag::Pending))
         .map_err(|error| eyre!("eth_getTransactionCount: {error}"))?;
-    let mut request = EvmCallRequest::new(to, data.clone());
-    request.from = Some(sender);
-    let gas = client
-        .estimate_gas(&request)
-        .map_err(|error| eyre!("eth_estimateGas (the call would revert): {error}"))?;
+    let gas = match to {
+        Some(to) => {
+            let mut request = EvmCallRequest::new(to, data.clone());
+            request.from = Some(sender);
+            client
+                .estimate_gas(&request)
+                .map_err(|error| eyre!("eth_estimateGas (the call would revert): {error}"))?
+        }
+        // Creation of the ~15 KiB SCCP contract; unused gas is refunded.
+        None => 6_000_000,
+    };
     let gas_limit = gas.saturating_add(gas / 5);
     let priority = client
         .max_priority_fee_per_gas()
@@ -297,7 +287,7 @@ pub(super) fn send_transaction(
         max_priority_fee_per_gas: priority,
         max_fee_per_gas: base_fee.saturating_mul(2).saturating_add(priority),
         gas_limit,
-        to: Some(to),
+        to,
         value: 0,
         data,
     };
@@ -313,69 +303,62 @@ pub(super) fn send_transaction(
     Ok((hash, nonce))
 }
 
-/// Canonical keyless CREATE2 deployer, salt zero (§5.2.1).
+/// Canonical keyless CREATE2 deployment proxy (§3.9).
 const DEPLOYER: [u8; 20] = [
     0x4e, 0x59, 0xb4, 0x48, 0x47, 0xb3, 0x79, 0x57, 0x85, 0x88, 0x92, 0x0c, 0xa7, 0x8f, 0xbf, 0x26,
     0xc0, 0xb4, 0x95, 0x6c,
 ];
-
-/// Address of the exact native init code under the sole SCCP deployment scheme.
-#[must_use]
-pub(super) fn created_address(init_code: &[u8]) -> [u8; 20] {
-    let hash = iroha_sccp::v1::hashes::keccak256(&[
-        &[0xff],
-        &DEPLOYER,
-        &[0; 32],
-        &iroha_sccp::v1::hashes::keccak256(&[init_code]),
-    ]);
-    hash[12..].try_into().expect("fixed hash suffix")
+const DEPLOYER_RUNTIME: &str = "7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
+fn create2_address(deployer: &[u8; 20], salt: &[u8; 32], init_code: &[u8]) -> [u8; 20] {
+    let code = iroha_sccp::v1::hashes::keccak256(&[init_code]);
+    let hash = iroha_sccp::v1::hashes::keccak256(&[&[0xff], deployer, salt, &code]);
+    hash[12..].try_into().expect("fixed CREATE2 address")
 }
-
-/// Submit only the canonical keyless proxy call; no direct CREATE fallback.
-pub(super) fn deploy(
+/// Check the canonical proxy bytecode before paying for deterministic deployment.
+pub(super) fn deploy_current(
     client: &EvmClient,
     network: SccpNetworkV1,
     key: &EvmSigningKey,
     init_code: Vec<u8>,
-) -> Result<[u8; 32]> {
-    eyre::ensure!(
-        !client
-            .code(&DEPLOYER, BlockId::Tag(BlockTag::Latest))
-            .map_err(|error| eyre!("deployer code: {error}"))?
-            .is_empty(),
-        "canonical keyless deployer is unavailable"
+) -> Result<([u8; 32], [u8; 20])> {
+    let actual = client
+        .code(&DEPLOYER, BlockId::Tag(BlockTag::Latest))
+        .map_err(|e| eyre!("deployment proxy: {e}"))?;
+    ensure!(
+        actual == hex::decode(DEPLOYER_RUNTIME).expect("fixed proxy code"),
+        "canonical deterministic deployment proxy is absent or has different code"
     );
-    // TODO: pin the common proxy runtime hash after the canonical cross-network qualification.
-    let mut data = vec![0; 32];
-    data.extend(init_code);
-    send_transaction(client, network, key, DEPLOYER, data).map(|(hash, _)| hash)
+    let address = create2_address(&DEPLOYER, &[0; 32], &init_code);
+    let mut calldata = vec![0; 32];
+    calldata.extend(init_code);
+    let (hash, _) = send_transaction(client, network, key, Some(DEPLOYER), calldata)?;
+    Ok((hash, address))
 }
 
-/// The exact nine native constructor words (§5.2.1).
+/// Exact nine static constructor words of the current native deployment.
 #[must_use]
 pub(super) fn constructor_args(
-    pin: &super::NativePin,
+    taira_network_id: &[u8; 32],
+    consensus_instance: &[u8; 32],
     network: SccpNetworkV1,
-    revision: u32,
-    cap: u128,
+    route_revision: u32,
+    max_wrapped_supply: u128,
+    pin: &SccpCommitteePinV1,
 ) -> Vec<u8> {
-    constructor_for_deployment(&pin.deployment(network, revision, [0; 32], cap))
-}
-fn constructor_for_deployment(d: &DeploymentV1) -> Vec<u8> {
     use iroha_sccp::v1::{
         evm_abi::{AbiToken, encode_tokens},
         hashes::{word_u64, word_u128},
     };
     encode_tokens(&[
-        AbiToken::Word(d.taira_network_id),
-        AbiToken::Word(d.consensus_instance),
-        AbiToken::Word(word_u64(u64::from(iroha_sccp::v1::network::tag(d.network)))),
-        AbiToken::Word(word_u64(u64::from(d.route_revision))),
-        AbiToken::Word(word_u128(d.max_wrapped_supply)),
-        AbiToken::Word(word_u64(d.pin_generation)),
-        AbiToken::Word(d.pin_root),
-        AbiToken::Word(word_u64(d.pin_start_height)),
-        AbiToken::Word(word_u64(d.pin_until_ms)),
+        AbiToken::Word(*taira_network_id),
+        AbiToken::Word(*consensus_instance),
+        AbiToken::Word(word_u64(u64::from(iroha_sccp::v1::network::tag(network)))),
+        AbiToken::Word(word_u64(u64::from(route_revision))),
+        AbiToken::Word(word_u128(max_wrapped_supply)),
+        AbiToken::Word(word_u64(pin.generation)),
+        AbiToken::Word(pin.committee_root),
+        AbiToken::Word(word_u64(pin.start_height)),
+        AbiToken::Word(word_u64(pin.until_ms)),
     ])
 }
 
@@ -400,40 +383,87 @@ pub(super) fn load_key(path: &Path) -> Result<EvmSigningKey> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use iroha_sccp::v1::{
+        evm_abi::{CommitteeViewV1, PauseViewV1},
+        hashes::{word_u64, word_u128},
+    };
     #[test]
-    fn created_addresses_follow_the_keyless_create2_rule() {
-        let init = hex::decode("60006000f3").unwrap();
-        // Independent PyCryptodome Keccak reference, retained in this migration packet.
+    fn deterministic_deployment_follows_eip1014_and_binds_every_constructor_word() {
         assert_eq!(
-            hex::encode(created_address(&init)),
-            "5415ff926e55733ba02095045bd818a5100325c9"
+            hex::encode(create2_address(&[0; 20], &[0; 32], &[0])),
+            "4d1a2e2bb4f88f0250f26ffff098b0b30b26bf38"
         );
-        assert_eq!(
-            hex::encode(created_address(&[0])),
-            "24c4fd2db1cf4cb1aec651cc0e060a00d400e784"
+        let pin = SccpCommitteePinV1 {
+            generation: 2,
+            committee_root: [3; 32],
+            start_height: 4,
+            until_ms: 5,
+        };
+        let encoded = constructor_args(
+            &[7; 32],
+            &[8; 32],
+            SccpNetworkV1::EthereumMainnet,
+            1,
+            1000,
+            &pin,
         );
-        assert_ne!(created_address(&init), created_address(&[0]));
+        let words = [
+            [7; 32],
+            [8; 32],
+            word_u64(0x41),
+            word_u64(1),
+            word_u128(1000),
+            word_u64(2),
+            [3; 32],
+            word_u64(4),
+            word_u64(5),
+        ];
+        assert_eq!(encoded, words.concat());
+        assert_eq!(encoded.len(), 9 * 32);
+        let original = create2_address(&DEPLOYER, &[0; 32], &encoded);
+        for index in 0..9 {
+            let mut changed = encoded.clone();
+            changed[index * 32 + 31] ^= 1;
+            assert_ne!(create2_address(&DEPLOYER, &[0; 32], &changed), original);
+        }
+        assert_eq!(hex::decode(DEPLOYER_RUNTIME).unwrap().len(), 69);
     }
     #[test]
-    fn constructor_arguments_pin_all_nine_native_words() {
-        let pin = super::super::tests::native_pin();
-        let encoded = constructor_args(&pin, SccpNetworkV1::EthereumMainnet, 1, 1000);
-        assert_eq!(&encoded[..32], &pin.network_id);
-        assert_eq!(&encoded[32..64], &pin.instance);
-        assert_eq!(encoded[95], 0x41);
-        assert_eq!(encoded[127], 1);
-        assert_eq!(
-            u128::from_be_bytes(encoded[144..160].try_into().unwrap()),
-            1000
-        );
-        assert_eq!(&encoded[192..224], &pin.committee.committee_root);
-        assert_eq!(encoded.len(), 9 * 32);
-        assert_eq!(encoded.len() % 32, 0);
-        let mut changed = pin.clone();
-        changed.instance[0] ^= 1;
-        assert_ne!(
-            encoded,
-            constructor_args(&changed, SccpNetworkV1::EthereumMainnet, 1, 1000)
-        );
+    fn destination_observation_preserves_latch_checkpoint_and_identity_and_rejects_mixed_pause() {
+        let build = |bad_pause: bool, revision: u32| {
+            read_observation(1, 100, [7, 8], |call| {
+                Ok(match call {
+                    ViewCallV1::CommitteeState => ViewReturnV1::CommitteeState(CommitteeViewV1 {
+                        root: [9; 32],
+                        until_ms: 1000,
+                        start: 1,
+                        high: 7,
+                        generation: 2,
+                    }),
+                    ViewCallV1::Equivocated => ViewReturnV1::Bool(true),
+                    ViewCallV1::PauseState => ViewReturnV1::PauseState(PauseViewV1 {
+                        parliament_paused: false,
+                        fast_pause_until_ms: 101,
+                        control_nonce: 3,
+                        effective: !bad_pause,
+                    }),
+                    ViewCallV1::TairaNetworkId => ViewReturnV1::Bytes32([1; 32]),
+                    ViewCallV1::ConsensusInstance => ViewReturnV1::Bytes32([2; 32]),
+                    ViewCallV1::RouteRevision => ViewReturnV1::U32(revision),
+                    ViewCallV1::CheckpointHeader(7) => ViewReturnV1::Bytes32([7; 32]),
+                    ViewCallV1::CheckpointHeader(8) => ViewReturnV1::Bytes32([0; 32]),
+                    _ => unreachable!(),
+                })
+            })
+        };
+        let observed = build(false, 1).unwrap();
+        assert!(observed.committee.equivocated);
+        assert_eq!(observed.network, [1; 32]);
+        assert_eq!(observed.instance, [2; 32]);
+        assert_eq!(observed.checkpoints, BTreeMap::from([(7, [7; 32])]));
+        assert!(observed.pause.effective);
+        assert!(build(true, 1).is_err());
+        assert!(build(false, 2).is_err());
+        assert!(read_observation(1, 100, [], |_| Ok(ViewReturnV1::Bool(false))).is_err());
     }
 }

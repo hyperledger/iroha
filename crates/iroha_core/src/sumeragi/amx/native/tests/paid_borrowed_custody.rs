@@ -39,8 +39,6 @@ fn paid_global_config() -> TestChainConfig {
     nexus.fees.per_instruction_fee = Quantity::zero();
     nexus.fees.per_gas_unit_fee = Quantity::zero();
     config.nexus = Some(nexus);
-    config.pipeline.gas.accepted_assets.clear();
-    config.pipeline.gas.units_per_gas.clear();
     config.genesis_instructions.extend([
         Register::domain(iroha_data_model::domain::Domain::new(domain.clone())).into(),
         Register::asset_definition(AssetDefinition::numeric(
@@ -98,8 +96,11 @@ fn paid_global_sign(
         view.world(),
         view.nexus(),
         view.pipeline(),
+        &view.zk().gas,
         &signed,
         created_ms,
+        crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+            .expect("original committed fixture time"),
         chain.height() + 1,
         Some(DataSpaceId::UNIVERSAL),
     )
@@ -301,10 +302,7 @@ fn authenticate_original_prepared(
     assert_eq!(registration.tracker.instance, chain.instance().0);
     let verified = registration
         .tracker
-        .verify_record(
-            proof,
-            iroha_data_model::sumeragi_finality::CertifiedResultScope::NonGlobal,
-        )
+        .verify_record(proof)
         .expect("genuine exact registered source certificate and writes");
     assert_eq!(verified.height, chain.height());
     assert!(
@@ -1190,6 +1188,11 @@ fn restarted_paid_intent_original_pool_refusal_keeps_frame_and_selected_source_w
         NativeAmxPreparedRelayErrorV1 as Error, NativeAmxPreparedRelayPollV1 as Poll,
         NativeAmxRecordProofErrorV1,
     };
+    // Replay retires charged State Cell generations through the process-wide
+    // epoch collector. Keep that separate original custody fixed before creating
+    // the fixture, so each exact ledger delta below measures this reader and
+    // instruction, not a concurrent retirement of older State generations.
+    let retirement_pin = crossbeam_epoch::pin();
     with_restarted_paid_prepared_intent(|chain, expected, _| {
         let budget = chain.state().ivm_execution_budget();
         budget.with_deferred_refund_notifications(|_| {
@@ -1227,11 +1230,24 @@ fn restarted_paid_intent_original_pool_refusal_keeps_frame_and_selected_source_w
             assert_eq!(instruction_relay(&instruction), expected.canonical());
             assert_eq!(read.acquired_frame().unwrap().as_ptr(), pointer);
             assert_eq!(read.acquired_frame().unwrap(), bytes);
-            drop(read); drop(instruction);
+            let instruction_bytes = instruction.amx_proof_allocation_bytes().unwrap();
+            assert_eq!(
+                budget.reserved_bytes(),
+                baseline + bytes.len() + instruction_bytes,
+                "only the original intent frame and delivered instruction remain funded",
+            );
+            drop(read);
+            assert_eq!(
+                budget.reserved_bytes(),
+                baseline + instruction_bytes,
+                "reader retirement refunds exactly its original frame",
+            );
+            drop(instruction);
             assert_eq!(budget.reserved_bytes(), baseline);
             drop(view);
         });
     });
+    drop(retirement_pin);
 }
 
 #[test]

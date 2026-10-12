@@ -7393,10 +7393,12 @@ mod validation_fee_registry_restore_tests {
             let mut parameters = world.parameters.block();
             parameters
                 .get_mut()
-                .set_parameter(Parameter::Custom(npos.into_custom_parameter()));
+                .set_parameter(Parameter::Custom(npos.into_custom_parameter()))
+                .expect("valid fixture parameters");
             parameters
                 .get_mut()
-                .set_parameter(Parameter::Custom(registry.clone().into_custom_parameter()));
+                .set_parameter(Parameter::Custom(registry.clone().into_custom_parameter()))
+                .expect("valid fixture parameters");
             parameters.commit();
         }
         (world, registry)
@@ -9162,10 +9164,6 @@ fn decode_world_fields(
         // SCCP v1 state is restored from its own snapshot envelope after `parse_world`.
         sccp_parameters: Cell::default(),
         sccp_reset_nonce: Cell::default(),
-        sccp_committee_generations: sccp_generation_custody::GenerationStorage::try_new_admitted(
-            execution_budget.clone(),
-        )?,
-        sccp_committee_current: Cell::default(),
         sccp_forgery_offences: sccp_forgery_custody::OffenceStorage::try_new_admitted(
             execution_budget.clone(),
         )?,
@@ -9174,10 +9172,16 @@ fn decode_world_fields(
             None,
             execution_budget,
         )?,
-        sccp_liability_clock: Cell::default(),
-        sccp_degraded_run: Cell::default(),
-        sccp_anchor_open: Cell::default(),
-        sccp_anchor_chunks: Storage::default(),
+        sccp_committee_generations: initial_world_field!(
+            sccp_committee_generations,
+            execution_budget
+        ),
+        sccp_destination_pending_generations: Storage::default(),
+        sccp_committee_current: initial_world_field!(sccp_committee_current, execution_budget),
+        sccp_liability_clock: initial_world_field!(sccp_liability_clock, execution_budget),
+        sccp_degraded_run: initial_world_field!(sccp_degraded_run, execution_budget),
+        sccp_anchor_open: initial_world_field!(sccp_anchor_open, execution_budget),
+        sccp_anchor_chunks: initial_world_field!(sccp_anchor_chunks, execution_budget),
         sccp_block_leaves: Storage::default(),
         sccp_block_commitments: Storage::default(),
         sccp_history: Cell::default(),
@@ -9185,6 +9189,10 @@ fn decode_world_fields(
         sccp_outbound_messages: Storage::default(),
         sccp_outbound_by_nonce: Storage::default(),
         sccp_control_messages: Storage::default(),
+        sccp_fast_pauses: Storage::default(),
+        sccp_fast_pause_suspended_until_ms: Storage::default(),
+        sccp_fast_pause_rounds: Storage::default(),
+        sccp_pause_panel: Cell::default(),
         sccp_routes: Storage::default(),
         sccp_destination_words: Storage::default(),
         sccp_governance_revisions: Storage::default(),
@@ -10014,11 +10022,8 @@ fn build_state(
         *state.lane_manifests.get_mut() = projection.manifests;
         *state.lane_privacy_registry.get_mut() = projection.privacy;
     }
-    crate::sumeragi::evidence::validate_persisted_records(&state).map_err(|error| {
-        MergeLedgerCommitError::ExecutionStatePublication(format!(
-            "restored native evidence is invalid: {error}"
-        ))
-    })?;
+    crate::sumeragi::evidence::validate_persisted_records(&state)
+        .map_err(crate::sumeragi::evidence::restoration_failure)?;
     crate::validation_fee::validate_persisted_policy_registry_runtime_v1(
         &state.view(),
         restored_height,
@@ -11537,7 +11542,7 @@ mod decode_tests {
         let mut map = SnapshotJsonMap::from_owned(map);
         let parsed = take_parameters_cell(&mut map, "parameters")
             .expect("canonical parameters MV envelope must be accepted");
-        assert_eq!(parsed.view().get(), &expected);
+        assert_eq!(&**parsed.view().get(), &expected);
     }
     #[test]
     fn borrowed_snapshot_map_rejects_duplicates_and_noncanonical_order() {

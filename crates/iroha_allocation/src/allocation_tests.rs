@@ -979,6 +979,9 @@ fn owned_refund_scopes_unlink_out_of_order_across_lexical_and_foreign_scopes() {
 #[path = "allocation/refund_batch_tests.rs"]
 mod refund_batch_tests;
 
+#[path = "allocation/refund_control_tests.rs"]
+mod refund_control_tests;
+
 #[test]
 fn pool_identity_requires_same_owner_and_never_admits_credit() {
     let original = AllocationBudget::new(0);

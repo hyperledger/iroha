@@ -744,3 +744,80 @@ fn queued_ballot_and_tally_require_their_distinct_verification_latches() {
         );
     }
 }
+
+/// The host reads native proof-size limits from the committed policy, independently of node limits.
+#[test]
+fn committed_native_proof_limit_accepts_exact_bound_and_rejects_one_more() {
+    use iroha_data_model::{parameter::Parameter, zk_validity_policy::ZkValidityPolicyV1};
+
+    let backend = "pipa-r/pasta";
+    let circuit_id = crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID;
+    let vk_bytes = canonical_confidential_transfer_vk_bytes();
+    let commitment = CoreHost::hash_vk_bytes(backend, &vk_bytes);
+    let public_inputs =
+        crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_PUBLIC_INPUTS_SCHEMA_V1.to_vec();
+    for node_limit in [1, 16, 1_000] {
+        let mut policy = ZkValidityPolicyV1::protocol_default();
+        policy.pipa_r.max_proof_bytes = 16;
+        let world = crate::state::World::default();
+        {
+            let mut block = world.block();
+            block
+                .parameters
+                .get_mut()
+                .set_parameter(Parameter::Custom(policy.into_custom_parameter()))
+                .expect("valid fixture parameters");
+            block.commit();
+        }
+        let mut state = crate::state::State::new_for_testing(
+            world,
+            crate::kura::Kura::blank_kura_for_testing(),
+            crate::query::store::LiveQueryStore::start_test(),
+        );
+        let mut node = crate::state::default_zk_config();
+        node.pipa_r.max_proof_bytes = node_limit;
+        state.install_node_zk(node).expect("install node resources");
+        let block = state.block(iroha_data_model::block::BlockHeader::new(
+            core::num::NonZeroU64::new(2).expect("nonzero"),
+            None,
+            None,
+            0,
+            0,
+        ));
+        assert_eq!(block.zk.pipa_r.max_proof_bytes, 16);
+        let mut host = CoreHost::new(fixture_account("alice"));
+        host.set_chain_id_bytes(b"chain".to_vec());
+        host.set_current_manifest_id(Some("core".to_owned()));
+        let record = active_vk_record(
+            commitment,
+            schema_hash(&public_inputs),
+            backend,
+            circuit_id,
+            "transfer",
+            vk_bytes.clone(),
+        );
+        host.set_verifying_keys(BTreeMap::from([(
+            VerifyingKeyId::new(backend, "vk"),
+            record,
+        )]))
+        .expect("install registry");
+        host.set_zk_config(&block.zk);
+        let at_limit = dummy_env(
+            circuit_id,
+            commitment,
+            public_inputs.clone(),
+            vec![0xAA; 16],
+        );
+        assert!(host.enforce_zk_envelope(&at_limit, "transfer").is_ok());
+        let above_limit = dummy_env(
+            circuit_id,
+            commitment,
+            public_inputs.clone(),
+            vec![0xAA; 17],
+        );
+        assert_eq!(
+            host.enforce_zk_envelope(&above_limit, "transfer").err(),
+            Some(ivm::host::ERR_PROOF_LEN)
+        );
+    }
+}

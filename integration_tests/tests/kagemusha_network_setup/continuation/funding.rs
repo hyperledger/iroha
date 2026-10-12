@@ -404,3 +404,35 @@ fn funded_capture_retains_original_x_body_and_outer_result() {
     );
     assert_ne!(captured, block.commitment().preimage().unwrap());
 }
+
+#[test]
+fn block_capture_preserves_original_certified_result_envelope() {
+    use iroha_data_model::sumeragi_finality::{
+        result_of_preimage, test_fixtures::NativeFinalityFixture,
+    };
+
+    let fixture = NativeFinalityFixture::new();
+    let block = fixture
+        .verifier()
+        .verify_retained_decision(fixture.latest())
+        .unwrap();
+    let row = block_capture(&block).unwrap();
+    let preimage = hex::decode(row["result_preimage_hex"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        preimage,
+        block
+            .block()
+            .commit_certificate()
+            .unwrap()
+            .result_preimage()
+    );
+    assert_eq!(result_of_preimage(&preimage), Some(block.result()));
+    assert_eq!(
+        row["result_hash_hex"].as_str().unwrap(),
+        hex::encode(block.result().0)
+    );
+    assert_eq!(
+        result_of_preimage(&block.commitment().preimage().unwrap()),
+        None
+    );
+}

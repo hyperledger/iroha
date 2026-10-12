@@ -459,6 +459,7 @@ fn alternate_certificate(
 ) -> FinalityVerifier {
     use iroha_core::sumeragi::test_chain::Signers;
     use iroha_data_model::block::{CommitCertificate, decode_framed_signed_block};
+    use iroha_data_model::sumeragi_finality::CertifiedResultV1;
 
     let verified = original.verified_tip_ref().unwrap();
     let mut proof = original.checkpoint().tip().clone();
@@ -466,7 +467,17 @@ fn alternate_certificate(
     let old = block.commit_certificate().unwrap();
     let header = old.consensus_header().to_vec();
     let availability = old.availability().to_vec();
-    let mut commitment = verified.commitment().clone();
+    // The verified original determines X; a conflicting body never rebuilds it from
+    // current state or substitutes an inactive header for an active generation.
+    let original_result =
+        CertifiedResultV1::decode(old.result_preimage(), native.chain.root_scope().into()).unwrap();
+    original_result
+        .check_block(
+            block.header().height().get(),
+            block.header().creation_time_ms,
+        )
+        .unwrap();
+    let (finality_header, mut commitment) = original_result.into_parts();
     if conflicting_result {
         commitment.execution.world_state_root = Hash::new(b"conflicting native certificate claim");
         assert_ne!(
@@ -474,16 +485,26 @@ fn alternate_certificate(
             verified.execution().world_state_root
         );
     }
+    let certified_result = CertifiedResultV1::new(
+        finality_header,
+        commitment,
+        native.chain.root_scope().into(),
+    )
+    .unwrap();
+    assert_eq!(
+        certified_result.header().as_bytes(),
+        finality_header.as_bytes()
+    );
     let qc = native.chain.commit_qc(
         verified.height(),
         verified.core_hash(),
-        commitment.result().unwrap(),
+        certified_result.result().unwrap(),
         Signers::LastThree,
     );
     block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
         header,
         norito::encode_canonical(&qc).unwrap(),
-        commitment.preimage().unwrap(),
+        certified_result.preimage().unwrap(),
         availability,
     )));
     proof.block_wire = block.encode_wire().unwrap();

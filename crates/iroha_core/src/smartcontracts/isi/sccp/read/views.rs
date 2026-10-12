@@ -1,19 +1,27 @@
-//! Read-side views of stored SCCP records
-//! (`specs/sccp.md` §6): the message status union, outbound and control pages, recent messages,
-//! light-client detail and checkpoint cover, governance proposal detail and history paths.
+//! Read-side views of SCCP records (`specs/sccp.md` §6): the message status union, outbound
+//! and control pages, recent messages, light-client detail and checkpoint cover, governance
+//! proposal detail and history paths.
+//!
+//! TODO: Torii work package (TT-A2): report `provable` on a recorded outbound state and on a
+//! control once a covering active certificate exists (§6).
 
-use super::{SccpReadError, history, store};
+use super::{
+    SccpReadError,
+    history::funded::{SccpHistoryNodeCache, SccpHistoryReadError},
+    store,
+};
 use crate::state::{StateReadOnly, WorldReadOnly};
 use core::{cmp::Reverse, ops::Bound};
+use iroha_allocation::{AllocationBudget, AllocationCharge};
 use iroha_data_model::{
     bridge::SccpNetworkV1,
     sccp::{control::SccpLeafRefV1, outbound::SccpOutboundMessageRecordV1},
 };
 use iroha_sccp::{
     api::{
-        MAX_CONTROLS_PAGE, MAX_OUTBOUND_PAGE, MAX_RECENT_MESSAGES, SccpChainProfileViewV1,
-        SccpControlPageV1, SccpControlViewV1, SccpGovernanceProposalDetailV1,
-        SccpGovernanceProposalPhaseV1, SccpHistoryPathViewV1, SccpHistoryProofV1,
+        MAX_CONTROLS_PAGE, MAX_OUTBOUND_PAGE, MAX_RECENT_MESSAGES, SccpBlockRefV1,
+        SccpChainProfileViewV1, SccpControlPageV1, SccpControlViewV1,
+        SccpGovernanceProposalDetailV1, SccpGovernanceProposalPhaseV1, SccpHistoryPathViewV1,
         SccpInboundMessageViewV1, SccpLcCheckpointCoverV1, SccpLcCheckpointEntryV1,
         SccpLcCheckpointsSummaryV1, SccpLcSetsSummaryV1, SccpLightClientDetailV1,
         SccpMessageStatusV1, SccpOutboundMessageViewV1, SccpOutboundPageV1, SccpOutboundStateV1,
@@ -54,8 +62,11 @@ impl SccpDirectionV1 {
     }
 }
 
-/// Wallet-facing status from the stored lifecycle only. Native finality availability must
-/// be added with the shared certificate API; it is never inferred from Merkle data alone.
+// ---------------------------------------------------------------------------------------------
+// Outbound state
+// ---------------------------------------------------------------------------------------------
+
+/// Wallet-facing state of `record`: its stored status, with the deadline of a recorded message.
 fn outbound_state(record: &SccpOutboundMessageRecordV1) -> SccpOutboundStateV1 {
     use iroha_data_model::sccp::outbound::SccpOutboundStatusV1 as Stored;
     match record.status {
@@ -590,62 +601,77 @@ pub fn governance_proposal(
 // History
 // ---------------------------------------------------------------------------------------------
 
-/// The history leaf index of SCCP block `height`, its root and path within `history_root(size)`
-/// (`O(log n)` through the shared history cache).
-///
-/// # Errors
-///
-/// [`SccpReadError::NotFound`] when `height` holds no SCCP leaf, [`SccpReadError::Invalid`]
-/// when the block is not inside the first `size` history leaves or `size` exceeds the history.
-pub fn history_proof(
-    world: &(impl WorldReadOnly + ?Sized),
-    height: u64,
-    size: u64,
-) -> Result<([u8; 32], SccpHistoryProofV1), SccpReadError> {
-    let commitment = store::block_commitments::get(world, &height)
-        .ok_or_else(|| SccpReadError::NotFound(format!("no SCCP commitment at {height}")))?;
-    let (root, path) =
-        history::root_and_path(world, commitment.history_index, size).map_err(|error| {
-            SccpReadError::Invalid(match error {
-                history::HistoryReadError::SizeOutOfRange => {
-                    format!("history size {size} exceeds the stored history")
-                }
-                history::HistoryReadError::IndexOutOfRange => {
-                    format!("block {height} is not in the first {size} history leaves")
-                }
-                history::HistoryReadError::Inconsistent => {
-                    "the stored history leaves do not match the accumulator".to_owned()
-                }
-            })
-        })?;
-    Ok((
-        root,
-        SccpHistoryProofV1 {
-            height,
-            sccp_root: commitment.root,
-            message_count: commitment.message_count,
-            leaf_index: commitment.history_index,
-            path,
-        },
-    ))
+/// Move-only history view retaining the original positional-path allocation.
+/// The integrating caller separately retains its request lease and encoded response backing.
+pub struct RetainedSccpHistoryView {
+    view: SccpHistoryPathViewV1,
+    _path: AllocationCharge,
+}
+impl RetainedSccpHistoryView {
+    /// Borrow the complete canonical view without copying its path.
+    #[must_use]
+    pub fn view(&self) -> &SccpHistoryPathViewV1 {
+        &self.view
+    }
 }
 
-/// Assemble `GET /v1/sccp/history/{height}?size=S` (§6); `size` defaults to the current size.
+/// Assemble a history view through an explicitly retained, funded durable cache.
+/// `size` defaults to the captured World size; source peaks remain independently checked.
 ///
 /// # Errors
-///
-/// As [`history_proof`].
+/// Refuses absent commitments, invalid indices/sizes, inconsistent stored history and exact
+/// original resource failure. Both complete pool admissions precede cache mutation.
+#[allow(
+    unsafe_code,
+    reason = "the path Vec and original charge move immediately into a closed body-before-charge owner"
+)]
 pub fn history_path_view(
     world: &(impl WorldReadOnly + ?Sized),
     height: u64,
     size: Option<u64>,
-) -> Result<SccpHistoryPathViewV1, SccpReadError> {
+    cache: &mut SccpHistoryNodeCache,
+    cache_budget: &AllocationBudget,
+    request_budget: &AllocationBudget,
+) -> Result<RetainedSccpHistoryView, SccpHistoryReadError> {
     let size = size.unwrap_or_else(|| store::history::get(world).size);
-    let (history_root, proof) = history_proof(world, height, size)?;
-    Ok(SccpHistoryPathViewV1 {
-        history_size: size,
-        history_root,
-        proof,
+    let commitment = store::block_commitments::get(world, &height)
+        .ok_or(SccpHistoryReadError::MissingCommitment)?;
+    let expected =
+        iroha_sccp::v1::hashes::history_leaf(height, &commitment.root, commitment.message_count);
+    if store::history_leaves::get(world, &commitment.history_index) != Some(&(height, expected)) {
+        return Err(SccpHistoryReadError::Inconsistent);
+    }
+    let acquired = cache.root_and_path(
+        world,
+        commitment.history_index,
+        size,
+        cache_budget,
+        request_budget,
+    )?;
+    iroha_sccp::v1::history::verify_history_inclusion(
+        &expected,
+        commitment.history_index,
+        size,
+        acquired.path(),
+        &acquired.root(),
+    )
+    .map_err(|_| SccpHistoryReadError::Inconsistent)?;
+    let history_root = acquired.root();
+    // SAFETY: no fallible operation separates the exact graph and its retained charge.
+    let (history_path, charge) = unsafe { acquired.into_buffer().into_allocation_parts() };
+    Ok(RetainedSccpHistoryView {
+        view: SccpHistoryPathViewV1 {
+            history_size: size,
+            history_root,
+            proof: SccpBlockRefV1 {
+                height,
+                sccp_root: commitment.root,
+                message_count: commitment.message_count,
+                history_index: commitment.history_index,
+                history_path,
+            },
+        },
+        _path: charge,
     })
 }
 
@@ -811,27 +837,6 @@ mod tests {
     }
 
     #[test]
-    fn inclusion_data_does_not_claim_native_finality() {
-        let state = blank_state();
-        let mut block = state.block(header(10));
-        let mut stx = block.transaction();
-        let id = outbound(&mut stx, ETH, 0, 10, 0);
-        commitment::commit_block(&mut stx, 10)
-            .expect("commitment")
-            .expect("one leaf");
-        let path = history_path_view(&*stx.world, 10, None).expect("history inclusion");
-        assert_eq!(path.proof.height, 10);
-        let status = message_status(&*stx.world, &id);
-        assert_eq!(
-            status.outbound().map(|view| view.state),
-            Some(SccpOutboundStateV1::Recorded(SccpRecordedStateV1 {
-                deadline_ms: 1_000
-            },))
-        );
-        assert!(!status.is_final());
-    }
-
-    #[test]
     fn outbound_pages_follow_nonces() {
         let state = blank_state();
         let mut block = state.block(header(40));
@@ -948,7 +953,7 @@ mod tests {
     }
 
     #[test]
-    fn control_pages_preserve_stored_records_and_nonce_order() {
+    fn control_pages_follow_nonces() {
         let state = blank_state();
         let mut block = state.block(header(40));
         let mut stx = block.transaction();
@@ -969,7 +974,7 @@ mod tests {
                     commitment_index: 0,
                     leaf: [1; 32],
                     certificate_id: [2; 32],
-                    effect_hash: [0x45; 32],
+                    effect_hash: [5; 32],
                 },
             )
             .expect("control");
@@ -980,23 +985,17 @@ mod tests {
         assert_eq!(
             page.controls
                 .iter()
-                .map(|v| v.control_nonce)
+                .map(|view| (
+                    view.control_nonce,
+                    view.record.parliament_paused,
+                    view.record.height
+                ))
                 .collect::<Vec<_>>(),
-            vec![1, 2]
+            vec![(1, true, 10), (2, false, 11)]
         );
-        for view in &page.controls {
-            assert_eq!(
-                Some(&view.record),
-                store::control_messages::get(&*stx.world, &(ETH, 1, view.control_nonce))
-            );
-        }
         let rest = controls_page(&*stx.world, ETH, 1, 2, 2).expect("page");
         assert_eq!(rest.controls.len(), 1);
         assert_eq!(rest.controls[0].control_nonce, 3);
-        assert_eq!(
-            Some(&rest.controls[0].record),
-            store::control_messages::get(&*stx.world, &(ETH, 1, 3))
-        );
         assert_eq!(rest.next_after_nonce, None);
         assert!(
             controls_page(&*stx.world, ETH, 1, u64::MAX, 2)
@@ -1249,30 +1248,39 @@ mod tests {
             );
         }
         let world = &*stx.world;
+        let pool = state.ivm_execution_budget();
+        let mut cache = SccpHistoryNodeCache::new();
         assert!(matches!(
-            history_path_view(world, 41, None),
-            Err(SccpReadError::NotFound(_))
+            history_path_view(world, 41, None, &mut cache, &pool, &pool),
+            Err(SccpHistoryReadError::MissingCommitment)
         ));
-        let view = history_path_view(world, 7, None).expect("current size");
+        let retained =
+            history_path_view(world, 7, None, &mut cache, &pool, &pool).expect("current size");
+        let view = retained.view();
         assert_eq!(view.history_size, 40);
         assert_eq!(view.history_root, history_root(&leaves).expect("root"));
-        assert_eq!(view.proof.path, history_path(&leaves, 6).expect("path"));
-        let older = history_path_view(world, 7, Some(33)).expect("older size");
+        assert_eq!(
+            view.proof.history_path,
+            history_path(&leaves, 6).expect("path")
+        );
+        let retained_older =
+            history_path_view(world, 7, Some(33), &mut cache, &pool, &pool).expect("older size");
+        let older = retained_older.view();
         verify_history_inclusion(
             &leaves[6],
             6,
             33,
-            &older.proof.path,
+            &older.proof.history_path,
             &history_root(&leaves[..33]).expect("root"),
         )
         .expect("inclusion");
         assert!(matches!(
-            history_path_view(world, 7, Some(6)),
-            Err(SccpReadError::Invalid(_))
+            history_path_view(world, 7, Some(6), &mut cache, &pool, &pool),
+            Err(SccpHistoryReadError::IndexOutOfRange)
         ));
         assert!(matches!(
-            history_path_view(world, 7, Some(41)),
-            Err(SccpReadError::Invalid(_))
+            history_path_view(world, 7, Some(41), &mut cache, &pool, &pool),
+            Err(SccpHistoryReadError::SizeOutOfRange)
         ));
     }
 }

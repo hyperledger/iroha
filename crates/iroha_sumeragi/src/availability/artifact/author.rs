@@ -18,6 +18,17 @@ use iroha_primitives::erasure::rs16::compact::{CodecAllocationError, Encoded, en
 pub enum AuthoringError {
     /// Input or signed statement differs from its authenticated source.
     Invalid(AvailabilityError),
+    /// Local signing refused; the exact request and completed signatures remain retained.
+    SigningFailed {
+        /// Manifest or row whose signing was refused.
+        kind: crate::api::SigningKind,
+        /// Original payload height.
+        height: u64,
+        /// Original payload view.
+        view: u64,
+        /// Local backend refusal.
+        error: crate::crypto::SigningError,
+    },
     /// Original-pool RS16 workspace or codeword could not be acquired.
     Codec(CodecAllocationError),
     /// Original-pool table backing/shared-control acquisition failed.
@@ -148,33 +159,56 @@ impl PayloadAuthoring {
                     .expect("exact table backing");
             }
             self.header.availability_digest = content_digest(crypto, bytes.as_slice());
-            let bh = self.header.hash(crypto);
-            let (message, used) = statement(&self.header, bh, None);
-            bytes
-                .append(&signer.sign(&message[..used]).0)
-                .expect("exact table backing");
-            for index in 0..count {
-                let hash = Hash32(
-                    bytes.as_slice()[4 + 32 * index..4 + 32 * (index + 1)]
-                        .try_into()
-                        .expect("exact table hash"),
-                );
-                let length = u32::try_from(shape.chunk_range(index).expect("bounded index").len())
-                    .expect("protocol-bounded row length");
-                let (message, used) = statement(
-                    &self.header,
-                    bh,
-                    Some((
-                        u32::try_from(index).expect("protocol-bounded row index"),
-                        length,
-                        hash,
-                    )),
-                );
-                bytes
-                    .append(&signer.sign(&message[..used]).0)
-                    .expect("exact table backing");
-            }
             self.pending = Some(bytes);
+        }
+        if let Some(bytes) = self.pending.as_mut() {
+            let count = shape.chunk_count();
+            let digest_bytes = 4 + count * 32;
+            let signed = (bytes.as_slice().len() - digest_bytes) / SIGNATURE_LEN;
+            let bh = self.header.hash(crypto);
+            for position in signed..=count {
+                let (kind, row) = if position == 0 {
+                    (crate::api::SigningKind::PayloadManifest, None)
+                } else {
+                    let index = position - 1;
+                    let hash = Hash32(
+                        bytes.as_slice()[4 + 32 * index..4 + 32 * (index + 1)]
+                            .try_into()
+                            .expect("exact table hash"),
+                    );
+                    let length =
+                        u32::try_from(shape.chunk_range(index).expect("bounded index").len())
+                            .expect("protocol-bounded row length");
+                    (
+                        crate::api::SigningKind::PayloadRow,
+                        Some((
+                            u32::try_from(index).expect("protocol-bounded row index"),
+                            length,
+                            hash,
+                        )),
+                    )
+                };
+                let (message, used) = statement(&self.header, bh, row);
+                let signature = match signer.sign(&message[..used]) {
+                    Ok(signature) => signature,
+                    Err(error) => {
+                        // MS59: cache manufactured availability-signature bytes after refusal.
+                        #[cfg(sumeragi_mutation = "MS59")]
+                        {
+                            let _ = (kind, error);
+                            crate::types::Signature([0; SIGNATURE_LEN])
+                        }
+                        #[cfg(not(sumeragi_mutation = "MS59"))]
+                        return Err(AuthoringError::SigningFailed {
+                            kind,
+                            height: self.header.height,
+                            view: self.header.origin_view,
+                            error,
+                        });
+                    }
+                };
+                bytes.append(&signature.0).expect("exact table backing");
+            }
         }
         if let Some(bytes) = self.pending.take() {
             match AvailabilityFrame::from_charged(bytes, budget) {

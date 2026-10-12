@@ -183,7 +183,7 @@ pub enum EnrollmentServiceOutcomeV1 {
 impl EnrollmentServiceOutcomeV1 {
     /// Exact HTTP status that carries this outcome.
     #[must_use]
-    pub const fn status(&self) -> u16 {
+    pub const fn status(self) -> u16 {
         match self {
             Self::Refused(_) | Self::DeliveryWithheld(_) => 403,
             Self::OutcomeUnknown => 409,
@@ -192,7 +192,7 @@ impl EnrollmentServiceOutcomeV1 {
 
     /// The one header that carries this outcome, with its exact value.
     #[must_use]
-    pub fn header(&self) -> (&'static str, String) {
+    pub fn header(self) -> (&'static str, String) {
         match self {
             Self::Refused(reason) => (ENROLLMENT_REFUSAL_CODE_HEADER_V1, reason.code().to_string()),
             Self::DeliveryWithheld(reason) => (

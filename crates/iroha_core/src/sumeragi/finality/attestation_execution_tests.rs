@@ -347,17 +347,15 @@ fn check_coherent_replacement(chain: &CertifiedTestChain) {
     let genesis = chain.committed(1).block().clone();
     let second = chain.committed(2).block().clone();
     let certificate = genesis.commit_certificate().unwrap();
-    let (result_header, mut result) =
-        iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
-            certificate.result_preimage(),
-            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
-        )
-        .unwrap()
-        .into_parts();
+    let (original_x, mut result) = iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+        certificate.result_preimage(),
+        chain.root_scope().into(),
+    )
+    .unwrap()
+    .into_parts();
     result.execution.world_state_root = Hash::new(b"different coherent genesis execution");
     let preimage = iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
-        result_header,
-        result.clone(),
+        original_x, result,
     )
     .preimage()
     .unwrap();

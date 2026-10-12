@@ -531,6 +531,11 @@ pub(super) fn retryable(error: &EvidenceAdmissionError) -> bool {
             // is pending, never evidence of corruption or a reason to blame the proof.
             | QueryExecutionFail::CanonicalHistory(CanonicalHistoryError::BodyUnavailable { .. })
         )) => true,
+        EvidenceAdmissionError::Storage(crate::state::sccp_forgery_custody::ForgeryStorageError::Storage(
+            mv::storage::AdmittedStorageError::Busy { .. }
+            | mv::storage::AdmittedStorageError::Allocation(AllocationRefusal::Capacity { .. } | AllocationRefusal::ExceedsLimit { .. })
+            | mv::storage::AdmittedStorageError::Allocator { .. }
+        ) | crate::state::sccp_forgery_custody::ForgeryStorageError::Codec(_)) => true,
         EvidenceAdmissionError::Preparation(
             EvidencePreparationError::Admission(AllocationRefusal::Capacity { .. } | AllocationRefusal::ExceedsLimit { .. })
             | EvidencePreparationError::Allocator { .. }

@@ -279,11 +279,6 @@ impl PublicationDeferral {
             Self::StateStorage(crate::state::StateStorageAdmissionError::World(
                 mv::storage::AdmittedStorageError::Allocation(original),
             ))
-            | Self::StateStorage(crate::state::StateStorageAdmissionError::SccpGeneration(
-                crate::state::sccp_generation_custody::GenerationAdmissionError::Storage(
-                    mv::storage::AdmittedStorageError::Allocation(original),
-                ),
-            ))
             | Self::StateStorage(crate::state::StateStorageAdmissionError::SccpForgery(
                 crate::state::sccp_forgery_custody::ForgeryStorageError::Storage(
                     mv::storage::AdmittedStorageError::Allocation(original),

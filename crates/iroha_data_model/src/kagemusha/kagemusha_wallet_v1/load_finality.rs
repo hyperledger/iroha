@@ -14,7 +14,7 @@ use crate::{
     },
     isi::kagemusha_wallet::KagemushaWalletLoadReceiptV1,
     sumeragi_finality::{
-        FinalityError, SumeragiCommitCertificateV1, SumeragiCommitVerifierV1,
+        FinalityError, FinalityReadError, SumeragiCommitCertificateV1, SumeragiCommitVerifierV1,
         SumeragiFinalityVerifier,
     },
 };
@@ -92,7 +92,7 @@ impl KagemushaWalletLoadFinalityV1 {
         &self,
         native: &SumeragiFinalityVerifier,
         receipt: &KagemushaWalletLoadReceiptV1,
-    ) -> Result<(), FinalityError> {
+    ) -> Result<(), FinalityReadError> {
         self.verify_with(&mut SumeragiCommitVerifierV1::new(native)?, receipt)
     }
 
@@ -106,21 +106,19 @@ impl KagemushaWalletLoadFinalityV1 {
         &self,
         selected: &mut SumeragiCommitVerifierV1,
         receipt: &KagemushaWalletLoadReceiptV1,
-    ) -> Result<(), FinalityError> {
+    ) -> Result<(), FinalityReadError> {
         self.validate()
             .map_err(|error| FinalityError(error.to_string()))?;
         let digest = receipt
             .receipt_digest()
             .map_err(|error| FinalityError(error.to_string()))?;
         if digest != self.receipt_digest {
-            return Err(FinalityError("native Load receipt digest differs".into()));
+            return Err(FinalityError("native Load receipt digest differs".into()).into());
         }
         let mut candidate = selected.clone();
         let verified = candidate.verify(&self.certificate)?;
         if verified.height() != receipt.block_height {
-            return Err(FinalityError(
-                "native Load certificate height differs".into(),
-            ));
+            return Err(FinalityError("native Load certificate height differs".into()).into());
         }
         let event = KagemushaLoadCommittedV1::from_receipt(receipt)
             .map_err(|error| FinalityError(error.to_string()))?;
@@ -131,7 +129,7 @@ impl KagemushaWalletLoadFinalityV1 {
             .as_ref()
             .ok_or_else(|| FinalityError("native Load certificate has no events".into()))?;
         if !self.event_proof.verify(&HashOf::new(&event), root) {
-            return Err(FinalityError("native Load event inclusion differs".into()));
+            return Err(FinalityError("native Load event inclusion differs".into()).into());
         }
         *selected = candidate;
         Ok(())

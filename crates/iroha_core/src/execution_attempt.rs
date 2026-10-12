@@ -21,8 +21,15 @@ pub enum ExecutionPhase {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutionDeferred {
     reason: ExecutionDeferral,
-    allocation: Option<iroha_allocation::AllocationRefusal>,
+    original: Option<OriginalRefusal>,
     phase: Option<ExecutionPhase>,
+}
+
+/// The actual non-wire cause, never reconstructed from diagnostic fields.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum OriginalRefusal {
+    Allocation(iroha_allocation::AllocationRefusal),
+    Decode(norito::core::DecodeLocalRefusal),
 }
 
 impl ExecutionDeferred {
@@ -48,7 +55,19 @@ impl ExecutionDeferred {
     /// refusal, arithmetic overflow, or demand exceeding the configured pool
     /// limit cannot be cured by waiting on an invented notification.
     pub fn allocation_refusal(&self) -> Option<&iroha_allocation::AllocationRefusal> {
-        self.allocation.as_ref()
+        match self.original.as_ref() {
+            Some(OriginalRefusal::Allocation(original)) => Some(original),
+            _ => None,
+        }
+    }
+
+    /// Borrow the captured decoder cause, including its original opaque scope identity.
+    /// No pool release observation is created by retaining this decoder owner.
+    pub fn decode_refusal(&self) -> Option<&norito::core::DecodeLocalRefusal> {
+        match self.original.as_ref() {
+            Some(OriginalRefusal::Decode(original)) => Some(original),
+            _ => None,
+        }
     }
 
     /// Preserve the original refusal across a VM/host error boundary.
@@ -56,6 +75,7 @@ impl ExecutionDeferred {
     pub fn from_vm_error(error: &VMError) -> Option<Self> {
         match error.as_unmetered() {
             VMError::AllocationDeferred(refusal) => Some(refusal.clone().into()),
+            VMError::DecodeDeferred(original) => Some(original.clone().into()),
             VMError::ExecutionDeferred(reason) => Some((*reason).into()),
             other => other.execution_deferral().map(Into::into),
         }
@@ -64,8 +84,9 @@ impl ExecutionDeferred {
     /// Move this owner through a VM host boundary without losing its release source.
     /// Native finalizer provenance stays outside the VM error surface.
     pub fn into_vm_error(self) -> VMError {
-        match self.allocation {
-            Some(refusal) => VMError::AllocationDeferred(refusal),
+        match self.original {
+            Some(OriginalRefusal::Allocation(refusal)) => VMError::AllocationDeferred(refusal),
+            Some(OriginalRefusal::Decode(original)) => VMError::DecodeDeferred(original),
             None => VMError::ExecutionDeferred(self.reason),
         }
     }
@@ -75,7 +96,7 @@ impl From<ExecutionDeferral> for ExecutionDeferred {
     fn from(reason: ExecutionDeferral) -> Self {
         Self {
             reason,
-            allocation: None,
+            original: None,
             phase: None,
         }
     }
@@ -85,7 +106,25 @@ impl From<iroha_allocation::AllocationRefusal> for ExecutionDeferred {
     fn from(refusal: iroha_allocation::AllocationRefusal) -> Self {
         Self {
             reason: ExecutionDeferral::ActiveMemoryCapacity,
-            allocation: Some(refusal),
+            original: Some(OriginalRefusal::Allocation(refusal)),
+            phase: None,
+        }
+    }
+}
+
+impl From<norito::core::DecodeLocalRefusal> for ExecutionDeferred {
+    fn from(original: norito::core::DecodeLocalRefusal) -> Self {
+        let reason = match original.kind() {
+            norito::core::DecodeLocalRefusalKind::Allocator => {
+                ExecutionDeferral::AllocationUnavailable
+            }
+            norito::core::DecodeLocalRefusalKind::EnclosingLimit => {
+                ExecutionDeferral::ActiveMemoryCapacity
+            }
+        };
+        Self {
+            reason,
+            original: Some(OriginalRefusal::Decode(original)),
             phase: None,
         }
     }
@@ -112,14 +151,23 @@ impl core::fmt::Display for ExecutionDeferred {
         if self.phase == Some(ExecutionPhase::NativeLaneFinalizer) {
             formatter.write_str("native lane finalizer: ")?;
         }
-        match &self.allocation {
-            Some(refusal) => refusal.fmt(formatter),
+        match &self.original {
+            Some(OriginalRefusal::Allocation(refusal)) => refusal.fmt(formatter),
+            Some(OriginalRefusal::Decode(original)) => original.fmt(formatter),
             None => self.reason.fmt(formatter),
         }
     }
 }
 
-impl std::error::Error for ExecutionDeferred {}
+impl std::error::Error for ExecutionDeferred {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match &self.original {
+            Some(OriginalRefusal::Allocation(original)) => Some(original),
+            Some(OriginalRefusal::Decode(original)) => Some(original),
+            None => None,
+        }
+    }
+}
 
 /// Require a completed outcome in deterministic execution regression tests.
 #[cfg(test)]
@@ -320,10 +368,13 @@ pub(crate) fn canonical_decode_attempt_error<E>(
     error: norito::core::DecodeAttemptError,
     rejected: impl FnOnce(norito::core::DecodeAttemptError) -> E,
 ) -> ExecutionAttemptError<E> {
-    if let Some(original) = canonical_decode_deferral(&error) {
-        return ExecutionAttemptError::Deferred(original);
+    if cfg!(all(test, sumeragi_core_mutation = "HC32")) {
+        return ExecutionAttemptError::Rejected(rejected(error));
     }
-    ExecutionAttemptError::Rejected(rejected(error))
+    match error.into_local_refusal() {
+        Ok(original) => ExecutionAttemptError::Deferred(original.into()),
+        Err(error) => ExecutionAttemptError::Rejected(rejected(error)),
+    }
 }
 
 /// Borrow the decoder's captured origin while its actual error owner stays retained for retry.
@@ -331,19 +382,10 @@ pub(crate) fn canonical_decode_attempt_error<E>(
 pub(crate) fn canonical_decode_deferral(
     error: &norito::core::DecodeAttemptError,
 ) -> Option<ExecutionDeferred> {
-    let reason = match error.kind() {
-        norito::core::DecodeAttemptErrorKind::Allocator => {
-            Some(ExecutionDeferral::AllocationUnavailable)
-        }
-        norito::core::DecodeAttemptErrorKind::EnclosingLimit => {
-            Some(ExecutionDeferral::ActiveMemoryCapacity)
-        }
-        norito::core::DecodeAttemptErrorKind::Invalid => None,
-    };
     if cfg!(all(test, sumeragi_core_mutation = "HC32")) {
         return None;
     }
-    reason.map(Into::into)
+    error.local_refusal().map(Into::into)
 }
 
 /// Preserve an original native storage/decode refusal before its caller formats a rejection.
@@ -1598,6 +1640,129 @@ mod tests {
                 ivm::VMError::PermissionDenied
             }),
             ivm::VMError::PermissionDenied,
+        );
+    }
+}
+
+#[cfg(test)]
+mod canonical_refusal_owner_tests {
+    use super::*;
+    use norito::core::{
+        DecodeAttemptErrorKind, DecodeLimits, DecodeLocalRefusalKind, classify_decode_attempt,
+        with_decode_limits_scope,
+    };
+
+    fn limits(bytes: usize) -> DecodeLimits {
+        DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes, usize::MAX)
+    }
+
+    #[test]
+    fn canonical_refusal_keeps_original_owner_through_vm_and_equal_foreign_scope() {
+        let bytes = norito::encode_canonical(&vec![19_u8; 32]).unwrap();
+        let cause = with_decode_limits_scope(limits(0), || {
+            norito::decode_canonical_for_admission::<Vec<u8>>(
+                &bytes,
+                norito::canonical_decode_limits(bytes.len()),
+            )
+        })
+        .unwrap_err();
+        let original = cause.local_refusal().unwrap();
+        let borrowed = canonical_decode_deferral(&cause).unwrap();
+        assert_eq!(borrowed.decode_refusal(), Some(&original));
+        let ExecutionAttemptError::<()>::Deferred(retained) =
+            canonical_decode_attempt_error(cause, |_| panic!("local refusal became rejection"))
+        else {
+            panic!("canonical admission must defer");
+        };
+        assert_eq!(retained, borrowed);
+        assert_eq!(retained.reason(), ExecutionDeferral::ActiveMemoryCapacity);
+        assert!(retained.allocation_refusal().is_none());
+        assert_eq!(retained.decode_refusal(), Some(&original));
+        assert_eq!(original.kind(), DecodeLocalRefusalKind::EnclosingLimit);
+        assert!(
+            std::error::Error::source(&retained)
+                .unwrap()
+                .downcast_ref::<norito::core::DecodeLocalRefusal>()
+                .is_some()
+        );
+        with_decode_limits_scope(limits(0), || {
+            let vm = VMError::metered(41, retained.into_vm_error());
+            assert_eq!(vm.fault_kind(), None);
+            let restored = ExecutionDeferred::from_vm_error(&vm).unwrap();
+            assert_eq!(restored, borrowed);
+            assert_eq!(restored.decode_refusal(), Some(&original));
+            assert_eq!(vm.split_metered().0, None);
+        });
+        assert_eq!(
+            norito::decode_canonical_for_admission::<Vec<u8>>(
+                &bytes,
+                norito::canonical_decode_limits(bytes.len())
+            )
+            .unwrap(),
+            vec![19_u8; 32]
+        );
+    }
+
+    #[test]
+    fn canonical_rejections_keep_protocol_and_reconstructed_errors_terminal() {
+        let bytes = norito::encode_canonical(&vec![19_u8; 32]).unwrap();
+        let protocol = with_decode_limits_scope(limits(0), || {
+            norito::decode_canonical_for_admission::<Vec<u8>>(&bytes, limits(0))
+        })
+        .unwrap_err();
+        let reconstructed = classify_decode_attempt(|| {
+            Err::<(), _>(norito::Error::TotalAllocationExceeded {
+                attempted: 32,
+                limit: 0,
+            })
+        })
+        .unwrap_err();
+        let malformed =
+            classify_decode_attempt(|| Err::<(), _>(norito::Error::LengthMismatch)).unwrap_err();
+        for original in [protocol, reconstructed, malformed] {
+            assert_eq!(original.kind(), DecodeAttemptErrorKind::Invalid);
+            assert!(canonical_decode_deferral(&original).is_none());
+            let text = original.to_string();
+            let ExecutionAttemptError::Rejected(returned) =
+                canonical_decode_attempt_error(original, std::convert::identity)
+            else {
+                panic!("terminal input failure became deferral");
+            };
+            assert_eq!(returned.kind(), DecodeAttemptErrorKind::Invalid);
+            assert_eq!(returned.to_string(), text);
+        }
+    }
+
+    #[test]
+    fn captured_allocator_fields_survive_core_owner_and_finalizer_context() {
+        // The codec classifier trusts its decoder closure's allocation result;
+        // this synthetic payload tests transport, not physical allocator authenticity.
+        let cause =
+            classify_decode_attempt(|| Err::<(), _>(norito::Error::AllocationFailed { bytes: 73 }))
+                .unwrap_err();
+        let ExecutionAttemptError::<()>::Deferred(retained) =
+            canonical_decode_attempt_error(cause, |_| {
+                panic!("captured allocator became rejection")
+            })
+        else {
+            panic!("expected retained allocator outcome")
+        };
+        let retained = retained.at_native_lane_finalizer();
+        assert_eq!(retained.phase(), Some(ExecutionPhase::NativeLaneFinalizer));
+        assert_eq!(retained.reason(), ExecutionDeferral::AllocationUnavailable);
+        assert_eq!(
+            retained.decode_refusal().unwrap().allocation_bytes(),
+            Some(73)
+        );
+        assert!(retained.allocation_refusal().is_none());
+        let rendered = retained.to_string();
+        assert!(rendered.starts_with("native lane finalizer: "));
+        let vm = retained.into_vm_error();
+        let restored = ExecutionDeferred::from_vm_error(&vm).unwrap();
+        assert_eq!(restored.phase(), None);
+        assert_eq!(
+            restored.decode_refusal().unwrap().allocation_bytes(),
+            Some(73)
         );
     }
 }

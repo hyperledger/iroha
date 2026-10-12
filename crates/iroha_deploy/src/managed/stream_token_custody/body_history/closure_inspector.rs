@@ -16,7 +16,7 @@ pub(in crate::managed) struct NativeClosureInspector<'a> {
 }
 
 impl<'a> NativeClosureInspector<'a> {
-    pub(super) fn new(
+    pub(in crate::managed::stream_token_custody) fn new(
         original: &'a Original,
         account: &'a AccountService,
         deadline: Instant,

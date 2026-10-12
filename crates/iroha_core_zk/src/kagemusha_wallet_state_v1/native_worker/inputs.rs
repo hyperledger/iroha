@@ -491,13 +491,13 @@ impl NativeFoldWorkerV1 {
                 else {
                     return Err(Error::Proof("Load owner"));
                 };
-                Fields::Load(proof(preparation.load_fold_fields(
+                Fields::Load(preparation.load_fold_fields(
                     &owner,
                     step,
                     folded.as_ref().ok_or(Error::FoldRequired)?,
                     &public,
                     self.budget,
-                ))?)
+                )?)
             }
             Variant::Send => {
                 custody.pending_insert()?;

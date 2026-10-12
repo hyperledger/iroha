@@ -6,7 +6,8 @@ operational guardrails that now ship with the snapshot lane.
 
 ## Resource Budgets and Quotas
 
-- `pipeline.query_stored_min_gas_units` gates server-side cursor storage. When
+- `query_stored_min_gas_units` of the committed `pipeline_validity_policy_v1`
+  chain parameter (not node configuration) gates server-side cursor storage. When
   the value is greater than zero:
   - `Start` requests that opt into stored mode must provide at least this many
     `gas_units` via the Torii query-string override.
@@ -51,8 +52,9 @@ track adoption and verify budget compliance.
 
 1. Tune `pipeline.query_default_cursor_mode` to select ephemeral vs stored mode
    for the default case.
-2. When enabling stored cursors, provision `pipeline.query_stored_min_gas_units`
-   and monitor `torii_query_snapshot_gas_consumed_units_total` to ensure clients
+2. When enabling stored cursors, the chain sets `query_stored_min_gas_units` in
+   its committed `pipeline_validity_policy_v1` parameter (an authorized
+   `SetParameter`); monitor `torii_query_snapshot_gas_consumed_units_total` to ensure clients
    honour budgets.
 3. Size `live_query_store.capacity` and `capacity_per_user` according to expected
    workloads, watching `query_snapshot_lane_cursors_total` to understand how many

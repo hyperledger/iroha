@@ -23,8 +23,8 @@ fn queue_backlog_reports_available_lane_headroom() {
     let (_time_handle, time_source) = TimeSource::new_mock(Duration::default());
     let first_tx = accepted_tx_in_dataspace_by_someone(test_dataspace_alias, &time_source);
     let second_tx = accepted_tx_in_dataspace_by_someone(test_dataspace_alias, &time_source);
-    let first_teu = Queue::compute_teu_weight(&first_tx);
-    let second_teu = Queue::compute_teu_weight(&second_tx);
+    let first_teu = Queue::compute_teu_weight(&first_tx, &crate::gas::DEFAULT_ZK_GAS);
+    let second_teu = Queue::compute_teu_weight(&second_tx, &crate::gas::DEFAULT_ZK_GAS);
     let lane_capacity = first_teu.saturating_mul(10);
     assert!(
         lane_capacity > first_teu,

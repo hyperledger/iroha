@@ -26,6 +26,27 @@ fn fixture_with_fee_asset(
     callback_bytes: Option<usize>,
     fee_asset: Option<iroha_data_model::asset::AssetDefinitionId>,
 ) -> State {
+    fixture_with_policy(row_bytes, callback_bytes, fee_asset, None)
+}
+
+/// Configure validity before authentication so successor execution reads the signed policy.
+fn fixture_with_pipeline_policy(
+    row_bytes: u64,
+    callback_bytes: Option<usize>,
+    fee_asset: Option<iroha_data_model::asset::AssetDefinitionId>,
+    configure: impl FnOnce(&mut crate::pipeline_validity_policy::PipelineValidityPolicyV1),
+) -> State {
+    let mut policy = crate::pipeline_validity_policy::PipelineValidityPolicyV1::protocol_default();
+    configure(&mut policy);
+    fixture_with_policy(row_bytes, callback_bytes, fee_asset, Some(policy))
+}
+
+fn fixture_with_policy(
+    row_bytes: u64,
+    callback_bytes: Option<usize>,
+    fee_asset: Option<iroha_data_model::asset::AssetDefinitionId>,
+    policy: Option<crate::pipeline_validity_policy::PipelineValidityPolicyV1>,
+) -> State {
     let mut state = state(row_bytes);
     if let Some(asset) = &fee_asset {
         use iroha_primitives::numeric::Quantity;
@@ -37,7 +58,12 @@ fn fixture_with_fee_asset(
         fees.fee_asset_id = asset.to_string();
         fees.fee_sink_account_id = iroha_test_samples::BOB_ID.to_string();
     }
-    let state = authenticate_output_state(state);
+    let state = authenticate_output_state_with_pipeline_policy(state, policy);
+    assert_eq!(
+        crate::pipeline_validity_policy::committed(state.view().world.parameters.get()).unwrap(),
+        policy,
+        "the exact intended validity policy must come from the original signed genesis"
+    );
     {
         let (mut setup, _setup_recording) = output_fixture_setup(&state);
         let mut transaction = setup.transaction_for_callback_testing();
@@ -792,7 +818,8 @@ fn intrinsic_source_rejection_rolls_back_movements_and_witness_but_keeps_e_and_f
     .unwrap();
     parameters
         .get_mut()
-        .set_parameter(Parameter::Block(BlockParameter::FastpqSource(profile)));
+        .set_parameter(Parameter::Block(BlockParameter::FastpqSource(profile)))
+        .expect("valid fixture parameters");
     parameters.commit();
     let alice = AssetId::of(asset.clone(), ALICE_ID.clone());
     let bob = AssetId::of(asset.clone(), iroha_test_samples::BOB_ID.clone());

@@ -647,6 +647,148 @@ async fn snapshot_read_succeeds_without_selector_bootstrap() {
     .expect("snapshot read");
     assert_eq!(snapshot_state.chain_id, expected_chain_id);
 }
+/// Commit `parameter` into `state` as fixture setup: the World accumulator
+/// advances with the edit, so the snapshot authenticates it.
+fn commit_custom_parameter_for_snapshot(
+    state: &State,
+    parameter: iroha_data_model::parameter::CustomParameter,
+) {
+    let view = state.view();
+    let header = BlockHeader::new(
+        std::num::NonZeroU64::new(u64::try_from(view.height()).expect("height fits") + 1)
+            .expect("nonzero height"),
+        view.latest_block_hash(),
+        None,
+        0,
+        0,
+    );
+    drop(view);
+    let mut block = state.block(header);
+    let mut transaction = block.transaction();
+    transaction
+        .world
+        .parameters
+        .get_mut()
+        .set_parameter(iroha_data_model::parameter::Parameter::Custom(parameter))
+        .expect("valid fixture parameters");
+    transaction.apply();
+    block
+        .commit_world_overlay_for_testing()
+        .expect("fixture World setup publishes");
+}
+/// Read the snapshot of `state` back with the node settings `zk`.
+fn read_snapshot_with_node_zk(
+    state: &State,
+    store_dir: &std::path::Path,
+    key_pair: &iroha_crypto::KeyPair,
+    zk: &iroha_config::parameters::actual::Zk,
+) -> Result<Box<State>, TryReadError> {
+    try_read_snapshot(
+        &iroha_allocation::AllocationBudget::new(
+            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
+        ),
+        store_dir,
+        &Kura::blank_kura_for_testing(),
+        &state.lane_manifests.read().clone(),
+        &state.nexus_snapshot(),
+        LiveQueryStore::start_test,
+        BlockCount(state.view().height()),
+        TEST_CHUNK_SIZE,
+        key_pair.public_key(),
+        &state.chain_id,
+        &state.network_id,
+        zk,
+        #[cfg(feature = "telemetry")]
+        StateTelemetry::new(<_>::default(), true),
+        &snapshot_read_budget_for_testing(),
+    )
+}
+#[tokio::test]
+async fn snapshot_restore_reads_the_committed_zk_policy_under_divergent_node_settings() {
+    use crate::zk_validity_policy::{ZkValidityPolicyV1, node_validity_overrides, policy_of};
+
+    let tmp_root = tempdir().unwrap();
+    let store_dir = tmp_root.path().join("snapshot");
+    let state = state_factory();
+    let mut policy = ZkValidityPolicyV1::protocol_default();
+    policy.confidential.max_proof_size_bytes = 4_096;
+    policy.confidential.max_nullifiers_per_tx = 3;
+    policy.proofs.bridge_proof_max_past_age_blocks = 55;
+    commit_custom_parameter_for_snapshot(&state, policy.clone().into_custom_parameter());
+    let key_pair = checked_random_snapshot_keypair();
+    try_write_snapshot(&state, &store_dir, &key_pair, TEST_CHUNK_SIZE).unwrap();
+
+    // A node whose settings hold other validity values and scarce local resources.
+    let mut divergent = crate::state::default_zk_config();
+    divergent.max_proof_size_bytes = 1;
+    divergent.max_nullifiers_per_tx = 1_000;
+    divergent.bridge_proof_max_past_age_blocks = 7;
+    divergent.max_verify_batch = 3;
+    divergent.gas.proof_base = 1;
+    divergent.trace.worker_threads = 1;
+    divergent.verify_timeout = std::time::Duration::from_nanos(1);
+    let mut restored = Vec::new();
+    for node in [crate::state::default_zk_config(), divergent] {
+        let snapshot_state = read_snapshot_with_node_zk(&state, &store_dir, &key_pair, &node)
+            .expect("a snapshot that holds a committed policy restores");
+        // Every reader sees the committed policy of the restored World.
+        assert_eq!(policy_of(&snapshot_state.view().zk), policy);
+        assert_eq!(policy_of(&snapshot_state.zk_snapshot()), policy);
+        // The node contributed its local resources and nothing else.
+        assert!(node_validity_overrides(&snapshot_state.installed_zk()).is_empty());
+        assert_eq!(
+            snapshot_state.installed_zk().trace.worker_threads,
+            node.trace.worker_threads
+        );
+        assert_eq!(
+            snapshot_state.installed_zk().verify_timeout,
+            node.verify_timeout
+        );
+        restored.push((
+            crate::state::compute_zk_consensus_policy_hash(&snapshot_state.view().zk),
+            snapshot_state
+                .execution_policy_digest_v1()
+                .expect("execution policy digest"),
+        ));
+    }
+    assert_eq!(restored[0], restored[1]);
+}
+#[tokio::test]
+async fn snapshot_restore_refuses_a_malformed_committed_zk_policy() {
+    use crate::zk_validity_policy::ZkValidityPolicyV1;
+
+    let tmp_root = tempdir().unwrap();
+    let store_dir = tmp_root.path().join("snapshot");
+    let state = state_factory();
+    // State no valid transition produces: the restore boundary reports it
+    // instead of falling back to another policy.
+    commit_custom_parameter_for_snapshot(
+        &state,
+        iroha_data_model::parameter::CustomParameter::new(
+            ZkValidityPolicyV1::parameter_id(),
+            iroha_primitives::json::Json::new("not a policy"),
+        ),
+    );
+    let key_pair = checked_random_snapshot_keypair();
+    try_write_snapshot(&state, &store_dir, &key_pair, TEST_CHUNK_SIZE).unwrap();
+    let Err(error) = read_snapshot_with_node_zk(
+        &state,
+        &store_dir,
+        &key_pair,
+        &crate::state::default_zk_config(),
+    ) else {
+        panic!("a malformed committed policy needs recovery");
+    };
+    assert!(
+        matches!(
+            error,
+            TryReadError::ZkConfigInstall(
+                crate::state::ZkConfigInstallError::MalformedCommittedPolicy
+            )
+        ),
+        "{error:?}"
+    );
+}
 #[tokio::test]
 async fn snapshot_generation_shape_is_exact_and_idempotent() {
     let tmp_root = tempdir().unwrap();

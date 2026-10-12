@@ -343,7 +343,7 @@ impl ConstraintFilter for OmitTerm {
 fn streamed_parity<C: PastaCurve>() {
     let params = PinnedParams::<C>::derive(K).unwrap();
     let mut rng = ChaCha20Rng::seed_from_u64(6241);
-    for lookup_count in [0, 1, 2, 5] {
+    for lookup_count in [0, 1, 2, 5, 10] {
         let circuit = ScheduledLookups(lookup_count);
         for policy in [CosetCachePolicy::Eager, CosetCachePolicy::OnDemand] {
             let mut config = crate::test_circuits::keygen_config(CHOICES[0]);

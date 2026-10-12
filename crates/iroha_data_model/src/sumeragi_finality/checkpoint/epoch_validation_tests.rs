@@ -29,6 +29,25 @@ fn caller_limits(allocation: usize) -> norito::DecodeLimits {
     )
 }
 
+// The exact epoch cache is inline, so bounds validation no longer creates an optional
+// owning decode. Derive the refusal from the actual mandatory signed-genesis decoder.
+fn signed_genesis_refusal_limit(checkpoint: &SumeragiFinalityCheckpoint) -> usize {
+    let budget = DecodeBudgetContext::new(caller_limits(TEST_ALLOCATION_CEILING));
+    budget.with(|| checkpoint.validate_bounds()).unwrap();
+    assert_eq!(budget.consumed_allocated_bytes(), 0);
+    budget
+        .with(|| {
+            norito::core::with_decode_limits_scope(
+                norito::canonical_decode_limits(checkpoint.genesis_wire.len()),
+                || decode_framed_signed_block(&checkpoint.genesis_wire),
+            )
+        })
+        .unwrap();
+    let charge = usize::try_from(budget.consumed_allocated_bytes()).unwrap();
+    assert!(charge > 2 && charge < TEST_ALLOCATION_CEILING);
+    charge - 1
+}
+
 #[test]
 fn checkpoint_epoch_work_is_lexical_and_standalone_proofs_remain_independent() {
     let fixture = Fixture::new();
@@ -138,6 +157,7 @@ fn warmed_import_epoch_work_never_replaces_fresh_roster_or_quorum_authentication
         let bytes = changed.encode_canonical().unwrap();
         let expected = verifier
             .verify_retained_decision(changed.tip())
+            .map_err(invalid_read_error)
             .unwrap_err();
         let before = validation_counts::calls();
         let refusal = SumeragiFinalityVerifier::from_trusted_checkpoint_with_consumer(
@@ -243,17 +263,7 @@ fn positive_outer_refusal_keeps_native_provenance_and_original_source_retry() {
     let fixture = Fixture::new();
     let (_, checkpoint) = selected(&fixture);
     let original = checkpoint.encode_canonical().unwrap();
-    // Measure the actual original bounds prefix, including both optional memo insertions.
-    // A total-success-minus-one cap could merely decline optional retention and still pass.
-    let prefix = DecodeBudgetContext::new(caller_limits(TEST_ALLOCATION_CEILING));
-    prefix.with(|| checkpoint.validate_bounds()).unwrap();
-    let prefix_charge = prefix.consumed_allocated_bytes();
-    assert!(prefix_charge > 0);
-    let cap = usize::try_from(prefix_charge)
-        .unwrap()
-        .checked_add(1)
-        .unwrap();
-    assert!(cap < TEST_ALLOCATION_CEILING);
+    let cap = signed_genesis_refusal_limit(&checkpoint);
     let expected_budget = DecodeBudgetContext::new(caller_limits(cap));
     let expected = expected_budget
         .with(|| {
@@ -297,7 +307,7 @@ fn positive_outer_refusal_keeps_native_provenance_and_original_source_retry() {
         Some(expected_resource)
     );
     let consumed = actual_budget.consumed_allocated_bytes();
-    assert!(consumed >= prefix_charge && consumed > 0);
+    assert!(consumed > 0);
     assert_eq!(consumed, expected_budget.consumed_allocated_bytes());
     assert_eq!(calls.get(), 0);
     assert_eq!(checkpoint.encode_canonical().unwrap(), original);
@@ -764,6 +774,7 @@ fn operation_epoch_workspace_never_accepts_context_substitution_or_fresh_quorum_
     for changed in [&wrong_roster, &wrong_quorum] {
         let expected = verifier
             .verify_retained_decision(changed.tip())
+            .map_err(invalid_read_error)
             .unwrap_err();
         let before = validation_counts::calls();
         let error = SumeragiFinalityVerifier::from_trusted_checkpoint_with_validation_consumer(
@@ -872,15 +883,8 @@ fn warmed_operation_epoch_workspace_preserves_late_positive_outer_charges_and_ty
         checkpoint
     );
 
-    // Measure the original bounds prefix then force the genuine signed-genesis allocation
-    // refusal at a positive ceiling. Optional insertion failures are not a refusal oracle.
-    let prefix = DecodeBudgetContext::new(caller_limits(TEST_ALLOCATION_CEILING));
-    prefix.with(|| checkpoint.validate_bounds()).unwrap();
-    let cap = usize::try_from(prefix.consumed_allocated_bytes())
-        .unwrap()
-        .checked_add(1)
-        .unwrap();
-    assert!(cap > 1 && cap < TEST_ALLOCATION_CEILING);
+    // Force a genuine signed-genesis allocation refusal after some original decoder work.
+    let cap = signed_genesis_refusal_limit(&checkpoint);
     let original_budget = DecodeBudgetContext::new(caller_limits(cap));
     let original_error = original_budget
         .with(|| {

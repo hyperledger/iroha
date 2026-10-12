@@ -1006,7 +1006,6 @@ async fn canonical_zk_x509_action_survives_four_peer_activation_replay_and_resta
         .with_permissioned_consensus()
         .with_config_layer(|layer| {
             layer
-                .write(["zk", "stark", "enabled"], true)
                 .write(["torii", "max_content_len"], TORII_CONTENT_BUDGET_BYTES)
                 .write(
                     ["torii", "query_fanout_max_retained_bytes"],

@@ -1,9 +1,10 @@
 //! Current SCCP native read and governance OpenAPI contracts.
 
 use super::*;
+use iroha_data_model::sccp::generation::SccpGenerationCauseV1;
 use iroha_sccp::api::{
     SccpBlockRefV1, SccpCertificateV1, SccpControlProofBundleV1, SccpFinalityConstantsV1,
-    SccpGenerationCauseV1, SccpGenerationV1, SccpMessageProofBundleV1,
+    SccpGenerationV1, SccpMessageProofBundleV1,
 };
 
 fn assert_closed_fields(schemas: &Map, name: &str, actual: &Value) {
@@ -315,9 +316,8 @@ fn sccp_generation_and_constants_schemas_preserve_full_typed_data() {
 #[test]
 fn sccp_governance_schema_uses_native_pin_and_current_parameters() {
     use iroha_data_model::sccp::{
-        deployment::{SccpDeploymentV1, SccpEvmDeploymentV1},
+        deployment::{SccpCommitteePinV1, SccpDeploymentV1, SccpEvmDeploymentV1},
         governance::SccpRegisterRouteActionV1,
-        native::SccpCommitteePinV1,
         params::SccpParametersV1,
     };
     let schemas = openapi_schemas();

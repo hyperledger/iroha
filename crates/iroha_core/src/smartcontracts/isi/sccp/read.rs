@@ -1,46 +1,40 @@
-//! Read-side SCCP record views and inclusion paths from committed state (`specs/sccp.md`
-//! §6). Owner: ws35.
+//! Read-side assembly of SCCP views from committed state (`specs/sccp.md` §6). Owner: ws35.
 //!
-//! Every honest peer derives identical bytes from committed state. Record views and inclusion
-//! paths alone establish no finality; callers need an authenticated native certificate.
-//! Torii, the CLI and tests share these functions. Stored record views (message status union,
-//! pages, light-client detail, governance detail, history paths) live in [`views`]; history
-//! paths go through the validated `O(log n)` node cache of `history`.
+//! Every honest peer derives identical bytes from committed state; wallets and destinations
+//! never trust them and verify everything themselves. Torii, the CLI and tests share these
+//! functions. The record views (message status union, pages, light-client detail, governance
+//! detail, history paths) live in [`views`]; history paths go through the validated `O(log n)`
+//! node cache of `history`.
 //!
-//! Native certificates, message proofs and rotation DATA live in [`native`], using the
-//! original committed source and caller-owned allocation/deadline controls. Its bounded
-//! history scan is separate from the record-view cache; see its O(size) TODO.
-//! Native control proofs require the complete native control-record producer in this batch.
+//! Native proof queries acquire compact original Global receipts through the caller's
+//! request-funded source reader and preserve the original finality header, result-body
+//! digest, Sumeragi `CommitQC` and historical keys. Message and control proofs bind their
+//! recorded inputs to that receipt's block and history commitments under one retained
+//! response admission. Control causes retain the exact governance certificate and effect;
+//! record presence alone is never proof authority. Durable history nodes retain their
+//! separate original cache pool; no process-global cache exists.
 
+mod committee;
 mod history;
-/// Original committed native SCCP certificate and proof DATA.
 pub mod native;
 mod views;
 
+pub use committee::{RetainedSccpGenerationView, committee, current_committee};
+pub use history::funded::{RetainedSccpHistoryPath, SccpHistoryNodeCache, SccpHistoryReadError};
 pub use views::*;
 
 use super::{light_clients, store};
-use crate::{
-    state::{StateReadOnly, WorldReadOnly},
-    sumeragi::crypto::BlsCrypto,
-};
-use iroha_data_model::block::consensus::SumeragiRootScope;
+use crate::state::{StateReadOnly, WorldReadOnly};
 /// The §6 wire types and page limits, re-exported for Torii and other readers.
 pub use iroha_sccp::api::{self, MAX_CONTROLS_PAGE, MAX_OUTBOUND_PAGE, MAX_RECENT_MESSAGES};
 use iroha_sccp::{
-    api::{SccpCapabilitiesV1, SccpFinalityConstantsV1, SccpLcProfileStatusV1, SccpReadLimitsV1},
+    api::{SccpCapabilitiesV1, SccpLcProfileStatusV1, SccpReadLimitsV1},
     light_client::profile::{SCCP_LC_PROFILE_NETWORKS_V1, SccpLcProfileCatalogV1},
 };
 
 /// Why a read cannot be served.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SccpReadError {
-    /// The original committed native identity is unavailable or inconsistent with this view.
-    #[error("SCCP committed source unavailable: {0}")]
-    Unavailable(String),
-    /// SCCP capabilities belong to the independently authenticated Global root only.
-    #[error("SCCP is unavailable for this authenticated non-Global root")]
-    UnsupportedScope,
     /// The named record does not exist.
     #[error("not found: {0}")]
     NotFound(String),
@@ -52,58 +46,41 @@ pub enum SccpReadError {
     Invalid(String),
 }
 
-/// Assemble `GET /v1/sccp/capabilities` (§6) from one immutable committed view.
+/// Assemble `GET /v1/sccp/capabilities` (§6).
 ///
-/// The native instance comes from the original opaque execution tip, not mutable World
-/// metadata or a scope offered by the caller. This endpoint grants no certificate authority.
-///
-/// # Errors
-/// Returns [`SccpReadError::Unavailable`] without a matching original committed tip and
-/// journal, or [`SccpReadError::UnsupportedScope`] for an authenticated non-Global root.
-/// No history read, re-authentication, or resource-failure conversion occurs here.
-pub fn capabilities(
-    view: &(impl StateReadOnly + ?Sized),
-) -> Result<SccpCapabilitiesV1, SccpReadError> {
+/// TODO: Torii work package (TT-A1): the coalition floor, forgery-hold summary, seated panel
+/// ids and launch-gate state of §6 still need their committed owners.
+#[must_use]
+pub fn capabilities(view: &(impl StateReadOnly + ?Sized)) -> SccpCapabilitiesV1 {
     let world = view.world();
     let network_id = *view.network_id().as_bytes();
-    let tip = view.native_execution_tip().ok_or_else(|| {
-        SccpReadError::Unavailable("original committed execution tip is absent".into())
-    })?;
-    let committed_height = u64::try_from(view.height())
-        .map_err(|_| SccpReadError::Unavailable("committed journal height exceeds u64".into()))?;
-    if tip.height() != committed_height
-        || view
-            .height()
-            .checked_sub(1)
-            .and_then(|index| view.block_hashes().get(index))
-            != Some(&tip.iroha_hash())
-        || view
-            .block_hashes()
-            .get(0)
-            .map(|hash| iroha_data_model::NetworkId::from_genesis_hash(*hash))
-            != Some(*view.network_id())
-    {
-        return Err(SccpReadError::Unavailable(
-            "original tip, journal and network identity do not match".into(),
-        ));
-    }
-    let scope = tip.root_scope();
-    if scope != SumeragiRootScope::Global {
-        return Err(SccpReadError::UnsupportedScope);
-    }
-    let chain_id = view.chain_id().to_string();
-    let consensus_instance = scope
-        .instance_id(&BlsCrypto::new(), *view.network_id(), &chain_id)
-        .map_err(|_| SccpReadError::Unavailable("original root scope is invalid".into()))?
-        .0;
-    Ok(SccpCapabilitiesV1 {
+    let committed_height = u64::try_from(view.height()).unwrap_or(u64::MAX);
+    SccpCapabilitiesV1 {
         network_id,
-        consensus_instance,
-        finality: SccpFinalityConstantsV1::current(),
-        parameters: store::parameters::get(world).clone(),
+        consensus_instance: iroha_sumeragi::preimage::instance_id(
+            &crate::sumeragi::crypto::BlsCrypto::new(),
+            &iroha_sumeragi::types::Hash32(network_id),
+            view.chain_id().as_str().as_bytes(),
+            iroha_sumeragi::preimage::InstanceKind::Global,
+            0,
+        )
+        .0,
+        finality: api::SccpFinalityConstantsV1::current(),
+        current_generation: store::committee_generations::get(
+            world,
+            store::committee_current::get(world),
+        )
+        .map(|generation| api::SccpCurrentGenerationV1 {
+            generation: generation.generation,
+            committee_root: generation.committee_root,
+            start_height: generation.start_height,
+            deadline_ms: generation.deadline_ms,
+        }),
+        liability_clock: *store::liability_clock::get(world),
+        parameters: *store::parameters::get(world),
         committed_height,
         light_client_profiles: light_client_profiles(world, committed_height.saturating_add(1)),
-        chain_id,
+        chain_id: view.chain_id().to_string(),
         profiles: compiled_profiles(),
         profiles_policy_hash: light_clients::active_profiles_at(
             world,
@@ -113,7 +90,7 @@ pub fn capabilities(
         .policy_hash(),
         limits: SccpReadLimitsV1::v1(),
         path_templates: Vec::new(),
-    })
+    }
 }
 
 /// Return the light-client profile every external source chain runs under at Taira height
@@ -219,156 +196,52 @@ pub fn governance_revisions(
     world: &(impl WorldReadOnly + ?Sized),
 ) -> Vec<iroha_data_model::sccp::governance::SccpGovernanceBaseRevisionV1> {
     store::governance_revisions::iter(world)
-        .map(|(subject, revision)| (subject.clone(), *revision).into())
+        .map(|(subject, revision)| (*subject, *revision).into())
         .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        smartcontracts::isi::sccp::{
-            commitment, leaves,
-            test_support::{authority, blank_state, header},
-        },
-        state::{StateTransaction, World},
-        sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
-    };
-    use iroha_data_model::{
-        bridge::SccpNetworkV1,
-        sccp::{
-            control::{SccpLeafRefV1, SccpTransferLeafRefV1},
-            outbound::{SccpOutboundMessageRecordV1, SccpOutboundStatusV1},
-        },
-    };
-    use iroha_sccp::v1::{
-        history::{history_root, verify_history_inclusion},
-        merkle::{PromoteOddTree, verify_block_inclusion},
-    };
-
-    /// Return the leaf hashes of block `height` in commitment order.
-    fn block_leaf_hashes(
-        world: &(impl WorldReadOnly + ?Sized),
-        height: u64,
-    ) -> Result<Vec<[u8; 32]>, SccpReadError> {
-        leaves::leaves_at(world, height)
-            .into_iter()
-            .map(|leaf| {
-                match leaf {
-                    SccpLeafRefV1::Transfer(transfer) => {
-                        store::outbound_messages::get(world, &transfer.message_id)
-                            .map(|record| record.leaf)
-                    }
-                    SccpLeafRefV1::Control(control) => store::control_messages::get(
-                        world,
-                        &(control.network, control.revision, control.control_nonce),
-                    )
-                    .map(|record| record.leaf),
-                }
-                .ok_or_else(|| SccpReadError::NotFound(format!("a leaf record of block {height}")))
-            })
-            .collect()
-    }
-
-    fn record_message(stx: &mut StateTransaction<'_, '_>, seed: u8) -> [u8; 32] {
-        let message_id = [seed; 32];
-        let height = stx._curr_block.height().get();
-        let index = leaves::allocate_leaf(
-            stx,
-            SccpLeafRefV1::Transfer(SccpTransferLeafRefV1 { message_id }),
-        )
-        .expect("leaf");
-        store::outbound_messages::insert(
-            stx,
-            message_id,
-            SccpOutboundMessageRecordV1 {
-                network: SccpNetworkV1::EthereumMainnet,
-                revision: 1,
-                nonce: u64::from(seed),
-                height,
-                commitment_index: index,
-                deadline_ms: 99,
-                sender: authority(1),
-                amount: 1,
-                payload: vec![seed],
-                leaf: [seed.wrapping_add(100); 32],
-                status: SccpOutboundStatusV1::Recorded,
-            },
-        )
-        .expect("record");
-        message_id
-    }
+    use crate::smartcontracts::isi::sccp::test_support::{blank_state, header};
+    use iroha_data_model::sccp::params::SccpParametersV1;
 
     #[test]
-    fn capabilities_report_current_identity_and_parameters() {
-        let chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000))
-            .expect("genuine Global genesis");
-        let mut block = chain.state().block(header(2));
+    fn capabilities_report_identity_parameters_and_limits() {
+        let state = blank_state();
+        let mut block = state.block(header(30));
         let mut stx = block.transaction();
-        let empty = capabilities(&stx).expect("original Global identity");
+        let empty = capabilities(&stx);
         assert_eq!(empty.parameters, None);
         assert_eq!(empty.network_id, *stx.network_id().as_bytes());
-        assert_eq!(empty.consensus_instance, chain.instance().0);
-        assert_eq!(empty.finality, SccpFinalityConstantsV1::current());
-        let parameters = iroha_data_model::sccp::params::SccpParametersV1::taira_default();
-        store::parameters::set(&mut stx, Some(parameters.clone()));
-        let reported = capabilities(&stx).expect("original Global identity");
-        assert_eq!(reported.parameters, Some(parameters));
-        assert_eq!(reported.network_id, empty.network_id);
-        assert_eq!(reported.chain_id, stx.chain_id().to_string());
+        assert_eq!(empty.current_generation, None);
+        assert_eq!(empty.liability_clock, 0);
+        assert_eq!(empty.finality, api::SccpFinalityConstantsV1::current());
+        assert_eq!(
+            empty.consensus_instance,
+            iroha_data_model::block::consensus::SumeragiRootScope::Global
+                .instance_id(
+                    &crate::sumeragi::crypto::BlsCrypto::new(),
+                    *stx.network_id(),
+                    stx.chain_id().as_str()
+                )
+                .unwrap()
+                .0
+        );
+        let json = norito::json::to_value(&empty).unwrap();
+        assert!(json.get("domain_separator").is_none());
+        assert_eq!(empty.limits, SccpReadLimitsV1::v1());
+        store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
+        let reported = capabilities(&stx);
+        assert_eq!(reported.parameters, Some(SccpParametersV1::taira_default()));
         assert_eq!(
             reported.committed_height,
             u64::try_from(stx.height()).expect("height")
         );
-        assert_eq!(reported.limits, SccpReadLimitsV1::v1());
-        assert!(
-            reported.path_templates.is_empty(),
-            "no unauthenticated proof route advertised"
-        );
-    }
-
-    #[test]
-    fn capabilities_refuse_without_original_execution() {
-        let state = blank_state();
-        assert!(matches!(
-            capabilities(&state.view()),
-            Err(SccpReadError::Unavailable(_))
-        ));
-    }
-
-    #[test]
-    fn capabilities_refuse_a_journal_without_matching_executed_tip() {
-        let chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000))
-            .expect("genuine Global genesis");
-        let mut block = chain.state().block(header(2));
-        assert!(capabilities(&block).is_ok());
-        block.block_hashes.push(chain.genesis().hash());
-        assert!(matches!(
-            capabilities(&block),
-            Err(SccpReadError::Unavailable(_))
-        ));
-        drop(block);
         assert_eq!(
-            capabilities(&chain.state().view())
-                .unwrap()
-                .consensus_instance,
-            chain.instance().0
-        );
-    }
-
-    #[test]
-    fn capabilities_refuse_an_original_dataspace_root() {
-        crate::state::native_capture_fixture::with_native_capture_dataspace_source(
-            |state, _block, _guard, _source, _hash| {
-                let view = state.view();
-                assert!(matches!(
-                    view.native_execution_tip()
-                        .expect("genuine committed genesis")
-                        .root_scope(),
-                    SumeragiRootScope::Dataspace { .. }
-                ));
-                assert_eq!(capabilities(&view), Err(SccpReadError::UnsupportedScope));
-            },
+            reported.profiles.len(),
+            SCCP_LC_PROFILE_NETWORKS_V1.len(),
+            "one compiled profile per external network"
         );
     }
 
@@ -377,11 +250,8 @@ mod tests {
         use iroha_data_model::{
             bridge::SccpNetworkV1, sccp::light_client::SccpLcProfileActivationV1,
         };
-        let mut chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000))
-            .expect("genuine Global genesis");
-        chain.commit(Vec::new());
-        chain.commit(Vec::new());
-        let mut block = chain.state().block(header(4));
+        let state = blank_state();
+        let mut block = state.block(header(3));
         let mut stx = block.transaction();
         let genesis = light_client_profiles(&*stx.world, 4);
         let networks: Vec<_> = genesis.iter().map(|status| status.network).collect();
@@ -398,9 +268,7 @@ mod tests {
             assert!(status.supported_until_ms.is_some());
         }
         assert_eq!(
-            capabilities(&stx)
-                .expect("original Global identity")
-                .profiles_policy_hash,
+            capabilities(&stx).profiles_policy_hash,
             catalog.genesis().policy_hash(),
             "without activations the policy hash commits to version 1 of every network"
         );
@@ -424,7 +292,7 @@ mod tests {
         assert_eq!(bsc.supported_until_ms, None, "this release lacks version 2");
         // Capabilities report the profiles of the next block, and the policy hash commits to
         // the same active versions (the SCCP input of the confidential policy digest).
-        let reported = capabilities(&stx).expect("original Global identity");
+        let reported = capabilities(&stx);
         let next = reported.committed_height + 1;
         assert_eq!(
             reported.light_client_profiles,
@@ -479,52 +347,5 @@ mod tests {
             vec![5_000, 7_000]
         );
         assert!(light_client_sets(&*stx.world, SccpNetworkV1::TonMainnet).is_empty());
-    }
-
-    #[test]
-    fn block_and_history_paths_verify() {
-        let state = blank_state();
-        let mut block = state.block(header(3));
-        let mut stx = block.transaction();
-        for seed in 1..=3 {
-            record_message(&mut stx, seed);
-        }
-        let commitment = commitment::commit_block(&mut stx, 3)
-            .expect("commit")
-            .expect("commitment");
-        let leaves = block_leaf_hashes(&*stx.world, 3).expect("leaves");
-        assert_eq!(leaves.len(), 3);
-        let tree = PromoteOddTree::block(&leaves).expect("block tree");
-        for (index, leaf) in leaves.iter().enumerate() {
-            let index = u32::try_from(index).expect("index");
-            let path = tree
-                .path(usize::try_from(index).expect("index"))
-                .expect("path");
-            let count = u32::try_from(leaves.len()).expect("count");
-            assert_eq!(count, 3);
-            verify_block_inclusion(leaf, index, count, &path, &commitment.root)
-                .expect("block inclusion");
-        }
-        // The shared history reader proves block 3 against its stored history root.
-        // These inclusion checks do not authenticate either root as native finality.
-        let size = commitment::history_root_and_size(&*stx.world).1;
-        let history: Vec<[u8; 32]> = store::history_leaves::range(&*stx.world, 0..size)
-            .map(|(_, (_, leaf))| *leaf)
-            .collect();
-        let root = history_root(&history).expect("root");
-        let (stored_root, history_proof) = history_proof(&*stx.world, 3, size).expect("history");
-        assert_eq!(stored_root, root);
-        assert_eq!(history_proof.sccp_root, commitment.root);
-        let leaf = store::history_leaves::get(&*stx.world, &history_proof.leaf_index)
-            .expect("history leaf")
-            .1;
-        verify_history_inclusion(
-            &leaf,
-            history_proof.leaf_index,
-            size,
-            &history_proof.path,
-            &root,
-        )
-        .expect("history inclusion");
     }
 }

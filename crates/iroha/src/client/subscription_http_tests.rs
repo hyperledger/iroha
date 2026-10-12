@@ -21,7 +21,7 @@ use iroha_data_model::{
     isi::{ExecuteTrigger, InstructionBox, Register, SetKeyValue},
     nexus::FeeSponsorProgramId,
     nft::{Nft, NftId},
-    proof::{ProofAttachment, ProofAttachmentList, ProofBox, VerifyingKeyId},
+    proof::{ProofAttachment, ProofBox, VerifyingKeyId},
     subscription::{
         SUBSCRIPTION_METADATA_KEY, SUBSCRIPTION_PLAN_METADATA_KEY,
         SUBSCRIPTION_TRIGGER_REF_METADATA_KEY, SubscriptionBillFor, SubscriptionBilling,
@@ -756,8 +756,7 @@ async fn payload_drafts_reject_unrequested_fixed_transaction_fields() {
                                     ProofBox::new("subscription_fixture".into(), vec![1]),
                                     VerifyingKeyId::new("subscription_fixture", "fixture_key"),
                                 );
-                                payload.attachments =
-                                    Some(ProofAttachmentList::try_from(vec![attachment]).unwrap());
+                                payload.set_proof_attachments_v1(&[attachment]).unwrap();
                             }
                             "sponsor" => {
                                 payload.fee_payment = FeePaymentIntent::sponsor(

@@ -11,7 +11,6 @@ use crate::{
         InstallationV1, InstalledVerifierPackV1,
         producer_inventory::{
             DirectoryOriginalsV1, PROVING_KEY_MAX_BYTES_V1, QualifiedWalletSourcesV1,
-            open_pinned_engineering_wallet_sources,
         },
     },
     kagemusha_wallet_state_v1::{
@@ -74,18 +73,6 @@ struct Sources {
     originals: PathBuf,
 }
 impl Sources {
-    fn admit(output: &Path) -> Self {
-        let (installed, qualified, genesis, originals) =
-            open_pinned_engineering_wallet_sources(output);
-        let path = originals.root().unwrap().to_path_buf();
-        drop(originals);
-        Self {
-            installed,
-            qualified,
-            genesis: Arc::new(genesis),
-            originals: path,
-        }
-    }
     fn fixture(&self, setup: &LedgerSetup, index: usize) -> Fixture {
         let mut f = fixture();
         f.config.scheme = *self.installed.verifier().scheme();

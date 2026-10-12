@@ -20,7 +20,7 @@ fn selected(fixture: &Fixture) -> SumeragiFinalityVerifier {
 fn independent_export(
     verifier: &SumeragiFinalityVerifier,
     tip: &SumeragiFinalityProof,
-) -> Result<SumeragiFinalityCheckpoint, FinalityError> {
+) -> Result<SumeragiFinalityCheckpoint, FinalityReadError> {
     need(
         verifier
             .decisions
@@ -125,9 +125,14 @@ fn encoding_rechecks_changed_contexts_and_every_later_decision_bound() {
             _ => later.height += 1,
         }
         let source = norito::encode_canonical(&changed).unwrap();
-        let expected = independent_encoding(&changed).unwrap_err();
+        let expected = independent_encoding(&changed)
+            .map_err(invalid_read_error)
+            .unwrap_err();
         assert_eq!(
-            changed.encode_canonical().unwrap_err(),
+            changed
+                .encode_canonical()
+                .map_err(invalid_read_error)
+                .unwrap_err(),
             expected,
             "{mutation}"
         );
@@ -187,8 +192,16 @@ fn export_rechecks_native_qc_roster_tip_and_retained_decision_after_reuse() {
     assert_eq!(wrong_quorum.block_header, fixture.second.block_header);
     for changed in [&wrong_roster, &wrong_quorum, &fixture.first] {
         let source = norito::encode_canonical(changed).unwrap();
-        let expected = independent_export(&verifier, changed).unwrap_err();
-        assert_eq!(verifier.export_checkpoint(changed).unwrap_err(), expected);
+        let expected = independent_export(&verifier, changed)
+            .map_err(invalid_read_error)
+            .unwrap_err();
+        assert_eq!(
+            verifier
+                .export_checkpoint(changed)
+                .map_err(invalid_read_error)
+                .unwrap_err(),
+            expected
+        );
         assert_eq!(norito::encode_canonical(changed).unwrap(), source);
         assert_eq!(
             verifier.export_checkpoint(&fixture.second).unwrap(),
@@ -224,9 +237,14 @@ fn export_rechecks_native_qc_roster_tip_and_retained_decision_after_reuse() {
                 _ => unreachable!(),
             }
         }
-        let expected = independent_export(&changed, &fixture.second).unwrap_err();
+        let expected = independent_export(&changed, &fixture.second)
+            .map_err(invalid_read_error)
+            .unwrap_err();
         assert_eq!(
-            changed.export_checkpoint(&fixture.second).unwrap_err(),
+            changed
+                .export_checkpoint(&fixture.second)
+                .map_err(invalid_read_error)
+                .unwrap_err(),
             expected,
             "{field}"
         );
@@ -253,13 +271,13 @@ fn caller_limits(allocation: usize) -> norito::DecodeLimits {
     )
 }
 
-fn under_caller<T>(
+fn under_caller<T, E: Into<FinalityReadError>>(
     allocation: usize,
-    operation: impl FnOnce() -> Result<T, FinalityError>,
-) -> (Result<T, FinalityError>, u64, usize) {
+    operation: impl FnOnce() -> Result<T, E>,
+) -> (Result<T, ReadErrorObservation>, u64, usize) {
     let budget = DecodeBudgetContext::new(caller_limits(allocation));
     let before = validation_counts::calls();
-    let result = budget.with(operation);
+    let result = budget.with(operation).map_err(observe_read_error);
     (
         result,
         budget.consumed_allocated_bytes(),
@@ -267,25 +285,35 @@ fn under_caller<T>(
     )
 }
 
-fn assert_original_admission<T: std::fmt::Debug + PartialEq>(
-    original: impl Fn() -> Result<T, FinalityError>,
-    candidate: impl Fn() -> Result<T, FinalityError>,
+fn assert_original_admission<T: std::fmt::Debug + PartialEq, E: Into<FinalityReadError>>(
+    original: impl Fn() -> Result<T, E>,
+    candidate: impl Fn() -> Result<T, E>,
     positive_limit_refuses: bool,
 ) {
     let expected = under_caller(TEST_ALLOCATION_CEILING, &original);
     assert!(expected.0.is_ok());
-    assert!(expected.1 > 1);
+    if positive_limit_refuses {
+        assert!(expected.1 > 1);
+    } else {
+        // Encoding an already decoded checkpoint keeps exact epoch snapshots inline.
+        assert_eq!(expected.1, 0);
+    }
     assert!(expected.2 > 1);
     assert_eq!(under_caller(TEST_ALLOCATION_CEILING, &candidate), expected);
     let charge = usize::try_from(expected.1).unwrap();
     assert!(charge < TEST_ALLOCATION_CEILING);
-    for cap in [1, charge / 2, charge - 1, charge] {
+    let caps = if positive_limit_refuses {
+        [1, charge / 2, charge - 1, charge]
+    } else {
+        [0, 1, 2, TEST_ALLOCATION_CEILING]
+    };
+    for cap in caps {
         let expected = under_caller(cap, &original);
         if cap == 1 {
             assert_eq!(
                 expected.0.is_err(),
                 positive_limit_refuses,
-                "mandatory decoding refuses; optional memo insertion may decline"
+                "only mandatory decoding consumes the enclosing allowance"
             );
         }
         assert_eq!(under_caller(cap, &candidate), expected, "cap {cap}");
@@ -304,8 +332,8 @@ fn active_producers_preserve_original_results_charges_and_positive_refusals() {
         || verifier.export_checkpoint(&fixture.second),
         true,
     );
-    // Encoding validates an already decoded DTO. A tiny decode budget can decline the
-    // optional epoch memo while validation and ordinary canonical encoding still succeed.
+    // Encoding validates an already decoded DTO. Inline exact epoch snapshots and ordinary
+    // canonical encoding consume no decoder allowance, even when that allowance is zero.
     assert_original_admission(
         || independent_encoding(&checkpoint),
         || checkpoint.encode_canonical(),

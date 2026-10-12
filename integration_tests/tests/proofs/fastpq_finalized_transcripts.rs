@@ -247,9 +247,7 @@ fn certified_tip(network: &Network, client: &Client, height: u64) -> Result<Veri
     for next in 1..=height {
         let proof = reader.get_sumeragi_finality_proof(
             NonZeroU64::new(next).expect("positive bounded height"),
-            iroha_data_model::sumeragi_finality::CertifiedResultScope::from_root_scope(
-                verifier.root_scope(),
-            ),
+            verifier.root_scope(),
         )?;
         let verified = verifier.verify(&proof)?;
         let members: BTreeSet<_> = proof

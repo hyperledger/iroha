@@ -390,9 +390,17 @@ canonical nesting ceiling remain format rejections. This query
 adds no wire data, allocation owner or release notification, and does not retry
 the decoder.
 
+Canonical frame decoding retains one typed output slot while header, checksum,
+field-consumption and resource-scope wrappers return only their check result.
+`decode_canonical_for_admission_into` consumes that value after exact canonical
+comparison and after the decoder's private limits, layout/context guards and
+admission observer have retired. This avoids repeated large by-value return
+slots without a new heap owner or wire layout. Consumer work retains the caller's
+original ambient context and returns its own semantic result independently.
+
 Canonical artifact admission uses `decode_canonical_for_admission` for the complete
 single decode and exact canonical-byte comparison. Its opaque result distinguishes
-actual allocator failure, an original enclosing admission-budget refusal, and invalid
+a decoder-reported allocator failure, an original enclosing admission-budget refusal, and invalid
 input. Canonical/default/schema budgets are checked before enclosing operational budgets
 at each resource check. The original emitting layer, counter family and process-unique
 observer root/boundary are carried privately in the Rust error, so equal numeric ceilings,
@@ -417,6 +425,21 @@ provenance. The fieldless `DecodeResourceLimit` remains an anonymous checked-bou
 category, never a substitute for an actual recorded decoder refusal. Non-resource core
 errors remain terminal JSON diagnostics and cannot become allocator refusals. JSON body,
 intrinsic nesting, and arithmetic-overflow bounds remain protocol failures.
+
+`DecodeAttemptError::into_local_refusal` moves a captured local cause into
+`DecodeLocalRefusal`; `local_refusal` retains the same cause for a borrowed caller.
+The opaque owner stores either the original allocator byte demand or the original
+scoped resource error. Extraction and cloning allocate nothing and preserve the
+existing counter control, attempt, emitting layer and observer identity after scope
+retirement, including any original prepared-control charge until its final owner
+drops. Invalid bytes, protocol limits, reconstructed numeric budget errors and
+stale scoped errors cannot produce a local owner. Returning its scoped error to
+a later decoder attempt does not create fresh provenance. Kind and resource-field
+getters are diagnostics; they cannot construct an owner or an allocation-pool
+release source. The allocator branch preserves the existing trust boundary:
+public `Error::AllocationFailed` reports are accepted by `classify_decode_attempt`,
+so retained bytes do not prove an unforgeable physical allocator origin. This
+non-wire ownership API changes no encoding, layout or protocol validity rule.
 
 
 Closed named and tuple records can opt into `#[norito(decode_fields)]`. Their ordinary
@@ -643,10 +666,16 @@ metadata keys `fee_sponsor`, `gas_asset_id`, and `gas_limit` are not alternate
 encodings of this field and are rejected by transaction construction and
 admission. Native queue admission is the sole transaction path; the retired
 `admission_intent` field has no wire slot or decoder.
-`attachments` is the ordered optional proof-attachment list and remains part of
-the signed transaction identity. SDK encoders and fixture exporters must emit
-this nine-field V1 layout. Missing fields, retired extra slots, and unknown JSON
-fields fail closed; there is no metadata-marker or legacy payload fallback.
+`attachments` is `Option<SignedAttachmentsV1>`: the ordered intent descriptor
+and the signed inline attachment occurrences described under
+[Signed attachments and ordered intent](#signed-attachments-and-ordered-intent).
+It remains part of the signed transaction identity. A transaction without
+attachments encodes the field as the single `None` byte `0x00`; that encoding
+is unchanged. The former proof-attachment list is not a transaction field and
+is not decoded there: a payload that carries it fails to decode. SDK encoders
+and fixture exporters must emit this nine-field V1 layout. Missing fields,
+retired extra slots, and unknown JSON fields fail closed; there is no
+metadata-marker or legacy payload fallback.
 `time_to_live_ms` retains its canonical option discriminant so a malformed
 signed payload can be decoded into a typed admission rejection, but
 first-release transactions must encode `Some(positive milliseconds)`. Safe
@@ -726,6 +755,141 @@ and contract-call gas consume that shared limit, and fee settlement happens
 once for the transaction rather than once per item. Trigger actions may store
 the same `Batch` form. One trigger invocation executes the items atomically and
 shares its deterministic trigger gas budget across the complete sequence.
+
+### Signed attachments and ordered intent
+
+Owner: `crates/iroha_data_model/src/transaction/signed_attachments.rs`
+(schema, bounds, validation) and
+`crates/iroha_data_model/src/transaction/signed/ordered_intent.rs` (projection,
+digests, binding to the payload). Shared vectors:
+`fixtures/zk/signed_attachments_v1/vectors.json`.
+
+All records below are ordinary derived records (see
+[Derived Record Layout](#derived-record-layout)): fields in declaration order,
+each `[len][payload]`; an enum is its little-endian `u32` tag followed by the
+variant's fields; a 32-byte digest is one `[u8; 32]` field.
+
+```text
+SignedAttachmentsV1
+  actions      Vec<ActionIntentV1>               1..=16, action_index == position
+  occurrences  Vec<SignedAttachmentOccurrenceV1> 0..=16, index == position
+
+ActionIntentV1
+  action_index          u32
+  operation             ActionOperationV1
+  role                  ActionRoleV1
+  authority             ActionAuthorityBindingV1
+  invocation            ActionInvocationBindingV1
+  public_inputs_digest  [u8; 32]
+  statement_digest      [u8; 32]
+  attachments           Vec<AttachmentReferenceV1>
+
+AttachmentReferenceV1
+  index         u32
+  kind          AttachmentKindV1
+  role          AttachmentRoleV1
+  length        u64
+  content_hash  [u8; 32]
+
+SignedAttachmentOccurrenceV1
+  index         u32
+  kind          AttachmentKindV1
+  length        u64
+  content_hash  [u8; 32]
+  bytes         Vec<u8>
+```
+
+Variant tags, in declaration order from `0`:
+
+```text
+AttachmentKindV1           0 Proof  1 KeyMaterial
+AttachmentRoleV1           0 ActionProof  1 VerifyingKey  2 LanePrivacyProof  3 ExecutionProof
+ActionOperationV1          0 NativeInstruction(String wire id)  1 TransactionProof  2 IvmProvedExecution
+ActionRoleV1               0 ProofEffect  1 ProofVerification  2 Administrative  3 Effect
+ActionAuthorityBindingV1   0 TransactionAuthority  1 ContractSubject(AccountId)  2 Account(AccountId)
+ActionInvocationBindingV1  0 Transaction  1 Direct { instruction_index: u32 }
+                           2 Contract { root_index: u32, call_path: Vec<u32> }
+```
+
+`content_hash` is `BLAKE3(bytes)` and `length` is the byte length of `bytes`.
+A `Proof` occurrence is generated after the ordered intent exists;
+`KeyMaterial` is supplied independently. `TransactionProof` and
+`IvmProvedExecution` carry one `Proof` occurrence whose bytes are the canonical
+Norito frame of one `ProofAttachment`; every other operation carries the
+registered canonical encoding of its own proof, a ceiling-sized native proof as
+raw proof bytes.
+
+Bounds (all inclusive): 9,437,184 bytes per occurrence (a wrapper counts toward
+it), 16 occurrences, 16 actions, 32 child ordinals in a contract call path, 128
+bytes of printable ASCII in an instruction wire id, and 9,502,720 bytes for the
+complete canonical frame of `SignedAttachmentsV1` (the 40-byte header,
+alignment padding and the bare payload). The frame bound is one ceiling-sized
+occurrence plus a 64 KiB aggregate allowance, so sixteen maximal occurrences do
+not fit. The decoder checks the frame size, both sequence counts and each
+declared byte count before it allocates. Each action also checks its wire-id
+length, call-path count and reference count before decoding owned fields; its
+reference count cannot exceed the 16-occurrence transaction bound. Borrowed
+field spans do not consume the allocation budget; owned decoders account for
+their materialized values. The complete signed transaction is
+still measured against the committed `transaction.max_tx_bytes`, and the sum of
+occurrence bytes against `transaction.max_decompressed_bytes`.
+
+Decoding and admission apply the same typed checks
+(`SignedAttachmentErrorV1`). Independent of the rest of the payload: at least
+one action; contiguous positional ordinals of actions and occurrences
+(reorder); each occurrence's declared length and hash equal those of its bytes;
+no two `Proof` occurrences with identical bytes; the references enumerate the
+occurrences exactly once and in order (omission, duplication, unused
+declaration, reorder); each reference agrees with its occurrence in type,
+length and hash (substitution) and declares a role its type can play; non-zero
+digests; and the closed rules of each operation (role class, authority,
+invocation binding, attachment count and roles). Against the payload: a named
+instruction wire id is registered; a `Direct` binding names an instruction of
+that wire id in the instruction list or batch, at most one action per
+instruction; a `Contract` binding names a contract root; an execution carrier
+is declared at most once and only for an `IvmProved` executable; each wrapped
+carrier decodes as one canonical, structurally valid `ProofAttachment` whose
+role agrees with its lane privacy witness and whose proof-free digest equals
+`public_inputs_digest`; and each `statement_digest` equals the value derived
+below. A node additionally refuses an operation no executor route consumes;
+today that is every `NativeInstruction` action.
+
+The JSON form of the field is the canonical padded standard base64 of the
+complete canonical frame.
+
+Hashing order. The transaction signature covers the complete canonical payload,
+every occurrence byte included. A proof binds only the *ordered intent*, which
+excludes generated values:
+
+1. Normalize the payload: clear every occurrence's `bytes`; for every `Proof`
+   occurrence and every reference to one set `length = 0` and `content_hash` to
+   32 zero bytes; set every `statement_digest` to 32 zero bytes; apply the
+   per-submission privacy normalization to each direct `SubmitPrivacyProofV1`;
+   for an `IvmProved` executable clear the overlay and set both output
+   commitments to the zero hash. `KeyMaterial` lengths and hashes and every
+   other field stay as signed.
+2. `intent_digest = BLAKE3("iroha.transaction.ordered-intent-digest.v1" ||
+   u64le(len) || frame)`, where `frame` is the canonical Norito frame of the
+   normalized payload.
+3. For action `k`, `statement_digest = BLAKE3(
+   "iroha.transaction.action-statement-digest.v1" || u64le(len) || frame)`
+   over the canonical frame of `ActionStatementV1 { intent_digest,
+   action_index, operation, role, authority, invocation,
+   public_inputs_digest }`. The proof of action `k` is generated for this
+   statement.
+4. Record each occurrence's bytes with its exact length and hash, in the
+   occurrence and in its reference.
+5. Sign the complete canonical payload.
+
+For a wrapped carrier, `public_inputs_digest = BLAKE3(
+"iroha.transaction.proof-carrier-public-inputs-digest.v1" || u64le(len) ||
+frame)` over the canonical frame of the `ProofAttachment` with its proof bytes
+cleared and its envelope hash removed.
+
+Descriptor checks reject a stale or foreign binding before any proof is
+verified. Cryptographic replay rejection requires verifying the proof against
+the recomputed statement; the preverification of a `TransactionProof` carrier
+does not establish that binding.
 
 ## Block execution context
 
@@ -1124,6 +1288,12 @@ Maps encode deterministically with the same active layout flags:
 - `HashMap` encodes entries in sorted key order for deterministic output;
   `BTreeMap` uses its natural ordering.
 
+`core::write_ordered_map_entries` exposes the same binary kernel for borrowed,
+strictly increasing entries without constructing a staging map. It rejects
+duplicate or descending keys and declared-count mismatches, and preserves field
+measurement and destination errors. Its output is identical to `BTreeMap` under
+the selected layout flags; an error requires discarding partial output.
+
 JSON objects have a separate key contract. `JsonObjectKey` supplies canonical,
 unquoted text; the map writer adds quotes and applies the same escaping as JSON
 strings. `JsonObjectKeyOwned` parses that text directly when decoding. Numeric
@@ -1357,6 +1527,23 @@ time. The signed payload's schema identity is
 `iroha_data_model::identifier::PhoneRetailCanonicalityPayloadV1`; the
 attestation's is
 `iroha_data_model::identifier::PhoneRetailCanonicalityAttestationV1`.
+
+### Sumeragi certified result envelope
+
+A native `CommitCertificate.result_preimage` is exactly `X ‖ body`: a fixed 221-byte
+`SccpFinalityHeaderV1` followed by the canonical Norito `ExecutionResultCommitment` body.
+The complete preimage is at most 65,536 bytes, so its body is at most 65,315 bytes.
+`CertifiedResultV1` is the sole reader of this envelope; a body frame alone is not a
+certificate preimage. It checks header/body height, network, committee and rotation bindings,
+then callers holding the original block check its height and timestamp. The scope comes from
+original signed genesis or independently registered authority, never from the offered header.
+AMX tracker state explicitly encodes `result_scope` with no missing-field default.
+
+The certificate result is raw `SHA-256(RESULT_TAG ‖ X ‖ D_body)`, where
+`D_body = H_iroha(RESULT_BODY_TAG ‖ body)`. Raw `R` remains `Hash32`; marker-setting Iroha
+hash conversions are prohibited. See `specs/sumeragi.md` §4.1.1 and `specs/sccp.md` §3.6–3.7.
+Lane results retain their separate lane contract. This first-release envelope has no fallback
+decoder or parallel body-only result hash.
 
 ### Sumeragi execution-result schedule projection
 

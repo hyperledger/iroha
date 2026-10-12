@@ -220,7 +220,8 @@ fn ivm_manifest_mismatched_abi_hash_rejected_at_admission() {
     stx1.world
         .parameters_mut_for_testing()
         .get_mut()
-        .set_parameter(manifest_admission_root_parameter());
+        .set_parameter(manifest_admission_root_parameter())
+        .expect("valid fixture parameters");
     // Grant CanManageSmartContractCode to the authority
     let token = iroha_executor_data_model::permission::smart_contract::CanManageSmartContractCode;
     let perm: permission::Permission = token.into();
@@ -316,7 +317,8 @@ fn ivm_manifest_matching_abi_hash_accepted_at_admission() {
     stx1.world
         .parameters_mut_for_testing()
         .get_mut()
-        .set_parameter(manifest_admission_root_parameter());
+        .set_parameter(manifest_admission_root_parameter())
+        .expect("valid fixture parameters");
     // Grant permission
     let token = iroha_executor_data_model::permission::smart_contract::CanManageSmartContractCode;
     let perm: permission::Permission = token.into();
@@ -436,7 +438,8 @@ fn ivm_manifest_without_abi_hash_is_rejected_at_admission() {
     stx1.world
         .parameters_mut_for_testing()
         .get_mut()
-        .set_parameter(manifest_admission_root_parameter());
+        .set_parameter(manifest_admission_root_parameter())
+        .expect("valid fixture parameters");
     // Grant permission
     let token = iroha_executor_data_model::permission::smart_contract::CanManageSmartContractCode;
     let perm: permission::Permission = token.into();
@@ -527,7 +530,8 @@ fn ivm_manifest_matching_abi_hash_v1_accepted_at_admission() {
     stx1.world
         .parameters_mut_for_testing()
         .get_mut()
-        .set_parameter(manifest_admission_root_parameter());
+        .set_parameter(manifest_admission_root_parameter())
+        .expect("valid fixture parameters");
     let token = iroha_executor_data_model::permission::smart_contract::CanManageSmartContractCode;
     let perm: permission::Permission = token.into();
     Grant::account_permission(perm, account_id.clone())
@@ -648,7 +652,8 @@ fn ivm_manifest_unknown_syscall_rejected_before_execution() {
     stx1.world
         .parameters_mut_for_testing()
         .get_mut()
-        .set_parameter(manifest_admission_root_parameter());
+        .set_parameter(manifest_admission_root_parameter())
+        .expect("valid fixture parameters");
     let token = iroha_executor_data_model::permission::smart_contract::CanManageSmartContractCode;
     let perm: permission::Permission = token.into();
     Grant::account_permission(perm, account_id.clone())

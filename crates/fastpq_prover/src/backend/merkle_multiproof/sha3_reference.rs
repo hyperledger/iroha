@@ -36,16 +36,18 @@ mod tests {
     use super::*;
     #[test]
     fn independently_encoded_sha3_tree_matches_every_leaf_and_root() {
+        // Leaves and root computed by `scripts/zk_semantic_profile_reference.py`
+        // under the frozen transcript profile descriptor, without this crate.
         let context = Context::new(b"complete public context without a private witness").unwrap();
         let expected = [
-            "a4978555e5154cc725098513117df50be99ba4c6a6f2c57b3053a68295f678ba",
-            "db7b0cf4c7b767c30d7dd4dd240794ed5e706b1e86a997469bfe421497a015bc",
-            "c32cad07fb35e41b354bf814ce8b7f91a6b676afae5ff4b05ff0405fe1555b55",
-            "cd0fcf96587a683a917dbbbe1b5c12bb2507360d96c4deccbdeb70933235ceb3",
-            "0c0903e147b753b743c8e77d9ee9301c84a95571ee20dc936989ba32f9ed248e",
-            "b4c9c43cf5b091ed589a39810e445a7c48954dc2100d5aaf2db619aec2ab89db",
-            "df63a0e93d665bf2758881d3cb68b1d396c3e38fa52a55fdf70ea2c7c9cce1c4",
-            "c6b0a2de4c969d13c2c0300163fe96be69730ad9b6f6a61fae3bd2b16e2e75da",
+            "8de249d4aadbe0a614c883e739d3616c1b90fc80b0a3ca8d279f393f188a4a29",
+            "8b479fdd2cd2cebd0880e0d09097157a293319920fae844ae9fea7026f214c50",
+            "56c2bb31ec7dd0b580eb83894c39dfeebef6781a89a60fc67ab36962b2e63e4c",
+            "fe74b54571648acfee45d47de565ab38e7ffe5e07f1dd38f0358a629534d1b72",
+            "39a387af9d2681cc75a72ad7116a1036cfa553462bdbc9b36aa5aade08f4bc8a",
+            "05d075ee8bcdb3defe90acca9ee0d28071aee7fb53e0982e07dbaa79cdcc99c3",
+            "cb972551c46ef5032ddaa858c7cfc27bcc7a4368ae23614e2a2b30edd46c2eaa",
+            "3e8f96f54fcbafd951576dcb02e3f821f633330b7679fb795523cea65deaf85f",
         ];
         let mut levels = vec![
             (0..8_u32)
@@ -80,7 +82,7 @@ mod tests {
         }
         assert_eq!(
             hex::encode(levels.last().unwrap()[0].into_bytes()),
-            "12b46c57525a90481660afabc7fb6fb483534243090541ddd2503fc5ec9d0cc5"
+            "01ff7485b636024096bed836a1d2b98c9d5fc2a4a0778ef36ba988d2779a1cc7"
         );
     }
 }

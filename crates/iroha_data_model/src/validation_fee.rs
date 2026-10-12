@@ -1812,7 +1812,7 @@ mod parliament_tests {
         let oversized = AccountId::new_multisig(
             MultisigPolicy::new(
                 1,
-                (0u8..16)
+                (1u8..=16)
                     .map(|seed| {
                         MultisigMember::new(
                             iroha_crypto::KeyPair::from_seed(

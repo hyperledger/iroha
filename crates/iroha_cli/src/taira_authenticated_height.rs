@@ -200,7 +200,7 @@ trait HeightReads: Sync {
 
 struct NativeReads {
     clients: [Client; VERIFICATION_PEERS],
-    scope: iroha_data_model::sumeragi_finality::CertifiedResultScope,
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
 }
 
 impl HeightReads for NativeReads {
@@ -216,7 +216,7 @@ impl HeightReads for NativeReads {
         identity: &PeerId,
     ) -> Result<SumeragiFinalityAttestation> {
         self.clients[peer]
-            .get_sumeragi_finality_attestation(height, challenge, identity, self.scope)
+            .get_sumeragi_finality_attestation(height, challenge, identity, self.root_scope)
             .map(|attestation| attestation.into_attestation())
     }
 
@@ -278,7 +278,7 @@ impl AuthenticatedHeightObserverV1 {
     ) -> Result<HeightObservationV1> {
         require_operation_budget(deadline, "starting authenticated height observation")?;
         let readers = NativeReads {
-            scope: self.authority.result_scope()?,
+            root_scope: self.authority.root_scope()?,
             clients: std::array::from_fn(|index| clients[index].with_request_deadline(deadline)),
         };
         self.observe_with(

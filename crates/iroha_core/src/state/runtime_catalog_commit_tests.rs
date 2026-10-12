@@ -46,7 +46,8 @@ fn install_fixture_runtime(state: &State, runtime: NexusRuntimeCatalogV1) {
         .get_mut()
         .set_parameter(iroha_data_model::parameter::Parameter::Custom(
             runtime.into_custom_parameter().unwrap(),
-        ));
+        ))
+        .expect("valid fixture parameters");
     world.commit();
 }
 
@@ -97,7 +98,8 @@ fn runtime_catalog_readback_tracks_committed_state_and_rejects_malformed_paramet
                     NexusRuntimeCatalogV1::parameter_id(),
                     iroha_primitives::json::Json::new(norito::json!({"version": 255})),
                 ),
-            ));
+            ))
+            .expect("valid fixture parameters");
         world.commit();
         let malformed_world = norito::json::to_json(&state.world).unwrap();
         let retained_owner = norito::json::to_json(&state.canonical_runtime).unwrap();
@@ -228,11 +230,14 @@ fn runtime_catalog_final_overlay_rejects_unstaged_changed_and_removed_parameter(
         );
         let mut changed = pending.runtime_catalog.clone().unwrap();
         changed.dataspaces[0].descriptor.description = Some("late catalog change".to_owned());
-        transaction.world.parameters.get_mut().set_parameter(
-            iroha_data_model::parameter::Parameter::Custom(
+        transaction
+            .world
+            .parameters
+            .get_mut()
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
                 changed.into_custom_parameter().unwrap(),
-            ),
-        );
+            ))
+            .expect("valid fixture parameters");
         assert!(
             validate_runtime_catalog_block_overlay(
                 transaction.world.parameters.get_before_block(),
@@ -248,8 +253,7 @@ fn runtime_catalog_final_overlay_rejects_unstaged_changed_and_removed_parameter(
             .world
             .parameters
             .get_mut()
-            .custom
-            .remove(&NexusRuntimeCatalogV1::parameter_id());
+            .remove_custom_parameter(&NexusRuntimeCatalogV1::parameter_id());
         assert!(
             validate_runtime_catalog_block_overlay(
                 transaction.world.parameters.get_before_block(),
@@ -413,8 +417,7 @@ fn runtime_catalog_final_overlay_rejects_removal_and_unchanged_malformed_state()
         block
             .parameters
             .get_mut()
-            .custom
-            .remove(&NexusRuntimeCatalogV1::parameter_id());
+            .remove_custom_parameter(&NexusRuntimeCatalogV1::parameter_id());
         let removed_parameters = block.parameters.get().clone();
         let original_parameters = block.parameters.get_before_block().clone();
         let error = validate_runtime_catalog_block_overlay(
@@ -443,7 +446,8 @@ fn runtime_catalog_final_overlay_rejects_removal_and_unchanged_malformed_state()
                     NexusRuntimeCatalogV1::parameter_id(),
                     iroha_primitives::json::Json::new(norito::json!({"version": 255})),
                 ),
-            ));
+            ))
+            .expect("valid fixture parameters");
         world.commit();
         let malformed_world = norito::json::to_json(&state.world).unwrap();
         let accepted = state.world.block();
@@ -581,7 +585,8 @@ fn runtime_catalog_startup_reconstructs_manifest_without_files_and_preserves_pol
                     NexusRuntimeCatalogV1::parameter_id(),
                     iroha_primitives::json::Json::new(norito::json!({"version": 255})),
                 ),
-            ));
+            ))
+            .expect("valid fixture parameters");
         world.commit();
         let malformed_world = norito::json::to_json(&state.world).unwrap();
         let retained_owner = norito::json::to_json(&state.canonical_runtime).unwrap();
@@ -639,11 +644,13 @@ fn runtime_catalog_replacement_uses_its_retained_parameter_predecessor() {
             2,
         )
         .expect("an untouched replacement retains its actual pre-catalog predecessor");
-        replacement.parameters.get_mut().set_parameter(
-            iroha_data_model::parameter::Parameter::Custom(
+        replacement
+            .parameters
+            .get_mut()
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
                 live.clone().unwrap().into_custom_parameter().unwrap(),
-            ),
-        );
+            ))
+            .expect("valid fixture parameters");
         assert!(
             validate_runtime_catalog_block_overlay(
                 replacement.parameters.get_before_block(),

@@ -108,3 +108,73 @@ else: raise AssertionError("unrelated native binary was accepted as the Rust own
 assert "iroha_native._crypto" not in sys.modules
 '''
     subprocess.run([sys.executable, "-I", "-B", "-c", code, str(root)], check=True)
+
+
+_ACCOUNT_CODEC_PREDICATE_SETUP = """
+import sys
+from types import SimpleNamespace
+sys.path.insert(0, sys.argv[1])
+from iroha_native import NativeUnavailableError
+from iroha_native import _loader
+
+# These unit checks isolate the ABI/surface predicate after the loader succeeds.
+# Packaged-extension provenance remains covered by the loader tests above.
+def unexpected_account_dispatch(*args):
+    raise AssertionError("ABI admission dispatched an account operation")
+
+native = SimpleNamespace(
+    connect_norito_bridge_abi_version=lambda: 29,
+    _validate_account_address_v1=unexpected_account_dispatch,
+    _parse_account_address_v1=unexpected_account_dispatch,
+    _render_account_address_v1=unexpected_account_dispatch,
+)
+loads = []
+def loaded_owner():
+    loads.append(native)
+    return native
+_loader.load_crypto_extension = loaded_owner
+"""
+
+
+def test_account_codec_accepts_current_abi_from_loaded_owner(tmp_path):
+    root = _owner_without_extension(tmp_path)
+    code = _ACCOUNT_CODEC_PREDICATE_SETUP + """
+assert _loader.require_account_codec_v1() is native
+assert loads == [native]
+"""
+    subprocess.run([sys.executable, "-I", "-B", "-c", code, str(root)], check=True)
+
+
+def test_account_codec_rejects_other_abis_from_loaded_owner(tmp_path):
+    root = _owner_without_extension(tmp_path)
+    code = _ACCOUNT_CODEC_PREDICATE_SETUP + """
+for rejected in (28, 30):
+    native.connect_norito_bridge_abi_version = lambda: rejected
+    try: _loader.require_account_codec_v1()
+    except NativeUnavailableError as error: assert "ABI-29" in str(error)
+    else: raise AssertionError(f"non-current ABI {rejected} was accepted")
+assert loads == [native, native]
+"""
+    subprocess.run([sys.executable, "-I", "-B", "-c", code, str(root)], check=True)
+
+
+def test_account_codec_rejects_missing_or_noncallable_native_surface(tmp_path):
+    root = _owner_without_extension(tmp_path)
+    code = _ACCOUNT_CODEC_PREDICATE_SETUP + """
+for name in (
+    "connect_norito_bridge_abi_version",
+    "_validate_account_address_v1",
+    "_parse_account_address_v1",
+    "_render_account_address_v1",
+):
+    original = getattr(native, name)
+    for missing in (True, False):
+        if missing: delattr(native, name)
+        else: setattr(native, name, None)
+        try: _loader.require_account_codec_v1()
+        except NativeUnavailableError as error: assert "ABI-29" in str(error)
+        else: raise AssertionError(f"incomplete native surface {name} was accepted")
+        setattr(native, name, original)
+assert len(loads) == 8
+"""
+    subprocess.run([sys.executable, "-I", "-B", "-c", code, str(root)], check=True)

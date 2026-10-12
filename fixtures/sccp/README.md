@@ -10,40 +10,40 @@ Conventions of the Rust-generated files: byte strings are `0x`-prefixed
 lowercase hex; integers that can reach `2^53` or more (`u128` amounts,
 `ton_amount_bound`) are decimal strings and every other integer is a JSON
 number; rejected inputs name the `iroha_sccp::v1` error variant that rejects
-them (for example `TrailingBytes`, `BadControl` or `BadOffset`).
+them (for example `TrailingBytes`, `BadS` or `BadOffset`).
 
 ## Rust-generated v1 vectors
 
-`crates/iroha_sccp/tests/v1_vectors.rs` regenerates four current files and
-fails when a committed file differs. It cross-checks Merkle/history paths,
-native BLS certificates, destination proof bindings and calldata decoder
-verdicts. The mixed tree uses native 199-byte control leaves; its explicit
-certificate/effect identities are synthetic DATA, not Parliament authorization.
-`control_v1.json` is generated separately by the reference writers below.
+`crates/iroha_sccp/tests/v1_vectors.rs` generates four current files and fails
+on byte drift. It cross-checks all payloads, Merkle/history paths, control leaves
+and native-certificate calldata against the current Rust verifier.
 
 | File | Content |
 |---|---|
-| `payload_v1.json` | The four profiles (tag, domain, identity word, `network_bytes`, route id, account codec); payloads for all 6 directions with `deadline_ms`, payload hashes, lane bytes and message ids (§3.2, §3.3); `taira_units` conversions and rejected amounts (§0); rejected payload encodings covering every §3.1/§3.2 rule, including the retired TRON domain 5 (both directions) and codec 5 (as a sender and as a recipient) |
-| `commitment_tree_v1.json` | 512 mixed transfer/control leaves (`leaf_rule`), worked transfer, control and node preimages, roots and every path for counts 1..=17 and 512 including promoted nodes, and confusion negatives (internal node as leaf, transfer leaf at a control position, flipped pause, count and path mismatches) |
-| `history_v1.json` | 40 history leaves (`leaf_rule`), and for sizes 1..=40 the root, the right-bagged peaks and every path (§3.5) |
-| `evm_calldata_v1.json` | Genuine native BLS committee/certificate scenarios, direct and checkpoint finalization, checkpoint batches, full native control payloads and history references, `voidExpired`, `voidExpiredFromCheckpoint`, `voidFrozen` and `transferToTaira`; every current selector/topic, committee/initial-committee/pause-state view, transfer and void logs, and exact calldata bytes. The conformance table preserves separate Rust strict-decoder and Solidity ABI verdicts for trailing bytes, offsets, padding, integer/boolean encodings and range mutations; contract replay checks those recorded verdicts rather than assuming they always agree |
+| `payload_v1.json` | All four profiles, six directions, amount/codec bounds and malformed payload refusals. |
+| `commitment_tree_v1.json` | 512 mixed transfer and 199-byte control leaves, exact preimages, every path for 1–17 and 512 leaves, and node/leaf/index/count/path confusion refusals. |
+| `history_v1.json` | 40 history leaves, every prefix root, right-bagged peaks and paths. |
+| `evm_calldata_v1.json` | Genuine BLS certificates, exact committee handoff, direct/historical/stored-checkpoint proofs, current calldata and views, source logs and malformed burn/void calldata. |
+
+The retired attestation and roster fixtures and their generators are removed.
+Their current consensus requirements are covered by `finality_v1.json`,
+`bls_consensus_v1.json` and `committee_transitions_v1.json`: exact quorums,
+canonical keys and points, signer encoding, signature/domain binding, committee
+geometry and lifetime, handoffs and immediate rejection of retired generations.
+Standalone secp256k1 transaction signing retains its low-S, recovery-id, range,
+wrong-signer and retry controls in `signature.rs` and the wallet EIP-1559 tests.
 
 Common inputs: the Taira `NetworkId` is `0x11…11` (the §3.4 example value),
 the base time is `1 800 000 000 000` ms and outbound deadlines are one day
-later, and the synthetic payload-address key `i` has secret
-`keccak256("SCCP/FIXTURE/KEY/V1" ‖ u8 i)`. Codec-3 (`taira_account`) fields
+later, and the native BLS fixture derives each committee from its fixed generation and seat. Codec-3 (`taira_account`) fields
 are opaque byte strings; contracts check only their length (§3.1). The EVM
 destination word is `word(0x22…22)`.
 
 Regenerate after a reviewed layout change, then review the diff:
 
 ```text
-scripts/cargo_fast.sh --stable-local-metadata --jobs 2 -- \
-  test --locked -p iroha_sccp --test v1_vectors regenerate_v1_vectors -- --ignored --exact
-scripts/cargo_fast.sh --stable-local-metadata --jobs 2 -- \
-  test --locked -p iroha_sccp --test v1_vectors v1_vectors_match_committed_fixtures -- --exact
-python3 scripts/ton_sccp_builder.py vectors
-python3 scripts/ton_sccp_builder.py vectors --check
+scripts/cargo_fast.sh --target-slot sccp --stable-local-metadata --incremental -- \
+  test -p iroha_sccp --test v1_vectors -- --ignored regenerate_v1_vectors
 ```
 
 `native_transfer_event_v1.json` holds the inbound transfer and void vectors
@@ -205,7 +205,8 @@ models agree on those inputs in their own unit tests.
 canonical minter initial data, the minter, bucket (canonical, not activated)
 and wallet addresses and the code cell hashes and depths. The Rust
 `iroha_sccp::v1::ton_cell` unit tests recompute every vector from the recorded
-code references and pin the `n4` native committee deployment values.
+code references and authenticate the native committee root, canonical BLS key
+order and pinned generation in each vector.
 
 ## Captured RPC responses
 

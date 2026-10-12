@@ -357,3 +357,117 @@ fn selected_winning_finality_original_is_required_before_first_load() {
             .is_ok()
     );
 }
+
+#[test]
+fn activation_signed_original_read_refusal_preserves_exact_wire_and_signature() {
+    let ledger = NativeFinalityFixture::new_with_explicit_parameters();
+    let key = KeyPair::from_seed(vec![41; 32], Algorithm::Ed25519);
+    let account = AccountId::new(key.public_key().clone());
+    let owner = kagemusha_wallet_account_digest_v1(&account).unwrap();
+    let original = vec![7; 96]; // Inner Activate DATA; only the genuine outer read/signature is tested.
+    let transaction = signed(ledger.network_id(), [1; 32], &original, &key);
+    let wire = transaction.encode_wire_v1().unwrap();
+    let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+    let refused = norito::with_decode_limits_scope(limits, || {
+        signed_activate(&wire, &ledger.network_id(), &[1; 32], &owner, &original)
+    });
+    assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+    let retried =
+        signed_activate(&wire, &ledger.network_id(), &[1; 32], &owner, &original).unwrap();
+    assert_eq!(retried, transaction);
+    assert_eq!(retried.signature_count(), 1);
+    assert_eq!(retried.encode_wire_v1().unwrap(), wire);
+    assert!(matches!(
+        signed_activate(&[0], &ledger.network_id(), &[1; 32], &owner, &original),
+        Err(Error::Invalid(_))
+    ));
+}
+
+#[test]
+fn activation_confirmation_checkpoint_refusal_retries_exact_selected_original() {
+    let mut wallet = wallet();
+    wallet.commit(bootstrap()).unwrap();
+    let asset = fixture("KagemushaWalletAssetScopeV1");
+    let plan = wallet.activation_plan(&asset).unwrap();
+    let original = super::super::tests::output(&plan);
+    wallet.finish_activation(&plan, &original).unwrap();
+    let plan = wallet.activation_plan(&asset).unwrap();
+    let plan = register_data(&mut wallet, &plan, &[7; 128]);
+    let confirmation = confirmation_data(&mut wallet, &plan, &[7; 128]);
+    let checkpoint = wallet
+        .archive
+        .read_object(&confirmation.checkpoint, MAX_FINALITY_CHECKPOINT_BYTES)
+        .unwrap();
+    let exact_confirmation = archive::encode(&confirmation).unwrap();
+    confirmation
+        .require_checkpoint_original(&checkpoint)
+        .unwrap();
+    let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+    let refused = norito::with_decode_limits_scope(limits, || {
+        confirmation.require_checkpoint_original(&checkpoint)
+    });
+    assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+    assert_eq!(archive::encode(&confirmation).unwrap(), exact_confirmation);
+    confirmation
+        .require_checkpoint_original(&checkpoint)
+        .unwrap();
+    let mut foreign = confirmation.clone();
+    foreign.height += 1;
+    assert!(matches!(
+        foreign.require_checkpoint_original(&checkpoint),
+        Err(Error::WitnessLost(_))
+    ));
+    let mut changed = checkpoint.clone();
+    changed[0] ^= 1;
+    assert!(matches!(
+        confirmation.require_checkpoint_original(&changed),
+        Err(Error::WitnessLost(_))
+    ));
+    let malformed = Confirmation {
+        checkpoint: crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_object_digest_v1(
+            &[0],
+        ),
+        ..confirmation.clone()
+    };
+    assert!(matches!(
+        malformed.require_checkpoint_original(&[0]),
+        Err(Error::WitnessLost(_))
+    ));
+
+    // Public custody is a separate component control. Its earlier retained-attempt read
+    // may be refused first; only the direct helper above proves checkpoint reachability.
+    let (root, manifest) = wallet.sync_manifest().unwrap();
+    let manifest_bytes = archive::encode(&manifest).unwrap();
+    let refused = norito::with_decode_limits_scope(limits, || {
+        wallet.publish_activation_confirmation(root, manifest, &plan, &confirmation)
+    });
+    assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+    let (current_root, manifest) = wallet.sync_manifest().unwrap();
+    assert_eq!(current_root, root);
+    assert_eq!(archive::encode(&manifest).unwrap(), manifest_bytes);
+    assert!(
+        wallet
+            .retained_activation_confirmation(&plan)
+            .unwrap()
+            .is_none()
+    );
+    wallet
+        .publish_activation_confirmation(root, manifest, &plan, &confirmation)
+        .unwrap();
+    let selected = wallet.activation_plan(&asset).unwrap();
+    let retained = wallet
+        .retained_activation_confirmation(&selected)
+        .unwrap()
+        .unwrap();
+    assert_eq!(archive::encode(&retained).unwrap(), exact_confirmation);
+    assert_eq!(
+        wallet
+            .archive
+            .read_object(&retained.checkpoint, MAX_FINALITY_CHECKPOINT_BYTES)
+            .unwrap(),
+        checkpoint
+    );
+}

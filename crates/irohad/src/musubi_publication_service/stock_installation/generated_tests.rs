@@ -189,8 +189,11 @@ impl Generated {
             view.world(),
             view.nexus(),
             view.pipeline(),
+            &view.zk().gas,
             draft.payload(),
             header.creation_time_ms,
+            iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                .expect("original native quote time"),
             header.height().get() + 1,
             Some(DataSpaceId::UNIVERSAL),
         )

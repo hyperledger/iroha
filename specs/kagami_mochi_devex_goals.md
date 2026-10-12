@@ -371,6 +371,15 @@ scope and epoch-reference construction reuse the exact selection and reservation
 produced for its successor. Each use rechecks active admission; absent successors and active
 budgets retain the original hash computations. All native rereads, source exits and wallet
 callbacks remain mandatory. The original deep-history latency gate remains outstanding.
+One Finish invocation now owns a lazy immutable wallet account and at most 64 heap-backed
+terminal-record readers across its canonical reparses. Each callback reacquires the native
+journal lock, reads the complete inventory and exact record bytes, and constructs and compares
+the caller's expected Plan and fees. Only unchanged retired Request/Retirement images and their
+pure retained Plan timestamp can avoid repeated decoding and signature checks. These values
+carry no live authorization, source-currentness or deadline verdict. A changed record or any
+inspection/reparse error clears the readers; the workspace ends before Finish returns. Standalone
+reads and inherited or late active decoders preserve their original validation recipe. The
+unchanged 64-body expiry test still requires successful native qualification.
 After an exact successful local body publication, the inactive body owner consumes a private
 write receipt into a freshly admitted head. Receipts come only from the original native
 anchor, reservation, retirement, activation and signed-Original writers and their exact readback;
@@ -397,13 +406,28 @@ The native unsigned-closure transition now uses sealed read phases whose only in
 reopens and authenticates existing wallet journals; account construction and effects remain outside.
 Each phase borrows only its exact immutable snapshot and closes the complete predecessor/current
 graph, original native handles and enclosing snapshot on every ordinary result before publication,
-retirement or a returned receipt. Both native wallet inspections and current-body callback checks
-remain fresh. Only an exact completed predecessor receipt and a consumed current-read token can
+retirement or a returned receipt. Successful inactive phases retain both predecessor entry
+directions, both current-head exit checks and the complete reverse predecessor exit; only the
+duplicate forward predecessor exit is omitted. Exact retained scope ownership binds the prefix.
+Any optimized exit error performs the original full exit before returning, and failed reads or
+active decoders use the original sequence. Both native wallet inspections and current-body
+callback checks remain fresh. Only an exact completed predecessor receipt and a consumed current-read token can
 share adjacent pure binding and wallet-entry checks. Persistent older-sibling failures close the
 phase, while a sibling changed and restored wholly between its observations may be unobserved.
 No phase conveys an atomic snapshot, currentness or signing authority. Generic inspectors, foreign
 owners and inherited or late active decode budgets retain the original validation recipe.
 The unchanged ten-second body and 64-body campaign gates still require native qualification.
+The concrete generated enrollment worker likewise groups only its empty current-body read
+prefix. Its three original wallet-verification entries cannot call a wallet while the body
+has no attempt, and both canonical rereads remain. Exact predecessor and immutable snapshot
+coverage ends before reservation, claim, retirement or any callback. A reread discovering an
+attempt closes all source custody and resumes the original algorithm at that same wallet entry;
+it does not restart or replay an earlier transition. Existing attempts, fixed bodies, first
+bodies without a predecessor, generic workers and inherited decode budgets keep their original
+sequence. A late active decoder cannot borrow predecessor coverage. Persistent source failure
+wins an ordinary phase error; a sibling changed and restored wholly between observations may
+be unobserved. The live origin, authorization checks, term selection and effects retain their
+original positions. This structural reduction does not establish the unchanged latency gates.
 Within an inactive native tree read, each local operation census groups its adjacent inventory,
 Original hash and metadata reads into one scope, and its reverse checks into a second scope.
 Every mutable record read, decoder and full graph check remains independent of wallet or write operations.

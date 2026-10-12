@@ -1,12 +1,16 @@
 //! Native registration pin, handoff, original-scope and deployment controls.
 //! Component fixtures do not open the unavailable P0/P5 launch authority.
 
+use iroha_data_model::sccp::generation::{
+    SccpCommitteeGenerationV1, SccpGenerationEndV1, SccpGenerationMemberV1,
+};
+
 use super::*;
-use crate::state::sccp_generation_custody::GenerationFixtureStorage as _;
+use crate::smartcontracts::isi::sccp::committee_storage::CommitteeFixtureStorage as _;
 use crate::{
-    smartcontracts::isi::sccp::{
-        generation::{SccpGenerationEndV1, SccpGenerationMemberV1},
-        test_support::{authority, blank_state, header, sample_generation, sample_pin},
+    smartcontracts::isi::sccp::test_support::{
+        authority, blank_state, header, retained_generation_fixture, sample_generation_at,
+        sample_pin,
     },
     state::World,
     sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
@@ -21,7 +25,7 @@ use iroha_data_model::{
 use iroha_model_base::topology::LaneId;
 
 fn resolved(generation: u64, height: u64) -> SccpCommitteeGenerationV1 {
-    let mut record = sample_generation(generation, height);
+    let mut record = sample_generation_at(generation, height);
     // Explicit retained registration DATA, not a registration lookup or a finality claim.
     record.members = (1..=4)
         .map(|seed| {
@@ -37,7 +41,12 @@ fn resolved(generation: u64, height: u64) -> SccpCommitteeGenerationV1 {
 
 fn install(stx: &mut StateTransaction<'_, '_>, records: &[SccpCommitteeGenerationV1]) {
     for record in records {
-        store::committee_generations::insert(stx, record.generation, record.clone()).unwrap();
+        crate::smartcontracts::isi::sccp::test_support::install_generation(
+            stx,
+            record.generation,
+            record.clone(),
+        )
+        .unwrap();
     }
     store::committee_current::set(stx, records.last().unwrap().generation);
 }
@@ -67,7 +76,7 @@ fn pin_matches_all_four_retained_coordinates_and_initial_floor() {
     install(&mut stx, &[record.clone()]);
     let pin = sample_pin(&record);
     assert_eq!(
-        retained_pin(&*stx.world, &pin, 16_000, 86_400_000, 3).unwrap(),
+        &**retained_pin(&*stx.world, &pin, 16_000, 86_400_000, 3).unwrap(),
         &record
     );
     for bad in [
@@ -168,15 +177,21 @@ fn missing_current_future_tenure_and_noncanonical_keys_do_not_authenticate_a_pin
     store::committee_current::set(&mut stx, 1);
     assert!(retained_pin(&*stx.world, &pin, 0, 0, u64::MAX).is_err());
     record.start_height = 5;
-    store::committee_generations::insert(&mut stx, 1, record.clone()).unwrap();
+    // Deliberately malformed source DATA bypasses the typed writer, never its real custody.
+    stx.world
+        .sccp_committee_generations
+        .insert(1, record.clone());
     assert!(retained_pin(&*stx.world, &sample_pin(&record), 0, 0, 3).is_err());
     record.start_height = 1;
     record.keys = (1..=4).map(|n| [n; 48]).collect();
     record.committee_root =
         iroha_data_model::sumeragi_finality::certified_result::committee_root(&record.keys)
             .unwrap();
-    assert!(record.is_well_formed());
-    store::committee_generations::insert(&mut stx, 1, record.clone()).unwrap();
+    assert!(!record.is_well_formed());
+    // Deliberately malformed source DATA bypasses the typed writer, never its real custody.
+    stx.world
+        .sccp_committee_generations
+        .insert(1, record.clone());
     assert!(retained_pin(&*stx.world, &sample_pin(&record), 0, 0, 3).is_err());
     // Source-corruption control: bypass the typed writer only to exercise the reader guard.
     record.keys[1] = record.keys[0];
@@ -222,11 +237,8 @@ fn ton_action(
         consensus_instance: identity.instance,
         route_revision: 1,
         max_supply: 100,
-        pin_generation: pin.generation,
-        pin_root: pin.committee_root,
-        pin_start_height: pin.start_height,
-        pin_until_ms: pin.until_ms,
-        pin_keys: record.keys.clone(),
+        pin,
+        keys: record.keys.clone(),
         wallet_code: code,
         bucket_code: code,
     };
@@ -254,7 +266,7 @@ fn ton_address_binds_original_identity_pin_revision_cap_and_all_code_references(
         parent_height: 3,
     };
     let original = ton_action(&record, &identity);
-    assert!(deployment(&original, &record, &identity).is_ok());
+    assert!(deployment(&original, &retained_generation_fixture(&record), &identity).is_ok());
     for variant in 0..11 {
         let mut changed = original.clone();
         let mut changed_identity = OriginalIdentity { ..identity };
@@ -280,7 +292,12 @@ fn ton_address_binds_original_identity_pin_revision_cap_and_all_code_references(
             }
         }
         assert!(
-            deployment(&changed, &record, &changed_identity).is_err(),
+            deployment(
+                &changed,
+                &retained_generation_fixture(&record),
+                &changed_identity
+            )
+            .is_err(),
             "variant {variant}"
         );
     }
@@ -301,7 +318,7 @@ fn an_offered_evm_address_never_substitutes_for_locked_creation_authority() {
         runtime_code_hash: [8; 32],
     });
     assert!(
-        deployment(&action, &record, &identity)
+        deployment(&action, &retained_generation_fixture(&record), &identity)
             .unwrap_err()
             .to_string()
             .contains("creation-code/deployer authority")

@@ -21,11 +21,11 @@
 
 use std::sync::Arc;
 
-use iroha_data_model::sccp::deployment::SccpTonCodeRefV1;
+use iroha_data_model::sccp::deployment::{SccpCommitteePinV1, SccpTonCodeRefV1};
 use sha2::{Digest as _, Sha256};
 
 use super::{
-    committee::{CommitteeStateV1, successor_keys_match},
+    committee::{committee_root, is_canonical_order, is_valid_committee_size},
     constants::{TON_HASH_CHUNK_HASHES, TON_KEY_CHUNK_KEYS, TON_SNAKE_CHUNK_BYTES},
 };
 
@@ -55,10 +55,10 @@ unit_error! {
         SnakeTooLong => "snake content exceeds the length bound",
         /// A child cell is known only by its hash and depth.
         OpaqueChild => "cell child is known only by hash and depth",
-        /// The supplied compressed keys do not match the native pin and committee rules.
-        BadCommittee => "minter keys violate the pinned native committee rules",
-        /// The immutable deployment identity, revision, cap or initial pin is invalid.
-        BadConfig => "minter immutable configuration or pin is invalid",
+        /// The native committee size, order or pinned root violates §3.7.
+        BadCommittee => "minter committee differs from the canonical pinned committee",
+        /// The deployment configuration or native generation pin is malformed.
+        BadConfig => "minter configuration or native generation pin is malformed",
     }
 }
 
@@ -168,25 +168,29 @@ impl Cell {
     ///
     /// # Errors
     ///
-    /// Returns [`TonCellError::OpaqueChild`] when a child is known only by hash and depth.
+    /// Returns [`TonCellError::OpaqueChild`] when a child is known only by hash and depth,
+    /// or [`TonCellError::BadSnake`] above TON's native maximum cell depth.
     pub fn to_boc(&self) -> Result<Vec<u8>, TonCellError> {
-        fn visit<'a>(
-            cell: &'a Cell,
-            seen: &mut std::collections::BTreeSet<[u8; 32]>,
-            post: &mut Vec<&'a Cell>,
-        ) -> Result<(), TonCellError> {
-            if !seen.insert(cell.hash) {
-                return Ok(());
-            }
-            // Children in reverse, then the reversed post-order: the canonical proof order.
-            for child in cell.refs.iter().rev() {
-                visit(child.cell().ok_or(TonCellError::OpaqueChild)?, seen, post)?;
-            }
-            post.push(cell);
-            Ok(())
+        if self.depth > crate::ton_native::TON_MAX_CELL_DEPTH {
+            return Err(TonCellError::BadSnake);
         }
         let mut post = Vec::new();
-        visit(self, &mut std::collections::BTreeSet::new(), &mut post)?;
+        let mut seen = std::collections::BTreeSet::new();
+        let mut work = vec![(self, false)];
+        while let Some((cell, finish)) = work.pop() {
+            if finish {
+                post.push(cell);
+                continue;
+            }
+            if !seen.insert(cell.hash) {
+                continue;
+            }
+            work.push((cell, true));
+            // Stack LIFO visits children in reverse before emitting their parent.
+            for child in &cell.refs {
+                work.push((child.cell().ok_or(TonCellError::OpaqueChild)?, false));
+            }
+        }
         post.reverse();
         let index: std::collections::BTreeMap<[u8; 32], usize> = post
             .iter()
@@ -230,18 +234,33 @@ impl Cell {
 /// Returns [`TonCellError::BadSnake`] for a malformed bag, an exotic cell or a cell that does
 /// not fit the builder.
 pub fn cell_from_boc(bytes: &[u8]) -> Result<Cell, TonCellError> {
-    fn build(
-        boc: &crate::ton_native::TonBoc,
-        index: usize,
-        memo: &mut std::collections::BTreeMap<usize, Cell>,
-    ) -> Result<Cell, TonCellError> {
-        if let Some(cell) = memo.get(&index) {
-            return Ok(cell.clone());
-        }
-        let raw = boc.cells.get(index).ok_or(TonCellError::BadSnake)?;
-        if raw.exotic {
+    let boc = crate::ton_native::parse_ton_boc(bytes).ok_or(TonCellError::BadSnake)?;
+    let [root] = boc.roots.as_slice() else {
+        return Err(TonCellError::BadSnake);
+    };
+    // Native parsing enforces topological references (child index > parent index).
+    // Validate the entire ordinary graph's depth before constructing any Arc tree.
+    let mut depths = vec![0_u16; boc.cells.len()];
+    for (index, raw) in boc.cells.iter().enumerate().rev() {
+        if raw.exotic || raw.descriptor >> 5 != 0 {
             return Err(TonCellError::BadSnake);
         }
+        let depth = raw.refs.iter().try_fold(0_u16, |maximum, child| {
+            let depth = depths
+                .get(*child)
+                .copied()
+                .ok_or(TonCellError::BadSnake)?
+                .checked_add(1)
+                .ok_or(TonCellError::BadSnake)?;
+            Ok::<_, TonCellError>(maximum.max(depth))
+        })?;
+        if depth > crate::ton_native::TON_MAX_CELL_DEPTH {
+            return Err(TonCellError::BadSnake);
+        }
+        depths[index] = depth;
+    }
+    let mut built: Vec<Option<Cell>> = (0..boc.cells.len()).map(|_| None).collect();
+    for (index, raw) in boc.cells.iter().enumerate().rev() {
         let bits = crate::ton_native::ton_cell_serialized_bit_len(raw.data_descriptor, &raw.data)
             .ok_or(TonCellError::BadSnake)?;
         let mut builder = CellBuilder::new();
@@ -249,17 +268,20 @@ pub fn cell_from_boc(bytes: &[u8]) -> Result<Cell, TonCellError> {
             builder.store_bit(raw.data[bit / 8] & (0x80 >> (bit % 8)) != 0)?;
         }
         for child in &raw.refs {
-            builder.store_ref(build(boc, *child, memo)?)?;
+            builder.store_ref(
+                built
+                    .get(*child)
+                    .and_then(Option::as_ref)
+                    .ok_or(TonCellError::BadSnake)?
+                    .clone(),
+            )?;
         }
-        let cell = builder.build();
-        memo.insert(index, cell.clone());
-        Ok(cell)
+        built[index] = Some(builder.build());
     }
-    let boc = crate::ton_native::parse_ton_boc(bytes).ok_or(TonCellError::BadSnake)?;
-    let [root] = boc.roots.as_slice() else {
-        return Err(TonCellError::BadSnake);
-    };
-    build(&boc, *root, &mut std::collections::BTreeMap::new())
+    built
+        .get_mut(*root)
+        .and_then(Option::take)
+        .ok_or(TonCellError::BadSnake)
 }
 
 fn representation(data: &[u8], bit_len: usize, refs: &[CellRef]) -> Vec<u8> {
@@ -523,12 +545,11 @@ fn chunk_list<T>(
     Ok(next.expect("non-empty input has a chunk"))
 }
 
-/// `KeyChunk`: maximal two-key chunks of compressed G1 keys with a Maybe continuation.
-/// This encoding helper checks neither the committee root nor curve validity; the minter
-/// constructor binds the complete canonical committee to its independently supplied pin.
+/// `KeyChunk`: maximal two-key chunks of compressed 48-byte BLS keys, followed by a
+/// `Maybe ^KeyChunk` continuation. Committee geometry and authority belong to the caller.
 ///
 /// # Errors
-/// Returns [`TonCellError::Empty`] for an empty list.
+/// Returns [`TonCellError::Empty`] for no keys.
 pub fn key_chunks(keys: &[[u8; 48]]) -> Result<Cell, TonCellError> {
     chunk_list(keys, TON_KEY_CHUNK_KEYS, |builder, key| {
         builder.store_bytes(key).map(|_| ())
@@ -560,52 +581,49 @@ pub fn hash_chunks(hashes: &[[u8; 32]]) -> Result<Option<Cell>, TonCellError> {
 pub struct TonMinterInitV1 {
     /// Live Taira `NetworkId` bytes.
     pub taira_network_id: [u8; 32],
-    /// Pinned native Sumeragi consensus instance `I`.
+    /// Native Sumeragi instance id bound into every Commit preimage.
     pub consensus_instance: [u8; 32],
     /// Route revision.
     pub route_revision: u32,
     /// Supply cap in token units (`Coins`, below `2^120`).
     pub max_supply: u128,
-    /// Pinned Taira committee generation.
-    pub pin_generation: u64,
-    /// Independently supplied root of the initial committee.
-    pub pin_root: [u8; 32],
-    /// First height of the pinned generation.
-    pub pin_start_height: u64,
-    /// Trust deadline of the initial pin; runtime initialization checks the time bound.
-    pub pin_until_ms: u64,
-    /// Compressed BLS keys in the pinned generation's canonical order.
-    pub pin_keys: Vec<[u8; 48]>,
+    /// The initial native generation; its root must match `keys`.
+    pub pin: SccpCommitteePinV1,
+    /// Original compressed BLS committee keys in canonical order.
+    pub keys: Vec<[u8; 48]>,
     /// Jetton wallet code.
     pub wallet_code: SccpTonCodeRefV1,
     /// Consumption bucket code.
     pub bucket_code: SccpTonCodeRefV1,
 }
 
-/// Initial minter cells exposed for exact cross-language layout comparisons.
+/// Canonical minter cells, exposed for independent contract golden comparisons.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TonMinterDataV1 {
-    /// `minter_data` root.
+    /// `minter_data` root cell.
     pub root: Cell,
-    /// Immutable `minter_config`.
+    /// `minter_config` cell.
     pub config: Cell,
-    /// Immutable generation/root/start/deadline pin.
+    /// `initial_pin` cell committed by the immutable configuration.
     pub initial_pin: Cell,
-    /// Current `committee_state`, initially equal to the pin with `high = start - 1`.
+    /// `committee_state` cell with `high = start_height - 1`.
     pub committee: Cell,
-    /// First `KeyChunk`.
-    pub keys: Cell,
-    /// Empty native checkpoint slots.
+    /// Empty `Checkpoints` cell.
     pub checkpoints: Cell,
+    /// First `KeyChunk` cell.
+    pub keys: Cell,
 }
 
-/// Build the canonical initial native minter data (§5.3.1): uninitialized and unlatched,
-/// clear counters, supply and both pause tracks, no checkpoints and no retries. The
-/// immutable config binds the network, native consensus instance, revision, cap and pin.
-/// The runtime `sccp_init` operation additionally checks the pin deadline at execution time.
+/// Build the canonical native-finality minter data (§5.3.1): zero counters, supplies,
+/// pauses, checkpoints and retries; one pinned BLS committee and the immutable network,
+/// consensus instance, revision, cap and code references.
+///
+/// This deterministic builder checks the fixed layout and key commitment. It does not
+/// authenticate the pin or check its deadline against a destination clock.
 ///
 /// # Errors
-/// Refuses invalid immutable configuration, pin, committee ordering/root or `Coins` width.
+/// Returns [`TonCellError::BadConfig`], [`TonCellError::BadCommittee`] or
+/// [`TonCellError::CoinsTooLarge`] for malformed inputs.
 pub fn minter_initial_data(init: &TonMinterInitV1) -> Result<TonMinterDataV1, TonCellError> {
     minter_initial_data_with_code(init, init.wallet_code.into(), init.bucket_code.into())
 }
@@ -642,27 +660,24 @@ fn minter_initial_data_with_code(
         || init.consensus_instance == [0; 32]
         || init.route_revision == 0
         || init.max_supply == 0
+        || !init.pin.is_well_formed()
     {
         return Err(TonCellError::BadConfig);
     }
-    let state = CommitteeStateV1::from_pin(
-        init.pin_generation,
-        init.pin_root,
-        init.pin_start_height,
-        init.pin_until_ms,
-    )
-    .ok_or(TonCellError::BadConfig)?;
-    if !successor_keys_match(&init.pin_keys, &init.pin_root) {
+    if !is_valid_committee_size(init.keys.len())
+        || !is_canonical_order(&init.keys)
+        || committee_root(&init.keys) != Some(init.pin.committee_root)
+    {
         return Err(TonCellError::BadCommittee);
     }
-    let n = u8::try_from(init.pin_keys.len()).map_err(|_| TonCellError::BadCommittee)?;
-    let mut initial = CellBuilder::new();
-    initial
-        .store_uint(u128::from(state.generation), 64)?
-        .store_bytes(&state.root)?
-        .store_uint(u128::from(state.start), 64)?
-        .store_uint(u128::from(state.until_ms), 64)?;
-    let initial_pin = initial.build();
+    let n = u8::try_from(init.keys.len()).map_err(|_| TonCellError::BadCommittee)?;
+    let mut initial_pin = CellBuilder::new();
+    initial_pin
+        .store_uint(u128::from(init.pin.generation), 64)?
+        .store_bytes(&init.pin.committee_root)?
+        .store_uint(u128::from(init.pin.start_height), 64)?
+        .store_uint(u128::from(init.pin.until_ms), 64)?;
+    let initial_pin = initial_pin.build();
     let mut config = CellBuilder::new();
     config
         .store_bytes(&init.taira_network_id)?
@@ -673,14 +688,15 @@ fn minter_initial_data_with_code(
         .store_ref(wallet_code)?
         .store_ref(bucket_code)?;
     let config = config.build();
-    let keys = key_chunks(&init.pin_keys)?;
+
+    let keys = key_chunks(&init.keys)?;
     let mut committee = CellBuilder::new();
     committee
-        .store_bytes(&state.root)?
-        .store_uint(u128::from(state.until_ms), 64)?
-        .store_uint(u128::from(state.start), 64)?
-        .store_uint(u128::from(state.high), 64)?
-        .store_uint(u128::from(state.generation), 64)?
+        .store_bytes(&init.pin.committee_root)?
+        .store_uint(u128::from(init.pin.until_ms), 64)?
+        .store_uint(u128::from(init.pin.start_height), 64)?
+        .store_uint(u128::from(init.pin.start_height - 1), 64)?
+        .store_uint(u128::from(init.pin.generation), 64)?
         .store_uint(u128::from(n), 8)?
         .store_ref(keys.clone())?;
     let committee = committee.build();
@@ -705,8 +721,8 @@ fn minter_initial_data_with_code(
         config,
         initial_pin,
         committee,
-        keys,
         checkpoints,
+        keys,
     })
 }
 
@@ -784,11 +800,12 @@ pub fn bucket_account_id(
 // Storage rent (§5.3.5)
 // ---------------------------------------------------------------------------------------------
 
-/// Upper bound of the minter's account state in bits (code and maximal data), the size
-/// `MINTER_FLOOR` is computed for (`SCCP_MINTER_STATE_BITS`).
-pub const TON_MINTER_STATE_BITS: u64 = 102_000;
-/// Upper bound of the minter's account state in cells (`SCCP_MINTER_STATE_CELLS`).
-pub const TON_MINTER_STATE_CELLS: u64 = 205;
+/// Measured storage allowance in bits for the native n=31 minter with eight retries.
+/// `MINTER_FLOOR` uses this value (`SCCP_MINTER_STATE_BITS`).
+/// TODO: bound or separately fund arbitrary retained retry history.
+pub const TON_MINTER_STATE_BITS: u64 = 113_000;
+/// Matching sampled storage allowance in cells (`SCCP_MINTER_STATE_CELLS`).
+pub const TON_MINTER_STATE_CELLS: u64 = 220;
 /// Storage period of `MINTER_FLOOR` and `BUCKET_FLOOR`: 100 years (`SCCP_FLOOR_SECONDS`).
 pub const TON_FLOOR_SECONDS: u64 = 3_153_600_000;
 /// TON mainnet basechain storage price per bit and 2^16 seconds (`ConfigParam 18`).
@@ -826,6 +843,48 @@ pub fn ton_minter_floor_at_mainnet_prices() -> u128 {
 }
 
 #[cfg(test)]
+mod physical_import_tests {
+    use super::*;
+
+    /// A topologically ordered chain, built directly so the test needs no recursive encoder.
+    fn chain_wire(depth: u16) -> Vec<u8> {
+        let count = depth + 1;
+        let bytes = usize::from(depth) * 4 + 2;
+        let mut wire = vec![0xb5, 0xee, 0x9c, 0x72, 2, 2];
+        wire.extend_from_slice(&count.to_be_bytes());
+        wire.extend_from_slice(&1_u16.to_be_bytes());
+        wire.extend_from_slice(&0_u16.to_be_bytes());
+        wire.extend_from_slice(&u16::try_from(bytes).unwrap().to_be_bytes());
+        wire.extend_from_slice(&0_u16.to_be_bytes());
+        for index in 0..depth {
+            wire.extend_from_slice(&[1, 0]);
+            wire.extend_from_slice(&(index + 1).to_be_bytes());
+        }
+        wire.extend_from_slice(&[0, 0]);
+        wire
+    }
+
+    #[test]
+    fn ordinary_cell_import_is_iterative_and_enforces_native_depth() {
+        let max = crate::ton_native::TON_MAX_CELL_DEPTH;
+        let cell = cell_from_boc(&chain_wire(max)).unwrap();
+        assert_eq!(cell.depth(), max);
+        assert!(matches!(
+            cell_from_boc(&chain_wire(max + 1)),
+            Err(TonCellError::BadSnake)
+        ));
+        // Ordinary level zero import cannot silently rewrite a nonzero declared level.
+        let mut wrong_level = chain_wire(0);
+        let descriptor = wrong_level.len() - 2;
+        wrong_level[descriptor] |= 0x20;
+        assert!(matches!(
+            cell_from_boc(&wrong_level),
+            Err(TonCellError::BadSnake)
+        ));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -834,7 +893,7 @@ mod tests {
     }
 
     fn from_hex<const N: usize>(text: &str) -> [u8; N] {
-        assert_eq!(text.len(), N * 2);
+        assert_eq!(text.len(), 2 * N, "exact fixture byte length");
         let mut out = [0_u8; N];
         for (index, slot) in out.iter_mut().enumerate() {
             *slot = u8::from_str_radix(&text[2 * index..2 * index + 2], 16).unwrap();
@@ -993,14 +1052,11 @@ mod tests {
 
     #[test]
     fn chunk_lists() {
-        let keys: Vec<[u8; 48]> = (1..=13).map(|byte| [byte; 48]).collect();
+        let keys: Vec<[u8; 48]> = (1..=5).map(|byte| [byte; 48]).collect();
         let head = key_chunks(&keys).unwrap();
         assert_eq!(head.bit_len(), 2 * 384 + 1);
-        assert_eq!(head.depth(), 6);
-        let mut last = &head;
-        for _ in 0..6 {
-            last = last.refs()[0].cell().unwrap();
-        }
+        assert_eq!(head.depth(), 2);
+        let last = head.refs()[0].cell().unwrap().refs()[0].cell().unwrap();
         assert_eq!(last.bit_len(), 384 + 1);
         assert!(last.refs().is_empty());
         assert_eq!(key_chunks(&[]).unwrap_err(), TonCellError::Empty);
@@ -1011,32 +1067,35 @@ mod tests {
     }
 
     fn fixture() -> norito::json::Value {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../fixtures/sccp/ton_stateinit_v1.json");
-        norito::json::from_str(&std::fs::read_to_string(path).expect("fixture"))
-            .expect("fixture parses")
+        norito::json::from_str(include_str!(
+            "../../../../fixtures/sccp/ton_stateinit_v1.json"
+        ))
+        .expect("current native TON fixture")
     }
 
     fn fixture_init(
         fixture: &norito::json::Value,
         vector: &norito::json::Value,
     ) -> TonMinterInitV1 {
+        let keys = vector["keys"]
+            .as_array()
+            .expect("compressed BLS keys")
+            .iter()
+            .map(|key| from_hex::<48>(key.as_str().expect("key")))
+            .collect();
         let pin = &vector["pin"];
         TonMinterInitV1 {
             taira_network_id: from_hex(&fixture_text(vector, "taira_network_id")),
             consensus_instance: from_hex(&fixture_text(vector, "consensus_instance")),
             route_revision: u32::try_from(fixture_u64(vector, "route_revision")).unwrap(),
             max_supply: fixture_text(vector, "max_supply").parse().unwrap(),
-            pin_generation: fixture_u64(pin, "generation"),
-            pin_root: from_hex(&fixture_text(pin, "committee_root")),
-            pin_start_height: fixture_u64(pin, "start_height"),
-            pin_until_ms: fixture_u64(pin, "until_ms"),
-            pin_keys: vector["keys"]
-                .as_array()
-                .expect("keys")
-                .iter()
-                .map(|key| from_hex(key.as_str().expect("key")))
-                .collect(),
+            pin: SccpCommitteePinV1 {
+                generation: fixture_u64(pin, "generation"),
+                committee_root: from_hex(&fixture_text(pin, "committee_root")),
+                start_height: fixture_u64(pin, "start_height"),
+                until_ms: fixture_u64(pin, "until_ms"),
+            },
+            keys,
             wallet_code: fixture_code(fixture, "wallet"),
             bucket_code: fixture_code(fixture, "bucket"),
         }
@@ -1044,15 +1103,16 @@ mod tests {
 
     fn fixture_n4() -> (TonMinterInitV1, SccpTonCodeRefV1) {
         let fixture = fixture();
+        let vector = &fixture["vectors"][0];
+        assert_eq!(fixture_text(vector, "label"), "n4");
         (
-            fixture_init(&fixture, &fixture["vectors"][0]),
+            fixture_init(&fixture, vector),
             fixture_code(&fixture, "minter"),
         )
     }
 
     #[test]
     fn minter_data_and_addresses_match_the_contract_fixture() {
-        // Native revision-5 n4 fixture, independently produced in Tolk and Python.
         let (init, minter_code) = fixture_n4();
         let data = minter_initial_data(&init).unwrap();
         assert_eq!(data.config.bit_len(), 612);
@@ -1062,36 +1122,51 @@ mod tests {
         );
         assert_eq!(data.config.depth(), 7);
         assert_eq!(data.initial_pin.bit_len(), 448);
+        assert_eq!(
+            hex(data.initial_pin.hash()),
+            "ac85e0f587a1ff7e39525159ba8fce293c8cc74866fd1f23a104cdfa27b1ef7f"
+        );
+        assert_eq!(data.initial_pin.depth(), 0);
         assert_eq!(data.keys.bit_len(), 769);
+        assert_eq!(
+            hex(data.keys.hash()),
+            "e2cb5ace57ca6670cfa6680b2d16c9dbda5185e4b1d344f11c0df5a22a6ddf46"
+        );
+        assert_eq!(data.keys.depth(), 1);
         assert_eq!(data.committee.bit_len(), 520);
         assert_eq!(
             hex(data.committee.hash()),
             "61338e32994d954e7790be38a15882760d18c9a035b9b017bec3b5bcdee5c0f5"
         );
+        assert_eq!(data.committee.depth(), 2);
         assert_eq!(data.checkpoints.bit_len(), 2);
-        // Two flags, zero Coins, four 64-bit counters, Parliament pause, fast expiry and map bit.
+        assert_eq!(
+            hex(data.checkpoints.hash()),
+            "a1bb2a842d54edb8942f95bedaf53923d2d788d698232cfb256571e9e8b10a86"
+        );
+        assert_eq!(data.checkpoints.depth(), 0);
         assert_eq!(data.root.bit_len(), 332);
-        assert_eq!(data.root.depth(), 8);
         assert_eq!(
             hex(data.root.hash()),
             "62d17653ef54bbce2796272d3e084f8658537efb484f33629fb729516ab43c59"
         );
+        assert_eq!(data.root.depth(), 8);
         let minter = minter_account_id(&init, minter_code).unwrap();
         assert_eq!(
             hex(&minter),
-            "8c7ea5ac8d1aa09ce8194e79736b32aca537b5295753271ff54b412e215018ad"
+            "98e5d863619df3181f46fff79c056b7796c80cd95517f7894763bb7c5577463a"
         );
         assert_eq!(
             hex(&bucket_account_id(&minter, 0, init.bucket_code).unwrap()),
-            "8b7a9f9f4aedec09d49e5ca9c1074e556cd57fdfbea0068fe3f94002dc530ee1"
+            "f136f11198d213994b8e919712fa572f56cebd27e726dcf403cdc7f4c2861902"
         );
         assert_eq!(
             hex(&bucket_account_id(&minter, 1, init.bucket_code).unwrap()),
-            "c43f742f8a1e78456617e553b842223379f7434738cd9aa80e9dd0dbdc804a68"
+            "ab2cc3bf02ffe558a524de20bd9c093e5c33697e1ea498d0f79900984c5def97"
         );
         assert_eq!(
             hex(&wallet_account_id(0, &[0xab; 32], &minter, init.wallet_code).unwrap()),
-            "45be9d9f94939182a88879aae518af2d0b8b6d49e736dae22f92b28181f93d63"
+            "b6b1ed57a0c2abaa2ae1fef3361691ec16991fd9325b0885dfc4a52ff369fce6"
         );
     }
 
@@ -1132,7 +1207,61 @@ mod tests {
             let init = fixture_init(&fixture, vector);
             let label = fixture_text(vector, "label");
             let data = minter_initial_data(&init).unwrap();
+            assert_eq!(
+                hex(&committee_root(&init.keys).unwrap()),
+                fixture_text(&vector["pin"], "committee_root"),
+                "{label}"
+            );
             let initial = &vector["initial_data"];
+            for (name, cell) in [
+                ("config", &data.config),
+                ("initial_pin", &data.initial_pin),
+                ("committee", &data.committee),
+                ("checkpoints", &data.checkpoints),
+                ("root", &data.root),
+            ] {
+                let expected = &initial[name];
+                assert_eq!(
+                    hex(cell.hash()),
+                    fixture_text(expected, "hash"),
+                    "{label}/{name}"
+                );
+                assert_eq!(
+                    u64::from(cell.depth()),
+                    fixture_u64(expected, "depth"),
+                    "{label}/{name}"
+                );
+                assert_eq!(
+                    cell.bit_len() as u64,
+                    fixture_u64(expected, "bit_len"),
+                    "{label}/{name}"
+                );
+            }
+            let key_cells = initial["keys"].as_array().unwrap();
+            let mut cell = &data.keys;
+            for (index, expected) in key_cells.iter().enumerate() {
+                assert_eq!(
+                    hex(cell.hash()),
+                    fixture_text(expected, "hash"),
+                    "{label}/keys[{index}]"
+                );
+                assert_eq!(
+                    u64::from(cell.depth()),
+                    fixture_u64(expected, "depth"),
+                    "{label}/keys[{index}]"
+                );
+                assert_eq!(
+                    cell.bit_len() as u64,
+                    fixture_u64(expected, "bit_len"),
+                    "{label}/keys[{index}]"
+                );
+                if index + 1 == key_cells.len() {
+                    assert!(cell.refs().is_empty());
+                } else {
+                    assert_eq!(cell.refs().len(), 1);
+                    cell = cell.refs()[0].cell().unwrap();
+                }
+            }
             assert_eq!(
                 hex(data.root.hash()),
                 fixture_text(initial, "hash"),
@@ -1148,58 +1277,6 @@ mod tests {
                 fixture_u64(&initial["root"], "bit_len"),
                 "{label}"
             );
-            for (cell, name) in [
-                (&data.root, "root"),
-                (&data.config, "config"),
-                (&data.initial_pin, "initial_pin"),
-                (&data.committee, "committee"),
-                (&data.checkpoints, "checkpoints"),
-            ] {
-                assert_eq!(
-                    hex(cell.hash()),
-                    fixture_text(&initial[name], "hash"),
-                    "{label} {name}"
-                );
-                assert_eq!(
-                    hex(cell.data()),
-                    fixture_text(&initial[name], "data"),
-                    "{label} {name}"
-                );
-                assert_eq!(
-                    u64::from(cell.depth()),
-                    fixture_u64(&initial[name], "depth"),
-                    "{label} {name}"
-                );
-                assert_eq!(
-                    cell.bit_len() as u64,
-                    fixture_u64(&initial[name], "bit_len"),
-                    "{label} {name}"
-                );
-                assert_eq!(
-                    cell.refs().len(),
-                    initial[name]["refs"].as_array().unwrap().len(),
-                    "{label} {name}"
-                );
-            }
-            let key_cells = initial["keys"].as_array().unwrap();
-            let mut key_cell = &data.keys;
-            for (index, expected) in key_cells.iter().enumerate() {
-                assert_eq!(
-                    hex(key_cell.hash()),
-                    fixture_text(expected, "hash"),
-                    "{label} key {index}"
-                );
-                assert_eq!(
-                    key_cell.bit_len() as u64,
-                    fixture_u64(expected, "bit_len"),
-                    "{label} key {index}"
-                );
-                if index + 1 < key_cells.len() {
-                    key_cell = key_cell.refs()[0].cell().unwrap();
-                } else {
-                    assert!(key_cell.refs().is_empty());
-                }
-            }
             let minter = minter_account_id(&init, minter_code).unwrap();
             assert_eq!(
                 hex(&minter),
@@ -1232,12 +1309,12 @@ mod tests {
         assert_eq!(ton_storage_fee(1, 1, 0, 1, 500), 1);
         assert_eq!(ton_storage_fee(0, 1, 1, 1, 500), 0);
         assert_eq!(ton_storage_fee(65_536, 2, 3, 1, 500), 1_502);
-        // MINTER_FLOOR at mainnet prices: 204 500 units per 2^16 s over 100 years
+        // MINTER_FLOOR at mainnet prices: 223 000 units per 2^16 s over 100 years
         assert_eq!(
             ton_minter_floor_at_mainnet_prices(),
-            (204_500_u128 * 3_153_600_000).div_ceil(65_536)
+            (223_000_u128 * 3_153_600_000).div_ceil(65_536)
         );
-        assert_eq!(ton_minter_floor_at_mainnet_prices(), 9_840_563_965);
+        assert_eq!(ton_minter_floor_at_mainnet_prices(), 10_730_786_133);
     }
 
     /// The value of `const <name> = <integer>` in a Tolk source.
@@ -1272,63 +1349,72 @@ mod tests {
 
     #[test]
     fn minter_data_rejects_bad_inputs() {
-        let (mut init, _) = fixture_n4();
-        init.pin_keys.swap(0, 1);
-        assert_eq!(
-            minter_initial_data(&init).unwrap_err(),
-            TonCellError::BadCommittee
-        );
-        let (mut init, _) = fixture_n4();
+        let (valid, _) = fixture_n4();
+        let bad_committees: [fn(&mut TonMinterInitV1); 4] = [
+            |init: &mut TonMinterInitV1| {
+                init.keys.swap(0, 1);
+            },
+            |init: &mut TonMinterInitV1| {
+                init.keys[1] = init.keys[0];
+            },
+            |init: &mut TonMinterInitV1| {
+                init.keys.pop();
+            },
+            |init: &mut TonMinterInitV1| {
+                init.pin.committee_root[0] ^= 1;
+            },
+        ];
+        for change in bad_committees {
+            let mut init = valid.clone();
+            change(&mut init);
+            assert_eq!(
+                minter_initial_data(&init).unwrap_err(),
+                TonCellError::BadCommittee
+            );
+        }
+        let bad_configs: [fn(&mut TonMinterInitV1); 8] = [
+            |init: &mut TonMinterInitV1| {
+                init.taira_network_id = [0; 32];
+            },
+            |init: &mut TonMinterInitV1| {
+                init.consensus_instance = [0; 32];
+            },
+            |init: &mut TonMinterInitV1| {
+                init.route_revision = 0;
+            },
+            |init: &mut TonMinterInitV1| {
+                init.max_supply = 0;
+            },
+            |init: &mut TonMinterInitV1| {
+                init.pin.generation = 0;
+            },
+            |init: &mut TonMinterInitV1| {
+                init.pin.committee_root = [0; 32];
+            },
+            |init: &mut TonMinterInitV1| {
+                init.pin.start_height = 0;
+            },
+            |init: &mut TonMinterInitV1| {
+                init.pin.until_ms = 0;
+            },
+        ];
+        for change in bad_configs {
+            let mut init = valid.clone();
+            change(&mut init);
+            assert_eq!(
+                minter_initial_data(&init).unwrap_err(),
+                TonCellError::BadConfig
+            );
+        }
+        let mut init = valid.clone();
         init.max_supply = COINS_BOUND;
         assert_eq!(
             minter_initial_data(&init).unwrap_err(),
             TonCellError::CoinsTooLarge
         );
-    }
-
-    #[test]
-    fn native_minter_rejects_bad_pins_and_binds_instance_and_every_pin_field() {
-        let (original, code) = fixture_n4();
-        let bad: [fn(&mut TonMinterInitV1); 6] = [
-            |x| x.taira_network_id = [0; 32],
-            |x| x.consensus_instance = [0; 32],
-            |x| x.route_revision = 0,
-            |x| x.max_supply = 0,
-            |x| x.pin_generation = 0,
-            |x| x.pin_start_height = 0,
-        ];
-        for mutate in bad {
-            let mut candidate = original.clone();
-            mutate(&mut candidate);
-            assert_eq!(
-                minter_initial_data(&candidate),
-                Err(TonCellError::BadConfig)
-            );
-        }
-        let mut candidate = original.clone();
-        candidate.pin_root[0] ^= 1;
-        assert_eq!(
-            minter_initial_data(&candidate),
-            Err(TonCellError::BadCommittee)
-        );
-        let mut candidate = original.clone();
-        candidate.pin_keys.pop();
-        assert_eq!(
-            minter_initial_data(&candidate),
-            Err(TonCellError::BadCommittee)
-        );
-        let changed: [fn(&mut TonMinterInitV1); 4] = [
-            |x| x.consensus_instance[0] ^= 1,
-            |x| x.pin_generation += 1,
-            |x| x.pin_start_height += 1,
-            |x| x.pin_until_ms += 1,
-        ];
-        let address = minter_account_id(&original, code).unwrap();
-        for mutate in changed {
-            let mut candidate = original.clone();
-            mutate(&mut candidate);
-            assert_ne!(minter_account_id(&candidate, code).unwrap(), address);
-        }
+        let mut init = valid;
+        init.pin.start_height = 1;
+        assert!(minter_initial_data(&init).is_ok());
     }
 
     #[test]
@@ -1403,5 +1489,95 @@ mod tests {
         let state = state_init(code, cell).unwrap();
         assert_eq!(state.bit_len(), 5);
         assert_eq!(state.depth(), 10);
+    }
+}
+
+#[cfg(test)]
+mod encoding_tests {
+    use super::*;
+
+    // Retain every actual Arc backing independently and retire parents before children.
+    // This fixture tests serialization, not general recursive Arc destruction of arbitrary
+    // public-builder graphs, which is a separate owner boundary.
+    struct Chain {
+        root: Option<Cell>,
+        children: Vec<CellRef>,
+    }
+    impl Chain {
+        fn new(depth: u16) -> Self {
+            let mut chain = Self {
+                root: Some(CellBuilder::new().build()),
+                children: Vec::new(),
+            };
+            for _ in 0..depth {
+                let child = CellRef::from(chain.root.take().unwrap());
+                let mut builder = CellBuilder::new();
+                builder.store_ref(child.clone()).unwrap();
+                chain.children.push(child);
+                chain.root = Some(builder.build());
+            }
+            chain
+        }
+        fn root(&self) -> &Cell {
+            self.root.as_ref().unwrap()
+        }
+    }
+    impl Drop for Chain {
+        fn drop(&mut self) {
+            drop(self.root.take());
+            while let Some(child) = self.children.pop() {
+                drop(child);
+            }
+        }
+    }
+    #[test]
+    fn cell_serializer_refuses_depth_beyond_native_limit() {
+        let chain = Chain::new(crate::ton_native::TON_MAX_CELL_DEPTH + 1);
+        assert!(matches!(chain.root().to_boc(), Err(TonCellError::BadSnake)));
+    }
+    #[test]
+    fn cell_serializer_handles_native_max_depth_on_a_small_stack() {
+        std::thread::Builder::new()
+            .stack_size(64 * 1024)
+            .spawn(|| {
+                let chain = Chain::new(crate::ton_native::TON_MAX_CELL_DEPTH);
+                let wire = chain.root().to_boc().unwrap();
+                let parsed = crate::ton_native::parse_ton_boc(&wire).unwrap();
+                assert_eq!(
+                    parsed.cells.len(),
+                    usize::from(crate::ton_native::TON_MAX_CELL_DEPTH) + 1
+                );
+                let hashes = crate::ton_native::ton_boc_cell_hashes(&parsed).unwrap();
+                assert_eq!(hashes[0].hashes[0], *chain.root().hash());
+                assert_eq!(hashes[0].depths[0], chain.root().depth());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+    #[test]
+    fn cell_serializer_preserves_exact_shared_dag_bytes_and_opaque_refusal() {
+        let cell = |byte, refs: Vec<CellRef>| {
+            let mut builder = CellBuilder::new();
+            builder.store_bytes(&[byte]).unwrap();
+            for child in refs {
+                builder.store_ref(child).unwrap();
+            }
+            builder.build()
+        };
+        let shared = CellRef::from(cell(0xc0, vec![]));
+        let a = cell(0xa0, vec![shared.clone()]);
+        let b = cell(0xb0, vec![shared]);
+        let root = cell(0x10, vec![a.into(), b.into()]);
+        let expected = vec![
+            0xb5, 0xee, 0x9c, 0x72, 1, 1, 4, 1, 0, 16, 0, 2, 2, 0x10, 1, 2, 1, 2, 0xa0, 3, 1, 2,
+            0xb0, 3, 0, 2, 0xc0,
+        ];
+        assert_eq!(root.to_boc().unwrap(), expected);
+        let imported = cell_from_boc(&expected).unwrap();
+        assert_eq!(imported.hash(), root.hash());
+        assert_eq!(imported.to_boc().unwrap(), expected);
+        let opaque = cell(0x10, vec![CellRef::opaque([1; 32], 0)]);
+        assert!(matches!(opaque.to_boc(), Err(TonCellError::OpaqueChild)));
     }
 }

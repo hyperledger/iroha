@@ -5,7 +5,7 @@
 //! Native publication must capture all canonical elements at the same applied cut.
 //! Target values additionally require their real canonical typed preimages.
 
-use super::{FinalityError, VerifiedSumeragiBlock};
+use super::{FinalityError, FinalityReadError, VerifiedSumeragiBlock};
 use iroha_crypto::Hash;
 use iroha_schema::IntoSchema;
 use norito::{
@@ -219,16 +219,16 @@ pub fn world_state_value_hash_v1<T: norito::codec::Encode>(
 impl WorldStateSnapshotV1 {
     /// Decode only an exact bounded original canonical native frame.
     /// # Errors
-    /// Oversized, noncanonical, truncated, invalid or duplicate-entry snapshot.
-    pub fn decode_bounded_canonical(wire: &[u8]) -> Result<Self, FinalityError> {
+    /// Oversized, noncanonical, truncated, invalid or duplicate-entry snapshot, or the
+    /// original unfinished decoder refusal. Resource refusal grants no invalidity verdict.
+    pub fn decode_bounded_canonical(wire: &[u8]) -> Result<Self, FinalityReadError> {
         if wire.is_empty() || wire.len() > MAX_WORLD_STATE_SNAPSHOT_BYTES_V1 {
-            return Err(fail("World snapshot original exceeds its byte bound"));
+            return Err(fail("World snapshot original exceeds its byte bound").into());
         }
-        let value: Self = norito::decode_canonical_with_limits(
+        let value: Self = norito::decode_canonical_for_admission(
             wire,
             norito::canonical_decode_limits(MAX_WORLD_STATE_SNAPSHOT_BYTES_V1),
-        )
-        .map_err(|_| fail("World snapshot original is not canonical bounded Norito"))?;
+        )?;
         value.root()?;
         Ok(value)
     }

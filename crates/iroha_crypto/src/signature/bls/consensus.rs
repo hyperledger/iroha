@@ -25,16 +25,18 @@
 //! admission; [`verify_fast_aggregate_committed`] takes keys committed by an authenticated
 //! committee root and applies [`key_validate`] to each.
 //!
-//! Custody: every verifier runs on one `blst` pairing context. The free functions allocate
+//! Custody: single-signature verification uses fixed stack storage with no heap allocation.
+//! Aggregate verification runs on one `blst` pairing context. Its free functions allocate
 //! an unfunded context per call; [`ConsensusAggregateScratch`] is the same relation on a
 //! context whose exact backing the caller admits first (the consensus counterpart of
 //! [`crate::BlsNormalAggregateScratch`]), and its verification allocates nothing.
 //!
 //! `TODO:` unify every other BLS signature on RFC 9380 suites in a later release.
-//! Production Sumeragi `KeyPairSigner`, `BlsCrypto`, `ProofCrypto`, and their delegates
-//! use this allowlist. Individual verification validates one key without granting committee
-//! authority; aggregate verification still requires PoP admission or an authenticated root.
-//! Request-funded `BlsCrypto` retains the original [`ConsensusAggregateScratch`] allowance.
+//! The production Sumeragi `KeyPairSigner`, `BlsCrypto`, data-model `ProofCrypto` and
+//! delegated signers use this suite exclusively. Request-funded native readers admit
+//! the exact [`ConsensusAggregateScratch`] pairing backing before verification.
+//! Proof-of-possession admission, generic attestations and account signatures retain
+//! their separate transcripts.
 
 use core::borrow::Borrow;
 
@@ -201,19 +203,6 @@ pub fn key_validate(public_key: &[u8; 48]) -> bool {
     parse_public_key(public_key).is_some()
 }
 
-/// Verify one consensus signature under a canonical, non-identity G1 key.
-///
-/// A single-key relation needs no proof of possession. This validates only the
-/// signature; the caller authenticates the claimed signer and its authority.
-#[must_use]
-pub fn verify_single(
-    public_key: &[u8; 48],
-    digest: &ConsensusDigest,
-    signature: &[u8; 96],
-) -> bool {
-    unfunded_scratch().verify_single(public_key, digest, signature)
-}
-
 /// Verify one consensus signature by a PoP-admitted key.
 #[must_use]
 pub fn verify(
@@ -221,7 +210,55 @@ pub fn verify(
     digest: &ConsensusDigest,
     signature: &[u8; 96],
 ) -> bool {
-    verify_fast_aggregate(&[public_key], digest, signature)
+    verify_single_relation(&public_key.point, digest, signature)
+}
+
+/// Verify one consensus signature over a canonical, nonidentity G1 public key.
+///
+/// No proof of possession is needed for a single key. The checked digest admits only
+/// a consensus context; the synchronous one-term pairing uses bounded stack storage
+/// and allocates no heap backing or cache. A malformed key or signature returns false.
+#[must_use]
+pub fn verify_public_key(
+    public_key: &[u8; 48],
+    digest: &ConsensusDigest,
+    signature: &[u8; 96],
+) -> bool {
+    let Some(key) = parse_public_key(public_key) else {
+        return false;
+    };
+    verify_single_relation(&key, digest, signature)
+}
+
+// The canonical parsers check both groups before the one-term C relation.
+#[allow(
+    unsafe_code,
+    reason = "synchronous blst call borrows canonical fixed subgroup points and retains no pointers or heap backing"
+)]
+fn verify_single_relation(
+    public_key: &G1Affine,
+    digest: &ConsensusDigest,
+    signature: &[u8; 96],
+) -> bool {
+    let Some(signature) = parse_signature(signature) else {
+        return false;
+    };
+    // SAFETY: fixed canonical subgroup points and every borrowed byte slice live for this
+    // synchronous call. The zero-length augmentation has no bytes; blst neither mutates
+    // nor retains any input. Its one-term pairing backing has fixed stack capacity.
+    unsafe {
+        blst::blst_core_verify_pk_in_g1(
+            public_key.as_ref(),
+            signature.as_ref(),
+            true,
+            digest.as_bytes().as_ptr(),
+            digest.as_bytes().len(),
+            DST_SIG.as_ptr(),
+            DST_SIG.len(),
+            core::ptr::null(),
+            0,
+        ) == blst::BLST_ERROR::BLST_SUCCESS
+    }
 }
 
 /// `FastAggregateVerify` over PoP-admitted keys.
@@ -312,23 +349,6 @@ impl<O> ConsensusAggregateScratch<O> {
             pairing: Pairing::new(true, DST_SIG),
             _owner: owner,
         })
-    }
-
-    /// [`verify_single`] on this originally admitted context, without allocation.
-    #[must_use]
-    pub fn verify_single(
-        &mut self,
-        public_key: &[u8; 48],
-        digest: &ConsensusDigest,
-        signature: &[u8; 96],
-    ) -> bool {
-        let Some(key) = parse_public_key(public_key) else {
-            return false;
-        };
-        self.relation(
-            core::iter::once((G1Projective::from(key), *digest)),
-            signature,
-        )
     }
 
     /// [`verify_fast_aggregate`] on this context. `keys` must replay the same keys in the

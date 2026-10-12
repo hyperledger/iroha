@@ -6,14 +6,15 @@
 
 use super::{Error, SccpRegisterRouteActionV1, refuse, store};
 use crate::{
-    smartcontracts::isi::sccp::generation::{SccpCommitteeGenerationV1, SccpGenerationCauseV1},
+    smartcontracts::isi::sccp::generation_record::RetainedSccpGeneration,
     state::{StateReadOnly, StateTransaction, WorldReadOnly},
     sumeragi::crypto::BlsCrypto,
 };
+use iroha_data_model::sccp::generation::SccpGenerationCauseV1;
 use iroha_data_model::{
     NetworkId,
     block::consensus::SumeragiRootScope,
-    sccp::{deployment::SccpDeploymentV1, native::SccpCommitteePinV1},
+    sccp::{deployment::SccpCommitteePinV1, deployment::SccpDeploymentV1},
 };
 use iroha_sccp::v1::ton_cell::{TonMinterInitV1, minter_account_id};
 
@@ -91,7 +92,7 @@ fn retained_pin<'a>(
     now_ms: u64,
     heartbeat_ms: u64,
     parent_height: u64,
-) -> Result<&'a SccpCommitteeGenerationV1, Error> {
+) -> Result<&'a RetainedSccpGeneration, Error> {
     pin.validate_shape()
         .map_err(|_| refuse("native committee pin shape is invalid"))?;
     let current = *store::committee_current::get(world);
@@ -115,7 +116,7 @@ fn retained_pin<'a>(
     let next_height = parent_height
         .checked_add(1)
         .ok_or_else(|| refuse("registration height overflows"))?;
-    let mut previous: Option<&SccpCommitteeGenerationV1> = None;
+    let mut previous: Option<&RetainedSccpGeneration> = None;
     // Iterate retained entries, not a caller-controlled numeric gap. Missing ids refuse.
     for (key, record) in store::committee_generations::range(world, pin.generation..=current) {
         if *key != record.generation
@@ -167,7 +168,7 @@ fn retained_pin<'a>(
 
 fn deployment(
     register: &SccpRegisterRouteActionV1,
-    pinned: &SccpCommitteeGenerationV1,
+    pinned: &RetainedSccpGeneration,
     identity: &OriginalIdentity,
 ) -> Result<(), Error> {
     match register.deployment {
@@ -178,11 +179,8 @@ fn deployment(
                 consensus_instance: identity.instance,
                 route_revision: register.revision,
                 max_supply: register.max_wrapped_supply,
-                pin_generation: pin.generation,
-                pin_root: pin.committee_root,
-                pin_start_height: pin.start_height,
-                pin_until_ms: pin.until_ms,
-                pin_keys: pinned.keys.clone(),
+                pin,
+                keys: pinned.keys.clone(),
                 wallet_code: ton.wallet_code,
                 bucket_code: ton.bucket_code,
             };

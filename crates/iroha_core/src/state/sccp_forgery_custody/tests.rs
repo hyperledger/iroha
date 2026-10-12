@@ -211,9 +211,13 @@ fn snapshot_requires_both_exact_offence_cuts_and_matching_maximum() {
     use crate::state::sccp_snapshot_state::{SnapshotSccpState, serialize_envelope};
     let (encoded, text, id) = snapshot_claim();
     let mut restored = with_evidence(&text, id);
+    let budget = restored
+        .sccp_committee_generations
+        .allocation_budget()
+        .clone();
     norito::json::from_json::<SnapshotSccpState>(&encoded)
         .unwrap()
-        .restore(&mut restored)
+        .restore(&mut restored, &budget)
         .unwrap();
     let mut roundtrip = String::new();
     serialize_envelope(&restored, &mut roundtrip);
@@ -231,10 +235,14 @@ fn snapshot_requires_both_exact_offence_cuts_and_matching_maximum() {
             norito::json::to_value(&Some(8u64)).unwrap(),
         );
     let mut restored = with_evidence(&text, id);
+    let budget = restored
+        .sccp_committee_generations
+        .allocation_budget()
+        .clone();
     let error =
         norito::json::from_json::<SnapshotSccpState>(&norito::json::to_json(&malformed).unwrap())
             .unwrap()
-            .restore(&mut restored)
+            .restore(&mut restored, &budget)
             .unwrap_err();
     assert!(
         error.to_string().contains("maximum does not match"),
@@ -290,7 +298,8 @@ fn snapshot_rejects_each_mixed_predecessor_cut_and_keeps_original_world() {
                 .get(),
             &if mismatch { Some(None) } else { Some(Some(7)) }
         );
-        let error = snapshot.restore(&mut world).unwrap_err();
+        let budget = world.sccp_committee_generations.allocation_budget().clone();
+        let error = snapshot.restore(&mut world, &budget).unwrap_err();
         assert!(error.to_string().contains("current/undo cut"), "{error}");
         assert!(world.sccp_forgery_offences.view().is_empty());
         assert_eq!(*world.sccp_forgery_max_generation.view().get(), None);
@@ -305,6 +314,7 @@ fn snapshot_rejects_native_record_raw_id_payload_and_evidence_key_substitutions(
     use iroha_data_model::block::consensus::{Evidence, EvidenceScope, RecordedEvidenceV1};
     let (encoded, text, id) = snapshot_claim();
     let mut world = crate::state::World::new();
+    let budget = world.sccp_committee_generations.allocation_budget().clone();
     let mut data = sccp_storage_claim_for_testing();
     data.evidence = RecordedEvidenceV1::Native(Evidence { native: Vec::new() });
     data.attribution.scope = EvidenceScope::Root;
@@ -316,26 +326,28 @@ fn snapshot_rejects_native_record_raw_id_payload_and_evidence_key_substitutions(
         .insert(iroha_crypto::Hash::prehashed(id), native);
     let error = norito::json::from_json::<SnapshotSccpState>(&encoded)
         .unwrap()
-        .restore(&mut world)
+        .restore(&mut world, &budget)
         .unwrap_err();
     assert!(error.to_string().contains("native evidence cannot back"));
     let mut bad_id = id;
     bad_id[0] ^= 1;
     let mut world = with_evidence(&text, bad_id);
+    let budget = world.sccp_committee_generations.allocation_budget().clone();
     assert!(
         norito::json::from_json::<SnapshotSccpState>(&encoded)
             .unwrap()
-            .restore(&mut world)
+            .restore(&mut world, &budget)
             .is_err()
     );
     // The maintained envelope emits a Norito array payload; raw32 bytes are not accepted.
     let malformed = encoded.replace(&hex::encode(id.encode()), &hex::encode(id));
     assert_ne!(malformed, encoded);
     let mut world = with_evidence(&text, id);
+    let budget = world.sccp_committee_generations.allocation_budget().clone();
     assert!(
         norito::json::from_json::<SnapshotSccpState>(&malformed)
             .unwrap()
-            .restore(&mut world)
+            .restore(&mut world, &budget)
             .is_err()
     );
 }

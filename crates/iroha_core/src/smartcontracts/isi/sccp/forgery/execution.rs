@@ -5,8 +5,13 @@
 //! protocol decisions and fallible payload preparation precede writes; any original
 //! local publication refusal poisons the outer transaction, which cannot be applied.
 
+use crate::smartcontracts::isi::sccp::{
+    eligibility::{EligibilityRead, TransactionParent},
+    original_read::OriginalRead,
+};
+
 use super::{
-    ForgeryVerificationError, Observation, VerificationControl, original_source, params, store,
+    ForgeryVerificationError, Observation, VerificationControl, original_source, store,
     verify_observation,
 };
 use crate::{
@@ -134,9 +139,10 @@ fn prepare_execution(
     evidence: &SubmitSccpForgeryEvidenceV1,
     stx: &StateTransaction<'_, '_>,
 ) -> Result<PreparedExecution, ForgeryExecutionError> {
-    let parent_world = stx.sccp_parent_world_view();
-    let parameters =
-        params::parameters(&parent_world).ok_or(ForgeryVerificationError::NotEvidence)?;
+    let parent_world = TransactionParent(&stx.world);
+    let parameters = parent_world
+        .parameters()
+        .ok_or(ForgeryVerificationError::NotEvidence)?;
     let header = SccpFinalityHeaderV1::parse(&evidence.header)
         .map_err(|_| ForgeryVerificationError::NotEvidence)?;
     if !header.is_active() || header.network_id() != *stx.network_id().as_bytes() {
@@ -160,8 +166,8 @@ fn prepare_execution(
         )
         .into());
     }
-    let liability_clock = super::super::generation::advance_liability_clock(
-        *store::liability_clock::get(&parent_world),
+    let liability_clock = iroha_data_model::sccp::generation::next_liability_clock_v1(
+        parent_world.liability_clock(),
         parent.creation_time_ms(),
         executing.creation_time_ms,
         parameters.committee_heartbeat_ms,
@@ -173,7 +179,7 @@ fn prepare_execution(
         .into());
     }
     let candidate = verify_observation(
-        &parent_world,
+        parent_world,
         evidence,
         header,
         Observation {

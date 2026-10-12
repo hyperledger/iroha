@@ -14,6 +14,8 @@ use iroha_data_model::block::SharedSignedBlock;
 // Field order retires decoded result/body owners before raw source bytes and pool handles.
 struct OriginalReceipt<'kura> {
     committed: Option<ChargedBuffer<CommittedBlock>>,
+    // Keep both actual verification slots when a later admission refuses.
+    frame: AdmittedFrameRead,
     body: Option<SharedSignedBlock>,
     acquisition: native_acquisition::NativeCarrierAcquisition<'kura>,
 }
@@ -34,6 +36,7 @@ impl<'kura> OriginalReceipt<'kura> {
             .ok_or(ChainReadError::NotCommitted { height })?;
         Ok(Self {
             committed: None,
+            frame: AdmittedFrameRead::default(),
             body: None,
             acquisition: native_acquisition::NativeCarrierAcquisition::new(
                 view.kura(),
@@ -62,21 +65,28 @@ impl<'kura> OriginalReceipt<'kura> {
     ) -> Result<(), ExecutionAttemptError<ChainReadError>> {
         self.acquire_body()?;
         if self.committed.is_none() {
-            // Clone only the original immutable body handle. A partial result decoder drops;
-            // the same actual body/bytes and the caller's cumulative context survive refusal.
-            let original = read_frame_admitted(
+            // Borrow the same original body through a retained verification stage. A late
+            // result-slot refusal must not refund the earlier receipt slot and satisfy this
+            // operation's own release wait. Nested decoding keeps its original limits.
+            if let Err(cause) = self.frame.initialize(
                 self.body
                     .as_ref()
                     .expect("original acquired carrier")
                     .clone(),
                 height,
-                // The retained prefix carries the original signed root's role;
-                // an offered X header cannot choose the decoder's scope.
-                prefix.tip.result_scope(),
+                prefix.tip.root_scope(),
                 &mut prefix.validation,
                 budget,
-            )?;
-            self.committed = Some(original);
+            ) {
+                #[cfg(all(test, sumeragi_core_mutation = "HC232"))]
+                if matches!(&cause, ExecutionAttemptError::Deferred(_)) {
+                    // Deliberately retire only the pending verification slots. Source,
+                    // body, decoder limits, authentication and refusal identity remain.
+                    self.frame = AdmittedFrameRead::default();
+                }
+                return Err(cause);
+            }
+            self.committed = Some(self.frame.take_committed());
             self.body = None;
         }
         Ok(())
@@ -197,6 +207,7 @@ impl<V: StateReadOnly + ?Sized> CertifiedChain<'_, V> {
         let prefix = cursor.as_mut().expect("authenticated genesis cursor");
         let context = PrefixVerifierContext {
             instance: self.instance,
+            root_scope: self.root_scope,
         };
         let pending = self.terminal.as_mut().expect("original terminal selection");
         pending.target.decode(height, prefix, budget)?;

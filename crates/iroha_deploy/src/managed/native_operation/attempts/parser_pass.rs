@@ -36,7 +36,7 @@ impl CurrentReadAdmission<'_, '_, '_> {
 impl<'a> EnrollmentReadPass<'a> {
     pub(in crate::managed) fn parse(
         snapshot: &'a SnapshotReadPass<'a>,
-        parser: crate::managed::stream_token_custody::body_history::ReadOnlyHistoryParser<'a>,
+        parser: crate::managed::stream_token_custody::body_history::ReadOnlyHistoryParser<'a, '_>,
         epochs: &mut crate::managed::native_operation::authorization::EpochReader,
     ) -> Result<()> {
         let retained = parser.retained_graph();
@@ -75,6 +75,26 @@ impl<'a> EnrollmentReadPass<'a> {
             snapshot,
             latest: RefCell::new(
                 history
+                    .scope
+                    .predecessor()
+                    .map(|prior| Arc::clone(prior.shared_history())),
+            ),
+            count: std::cell::Cell::new(0),
+            retained: None,
+            parser_handles: true,
+        }
+    }
+    // Only the concrete empty generated prefix can mint this pass. The owner contains
+    // canonical current metadata and its fixed read sequence has no wallet/effect callback.
+    pub(super) fn empty_generated(
+        snapshot: &'a SnapshotReadPass<'a>,
+        owner: &generated_read_phase::EmptyGeneratedReadPhase,
+    ) -> Self {
+        Self {
+            snapshot,
+            latest: RefCell::new(
+                owner
+                    .history()
                     .scope
                     .predecessor()
                     .map(|prior| Arc::clone(prior.shared_history())),

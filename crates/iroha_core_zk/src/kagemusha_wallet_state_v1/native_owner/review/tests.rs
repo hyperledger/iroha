@@ -262,6 +262,21 @@ fn unload_beneficiary_is_bound_to_the_genuine_signed_quote_before_review() {
         unload_beneficiary_original(&scheme().scheme_id(), Some(&charge), Some(&original)).unwrap(),
         Some(original.clone())
     );
+    let scheme_id = scheme().scheme_id();
+    for limits in [
+        norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+    ] {
+        let refused = norito::with_decode_limits_scope(limits, || {
+            unload_beneficiary_original(&scheme_id, Some(&charge), Some(&original))
+        });
+        assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        assert_eq!(
+            unload_beneficiary_original(&scheme_id, Some(&charge), Some(&original)).unwrap(),
+            Some(original.clone())
+        );
+    }
     assert_eq!(
         unload_beneficiary_original(&scheme().scheme_id(), None, None).unwrap(),
         None

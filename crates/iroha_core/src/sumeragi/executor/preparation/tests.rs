@@ -230,14 +230,6 @@ fn preparation_classification_preserves_real_limit_and_does_not_invent_release_f
         panic!("retain original shared control admission source");
     };
     assert_eq!(source.allocation_refusal(), Some(&original));
-    assert!(matches!(
-        encoding_failure(&ResultPreimageError::ForeignBudget),
-        PublicationError::Retryable(_)
-    ));
-    assert!(matches!(
-        certificate_failure(&CertificateAdmissionError::ForeignBudget),
-        PublicationError::Retryable(_)
-    ));
     use iroha_sumeragi::message::ByteAdmissionError;
     for error in [
         ByteAdmissionError::Buffer(ChargedBufferError::Admission(original.clone())),
@@ -269,6 +261,152 @@ fn preparation_classification_preserves_real_limit_and_does_not_invent_release_f
         witness_failure(&ByteAdmissionError::Length { length: 0 }),
         PublicationError::RecoveryRequired(_)
     ));
+}
+
+#[test]
+fn immutable_result_foreign_budget_requires_recovery_with_original_diagnostic() {
+    let error = ResultPreimageError::ForeignBudget;
+    let PublicationError::RecoveryRequired(reason) = encoding_failure(&error) else {
+        panic!("an unchanged foreign source cannot be retried or blamed on the peer");
+    };
+    assert_eq!(reason, error.to_string());
+}
+
+#[test]
+fn immutable_result_excessive_preimage_requires_recovery_with_original_extent() {
+    let error = ResultPreimageError::PreimageLength(MAX_RESULT_PREIMAGE_BYTES + 1);
+    let PublicationError::RecoveryRequired(reason) = encoding_failure(&error) else {
+        panic!("the same immutable result cannot shrink on retry");
+    };
+    assert_eq!(reason, error.to_string());
+    assert!(reason.contains(&(MAX_RESULT_PREIMAGE_BYTES + 1).to_string()));
+}
+
+#[test]
+fn immutable_result_encoding_failure_requires_recovery_with_original_cause() {
+    let error = ResultPreimageError::Encoding(norito::Error::LengthMismatch);
+    let PublicationError::RecoveryRequired(reason) = encoding_failure(&error) else {
+        panic!("the same canonical encoding failure needs local correction");
+    };
+    assert_eq!(reason, error.to_string());
+}
+
+#[test]
+fn immutable_certificate_foreign_budget_requires_recovery_with_original_diagnostic() {
+    let error = CertificateAdmissionError::ForeignBudget;
+    let PublicationError::RecoveryRequired(reason) = certificate_failure(&error) else {
+        panic!("certificate custody cannot move to a foreign pool on retry");
+    };
+    assert_eq!(reason, error.to_string());
+}
+
+#[test]
+fn immutable_preparation_capacity_preserves_the_exact_original_release() {
+    let budget = AllocationBudget::new(8);
+    let occupied = budget.try_reserve_bytes(8).unwrap();
+    let original = budget.try_reserve_bytes(1).unwrap_err();
+    let AllocationRefusal::Capacity { release, .. } = &original else {
+        panic!("the original pool is temporarily occupied");
+    };
+    for refusal in [
+        encoding_failure(&ResultPreimageError::Allocation(
+            ChargedBufferError::Admission(original.clone()),
+        )),
+        certificate_failure(&CertificateAdmissionError::Buffer(
+            ChargedBufferError::Admission(original.clone()),
+        )),
+        certificate_failure(&CertificateAdmissionError::ControlAdmission(
+            original.clone(),
+        )),
+        block_failure(&SharedBlockAdmissionError::Admission(original.clone())),
+        witness_failure(
+            &iroha_sumeragi::message::ByteAdmissionError::ControlAdmission(original.clone()),
+        ),
+    ] {
+        let PublicationError::Deferred(source) = refusal else {
+            panic!("actual capacity refusal remains locally deferred");
+        };
+        assert_eq!(source.allocation_refusal(), Some(&original));
+        assert_eq!(source.release_wait(), Some(release));
+    }
+    drop(occupied);
+    assert!(budget.try_reserve_bytes(1).is_ok());
+}
+
+#[test]
+fn immutable_preparation_allocator_refusal_never_invents_a_release() {
+    for refusal in [
+        encoding_failure(&ResultPreimageError::Allocation(
+            ChargedBufferError::Allocator { requested_bytes: 4 },
+        )),
+        certificate_failure(&CertificateAdmissionError::Buffer(
+            ChargedBufferError::Allocator { requested_bytes: 4 },
+        )),
+        certificate_failure(&CertificateAdmissionError::ControlAllocation(
+            PrepaidSharedError::Allocator { requested_bytes: 4 },
+        )),
+        block_failure(&SharedBlockAdmissionError::Allocation(
+            PrepaidSharedError::Allocator { requested_bytes: 4 },
+        )),
+        witness_failure(
+            &iroha_sumeragi::message::ByteAdmissionError::ControlAllocation(
+                PrepaidSharedError::Allocator { requested_bytes: 4 },
+            ),
+        ),
+    ] {
+        let PublicationError::Deferred(source) = refusal else {
+            panic!("physical allocator recovery can retry the original owner");
+        };
+        assert_eq!(
+            source.execution().unwrap().reason(),
+            ExecutionDeferral::AllocationUnavailable
+        );
+        assert!(source.allocation_refusal().is_none());
+        assert!(source.release_wait().is_none());
+    }
+}
+
+#[test]
+fn immutable_preparation_short_prepaid_parent_requires_recovery_without_losing_custody() {
+    use iroha_allocation::ChargedShared;
+    use iroha_sumeragi::message::ByteAdmissionError;
+
+    let original = Arc::new([0x5au8; 4]);
+    let pointer = Arc::as_ptr(&original);
+    let layout = ChargedShared::<Arc<[u8; 4]>>::allocation_layout();
+    let budget = AllocationBudget::new(layout.size() * 2);
+    let original_remainder = layout.size() - 1;
+    let mut reservation = budget.try_reserve_bytes(original_remainder).unwrap();
+    let (returned, refusal) = ChargedShared::from_reservation(original, &mut reservation)
+        .expect_err("the original prepaid parent cannot fund the required control");
+    assert_eq!(Arc::as_ptr(&returned), pointer);
+    assert_eq!(budget.reserved_bytes(), original_remainder);
+    assert_eq!(reservation.remaining_bytes(), original_remainder);
+    let PrepaidSharedError::Reservation(shortage) = refusal else {
+        panic!("an undersized original parent preserves its exact reservation error");
+    };
+    assert_eq!(shortage.requested_bytes, layout.size());
+    assert_eq!(shortage.remaining_bytes, original_remainder);
+    // Spare capacity in the same pool cannot enlarge an immutable prepaid parent.
+    assert!(budget.try_reserve_bytes(layout.size()).is_ok());
+    let block = SharedBlockAdmissionError::Allocation(refusal);
+    let certificate = CertificateAdmissionError::ControlAllocation(refusal);
+    let witness = ByteAdmissionError::ControlAllocation(refusal);
+    for (classified, expected) in [
+        (block_failure(&block), block.to_string()),
+        (certificate_failure(&certificate), certificate.to_string()),
+        (witness_failure(&witness), witness.to_string()),
+    ] {
+        let PublicationError::RecoveryRequired(reason) = classified else {
+            panic!("retry cannot repair the same undersized original parent");
+        };
+        assert_eq!(reason, expected);
+        assert!(reason.contains(&shortage.to_string()));
+    }
+    assert_eq!(Arc::as_ptr(&returned), pointer);
+    assert_eq!(reservation.remaining_bytes(), original_remainder);
+    drop(reservation);
+    assert_eq!(budget.reserved_bytes(), 0);
 }
 
 #[test]
@@ -660,6 +798,8 @@ fn validation_wrappers_keep_real_capacity_and_terminal_custody_distinct() {
             BlockValidationError::StateStorageAdmission(StateStorageAdmissionError::NativeAmx(
                 crate::sumeragi::amx::NativeAmxAdmissionError::Admission(original.clone()),
             )),
+            BlockValidationError::ExecutionDeferred(original.clone().into()),
+            BlockValidationError::ExecutionDeferred(original.clone().into()),
             BlockValidationError::EvidencePreparation(EvidencePreparationError::Admission(
                 original.clone(),
             )),
@@ -730,6 +870,8 @@ fn validation_wrappers_keep_real_capacity_and_terminal_custody_distinct() {
         BlockValidationError::StateStorageAdmission(StateStorageAdmissionError::NativeAmx(
             crate::sumeragi::amx::NativeAmxAdmissionError::Allocator { bytes: 8 },
         )),
+        BlockValidationError::ExecutionDeferred(ExecutionDeferral::AllocationUnavailable.into()),
+        BlockValidationError::ExecutionDeferred(ExecutionDeferral::AllocationUnavailable.into()),
         BlockValidationError::EvidencePreparation(EvidencePreparationError::Allocator {
             requested_bytes: 8,
         }),
@@ -765,6 +907,10 @@ fn validation_wrappers_keep_real_capacity_and_terminal_custody_distinct() {
                 AllocationRefusal::DemandOverflow,
             ),
         )),
+        BlockValidationError::ExecutionDeferred(ExecutionDeferral::LocalInvariantViolation.into()),
+        BlockValidationError::ExecutionDeferred(AllocationRefusal::DemandOverflow.into()),
+        BlockValidationError::ExecutionDeferred(ExecutionDeferral::LocalInvariantViolation.into()),
+        BlockValidationError::ExecutionDeferred(AllocationRefusal::DemandOverflow.into()),
         BlockValidationError::EvidencePreparation(EvidencePreparationError::Invariant),
         BlockValidationError::BlockHashAdmission(BlockHashAdmissionError::Poisoned),
         BlockValidationError::BlockHashAdmission(BlockHashAdmissionError::ReadOnly),
@@ -911,53 +1057,76 @@ fn native_source_publication_change_retries_without_recovery_or_quarantine() {
 }
 
 #[test]
-fn sccp_generation_refusals_preserve_original_capacity_and_recovery_categories() {
+fn producer_payload_errors_keep_original_release_and_terminal_classification() {
+    use super::super::super::payload::PayloadError;
     use crate::state::{
-        StateStorageAdmissionError, sccp_generation_custody::GenerationAdmissionError,
+        BlockHashAdmissionError, EvidencePreparationError, MembershipAdmissionError,
+        StateAdmissionError, StateStorageAdmissionError,
     };
-    use iroha_allocation::{AllocationBudget, AllocationRefusal};
-    use mv::storage::AdmittedStorageError;
-    let budget = AllocationBudget::new(1);
-    let held = budget.try_reserve_bytes(1).unwrap();
+    let budget = iroha_allocation::AllocationBudget::new(1 << 20);
+    let mut registration = crate::unit_test_support::release_registration(&budget);
+    let occupied = budget
+        .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
+        .unwrap();
     let original = budget.try_reserve_bytes(1).unwrap_err();
-    let error =
-        BlockValidationError::StateStorageAdmission(StateStorageAdmissionError::SccpGeneration(
-            GenerationAdmissionError::Storage(AdmittedStorageError::Allocation(original.clone())),
-        ));
-    let Some(PublicationError::Deferred(source)) = validation_failure(&error) else {
-        panic!("capacity is original unfinished local work")
+    let iroha_allocation::AllocationRefusal::Capacity { release, .. } = &original else {
+        panic!("actual occupied producer pool must own its capacity refusal");
     };
-    assert_eq!(source.allocation_refusal(), Some(&original));
-    let AllocationRefusal::Capacity { release, .. } = &original else {
-        panic!("held pool capacity")
-    };
-    assert_eq!(source.release_wait(), Some(release));
-    drop(held);
-    for original in [
-        GenerationAdmissionError::Invalid,
-        GenerationAdmissionError::Storage(AdmittedStorageError::PolicyIdentity),
-        GenerationAdmissionError::Storage(AdmittedStorageError::Allocation(
-            AllocationRefusal::DemandOverflow,
+    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+    for error in [
+        PayloadError::RoutingDeferred(original.clone().into()),
+        PayloadError::DecodeResource(original.clone().into()),
+        PayloadError::StakingPreparation(EvidencePreparationError::Admission(original.clone())),
+        PayloadError::SccpForgeryPreparation(StateStorageAdmissionError::SccpForgery(
+            crate::state::sccp_forgery_custody::ForgeryStorageError::Storage(
+                mv::storage::AdmittedStorageError::Allocation(original.clone()),
+            ),
+        )),
+        PayloadError::StakingAdmission(StateAdmissionError::Storage(
+            StateStorageAdmissionError::World(mv::storage::AdmittedStorageError::Allocation(
+                original.clone(),
+            )),
+        )),
+        PayloadError::StakingAdmission(StateAdmissionError::History(
+            BlockHashAdmissionError::Capacity(original.clone()),
+        )),
+        PayloadError::StakingAdmission(StateAdmissionError::Membership(
+            MembershipAdmissionError::Capacity(original.clone()),
+        )),
+    ] {
+        let Some(PublicationError::Deferred(classified)) = super::payload_failure(&error) else {
+            panic!("producer must return its original release-bearing error");
+        };
+        assert_eq!(classified.allocation_refusal(), Some(&original));
+        assert_eq!(classified.release_wait(), Some(release));
+        assert!(registration.poll_wait(release, &mut context).is_pending());
+        assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
+    }
+    for error in [
+        PayloadError::RoutingDeferred(ExecutionDeferral::LocalInvariantViolation.into()),
+        PayloadError::DecodeResource(ExecutionDeferral::LocalInvariantViolation.into()),
+        PayloadError::StakingPreparation(EvidencePreparationError::Invariant),
+        PayloadError::SignatureCustodyInvariant("original signature owner lost".into()),
+        PayloadError::SccpForgeryPreparation(StateStorageAdmissionError::SccpForgery(
+            crate::state::sccp_forgery_custody::ForgeryStorageError::Invalid,
         )),
     ] {
         assert!(matches!(
-            validation_failure(&BlockValidationError::StateStorageAdmission(
-                original.into()
-            )),
+            super::payload_failure(&error),
             Some(PublicationError::RecoveryRequired(_))
         ));
     }
-    let error =
-        GenerationAdmissionError::Codec(norito::core::DecodeResourceError::AllocationFailed {
-            bytes: 8,
-        });
-    let Some(PublicationError::Deferred(source)) =
-        validation_failure(&BlockValidationError::StateStorageAdmission(error.into()))
-    else {
-        panic!("allocator refusal is unfinished local work")
-    };
-    assert!(source.release_wait().is_none());
-    assert!(source.allocation_refusal().is_none());
+    assert!(matches!(
+        super::payload_failure(&PayloadError::StakingPreparation(
+            EvidencePreparationError::OriginalHistoryPending
+        )),
+        Some(PublicationError::Retryable(_))
+    ));
+    assert!(super::payload_failure(&PayloadError::EmptyBlock).is_none());
+    drop(occupied);
+    assert!(registration.poll_wait(release, &mut context).is_ready());
+    drop(registration);
+    assert_eq!(budget.reserved_bytes(), 0);
 }
 
 #[test]

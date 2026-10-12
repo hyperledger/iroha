@@ -114,6 +114,7 @@ iroha_allocation = { workspace = true }
 iroha_core_privacy = { workspace = true, default-features = false }
 iroha_core_timed_ovn = { workspace = true }
 iroha_sumeragi = { workspace = true }
+iroha_sccp = { workspace = true }
 iroha_model_base = { workspace = true }
 norito = { workspace = true, default-features = false, features = ["node-codec"] }
 iroha_core = { workspace = true, default-features = false, features = ["app_api", "runtime"] }

@@ -21,9 +21,6 @@ impl ValidBlock {
         )?;
         // Monetary fees have already executed as signed scoped asset effects.
         // Native output metadata has no synthetic conversion or relay receipt owner.
-        // SCCP commitments, history, generations, anchors and pruning are World writes of this
-        // block after all of its transactions (`specs/sccp.md` §4.5), with the authenticated
-        // consensus inputs of its height.
         let root_scope = if block.header().is_genesis() {
             iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(block)
                 .map_err(|error| {
@@ -48,7 +45,20 @@ impl ValidBlock {
                 })?
                 .root_scope()
         };
-        let sccp_inputs = Self::sccp_height_inputs(block, state, sccp_height);
+        // SCCP commitments and history are World writes of this block after all of its
+        // transactions (`specs/sccp.md` §4.5), with the authenticated consensus inputs of its
+        // height.
+        let sccp_inputs_owner = Self::sccp_height_inputs(block, state, sccp_height);
+        // This owner retains the original funded schedule across every mutable hook path.
+        // Projection borrows the same immutable graph; no committee is copied or reacquired.
+        let sccp_inputs = match sccp_inputs_owner.as_ref().map(|original| original.inputs()) {
+            Some(Ok(inputs)) => Some(inputs),
+            Some(Err(error)) => {
+                iroha_logger::warn!(%error, "SCCP: original height projection failed closed");
+                None
+            }
+            None => None,
+        };
         let sccp_finality_header = crate::smartcontracts::isi::sccp::hook::finalize_block(
             state,
             &block.header(),
@@ -58,14 +68,14 @@ impl ValidBlock {
         let committed_fragment_count =
             Self::validated_committed_fragment_count(state, advertised_fragments)?;
         Ok(crate::state::ExecutionOutputSealMetadata {
-            sccp_finality_header,
             committed_fragment_count,
+            sccp_finality_header,
         })
     }
 
     /// Derive the consensus inputs of the height `state` executes for the SCCP post-execution
-    /// hook (`specs/sccp.md` §4.3.2), or `None` when SCCP does not exist or the inputs cannot
-    /// be derived (SCCP generation derivation then fails closed; block execution is unaffected).
+    /// hook (`specs/sccp.md` §4.5, §4.6), or `None` when SCCP does not exist or the inputs
+    /// cannot be derived (SCCP then fails closed; block execution is unaffected).
     ///
     /// Read the authenticated native schedule after the output-seal finalizer advanced it.
     /// Unauthenticated component executions never infer committee authority from their writes.
@@ -73,8 +83,10 @@ impl ValidBlock {
         block: &SignedBlock,
         state: &StateBlock<'_>,
         source: crate::smartcontracts::isi::sccp::height::SccpHeightSourceV1,
-    ) -> Option<crate::smartcontracts::isi::sccp::height::SccpHeightInputsV1> {
-        use crate::smartcontracts::isi::sccp::height::{SccpHeightInputsV1, SccpHeightSourceV1};
+    ) -> Option<crate::smartcontracts::isi::sccp::height::RetainedSccpHeightInputsV1> {
+        use crate::smartcontracts::isi::sccp::height::{
+            RetainedSccpHeightInputsV1, SccpHeightSourceV1,
+        };
         if !crate::smartcontracts::isi::sccp::params::exists(&state.world) {
             return None;
         }
@@ -82,7 +94,8 @@ impl ValidBlock {
             SccpHeightSourceV1::SumeragiSchedule {
                 genesis_height,
                 mode,
-            } => SccpHeightInputsV1::from_sumeragi_schedule(
+                root_scope: iroha_data_model::block::consensus::SumeragiRootScope::Global,
+            } => RetainedSccpHeightInputsV1::from_sumeragi_schedule(
                 &state.world,
                 block.header().height().get(),
                 genesis_height,
@@ -91,11 +104,13 @@ impl ValidBlock {
             .map_err(|error| {
                 iroha_logger::warn!(
                     %error,
-                    "SCCP: the scheduled height inputs are unavailable; generation derivation fails closed"
+                    "SCCP: the scheduled height inputs are unavailable; SCCP fails closed"
                 );
             })
             .ok(),
-            SccpHeightSourceV1::Unauthenticated => None,
+            SccpHeightSourceV1::Unauthenticated | SccpHeightSourceV1::SumeragiSchedule { .. } => {
+                None
+            }
         }
     }
 

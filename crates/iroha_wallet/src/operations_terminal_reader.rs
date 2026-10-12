@@ -7,7 +7,9 @@ use super::*;
 /// Every call reacquires the native journal and lock, reads its complete fixed inventory and
 /// exact bounded records, and verifies the newly supplied request and options. Only unchanged
 /// canonical Request/Retired bytes under the same native identities can reuse their privately
-/// decoded values. No journal handle, lock, phase verdict or authorization survives a call.
+/// decoded values and the retained Plan's validation timestamp. Each new expected Plan is
+/// still constructed and compared. No journal handle, lock, phase verdict or authorization
+/// survives a call.
 /// The borrowed account fixes the original configuration; the private records have no mutation
 /// interface. This owner cannot prepare, retire, sign or submit an operation.
 pub struct CustodyPreparationReader<'account> {
@@ -39,7 +41,7 @@ impl<'account> CustodyPreparationReader<'account> {
             parent,
             name,
             NativeOperationKind::StreamTokenCustodyConfigure,
-            OperationExpectation::Custody(CustodyExpectation::Configure(expected)),
+            CustodyExpectation::Configure(expected),
         )
     }
 
@@ -57,7 +59,7 @@ impl<'account> CustodyPreparationReader<'account> {
             parent,
             name,
             NativeOperationKind::StreamTokenCustodyEnroll,
-            OperationExpectation::Custody(CustodyExpectation::Enroll(expected)),
+            CustodyExpectation::Enroll(expected),
         )
     }
 
@@ -66,15 +68,18 @@ impl<'account> CustodyPreparationReader<'account> {
         parent: &iroha_fs::PrivateDirectory,
         name: &std::ffi::OsStr,
         kind: NativeOperationKind,
-        expected: OperationExpectation<'_>,
+        expected: CustodyExpectation<'_>,
     ) -> Result<VerifiedNativePreparation> {
         // Eligibility is decided before the wallet's own finite decoder scope. An inherited
         // owner gets the literal original physical recipe, including its early refusals.
         if norito::core::decode_limits_active() {
             self.previous = None;
-            return self
-                .account
-                .inspect_preparation_in_parent(parent, name, kind, Some(expected));
+            return self.account.inspect_preparation_in_parent(
+                parent,
+                name,
+                kind,
+                Some(OperationExpectation::Custody(expected)),
+            );
         }
         // Taking the sole entry before I/O makes every refusal/absence clear it. No success or
         // source observation is lent across this call; exact bytes are freshly read lazily in
@@ -92,7 +97,16 @@ impl<'account> CustodyPreparationReader<'account> {
                     &self.account.config,
                     ReadRecipe::Terminal(previous),
                 )?;
-                retained.verify_selection(kind, Some(&expected))?;
+                // Keep the exact purpose gate before the fresh expectation. The optional
+                // timestamp belongs to these just-observed Request bytes, not this caller.
+                eyre::ensure!(
+                    retained.request.operation.kind() == kind,
+                    "different native preparation purpose"
+                );
+                let custody_plan = expected.verify_with_timestamp(
+                    &retained.request.selection(),
+                    observed.as_ref().and_then(|value| value.custody_plan),
+                )?;
                 if !retained.retired {
                     return Ok((retained.into_inspection()?, None));
                 }
@@ -115,6 +129,7 @@ impl<'account> CustodyPreparationReader<'account> {
                             observation: observed.request,
                         },
                         retirement,
+                        custody_plan: Some(custody_plan),
                     }),
                 ))
             })?;

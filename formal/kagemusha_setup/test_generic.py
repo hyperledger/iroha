@@ -86,6 +86,11 @@ def setup_case(tag, modules, fixture, variant='ordinary'):
     query = lambda index, rotation: frame(uint(index)) + frame(rotation.to_bytes(4, 'little', signed=True))
     if variant == 'public-only':
         fields[17] = seq([query(0, 0), query(0, 2)])
+    elif variant == 'zero-grouping':
+        # The mixed advice/fixed set ends in fixed, separately from R's set.
+        # Other sets retain masked lookup/input last slots.
+        fields[17] = seq([query(0, 0), query(0, 2)])
+        fields[18] = seq([query(0, 0), query(0, 2)])
     elif variant == 'multi':
         fields[15] = uint(3)
         fields[18] = seq([query(i, 0) for i in range(3)])
@@ -122,6 +127,7 @@ def source_cases():
 
 class GenericKnownLog(unittest.TestCase):
     verified_toy_proofs = 0
+    verified_adapted_toy_proofs = 0
     @classmethod
     def setUpClass(cls):
         require(OUTPUT is not None, 'explicit fresh output required')
@@ -157,6 +163,118 @@ class GenericKnownLog(unittest.TestCase):
                 self.assertTrue(metadata['fixed_poseidon'])
                 self.assertEqual(metadata['oracle_programs'], 0)
                 self.assertEqual(len(result.rounds), 6)
+
+    def test_direct_simulator_x1_zero_public_masked_and_r_last(self):
+        """Two full adapted proofs exercise actual simulate(), never RP57 evidence."""
+        from . import simulator as engine
+        fixture = json.loads((ROOT/'fixtures/native_prover/reference_v1.json').read_text())
+        for tag in (0, 1):
+            with self.subTest(curve=tag):
+                modules = reference(OUTPUT/f'zero-source-reference-{tag}')
+                d, key, _, _, _, original = setup_case(tag, modules, fixture, 'zero-grouping')
+                case = make_case(OUTPUT/f'zero-grouping-{tag}', d.raw, key, original,
+                    {'descriptor':sha(d.raw), 'key':sha(key), 'original':sha(original)},
+                    self.families[tag])
+                original_transcript = case.transcript.Transcript
+                self.assertIs(case.verifier.Transcript, original_transcript)
+                observed, samples = [], []
+
+                class TestOnlyX1Zero(original_transcript):
+                    """Named non-RP57 adapter; keep the sponge, replace only output #5."""
+                    test_only_challenge_adapter = 'test-only/x1-zero/index-5/v1'
+
+                    def __init__(self, *args, **kwargs):
+                        super().__init__(*args, **kwargs)
+                        self.forced = []
+                        observed.append(self)
+
+                    def squeeze(self):
+                        index = len(self.challenges)
+                        value = super().squeeze()
+                        if index == 5:
+                            self.forced.append((index, value))
+                            self.challenges[-1] = 0
+                            return 0
+                        return value
+
+                def traced_draw(modulus, coins):
+                    value = draw(modulus, coins)
+                    samples.append(value)
+                    return value
+
+                coins = CountedCoins(1919+tag)
+                # Both aliases are private to this fresh chosen reference. No
+                # repository module, equation or authority file is changed.
+                with patch.object(case.transcript, 'Transcript', TestOnlyX1Zero), \
+                     patch.object(case.verifier, 'Transcript', TestOnlyX1Zero), \
+                     patch.object(engine, 'draw', traced_draw):
+                    args, result, record = engine.simulate(case, [[1]], coins)
+                    self.assertEqual(case.verifier.verify(**args), result)
+                    self.assertFalse(record['fixed_poseidon'])
+                    self.assertEqual(record['test_only_challenge_adapter'],
+                                     TestOnlyX1Zero.test_only_challenge_adapter)
+                    self.assertEqual(record['grouping_challenge'], 0)
+                    self.assertEqual(result.challenges[5], 0)
+                    self.assertEqual(json.loads((case.directory/'simulation.json').read_text()), record)
+                    self.assertEqual(len(args['proof']), sample_budget(case)['expected_proof_bytes'])
+                    self.assertLessEqual(coins.calls, sample_budget(case)['source_calls_max'])
+                    _, _, slots, sets, membership = case.verifier.opening_shape(case.descriptor)
+                    groups = [[slot for slot in slots if membership[slot] == i]
+                              for i in range(len(sets))]
+                    public_last = [i for i, group in enumerate(groups)
+                                   if group[-1][0] in ('fixed', 'sigma') and
+                                   any(slot[0] == 'advice' for slot in group[:-1])]
+                    masked_last = [i for i, group in enumerate(groups)
+                                   if group[-1][0] in ('input', 'lookup', 'permutation', 'table', 'advice')]
+                    r_last = [i for i, group in enumerate(groups) if group[-1] == ('random', 0)]
+                    self.assertEqual(len(public_last), 1)
+                    self.assertTrue(masked_last)
+                    self.assertEqual(len(r_last), 1)
+                    self.assertEqual(record['public_only_sets'], public_last)
+                    at, m = record['opening_point'], case.descriptor.curve.scalar
+                    # The fixture's last public polynomial is exactly L_0.
+                    public_index = public_last[0]
+                    self.assertEqual(groups[public_index][-1], ('fixed', 0))
+                    expected = (pow(at, d.n, m)-1)*pow(d.n*(at-1), -1, m) % m
+                    self.assertEqual(record['point_set_evaluations'][public_index], expected)
+                    # All grouped commitments retain exactly their last slot;
+                    # checking the actual simulator ledger covers R-last too.
+                    for i, group in enumerate(groups):
+                        label = '%s/%s' % group[-1]
+                        self.assertEqual(record['derived_logs'][f'opening_group/{i}'],
+                                         record['derived_logs'][label])
+                    nz, nl = d.permutation_sets, len(d['lookups'])
+                    before_qt = (d['num_advice_columns']+3*nl+nz+d['quotient_pieces']+2 +
+                                 len(d['advice_queries'])+1+max(3*nz-1, 0)+5*nl)
+                    consumed = 0
+                    for i in range(len(sets)):
+                        if i not in public_last:
+                            self.assertEqual(record['point_set_evaluations'][i],
+                                             samples[before_qt+consumed])
+                            consumed += 1
+                    budget = sample_budget(case)
+                    self.assertEqual(len(samples), budget['scalar_samples_max']-1-
+                                     int(record['rank_collapsed']))
+                    # The shared adapter changes no group equation. Its actual
+                    # verifier still rejects a corrupted final blind.
+                    proof = args['proof']
+                    bad_f = proof[:-64]+uint((record['f']+1) % m, 32)+proof[-32:]
+                    with self.assertRaisesRegex(ValueError, 'IPA group equation'):
+                        case.verifier.verify(**dict(args, proof=bad_f))
+                    self.assertEqual(len(observed), 4)  # writer, two reads, corrupt read
+                    self.assertTrue(all(len(t.forced) == 1 and t.forced[0][0] == 5
+                                        for t in observed))
+                    self.assertTrue(all(t.forced[0][1] != 0 for t in observed))
+                self.assertIs(case.transcript.Transcript, original_transcript)
+                self.assertIs(case.verifier.Transcript, original_transcript)
+                # This diagnostic proof must not be accepted or counted as an
+                # ordinary fixed-RP57 proof after the private adapter is removed.
+                with self.assertRaises(ValueError):
+                    case.verifier.verify(**args)
+                for name in MODULES:
+                    self.assertEqual((Path(case.transcript.__file__).parent/name).read_bytes(),
+                                     (REFERENCE/name).read_bytes())
+                type(self).verified_adapted_toy_proofs += 1
 
     def test_ordinary_bytes_match_frozen_known_log_simulator(self):
         for tag in (0, 1):

@@ -9,7 +9,8 @@ use iroha_schema::{Ident, IntoSchema};
 use norito::codec::{Decode, Encode};
 use norito::json::JsonKeyCodec;
 use std::str::FromStr;
-/// Hash-version constant for validator set checkpoints.
+/// Version of the validator-set hashing scheme (`HashOf` over the ordered peer identities)
+/// that lane committee records and queue-plan admission contexts name.
 pub const VALIDATOR_SET_HASH_VERSION_V1: u16 = 1;
 /// Protocol version for the first-release global threshold beacon.
 pub const GLOBAL_THRESHOLD_BEACON_VERSION_V1: u16 = 1;
@@ -18,85 +19,6 @@ pub const GLOBAL_THRESHOLD_BEACON_VERSION_V1: u16 = 1;
 /// This bounds proposal, vote, quorum-certificate, drain, and persisted proof
 /// envelopes across configuration, runtime admission, and restart recovery.
 pub const MAX_LANE_CONSENSUS_VALIDATORS: usize = 128;
-/// Signed validator set checkpoint used for bootstrap and audit.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Encode,
-    Decode,
-    IntoSchema,
-    DeriveJsonSerialize,
-    DeriveJsonDeserialize,
-)]
-pub struct ValidatorSetCheckpoint {
-    /// Block height covered by the checkpoint.
-    pub height: u64,
-    /// Block view (view-change index) covered by the checkpoint.
-    pub view: u64,
-    /// Block hash bound into the checkpoint.
-    pub block_hash: HashOf<crate::block::BlockHeader>,
-    /// Parent state root bound into the checkpoint.
-    pub parent_state_root: Hash,
-    /// Post-state root bound into the checkpoint.
-    pub post_state_root: Hash,
-    /// Hash of the vNext chain order bound into the checkpoint's aggregate signature.
-    pub chain_order_hash: Hash,
-    /// Re-chain sequence bound into the checkpoint's aggregate signature.
-    pub rechain_seq: u64,
-    /// Stable hash of the validator set encoded with [`VALIDATOR_SET_HASH_VERSION_V1`].
-    pub validator_set_hash: HashOf<Vec<iroha_model_base::peer::PeerId>>,
-    /// Version of the validator-set hashing scheme.
-    pub validator_set_hash_version: u16,
-    /// Ordered validator set used to assemble the commit certificate.
-    pub validator_set: Vec<iroha_model_base::peer::PeerId>,
-    /// Compact signer bitmap (LSB-first).
-    pub signers_bitmap: Vec<u8>,
-    /// BLS12-381 aggregate signature bytes (compressed).
-    pub bls_aggregate_signature: Vec<u8>,
-    /// Optional expiry height for the checkpoint (exclusive).
-    #[norito(skip_serializing_if = "Option::is_none")]
-    pub expires_at_height: Option<u64>,
-}
-impl ValidatorSetCheckpoint {
-    /// Construct a checkpoint with an explicit chain-order binding.
-    #[must_use]
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        height: u64,
-        view: u64,
-        block_hash: HashOf<crate::block::BlockHeader>,
-        chain_order_hash: Hash,
-        rechain_seq: u64,
-        parent_state_root: Hash,
-        post_state_root: Hash,
-        validator_set: Vec<iroha_model_base::peer::PeerId>,
-        signers_bitmap: Vec<u8>,
-        bls_aggregate_signature: Vec<u8>,
-        validator_set_hash_version: u16,
-        expires_at_height: Option<u64>,
-    ) -> Self {
-        let validator_set_hash = HashOf::new(&validator_set);
-        Self {
-            height,
-            view,
-            block_hash,
-            parent_state_root,
-            post_state_root,
-            chain_order_hash,
-            rechain_seq,
-            validator_set_hash,
-            validator_set_hash_version,
-            validator_set,
-            signers_bitmap,
-            bls_aggregate_signature,
-            expires_at_height,
-        }
-    }
-}
 /// Finite protocol ceiling for one canonical parent service `CommitQC` original.
 /// The complete verifier still checks the actual bitmap, signature, attestation
 /// geometry and independently authenticated epoch; byte size grants no authority.
@@ -1077,10 +999,6 @@ mod tests {
     fn checked_random_keypair() -> KeyPair {
         KeyPair::try_random().expect("generate checked consensus DTO fixture keypair")
     }
-    fn checked_random_keypair_with_algorithm(algorithm: Algorithm) -> KeyPair {
-        KeyPair::try_random_with_algorithm(algorithm)
-            .expect("generate checked consensus DTO fixture keypair")
-    }
     fn threshold_beacon_network(marker: u8) -> NetworkId {
         NetworkId::from_genesis_hash(HashOf::<crate::block::BlockHeader>::from_untyped_unchecked(
             Hash::prehashed([marker; Hash::LENGTH]),
@@ -1310,50 +1228,6 @@ mod tests {
             NposConsensusSlashAction::decode(&mut encoded.as_slice()).is_err(),
             "a negative signed payload must not decode as a consensus slash amount"
         );
-    }
-    #[test]
-    fn validator_set_checkpoint_roundtrip_and_hash() {
-        let kp_a = checked_random_keypair_with_algorithm(Algorithm::BlsNormal);
-        let kp_b = checked_random_keypair_with_algorithm(Algorithm::BlsNormal);
-        let validator_set = vec![
-            iroha_model_base::peer::PeerId::new(kp_a.public_key().clone()),
-            iroha_model_base::peer::PeerId::new(kp_b.public_key().clone()),
-        ];
-        let block_hash = HashOf::<crate::block::BlockHeader>::from_untyped_unchecked(
-            iroha_crypto::Hash::prehashed([0xAA; 32]),
-        );
-        let parent_state_root = iroha_crypto::Hash::prehashed([0u8; iroha_crypto::Hash::LENGTH]);
-        let post_state_root = iroha_crypto::Hash::prehashed([1u8; iroha_crypto::Hash::LENGTH]);
-        let chain_order_hash = iroha_crypto::Hash::new(b"checkpoint-chain-order");
-        let checkpoint = ValidatorSetCheckpoint::new(
-            42,
-            7,
-            block_hash,
-            chain_order_hash,
-            5,
-            parent_state_root,
-            post_state_root,
-            validator_set.clone(),
-            vec![0x01],
-            vec![0xAA, 0xBB],
-            VALIDATOR_SET_HASH_VERSION_V1,
-            None,
-        );
-        let expected_hash = HashOf::new(&validator_set);
-        assert_eq!(checkpoint.validator_set_hash, expected_hash);
-        assert_eq!(checkpoint.chain_order_hash, chain_order_hash);
-        assert_eq!(checkpoint.rechain_seq, 5);
-        let buf = checkpoint.encode();
-        let decoded =
-            ValidatorSetCheckpoint::decode(&mut &buf[..]).expect("validator checkpoint decodes");
-        assert_eq!(decoded.height, 42);
-        assert_eq!(decoded.view, 7);
-        assert_eq!(decoded.parent_state_root, parent_state_root);
-        assert_eq!(decoded.post_state_root, post_state_root);
-        assert_eq!(decoded.chain_order_hash, chain_order_hash);
-        assert_eq!(decoded.rechain_seq, 5);
-        assert_eq!(decoded.validator_set_hash, expected_hash);
-        assert_eq!(decoded.validator_set, validator_set);
     }
     #[test]
     fn consensus_key_record_and_list_use_distinct_canonical_frames() {

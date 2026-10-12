@@ -9,6 +9,9 @@
 //! result carries the boundary decision naming the complete next context. Handoffs are applied
 //! in sequence, one per epoch, even when the committee is retained, so members removed at an
 //! epoch start cannot certify any height of a later epoch.
+//! Participants additionally retain authenticated evicted contexts for their unresolved `Yes`
+//! obligations. The internal archive verifier shares every certificate check below; ordinary
+//! proofs and handoffs cannot select that historical authority.
 //!
 //! Certificate verification reuses the core's exact-quorum check
 //! ([`iroha_sumeragi::crypto::Verifier::verify_qc`]) over the committee's
@@ -57,6 +60,9 @@ pub struct AmxForeignInstanceV1 {
         bounded_with = "crate::json_helpers::fixed_bytes_hex::serialize_bounded"
     )]
     pub instance: [u8; 32],
+    /// Original registered root class; supplied with the independent epoch authority,
+    /// never inferred from an offered result header.
+    pub result_scope: CertifiedResultScope,
     /// Latest verified epoch context `C_{J,e}`.
     pub current: ValidatorEpochContextV1,
     /// Its verified predecessor `C_{J,e−1}`; absent until the first handoff.
@@ -123,9 +129,14 @@ impl AmxForeignInstanceV1 {
     ///
     /// # Errors
     /// The anchor context is invalid.
-    pub fn new(instance: [u8; 32], anchor: ValidatorEpochContextV1) -> Result<Self, AmxError> {
+    pub fn new(
+        instance: [u8; 32],
+        anchor: ValidatorEpochContextV1,
+        result_scope: CertifiedResultScope,
+    ) -> Result<Self, AmxError> {
         let tracker = Self {
             instance,
+            result_scope,
             current: anchor,
             previous: None,
         };
@@ -170,16 +181,20 @@ impl AmxForeignInstanceV1 {
 
     /// Verify a certified block of this instance: its epoch is tracked, its `CommitQC` has exactly
     /// a quorum of valid signatures of that epoch's committee over this header and result, and its
-    /// result preimage hashes to the certified `R`. `scope` comes from the authenticated
+    /// result preimage hashes to the certified `R`. The retained scope comes from the authenticated
     /// source role, never the result header. This compact proof has no block timestamp, so
     /// it cannot independently check C5; the quorum authenticates that time.
     ///
     /// # Errors
     /// Oversized or malformed parts, an untracked epoch, or any failed binding or signature.
-    pub fn verify_block(
+    pub fn verify_block(&self, block: &AmxCertifiedBlockV1) -> Result<AmxVerifiedBlock, AmxError> {
+        self.verify_block_with_contexts(block, &[])
+    }
+
+    fn verify_block_with_contexts(
         &self,
         block: &AmxCertifiedBlockV1,
-        scope: CertifiedResultScope,
+        decision_contexts: &[ValidatorEpochContextV1],
     ) -> Result<AmxVerifiedBlock, AmxError> {
         need(
             !block.consensus_header.is_empty()
@@ -190,10 +205,16 @@ impl AmxForeignInstanceV1 {
                 && block.result_preimage.len() <= MAX_RESULT_PREIMAGE_BYTES,
             "certified block parts are empty or exceed their bounds",
         )?;
-        let outer_scope = norito::core::decode_limits_active();
-        let header: CoreHeader = norito::decode_canonical(&block.consensus_header)
-            .map_err(|error| super::proof_codec_error(&error, "core header", outer_scope))?;
-        let context = self.context(header.epoch.epoch)?;
+        let header: CoreHeader = norito::core::classify_decode_attempt(|| {
+            norito::decode_canonical(&block.consensus_header)
+        })
+        .map_err(|error| super::proof_codec_error(error, "core header"))?;
+        let context = self.context(header.epoch.epoch).or_else(|error| {
+            decision_contexts
+                .binary_search_by_key(&header.epoch.epoch, |context| context.authorization.epoch)
+                .map(|index| &decision_contexts[index])
+                .map_err(|_| error)
+        })?;
         let epoch = core_epoch(context).map_err(|error| AmxError::Anchor(error.to_string()))?;
         need(
             header.instance.0 == self.instance,
@@ -203,8 +224,9 @@ impl AmxForeignInstanceV1 {
             header.epoch == epoch.id && epoch.contains(header.height),
             "the block is outside its tracked epoch context",
         )?;
-        let qc: Qc = norito::decode_canonical(&block.commit_qc)
-            .map_err(|error| super::proof_codec_error(&error, "commit certificate", outer_scope))?;
+        let qc: Qc =
+            norito::core::classify_decode_attempt(|| norito::decode_canonical(&block.commit_qc))
+                .map_err(|error| super::proof_codec_error(error, "commit certificate"))?;
         let validators: Vec<FinalityValidator> = context
             .committee
             .iter()
@@ -231,8 +253,10 @@ impl AmxForeignInstanceV1 {
             result_of_preimage(&block.result_preimage) == Some(qc.result),
             "the result preimage does not hash to the certified result",
         )?;
-        let certified_result = CertifiedResultV1::decode(&block.result_preimage, scope)
-            .map_err(|error| super::commitment_error(&error))?;
+        // AMX tracks both the global coordinator and foreign roots. Preserve the original
+        // registered scope; the offered X cannot select or widen that authority.
+        let certified_result = CertifiedResultV1::decode(&block.result_preimage, self.result_scope)
+            .map_err(super::certified_result_error)?;
         let commitment = certified_result.commitment();
         need(
             commitment.height == header.height && commitment.schedule.current == *context,
@@ -250,17 +274,23 @@ impl AmxForeignInstanceV1 {
 
     /// Verify a record proof of this instance: the certified block verifies (see
     /// [`Self::verify_block`]) and the record's write is in its ordinary-write root.
-    /// `scope` is the same authenticated source role used for the certified block.
     ///
     /// # Errors
     /// A malformed record, a failed block verification or a path to another root.
-    pub fn verify_record(
+    pub fn verify_record(&self, proof: &AmxRecordProofV1) -> Result<AmxVerifiedBlock, AmxError> {
+        self.verify_record_with_contexts(proof, &[])
+    }
+
+    /// Verify with additional authority retained in committed participant State from this
+    /// tracker's authenticated handoffs. The participant restricts this path to the exact
+    /// unresolved `Yes` obligation and checks its authenticated decision-height interval.
+    pub(super) fn verify_record_with_contexts(
         &self,
         proof: &AmxRecordProofV1,
-        scope: CertifiedResultScope,
+        decision_contexts: &[ValidatorEpochContextV1],
     ) -> Result<AmxVerifiedBlock, AmxError> {
         let root = proof.claimed_root()?;
-        let verified = self.verify_block(&proof.block, scope)?;
+        let verified = self.verify_block_with_contexts(&proof.block, decision_contexts)?;
         need(
             root == verified.commitment().execution.ordinary_writes_root,
             "the record is not in the block's write set",
@@ -270,7 +300,6 @@ impl AmxForeignInstanceV1 {
 
     /// Apply a handoff proof: the certified last block of the latest tracked epoch `e` whose
     /// result decides the boundary. The tracker then holds `e + 1` and `e`.
-    /// `scope` is selected from the authenticated foreign-root role.
     ///
     /// # Errors
     /// The block does not verify, is of an epoch beyond `e` (an earlier handoff is missing), is
@@ -278,12 +307,20 @@ impl AmxForeignInstanceV1 {
     pub fn apply_handoff(
         &mut self,
         proof: &AmxHandoffProofV1,
-        scope: CertifiedResultScope,
     ) -> Result<AmxHandoffOutcome, AmxError> {
-        let verified = self.verify_block(&proof.block, scope)?;
+        self.apply_handoff_retaining_evicted(proof)
+            .map(|(outcome, _)| outcome)
+    }
+
+    /// Move the evicted authenticated context to its participant's obligation archive.
+    pub(super) fn apply_handoff_retaining_evicted(
+        &mut self,
+        proof: &AmxHandoffProofV1,
+    ) -> Result<(AmxHandoffOutcome, Option<ValidatorEpochContextV1>), AmxError> {
+        let verified = self.verify_block(&proof.block)?;
         if verified.epoch != self.epoch() {
             // Verified under `C_{e−1}`: the handoff into `e`, which the tracker already holds.
-            return Ok(AmxHandoffOutcome::Stale);
+            return Ok((AmxHandoffOutcome::Stale, None));
         }
         need(
             verified.height == self.current.authorization.last_height,
@@ -299,9 +336,14 @@ impl AmxForeignInstanceV1 {
             .validate_against(&self.current)
             .map_err(proof_error)?;
         let next = boundary.next.clone();
-        self.previous = Some(std::mem::replace(&mut self.current, next));
-        Ok(AmxHandoffOutcome::Advanced {
-            epoch: self.epoch(),
-        })
+        let evicted = self
+            .previous
+            .replace(std::mem::replace(&mut self.current, next));
+        Ok((
+            AmxHandoffOutcome::Advanced {
+                epoch: self.epoch(),
+            },
+            evicted,
+        ))
     }
 }

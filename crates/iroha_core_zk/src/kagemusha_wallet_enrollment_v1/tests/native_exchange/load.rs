@@ -557,6 +557,55 @@ fn resume_native_load_finality_from_executed_history() {
 }
 
 #[test]
+fn captured_block_requires_original_native_result_envelope() {
+    use iroha_data_model::sumeragi_finality::test_fixtures::NativeFinalityFixture;
+
+    let fixture = NativeFinalityFixture::new();
+    let block = fixture
+        .verifier()
+        .verify_retained_decision(fixture.latest())
+        .unwrap();
+    let certificate = block.block().commit_certificate().unwrap();
+    let qc: iroha_sumeragi::message::Qc = decode(certificate.commit_qc());
+    let schedule = &block.commitment().schedule;
+    let keys: Vec<_> = schedule
+        .current
+        .committee
+        .iter()
+        .map(|member| hex::encode(member.validator.public_key().try_to_bytes().unwrap().1))
+        .collect();
+    let pops: Vec<_> = schedule
+        .current
+        .committee
+        .iter()
+        .map(|member| hex::encode(&member.proof_of_possession))
+        .collect();
+    let mut row = norito::json!({
+        "height": (block.height()),
+        "result_preimage_hex": (hex::encode(certificate.result_preimage())),
+        "result_hash_hex": (hex::encode(block.result().0)),
+        "commit_vote_preimage_hex": (hex::encode(qc.preimage())),
+        "qc_bitmap_hex": (hex::encode(qc.signers.as_bytes())),
+        "qc_aggregate_signature_hex": (hex::encode(qc.agg_sig.0)),
+        "committee_public_keys_hex": keys,
+        "committee_proofs_of_possession_hex": pops,
+        "authenticated_schedule": {
+            "current": {"context_id_hex": (hex::encode(schedule.current.context_id().unwrap()))},
+            "boundary": (norito::json::Value::Null),
+        },
+    });
+    require_block(&row, &block);
+    row.as_object_mut().unwrap().insert(
+        "result_preimage_hex".into(),
+        hex::encode(block.commitment().preimage().unwrap()).into(),
+    );
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| require_block(&row, &block)))
+            .is_err()
+    );
+}
+
+#[test]
 fn event_path_refuses_out_of_range_missing_and_noncanonical_padding() {
     let zero = [[0u8; 32]; 32];
     assert!(event_path(1, 0, &zero).is_ok());

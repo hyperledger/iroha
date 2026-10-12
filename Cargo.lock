@@ -157,12 +157,11 @@ dependencies = [
 [[package]]
 name = "aes"
 version = "0.8.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b169f7a6d4742236a0a00c541b845991d0ac43e546831af1249753ab4c3aa3a0"
 dependencies = [
  "cfg-if",
  "cipher 0.4.4",
  "cpufeatures 0.2.17",
+ "hex-literal 0.3.4",
  "zeroize",
 ]
 
@@ -1193,6 +1192,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "blobby"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "847495c209977a90e8aad588b959d0ca9f5dc228096d29a6bd3defd53f35eaec"
+
+[[package]]
 name = "block"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1582,6 +1587,7 @@ version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773f3b9af64447d2ce9850330c473515014aa235e6a783b02db81ff39e4a3dad"
 dependencies = [
+ "blobby",
  "crypto-common 0.1.7",
  "inout 0.1.4",
  "zeroize",
@@ -4061,6 +4067,12 @@ dependencies = [
 
 [[package]]
 name = "hex-literal"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ebdb29d2ea9ed0083cd8cece49bbd968021bd99b0849edb4a9a7ee0fdf6a4e0"
+
+[[package]]
+name = "hex-literal"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e712f64ec3850b98572bffac52e2c6f282b29fe6c5fa6d42334b30be438d95c1"
@@ -5055,7 +5067,7 @@ dependencies = [
  "getset",
  "group",
  "hex",
- "hex-literal",
+ "hex-literal 1.1.0",
  "hkdf",
  "iroha_allocation",
  "iroha_fhe",
@@ -5115,7 +5127,7 @@ dependencies = [
  "fastpq_isi",
  "getset",
  "hex",
- "hex-literal",
+ "hex-literal 1.1.0",
  "iroha_allocation",
  "iroha_crypto",
  "iroha_data_model_derive",
@@ -5275,6 +5287,10 @@ dependencies = [
 name = "iroha_fhe"
 version = "2.0.0-rc.2.0"
 dependencies = [
+ "blake3",
+ "getrandom 0.3.4",
+ "iroha_fhe",
+ "iroha_measurement",
  "num-bigint 0.4.6",
  "thiserror 2.0.18",
  "zeroize",
@@ -5602,6 +5618,16 @@ name = "iroha_panic_hook"
 version = "2.0.0-rc.2.0"
 dependencies = [
  "tokio",
+]
+
+[[package]]
+name = "iroha_parliament_ballot_proof"
+version = "2.0.0-rc.2.0"
+dependencies = [
+ "iroha_zkp_vole",
+ "sha3",
+ "thiserror 2.0.18",
+ "zeroize",
 ]
 
 [[package]]
@@ -6039,6 +6065,7 @@ dependencies = [
  "iroha_p2p",
  "iroha_panic_hook",
  "iroha_primitives",
+ "iroha_sccp",
  "iroha_schema",
  "iroha_schema_gen",
  "iroha_service_model",
@@ -6160,7 +6187,7 @@ dependencies = [
  "fastpq_isi",
  "halo2curves",
  "hex",
- "hex-literal",
+ "hex-literal 1.1.0",
  "iroha_crypto",
  "iroha_fhe",
  "iroha_schema",
@@ -6182,6 +6209,17 @@ dependencies = [
  "iroha_pasta",
  "once_cell",
  "sha2",
+ "zeroize",
+]
+
+[[package]]
+name = "iroha_zkp_vole"
+version = "2.0.0-rc.2.0"
+dependencies = [
+ "aes",
+ "keccak",
+ "sha3",
+ "thiserror 2.0.18",
  "zeroize",
 ]
 
@@ -6350,7 +6388,7 @@ dependencies = [
  "group",
  "halo2curves",
  "hex",
- "hex-literal",
+ "hex-literal 1.1.0",
  "indexmap 2.14.0",
  "iroha_accel",
  "iroha_allocation",
@@ -6392,7 +6430,7 @@ name = "ivm_abi"
 version = "2.0.0-rc.2.0"
 dependencies = [
  "hex",
- "hex-literal",
+ "hex-literal 1.1.0",
  "iroha_allocation",
  "iroha_crypto",
  "iroha_data_model",
@@ -10277,7 +10315,7 @@ name = "sm3-neon"
 version = "0.1.0"
 dependencies = [
  "criterion",
- "hex-literal",
+ "hex-literal 1.1.0",
  "rand 0.9.4",
  "sm3 0.5.0",
 ]

@@ -107,7 +107,7 @@ fn plain_and_batch_business_rejection_charge_the_same_actual_direct_basis() {
 fn fee_only_settlement_does_not_charge_completed_work_again_at_the_block_limit() {
     let _fee_guard = crate::status::nexus_fee_test_lock().lock().unwrap();
     let body = failing_body();
-    let gas = crate::gas::meter_instructions(&body);
+    let gas = crate::gas::meter_instructions(&body, &crate::gas::DEFAULT_ZK_GAS);
     assert!(gas > 0);
     for exact in [false, true] {
         let (state, asset) = priced_fixture(None);
@@ -198,7 +198,7 @@ fn actual_data_callback_failure_rolls_back_business_but_preserves_root_fee_basis
         setup.commit_world_overlay_for_testing().unwrap();
     }
     let body = vec![write("data_callback_event")];
-    let direct_gas = crate::gas::meter_instructions(&body);
+    let direct_gas = crate::gas::meter_instructions(&body, &crate::gas::DEFAULT_ZK_GAS);
     let source = carrier(&state, vec![input(&state, body, payment(&asset, 2), false)]);
     let (mut block, _recording) = recorded_network_block(&state, &source);
     let fragments = block.committed_fragment_count();
@@ -259,7 +259,8 @@ fn healthy_output_overflow_drops_both_business_and_its_staged_fee() {
         policy.max_output_bytes = 16_384;
         parameters
             .get_mut()
-            .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)));
+            .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
     let source = carrier(
@@ -306,18 +307,28 @@ fn commit_sccp_parameters(state: &State) {
     setup.commit_world_overlay_for_testing().unwrap();
 }
 
+/// A keeper advance of the Ethereum light client that decodes and proves nothing: eligible
+/// for the SCCP fee exemption from any authority whenever SCCP exists (`specs/sccp.md` §4.19).
+fn sccp_keeper_advance() -> Vec<InstructionBox> {
+    use iroha_sccp::light_client::{ethereum::EthereumLcAdvanceV1, proof::SccpLcAdvanceV1};
+    vec![InstructionBox::from(
+        iroha_data_model::isi::sccp::AdvanceSccpLightClientV1 {
+            network: iroha_data_model::bridge::SccpNetworkV1::EthereumMainnet,
+            expected_state_hash: None,
+            advance: SccpLcAdvanceV1::Ethereum(EthereumLcAdvanceV1 {
+                updates: Vec::new(),
+            })
+            .to_bytes()
+            .expect("bounded advance"),
+        },
+    )]
+}
+
 #[test]
 fn a_failed_sccp_exempt_transaction_is_charged_within_its_signed_intent() {
     let _fee_guard = crate::status::nexus_fee_test_lock().lock().unwrap();
-    // A decodable keeper advance is eligible while SCCP exists, then fails because its
-    // light client is absent. One instruction: base fee 1 + one instruction at 1.
-    let keeper = || {
-        vec![InstructionBox::from(
-            crate::smartcontracts::isi::sccp::test_support::SampleInstructions::keeper_advance(
-                iroha_data_model::bridge::SccpNetworkV1::EthereumMainnet,
-            ),
-        )]
-    };
+    // A keeper advance is eligible whenever SCCP exists; this one fails at execution because
+    // no light client is installed. One instruction: base fee 1 + one instruction at 1.
     for (limit, balance_after) in [(Some(2_u32), 8_u32), (Some(1), 10), (None, 10)] {
         let (state, asset) = priced_fixture(None);
         commit_sccp_parameters(&state);
@@ -325,14 +336,17 @@ fn a_failed_sccp_exempt_transaction_is_charged_within_its_signed_intent() {
             || FeePaymentIntent::authority(Vec::new(), None),
             |maximum| payment(&asset, maximum),
         );
-        let source = carrier(&state, vec![input(&state, keeper(), intent, false)]);
+        let source = carrier(
+            &state,
+            vec![input(&state, sccp_keeper_advance(), intent, false)],
+        );
         let (mut block, _recording) = recorded_network_block(&state, &source);
         execute(&mut block, &source).unwrap();
         let row = network_row(&block, 0);
         let reason = format!("{:?}", row.result.0);
-        assert!(row.result.is_err(), "{limit:?}: the keeper advance fails");
+        assert!(row.result.is_err(), "{limit:?}: the advance fails");
         assert!(
-            reason.contains("is not installed"),
+            reason.contains("SCCP light client"),
             "{limit:?}: the failure keeps its own reason: {reason}"
         );
         assert_eq!(
@@ -351,18 +365,14 @@ fn a_failed_sccp_exempt_transaction_is_charged_within_its_signed_intent() {
 #[test]
 fn an_sccp_shape_that_is_not_eligible_pays_the_ordinary_fee() {
     let _fee_guard = crate::status::nexus_fee_test_lock().lock().unwrap();
-    // Without SCCP in the parent World nothing is exempt: this keeper shape is an ordinary
+    // Without SCCP in the parent World nothing is exempt: a keeper advance is an ordinary
     // transaction, quoted at admission and charged on failure like any other.
     let (state, asset) = priced_fixture(None);
     let source = carrier(
         &state,
         vec![input(
             &state,
-            vec![InstructionBox::from(
-                crate::smartcontracts::isi::sccp::test_support::SampleInstructions::keeper_advance(
-                    iroha_data_model::bridge::SccpNetworkV1::EthereumMainnet,
-                ),
-            )],
+            sccp_keeper_advance(),
             FeePaymentIntent::authority(Vec::new(), None),
             false,
         )],
@@ -373,7 +383,7 @@ fn an_sccp_shape_that_is_not_eligible_pays_the_ordinary_fee() {
     assert!(row.result.is_err());
     let reason = format!("{:?}", row.result.0);
     assert!(
-        !reason.contains("is not installed"),
+        !reason.contains("SCCP light client"),
         "fee admission refuses it before execution: {reason}"
     );
     assert_eq!(balance(&block, &asset, &ALICE_ID), Quantity::from(10_u32));
@@ -663,4 +673,151 @@ fn local_vm_refusal_publishes_no_network_result_or_fee_and_same_source_can_retry
         assert!(retry.gas_used_in_block > 0);
         assert_eq!(balance(&retry, &asset, &ALICE_ID), Quantity::from(9_u32));
     }
+}
+
+fn fee_tail_work(block: &StateBlock<'_>) -> (u64, u32, u32, u64, u64) {
+    (
+        block.gas_used_in_block,
+        block.zk_confidential_ops_in_block,
+        block.zk_verify_calls_in_block,
+        block.zk_proof_bytes_in_block,
+        block.confidential_gas_used_in_block,
+    )
+}
+
+fn assert_fee_tail_state(block: &StateBlock<'_>, asset: &AssetDefinitionId, remaining: u32) {
+    assert_eq!(balance(block, asset, &ALICE_ID), Quantity::from(remaining));
+    assert_eq!(
+        balance(block, asset, &iroha_test_samples::BOB_ID),
+        Quantity::zero()
+    );
+    assert_eq!(
+        block
+            .world
+            .asset_definition(asset)
+            .unwrap()
+            .total_quantity(),
+        &Quantity::from(remaining)
+    );
+    assert!(
+        block
+            .world
+            .account(&ALICE_ID)
+            .unwrap()
+            .metadata()
+            .get("rolled_back_fee_body")
+            .is_none()
+    );
+}
+
+/// A refused fee-only tail must abandon the disposable block without publishing a row.
+/// These fixtures use the real output producer and signed source, not native finality.
+fn fee_decoder_refusal_preserves_original_attempt_and_fresh_retry(sccp: bool) {
+    use crate::state::output_capacity::producer::network::fee_decode_test_scope;
+    use ivm::error::ExecutionDeferral;
+
+    let _fee_guard = crate::status::nexus_fee_test_lock().lock().unwrap();
+    let (state, asset) = priced_fixture(None);
+    if sccp {
+        commit_sccp_parameters(&state);
+    }
+    let body = if sccp {
+        sccp_keeper_advance()
+    } else {
+        failing_body()
+    };
+    let gas = crate::gas::meter_instructions(&body, &state.zk_snapshot().gas);
+    assert!(gas > 0);
+    let charge = if sccp { 2_u32 } else { 3 };
+    let source = carrier(
+        &state,
+        vec![input(&state, body, payment(&asset, charge), false)],
+    );
+    let source_hash = source.hash();
+    let work_after_refusal;
+    {
+        let (mut block, _recording) = recorded_network_block(&state, &source);
+        let fragments = block.committed_fragment_count();
+        let probe = fee_decode_test_scope::refuse_actual_fee_decode();
+        let outcome = execute(&mut block, &source);
+        let (calls, deferred) = probe.observe();
+        assert_eq!(calls, 1, "the original fee-only decoder must actually run");
+        let original = deferred.expect("the real fee decoder must retain its original refusal");
+        assert_eq!(original.reason(), ExecutionDeferral::ActiveMemoryCapacity);
+        assert!(
+            original.allocation_refusal().is_none(),
+            "a cumulative decoder limit has no physical release owner"
+        );
+        assert_eq!(
+            outcome,
+            Err(ExecutionOutputAttemptError::Deferred(original)),
+            "the original fee-tail deferral must not become a completed Network rejection"
+        );
+        assert_eq!(source.hash(), source_hash);
+        assert!(block.retained_execution_outputs_for_test().is_err());
+        assert!(matches!(
+            block.execution_output_plan,
+            Some(ExecutionOutputPlanState::Poisoned)
+        ));
+        assert_eq!(block.committed_fragment_count(), fragments);
+        assert_fee_tail_state(&block, &asset, 10);
+        // Direct work is retained exactly once in this poisoned, disposable block.
+        // Neither fixture has governance ballot penalties or confidential operations.
+        work_after_refusal = fee_tail_work(&block);
+        assert_eq!(work_after_refusal, (gas, 0, 0, 0, 0));
+        assert!(
+            execute(&mut block, &source).is_err(),
+            "a poisoned block cannot retry in place"
+        );
+        assert_eq!(
+            probe.observe().0,
+            1,
+            "in-place refusal must not execute or settle again"
+        );
+        assert_eq!(fee_tail_work(&block), work_after_refusal);
+        assert_eq!(block.committed_fragment_count(), fragments);
+        assert_fee_tail_state(&block, &asset, 10);
+    }
+    // Dropping the abandoned block discards all speculative state and accounting.
+    // Recovery reacquires the same source from the original committed State.
+    let (mut retry, _recording) = recorded_network_block(&state, &source);
+    let fragments = retry.committed_fragment_count();
+    assert_eq!(retry.gas_used_in_block, 0);
+    assert_fee_tail_state(&retry, &asset, 10);
+    execute(&mut retry, &source).expect("same source completes after the fee decoder recovers");
+    assert_eq!(source.hash(), source_hash);
+    let row = network_row(&retry, 0);
+    let reason = format!("{:?}", row.result.0);
+    assert!(row.result.is_err());
+    assert!(
+        reason.contains(if sccp {
+            "SCCP light client"
+        } else {
+            "fee_missing_trigger"
+        }),
+        "original business rejection survives retry: {reason}"
+    );
+    assert!(
+        row.result.nexus_fee_receipt().is_some(),
+        "the completed charge retains its actual receipt"
+    );
+    assert!(row.completions.is_empty());
+    assert!(row.result.batch_transfer_outcomes().is_empty());
+    assert_eq!(retry.committed_fragment_count(), fragments + 1);
+    assert_fee_tail_state(&retry, &asset, 10 - charge);
+    assert_eq!(
+        fee_tail_work(&retry),
+        work_after_refusal,
+        "fresh retry accounts the original direct work exactly once"
+    );
+}
+
+#[test]
+fn sccp_failure_fee_decoder_refusal_keeps_original_deferral_and_retry() {
+    fee_decoder_refusal_preserves_original_attempt_and_fresh_retry(true);
+}
+
+#[test]
+fn ordinary_failure_fee_decoder_refusal_keeps_original_deferral_and_retry() {
+    fee_decoder_refusal_preserves_original_attempt_and_fresh_retry(false);
 }

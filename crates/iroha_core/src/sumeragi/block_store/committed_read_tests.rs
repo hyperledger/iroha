@@ -64,8 +64,8 @@ fn committed_read_returns_original_qc_backing_after_projection_refusal_and_retry
 
     let original_header = decoded.header.clone();
     let mut read = CommittedRead {
-        result_scope: iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
         height: 10,
+        root_scope: chain.root_scope(),
         budget: budget.clone(),
         crypto,
         schedule,
@@ -168,7 +168,7 @@ fn body_only_read_discards_invalid_qc_before_untrusted_restoration() {
         decoded,
         budget.clone(),
         crypto,
-        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        chain.root_scope(),
     );
     let retained = budget.reserved_bytes();
     budget.set_limit_bytes(retained);
@@ -251,8 +251,8 @@ fn committed_result_decode_refusal_keeps_original_read_slot_and_retries() {
     let signature = decoded.commit_qc.agg_sig;
 
     let read = CommittedRead {
-        result_scope: iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
         height: 10,
+        root_scope: chain.root_scope(),
         budget: budget.clone(),
         crypto: crypto.clone(),
         schedule: schedule.clone(),
@@ -261,17 +261,17 @@ fn committed_result_decode_refusal_keeps_original_read_slot_and_retries() {
             decoded,
             budget.clone(),
             crypto.clone(),
-            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            chain.root_scope(),
         )),
     };
     let store = KuraBlockStore::new(
         chain.kura().clone(),
         crypto,
         1,
+        chain.root_scope(),
         Staging::new(),
         budget.clone(),
         schedule,
-        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     );
     *store.read.lock() = Some(read);
     let retained = budget.reserved_bytes();
@@ -357,7 +357,7 @@ fn committed_certificate_allocator_refusal_retains_original_slot_and_retries() {
             instance: fixture.verifier().instance(),
             config: scheduled.height_config().unwrap(),
         }),
-        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        fixture.root_scope(),
     );
     let owners = read.retained_certificate_owners_for_test().unwrap();
     let (result, refused) =

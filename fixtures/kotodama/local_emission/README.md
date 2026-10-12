@@ -49,7 +49,9 @@ state before main; failed main execution restores that constructor state. The
 three final values and complete paid map consumers remain checked. Zero-gas
 execution retains the original refusal.
 
-TODO: capture the current candidate through the native compiler and execute every
-mandatory consumer. The unchanged default4M payout, 64gas/byte policy, real XOR
-fee execution and complete disposable-network qualification require their own
-same-candidate runtime evidence. Compiler byte savings alone do not establish them.
+The checked-in eleven rows are the capture of the current compiler and sources;
+the compiler parity control and the eight local_emission consumers pass on them.
+
+TODO: the unchanged default4M payout, 64gas/byte policy, real XOR fee execution
+and complete disposable-network qualification require their own same-candidate
+runtime evidence. Compiler byte savings alone do not establish them.

@@ -19,9 +19,7 @@ use iroha_config::{
     },
 };
 use iroha_config_base::WithOrigin;
-use iroha_data_model::block::{
-    SharedSignedBlock, decode_framed_signed_block, deframe_versioned_signed_block_bytes,
-};
+use iroha_data_model::block::{SharedSignedBlock, decode_framed_signed_block};
 use norito::json::Value;
 use sha2::{Digest as _, Sha256};
 
@@ -406,8 +404,8 @@ fn stored_block_wire_is_exactly_the_framed_first_release_layout() {
         .encode_wire()
         .expect("canonical genesis frame");
     assert_eq!(
-        <SignedBlock as iroha_version::Version>::supported_versions(),
-        1..2,
+        SignedBlock::WIRE_VERSION,
+        1,
         "exactly one block wire version"
     );
     assert_eq!(frame[0], 1);
@@ -423,10 +421,8 @@ fn stored_block_wire_is_exactly_the_framed_first_release_layout() {
             "block wire version {version} has no decoder"
         );
     }
-    let bare = deframe_versioned_signed_block_bytes(&frame)
-        .expect("a framed block")
-        .bare_versioned
-        .into_owned();
+    let mut bare = vec![frame[0]];
+    bare.extend_from_slice(&frame[1 + norito::core::Header::SIZE..]);
     assert!(
         decode_framed_signed_block(&bare).is_err(),
         "a headerless payload is not a stored block"
@@ -583,6 +579,19 @@ fn pinned_history_of_an_earlier_build_replays_to_its_pinned_state() {
     let (state, prepared) = cold_replay(&identity, &disk, None);
     let prepared = prepared.unwrap_or_else(|error| panic!("{PINNED_REPLAY_RULE}: {error}"));
     assert_eq!(startup::applied_height(&state), height as u64);
+    {
+        // Read the original policy restored from the pinned signed genesis.
+        let view = state.view();
+        let parameters = view.world().parameters();
+        assert_eq!(
+            parameters.sumeragi().max_block_bytes.get(),
+            16 * 1024 * 1024
+        );
+        assert_eq!(
+            parameters.transaction().max_tx_bytes().get(),
+            10 * 1024 * 1024
+        );
+    }
     assert_eq!(
         world_root(&state),
         Ok(pinned.world_state_root.clone()),
@@ -706,6 +715,22 @@ fn capture_pinned_first_release_history() {
     let chain = chain(4, 200);
     let disks = stored_disks(&chain);
     let validators = start_all(&chain, &disks, true);
+    // Read the policies actually installed by the original signed genesis.
+    // The former 4 MiB block cap cannot contain the canonical 10 MiB transaction
+    // cap plus its block reserve; a new history uses the coherent current pair.
+    for validator in &validators {
+        let view = validator.state.view();
+        let parameters = view.world().parameters();
+        assert_eq!(
+            parameters.sumeragi().max_block_bytes.get(),
+            16 * 1024 * 1024
+        );
+        assert_eq!(
+            parameters.transaction().max_tx_bytes().get(),
+            10 * 1024 * 1024
+        );
+    }
+    println!("PINNED_FIRST_RELEASE_HISTORY_POLICY=max_block_bytes:16777216,max_tx_bytes:10485760");
     commit_work(&chain, &validators, "pinned history", 2);
     let height = 3_usize;
     assert_eq!(committed_heights(&validators), vec![height as u64; 4]);

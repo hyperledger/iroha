@@ -12,7 +12,7 @@ python3.12 -B -S -m formal.kagemusha_setup.check --output /absolute/new/output
 ```
 
 The owner checks exact source pins before importing the subjects, runs the
-maintained prime/group certificates, then one hundred controls. It refuses optimized
+maintained prime/group certificates, then one hundred and one controls. It refuses optimized
 Python, bytecode-writing invocations (use `-B`) and existing output directories. It retains setup bytes, raw-model
 tables, synthetic private logs, proofs and failures. Ordinary controls do not import or read a development output directory. Their
 dependencies are relative to this repository; no Cargo build, large parameter
@@ -23,7 +23,7 @@ The controls retain the five exact finite-map/law/cap cases, five single-map/KAT
 fresh-target/parameter cases and ten complete-proof cases, plus two source
 custody cases, thirteen bounded-producer parity/resource/custody cases and
 eleven sequential request/entropy/replay cases, nine request-shape cases and
-seventeen generic public-table/rebinding cases and fourteen closed A1
+eighteen generic public-table/rebinding cases and fourteen closed A1
 constructor/custody cases. One complete-proof method checks exact retained diagnostic
 proof/parameter hashes after the arithmetic-helper relocation. The only retired test checks the replaced fixed-target sampler;
 its failure, zero-target and cap guarantees are covered by the fresh-target
@@ -219,8 +219,11 @@ contradictory cases and the sequential request owner use its explicit entropy
 argument. `public_setup.py` decodes the exact PIPAPK01 public fixed/sigma
 evaluation tables, descriptor/VK bindings, canonical fields and copy digest.
 Its domain-aware barycentric evaluation handles on-domain points exactly.
-Public-only opening groups are evaluated from those tables; only groups with
-witness masks draw random opening values. Multiple products/lookups retain the
+Public-only opening groups are evaluated from those tables. At grouping
+challenge x1=0, forward Horner retains only the last slot: a mixed group ending
+in public preprocessing also has its exact public value. Only groups whose
+active slots retain witness masks draw random opening values. The
+descriptor-derived draw inventory remains a conservative bound. Multiple products/lookups retain the
 native ordering. No transcript challenge or permutation is programmed.
 
 `rebind.make_case` consumes caller-supplied exact descriptor, VK and public
@@ -260,11 +263,36 @@ custody, public-only values, two-product/two-lookup shapes, all point logs,
 mutations, authority refusal and bounded replay. Five further methods check
 interpolation/canonical-table rejection, query bounds, descriptor-derived
 entropy accounting and pre-I/O large-mode refusal. They generate six additional
-k6 proofs, for fourteen total across100 methods. The nine request-shape cases and fourteen
+k6 proofs, for fourteen ordinary fixed-RP57 proofs across101 methods. The nine request-shape cases and fourteen
 closed A1 constructor cases add no proofs. All prior60 assertions remain;
 the request binding control additionally mutates public preprocessing bytes.
 No k16 proof, large parameter family, timing qualification or C12 claim follows.
 
+
+## Direct zero-grouping regression
+
+One additional `GenericKnownLog` method calls the actual `simulate()` on both
+Pasta curves with x1 forced to zero. The small descriptor has a mixed group
+ending in a public fixed polynomial, separate groups ending in masked
+lookup/input polynomials, and a group ending in R. The test asserts exact
+public L_0 evaluation, last-slot commitment/log equality for every group, the
+actual sampled masked values and the reduced scalar draw count. It retains the
+full reference verifier and a corrupted-final-blind rejection.
+
+This is explicitly **not a fixed-RP57 test**. In each fresh private reference,
+a named test-only subclass advances the ordinary sponge but replaces only
+challenge output index5 with zero; simulator and verifier use the same adapter.
+The test checks one replacement per transcript, restores both aliases, checks
+that the unchanged verifier rejects the adapted proof, and verifies all seven
+copied reference source files remain byte-identical. Its receipts say
+`fixed_poseidon=false` and retain the adapter name; the runner separately
+requires14 ordinary proofs and2 adapted proofs. There is no fallback or
+production transcript switch. All earlier selectors, ordinary proof goldens,
+source custody, resource bounds and C12 exclusions remain.
+
+The source manifest also updates the exact `params.rs` dependency pin for its
+already-committed documentation-only retirement wording. Parameter derivation,
+encoding and tests are unchanged by that source change.
 
 ## Closed historical Load A1 outer constructor
 
@@ -333,6 +361,7 @@ records. Exact namespace/hash/extent checks and a final allocation checkpoint
 precede success. Private logs, original read observations and partial failure
 DATA are retained; no crash-durability or performance claim is made.
 
-Ordinary100 controls still produce only the existing fourteen small k6 proofs.
+The101 controls retain the existing fourteen fixed-RP57 k6 proofs and count
+two test-adapted k6 proofs separately.
 Their success cannot establish a large A1 construction, any native16 adapter
 acceptance, the full joint sampler law, a coherent recursive setup, or C12.

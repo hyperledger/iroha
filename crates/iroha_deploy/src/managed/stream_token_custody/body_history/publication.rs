@@ -516,10 +516,38 @@ impl BodyHistory {
         owner: &ManagedStreamTokenCustody,
         publication: Option<PublishedBodyDelta>,
     ) -> Result<Self> {
+        self.reopen_after_publication_with_wallets(owner, publication, None)
+    }
+
+    pub(super) fn reopen_after_publication_with_wallets(
+        self,
+        owner: &ManagedStreamTokenCustody,
+        publication: Option<PublishedBodyDelta>,
+        mut wallets: Option<&mut FinishWalletReads<'_>>,
+    ) -> Result<Self> {
+        let result =
+            self.reopen_after_publication_inner(owner, publication, wallets.as_deref_mut());
+        if result.is_err()
+            && let Some(wallets) = wallets
+        {
+            wallets.clear();
+        }
+        result
+    }
+
+    fn reopen_after_publication_inner(
+        self,
+        owner: &ManagedStreamTokenCustody,
+        publication: Option<PublishedBodyDelta>,
+        mut wallets: Option<&mut FinishWalletReads<'_>>,
+    ) -> Result<Self> {
         let Some(publication) = publication else {
-            return self.reopen(owner);
+            return self.reopen_with_wallets(owner, wallets);
         };
         if norito::core::decode_limits_active() {
+            if let Some(wallets) = wallets.as_deref_mut() {
+                wallets.clear();
+            }
             return publication.into_recovery(self).reopen(owner);
         }
         #[cfg(test)]
@@ -547,7 +575,7 @@ impl BodyHistory {
         let result = (|| {
             #[cfg(test)]
             publication_tests::before_admission(step, &self, owner)?;
-            self.admit_publication(owner, publication, reference, plan)
+            self.admit_publication(owner, publication, reference, plan, wallets)
         })();
         // Match the canonical producer: original profile exit outranks every ordinary inner
         // result. No transition capability or borrowed profile verdict survives this point.
@@ -567,6 +595,7 @@ impl BodyHistory {
         publication: PublishedBodyDelta,
         reference: (Option<Reference>, RecordSnapshot),
         plan: RetainedProviderServicePlan,
+        wallets: Option<&mut FinishWalletReads<'_>>,
     ) -> Result<Self> {
         let root_names = NamesSnapshot::from_read(
             Arc::clone(&self.root),
@@ -699,7 +728,13 @@ impl BodyHistory {
             )?;
         }
         drop(plan);
-        self.verify_histories_from(owner, None, Some(&previous), &mut epochs)?;
+        self.verify_histories_from_with_wallets(
+            owner,
+            None,
+            Some(&previous),
+            &mut epochs,
+            wallets,
+        )?;
         snapshots.revalidate()?;
         root_names.revalidate()?;
         if let Some(graph) = previous.retained_graph() {

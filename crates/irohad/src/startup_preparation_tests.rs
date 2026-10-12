@@ -15,6 +15,65 @@ mod startup_preparation_tests {
             .unwrap()
     }
 
+    #[test]
+    fn startup_logger_runs_on_owned_runtime_without_leaking_entry() {
+        // The production logger is process-global. Isolate its real constructor from the
+        // test suite's shared logger rather than borrowing an already initialized actor.
+        let module = module_path!().split_once("::").unwrap().1;
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                format!("{module}::startup_logger_process"),
+                "--exact".into(),
+                "--ignored".into(),
+                "--nocapture".into(),
+            ])
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success()
+                && stdout.contains("test result: ok. 1 passed; 0 failed; 0 ignored;"),
+            "isolated startup logger failed: {stdout}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    #[ignore = "isolated child of startup_logger_runs_on_owned_runtime_without_leaking_entry"]
+    fn startup_logger_process() {
+        let runtime = runtime();
+        assert!(tokio::runtime::Handle::try_current().is_err());
+        let logger = init_startup_logger(
+            &runtime,
+            iroha_logger::Config {
+                level: iroha_logger::Level::INFO,
+                filter: None,
+                format: iroha_logger::Format::Compact,
+                terminal_colors: false,
+            },
+        )
+        .unwrap();
+        assert!(
+            tokio::runtime::Handle::try_current().is_err(),
+            "provider resolution must remain outside Tokio"
+        );
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(5), async {
+                logger
+                    .reload_level(iroha_logger::Level::WARN.into())
+                    .await
+                    .unwrap();
+                logger
+                    .subscribe_on_telemetry(iroha_logger::telemetry::Channel::Regular)
+                    .await
+                    .unwrap();
+            })
+            .await
+            .expect("the logger actor must run on the original runtime");
+        });
+        assert!(tokio::runtime::Handle::try_current().is_err());
+    }
+
     /// Retain the selected storage and every passive trusted-peer endpoint until shutdown closes.
     struct FixtureResources {
         _directory: tempfile::TempDir,
@@ -158,7 +217,8 @@ mod startup_preparation_tests {
         )
         .expect("genesis sealing State");
         install_zk_config_before_kura_replay(&mut state, config).expect("genesis ZK policy");
-        apply_state_runtime_config_before_snapshot_auth(&mut state, config);
+        apply_state_runtime_config_before_snapshot_auth(&mut state, config)
+            .expect("fixture runtime policy configuration");
         let baseline = freeze_lane_manifests_for_startup_replay(&config.nexus)
             .expect("genesis lane manifests");
         let policies =
@@ -172,13 +232,17 @@ mod startup_preparation_tests {
         let voters = iroha_core::sumeragi::schedule::genesis_validators(&fixture.genesis)
             .expect("signed genesis voters");
         let topology = Topology::new(voters.into_keys());
+        let (mode, context) = signed_genesis_context_metadata(&fixture.genesis.0)
+            .expect("signed startup genesis consensus context");
+        assert_eq!(mode, fixture.mode);
         let (valid, staged) = ValidBlock::validate_signed_genesis(
             fixture.genesis.0.clone(),
             &topology,
             &fixture.authority,
             &TimeSource::new_system(),
             &state,
-            fixture.mode,
+            mode,
+            context.root_scope,
         )
         .unpack(|_| {})
         .unwrap_or_else(|(_, error)| {

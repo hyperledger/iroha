@@ -31,7 +31,11 @@ fn nested_callback_fixture(row_bytes: u64, depth: u8) -> NestedCallbackFixture {
     let state = authenticated_state(row_bytes);
     {
         let mut parameters = state.world.parameters.block();
-        parameters.smart_contract.execution_depth = depth;
+        parameters
+            .set_parameter(iroha_data_model::parameter::Parameter::SmartContract(
+                iroha_data_model::parameter::SmartContractParameter::ExecutionDepth(depth),
+            ))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
     let parent: TriggerId = "output_parent".parse().unwrap();

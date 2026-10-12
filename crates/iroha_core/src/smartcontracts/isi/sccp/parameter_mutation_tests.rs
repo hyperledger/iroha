@@ -7,7 +7,10 @@ use super::{
 use crate::smartcontracts::Execute;
 use iroha_data_model::{
     block::consensus::SumeragiRootScope,
-    isi::SetParameter,
+    isi::{
+        SetParameter,
+        error::{InstructionExecutionError, InvalidParameterError},
+    },
     parameter::{
         CustomParameter, Parameter,
         system::{ConsensusHandshakeMetadata, SumeragiParameter},
@@ -23,8 +26,10 @@ fn sccp_refuses_short_epoch_before_mutating_consensus_parameters() {
     let mut block = state.block(header(1));
     let mut stx = block.transaction();
     store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
-    stx.world.parameters.get_mut().sumeragi.epoch_length_blocks = NonZeroU64::new(3_600).unwrap();
-    stx.world.parameters.get_mut().sumeragi.block_cadence_ms = NonZeroU64::new(1_000).unwrap();
+    let mut consensus = stx.world.parameters.get().sumeragi().clone();
+    consensus.epoch_length_blocks = NonZeroU64::new(3_600).unwrap();
+    consensus.block_cadence_ms = NonZeroU64::new(1_000).unwrap();
+    stx.world.parameters.get_mut().set_sumeragi(consensus);
     let before = stx.world.parameters.get().clone();
     let update = |epoch| {
         SetParameter::new(Parameter::Sumeragi(SumeragiParameter::EpochLengthBlocks(
@@ -32,7 +37,14 @@ fn sccp_refuses_short_epoch_before_mutating_consensus_parameters() {
         )))
     };
     let error = update(3_599).execute(&authority(1), &mut stx).unwrap_err();
-    assert!(error.to_string().contains("SCCP_MIN_EPOCH_MS"));
+    assert!(
+        matches!(
+            &error,
+            InstructionExecutionError::InvalidParameter(InvalidParameterError::SmartContract(reason))
+                if reason.contains("SCCP requires epoch_length_blocks")
+        ),
+        "{error:?}"
+    );
     assert_eq!(*stx.world.parameters.get(), before);
     update(3_600).execute(&authority(1), &mut stx).unwrap();
     assert_eq!(
@@ -52,8 +64,10 @@ fn genesis_cadence_rewrite_cannot_break_an_already_initialized_sccp_epoch() {
     let mut block = state.block(header(1));
     let mut stx = block.transaction();
     store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
-    stx.world.parameters.get_mut().sumeragi.epoch_length_blocks = NonZeroU64::new(3_600).unwrap();
-    stx.world.parameters.get_mut().sumeragi.block_cadence_ms = NonZeroU64::new(1_000).unwrap();
+    let mut consensus = stx.world.parameters.get().sumeragi().clone();
+    consensus.epoch_length_blocks = NonZeroU64::new(3_600).unwrap();
+    consensus.block_cadence_ms = NonZeroU64::new(1_000).unwrap();
+    stx.world.parameters.get_mut().set_sumeragi(consensus);
     let Parameter::Custom(original) =
         crate::sumeragi::lanes::routing::test_support::metadata(SumeragiRootScope::Global)
     else {
@@ -69,7 +83,14 @@ fn genesis_cadence_rewrite_cannot_break_an_already_initialized_sccp_epoch() {
     let error = SetParameter::new(Parameter::Custom(changed))
         .execute(&authority(1), &mut stx)
         .unwrap_err();
-    assert!(error.to_string().contains("SCCP_MIN_EPOCH_MS"));
+    assert!(
+        matches!(
+            &error,
+            InstructionExecutionError::InvalidParameter(InvalidParameterError::SmartContract(reason))
+                if reason.contains("SCCP requires epoch_length_blocks")
+        ),
+        "{error:?}"
+    );
     assert_eq!(*stx.world.parameters.get(), before);
     SetParameter::new(Parameter::Custom(original))
         .execute(&authority(1), &mut stx)

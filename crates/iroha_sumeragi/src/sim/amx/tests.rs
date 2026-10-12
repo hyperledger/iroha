@@ -105,7 +105,12 @@ impl Chain {
         let indices: Vec<ValidatorIndex> = (0..signers).collect();
         let signatures: Vec<_> = indices
             .iter()
-            .map(|index| validators.signer(*index).sign(&preimage))
+            .map(|index| {
+                validators
+                    .signer(*index)
+                    .sign(&preimage)
+                    .expect("fixture signing succeeds")
+            })
             .collect();
         let qc = Qc {
             kind: VoteKind::Commit,
@@ -117,7 +122,10 @@ impl Chain {
             result,
             signers: Bitmap::from_indices(validators.committee.n(), indices.iter().copied())
                 .expect("signer bitmap"),
-            agg_sig: validators.crypto.aggregate(&signatures),
+            agg_sig: validators
+                .crypto
+                .aggregate(&signatures)
+                .expect("fixture aggregation succeeds"),
         };
         RecordProof {
             header,

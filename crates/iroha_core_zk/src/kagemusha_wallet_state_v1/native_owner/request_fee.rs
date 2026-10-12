@@ -17,7 +17,12 @@ fn fee_policy(
         if bytes.is_empty() || bytes.len() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 {
             return Err(Error::Invalid("Request fee PolicyData bound"));
         }
-        match valid(KagemushaWalletEnvelopeV1::decode_canonical(bytes, scheme))?.message {
+        match read_model_original(
+            || KagemushaWalletEnvelopeV1::decode_canonical(bytes, scheme),
+            Error::Invalid("G1 validation"),
+        )?
+        .message
+        {
             KagemushaWalletMessageV1::PolicyData { data } => Ok(data),
             _ => Err(Error::Invalid("Request fee PolicyData kind")),
         }
@@ -182,6 +187,15 @@ mod tests {
         );
         assert!(schedule.fee(100_000).unwrap() > 0);
         assert_eq!(fee_policy(&scheme, &a, &b).unwrap(), (actual, issuer));
+        for limits in [
+            norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+        ] {
+            let refused = norito::with_decode_limits_scope(limits, || fee_policy(&scheme, &a, &b));
+            assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+                if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+            assert_eq!(fee_policy(&scheme, &a, &b).unwrap(), (actual, issuer));
+        }
     }
     #[test]
     fn fee_pair_refuses_wrong_items_assets_signatures_missing_signer_and_noncanonical_bounds() {

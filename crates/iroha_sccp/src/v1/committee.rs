@@ -184,13 +184,14 @@ pub fn signer_point_sum(keys: &[[u8; KEY_LEN]], signers: u32) -> Option<[u8; KEY
 /// when the sum is the identity.
 #[must_use]
 pub fn aggregate_public_key(keys: &[[u8; KEY_LEN]], signers: u32) -> Option<[u8; KEY_LEN]> {
-    let indices = signer_indices(signers, keys.len())?;
-    if indices.is_empty() {
+    if signers == 0 || (keys.len() < u32::BITS as usize && signers >> keys.len() != 0) {
         return None;
     }
     let mut sum = G1Projective::identity();
-    for index in indices {
-        let key = &keys[index];
+    for (index, key) in keys.iter().take(u32::BITS as usize).enumerate() {
+        if signers & (1_u32 << index) == 0 {
+            continue;
+        }
         if !key_validate(key) {
             return None;
         }
@@ -1494,6 +1495,20 @@ mod tests {
             assert_eq!(pairing_input.len(), 768);
             assert_eq!(pairing_input, bytes(text(row, "pairing_input")), "{label}");
         }
+    }
+
+    #[test]
+    fn aggregate_public_key_checks_bitmap_width_without_signer_allocation() {
+        let reference = finality();
+        let members = keys(field(field(&reference, "committees"), "n4"), "keys");
+        assert_eq!(aggregate_public_key(&[], 1), None);
+        assert_eq!(aggregate_public_key(&members, 0), None);
+        let full = [members[0]; 32];
+        assert_eq!(aggregate_public_key(&full, 1_u32 << 31), Some(members[0]));
+        assert_eq!(aggregate_public_key(&full[..31], 1_u32 << 31), None);
+        let mut longer = [members[0]; 33];
+        longer[32] = [0; KEY_LEN];
+        assert_eq!(aggregate_public_key(&longer, 1_u32 << 31), Some(members[0]));
     }
 
     #[test]

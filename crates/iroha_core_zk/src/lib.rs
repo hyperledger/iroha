@@ -15,8 +15,7 @@
 //! - Closed dispatch for supported native PIPA-R and STARK relations. A backend
 //!   label is not a privacy or execution-correctness guarantee. Incomplete IVM
 //!   execution relations are not admitted through generic verification.
-//! - A unified ZK envelope (`ZK1 | TLV*`) reader/writer helpers for tests and
-//!   clients.
+//! - Canonical Norito proof envelopes for native verification and fixtures.
 //!
 //! Storage/WSV integration is intentionally limited to proof records and
 //! verifying-key registry ISIs; consensus-critical state and policies live in
@@ -3880,9 +3879,10 @@ const REJECTED_VERIFY_REPORT: VerifyReport = VerifyReport {
 };
 /// Configuration guardrails for proof verification (enabled flags + payload size caps).
 ///
-/// This struct is intentionally scalar-only so it can be sourced both from node configuration
-/// (`zk_guardrails::guardrails_from_config` in `iroha_core`) and from host-local verification caps
-/// (e.g. IVM host).
+/// This struct is intentionally scalar-only so it can be sourced both from the ZK settings a
+/// State froze for a block (`zk_guardrails::guardrails_from_config` in `iroha_core`; the switches
+/// and caps there are the committed `zk_validity_policy_v1` parameter or the protocol default)
+/// and from host-local verification caps (e.g. IVM host).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ZkVerifyGuardrails {
     /// Whether native PIPA-R verification is enabled.
@@ -3993,14 +3993,14 @@ pub fn verify_backend_with_timing_guardrails(
         if !guardrails.stark_enabled {
             tracing::debug!(
                 backend,
-                "stark verification is disabled in node configuration"
+                "stark verification is disabled by the committed ZK validity policy"
             );
             return REJECTED_VERIFY_REPORT;
         }
         if proof.bytes.len() > guardrails.stark_max_envelope_bytes {
             tracing::debug!(
                 backend,
-                "stark payload exceeds node-configured max_envelope_bytes"
+                "stark payload exceeds the committed max_envelope_bytes"
             );
             return REJECTED_VERIFY_REPORT;
         }
@@ -4074,7 +4074,7 @@ pub fn verify_backend_with_timing_guardrails(
         if open.envelope_bytes.len() > guardrails.stark_max_proof_bytes {
             tracing::debug!(
                 backend,
-                "stark envelope proof bytes exceed node-configured max_proof_bytes"
+                "stark envelope proof bytes exceed the committed max_proof_bytes"
             );
             return REJECTED_VERIFY_REPORT;
         }

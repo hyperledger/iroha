@@ -270,7 +270,18 @@ pub(super) async fn fund_and_register_citizens(
     let (_, chain) = read_on_dedicated_thread({
         let admin = admin.clone();
         let network_id = network.network_id();
-        move || read_contiguous_finality_chain(&admin, network_id, signed_genesis_hash, height)
+        let root_scope = iroha_genesis::signed_genesis_consensus_metadata(&network.genesis().0)?
+            .sumeragi_context
+            .root_scope;
+        move || {
+            read_contiguous_finality_chain(
+                &admin,
+                network_id,
+                signed_genesis_hash,
+                height,
+                root_scope,
+            )
+        }
     })
     .await?;
     let mut funding_fees = Quantity::zero();
@@ -578,9 +589,12 @@ pub(super) async fn consume_after_rotation(
     let (_, consumed_chain) = read_on_dedicated_thread({
         let admin = admin.clone();
         let network_id = network.network_id();
+        let root_scope = iroha_genesis::signed_genesis_consensus_metadata(&network.genesis().0)?
+            .sumeragi_context
+            .root_scope;
         move || -> Result<_> {
             let tip = committee_status::height_until_blocking(&admin, Instant::now() + WAIT)?;
-            read_contiguous_finality_chain(&admin, network_id, signed_genesis_hash, tip)
+            read_contiguous_finality_chain(&admin, network_id, signed_genesis_hash, tip, root_scope)
         }
     })
     .await?;

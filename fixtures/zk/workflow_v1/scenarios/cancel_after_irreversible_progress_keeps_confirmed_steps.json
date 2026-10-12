@@ -1,0 +1,238 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "cancel_after_irreversible_progress_keeps_confirmed_steps",
+  "category": "cancellation",
+  "rules": [
+    "cancellation_is_sticky_and_never_rolls_back",
+    "per_transaction_atomicity_only",
+    "rounds_recover_under_one_identity"
+  ],
+  "description": "After a finalized transaction, cancellation arrives while the dealing round waits for a participant. The workflow is cancelling: the round is only recovered read-only. When it completes externally its transcript is recorded, the workflow ends cancelled, and both earlier steps are reported confirmed and irreversible.",
+  "plan": {
+    "kind": "dkg",
+    "instance": "cancel-after-irreversible-progress-keeps-confirmed-steps",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction"
+      },
+      {
+        "label": "deal",
+        "kind": "offchain_round",
+        "irreversible": true,
+        "participants_required": 2,
+        "custody_handles_required": 1
+      },
+      {
+        "label": "publish",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "accepted"
+        ],
+        "statuses": [
+          "applied"
+        ],
+        "round_starts": [
+          "waiting:p1"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "RoundPending",
+          "stage": "round",
+          "step": 1,
+          "resumable": true
+        },
+        "effects": [
+          "build:0#1",
+          "sign:0#1",
+          "dispatch:0#1",
+          "status:0#1",
+          "round_start:1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "finalized",
+          "round_waiting",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0
+          ],
+          "irreversible_steps": [
+            0
+          ],
+          "unresolved_steps": [
+            1
+          ],
+          "failed_steps": [],
+          "not_started_steps": [
+            2
+          ],
+          "rolled_back_steps": []
+        },
+        "participants_received": {
+          "1": 1
+        }
+      }
+    },
+    {
+      "op": "cancel",
+      "expect": {
+        "result": "ok",
+        "effects": [],
+        "status": "cancelling",
+        "steps": [
+          "finalized",
+          "round_waiting",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0
+          ],
+          "irreversible_steps": [
+            0
+          ],
+          "unresolved_steps": [
+            1
+          ],
+          "failed_steps": [],
+          "not_started_steps": [
+            2
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "round_recoveries": [
+          "waiting:p1"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "RoundPending",
+          "stage": "round",
+          "step": 1,
+          "resumable": true
+        },
+        "effects": [
+          "round_recover:1"
+        ],
+        "status": "cancelling",
+        "steps": [
+          "finalized",
+          "round_waiting",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0
+          ],
+          "irreversible_steps": [
+            0
+          ],
+          "unresolved_steps": [
+            1
+          ],
+          "failed_steps": [],
+          "not_started_steps": [
+            2
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "recover",
+      "script": {
+        "round_recoveries": [
+          "completed:p1,p2"
+        ]
+      },
+      "expect": {
+        "result": "ok",
+        "effects": [
+          "round_recover:1"
+        ],
+        "status": "cancelled",
+        "steps": [
+          "finalized",
+          "round_completed",
+          "cancelled_before_submission"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0,
+            1
+          ],
+          "irreversible_steps": [
+            0,
+            1
+          ],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            2
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "run",
+      "expect": {
+        "result": {
+          "error": "CancelledBeforeSubmission",
+          "stage": "cancel",
+          "step": 2,
+          "resumable": false
+        },
+        "effects": [],
+        "status": "cancelled",
+        "steps": [
+          "finalized",
+          "round_completed",
+          "cancelled_before_submission"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0,
+            1
+          ],
+          "irreversible_steps": [
+            0,
+            1
+          ],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            2
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    }
+  ]
+}

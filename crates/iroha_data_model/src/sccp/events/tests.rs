@@ -24,10 +24,10 @@ fn point() -> SccpLcPointV1 {
     }
 }
 
-/// Codec index of every variant, in declaration order. Indices 2 to 9 belonged to the events of
-/// the attestation transport and stay unassigned.
-const CODEC_INDICES: [u32; 23] = [
-    0, 1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+/// Codec index of every first-release variant, in declaration order.
+const CODEC_INDICES: [u32; 29] = [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+    26, 27, 28,
 ];
 
 /// One event of every variant, in declaration order, with its JSON tag.
@@ -225,6 +225,53 @@ fn every_event() -> Vec<(SccpEvent, &'static str)> {
             "governance_enacted",
         ),
         (
+            SccpEvent::CommitteeGenerationCreated(SccpCommitteeGenerationCreatedV1 {
+                generation: 1,
+                cause: SccpGenerationCauseV1::Genesis,
+                committee_root: [23; 32],
+                start_height: 1,
+                deadline_ms: 1_758_604_800_000,
+            }),
+            "committee_generation_created",
+        ),
+        (
+            SccpEvent::GenerationMemberUnslashable(SccpGenerationMemberUnslashableV1 {
+                generation: 1,
+                index: 3,
+            }),
+            "generation_member_unslashable",
+        ),
+        (
+            SccpEvent::CommitteeResync(SccpCommitteeResyncV1 {
+                generation: 2,
+                committee_root: [24; 32],
+                start_height: 10,
+            }),
+            "committee_resync",
+        ),
+        (
+            SccpEvent::GenerationDestinationCleared(SccpGenerationDestinationClearedV1 {
+                generation: 1,
+                lc: 1_759_000_000_000,
+            }),
+            "generation_destination_cleared",
+        ),
+        (
+            SccpEvent::FinalityDegraded(SccpFinalityDegradedV1 {
+                height: 11,
+                reason: SccpFinalityDegradedReasonV1::MissingInputs,
+            }),
+            "finality_degraded",
+        ),
+        (
+            SccpEvent::FastPauseLapsed(SccpFastPauseLapsedV1 {
+                network: ETH,
+                certificate_id: [29; 32],
+                until_ms: 1_758_604_800_000,
+            }),
+            "fast_pause_lapsed",
+        ),
+        (
             SccpEvent::ForgeryEvidenceRecorded(SccpForgeryEvidenceRecordedV1 {
                 evidence_id: [8; 32],
                 generation: 7,
@@ -296,14 +343,14 @@ fn every_event_roundtrips_with_a_snake_case_tag() {
 }
 
 #[test]
-fn codec_indices_are_explicit_and_skip_the_retired_ones() {
+fn codec_indices_are_explicit_and_contiguous() {
     let events = every_event();
     assert_eq!(events.len(), CODEC_INDICES.len());
     for ((event, _), index) in events.into_iter().zip(CODEC_INDICES) {
         assert!(event.encode().starts_with(&index.encode()), "{event:?}");
     }
     assert!(CODEC_INDICES.is_sorted());
-    assert!(CODEC_INDICES.iter().all(|index| !(2..=9).contains(index)));
+    assert_eq!(CODEC_INDICES, core::array::from_fn(|index| index as u32));
 }
 
 #[test]
@@ -312,7 +359,7 @@ fn sccp_event_rejects_the_retired_attestation_and_roster_tags() {
 
     // The freed indices and the first index above the last variant decode to nothing, whatever
     // payload follows.
-    for index in (2_u32..=9).chain([31, u32::MAX]) {
+    for index in [29_u32, u32::MAX] {
         for filler in [0, 1, 32, 256] {
             let mut encoded = index.encode();
             encoded.extend_from_slice(&vec![0x11; filler]);
@@ -423,6 +470,119 @@ fn enum_payloads_roundtrip_in_every_variant() {
 }
 
 #[test]
+fn finality_degraded_reasons_are_closed_and_have_explicit_tags() {
+    use norito::codec::DecodeAll as _;
+
+    let reasons = [
+        (
+            SccpFinalityDegradedReasonV1::MissingInputs,
+            "missing_inputs",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::InvalidInputs,
+            "invalid_inputs",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::MissingGeneration,
+            "missing_generation",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::InvalidGeneration,
+            "invalid_generation",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::MissingParent,
+            "missing_parent",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::CounterExhausted,
+            "counter_exhausted",
+        ),
+    ];
+    for (index, (reason, tag)) in reasons.into_iter().enumerate() {
+        roundtrip(&reason);
+        assert!(reason.encode().starts_with(&(index as u32).encode()));
+        let event = SccpEvent::FinalityDegraded(SccpFinalityDegradedV1 {
+            height: u64::MAX,
+            reason,
+        });
+        roundtrip(&event);
+        let value = norito::json::to_value(&reason).expect("reason JSON");
+        assert_eq!(
+            value.get("reason").and_then(norito::json::Value::as_str),
+            Some(tag)
+        );
+        assert_rejects_unknown_field(&reason, &[]);
+        assert_rejects_unknown_field(&event, &["payload", "reason"]);
+    }
+    for index in [6_u32, u32::MAX] {
+        assert!(SccpFinalityDegradedReasonV1::decode_all(&mut index.encode().as_slice()).is_err());
+    }
+    for tag in ["allocation_failed", "storage_unavailable", "unknown"] {
+        let json = format!(r#"{{"reason":"{tag}","detail":null}}"#);
+        assert!(norito::json::from_json::<SccpFinalityDegradedReasonV1>(&json).is_err());
+    }
+}
+
+#[test]
+fn generation_event_set_selects_each_native_variant() {
+    let sets = [
+        (SccpEventSet::FinalityDegraded, "finality_degraded"),
+        (
+            SccpEventSet::CommitteeGenerationCreated,
+            "committee_generation_created",
+        ),
+        (SccpEventSet::CommitteeResync, "committee_resync"),
+        (
+            SccpEventSet::GenerationMemberUnslashable,
+            "generation_member_unslashable",
+        ),
+        (
+            SccpEventSet::GenerationDestinationCleared,
+            "generation_destination_cleared",
+        ),
+    ];
+    let events = every_event();
+    for (set, tag) in sets {
+        let matches: Vec<_> = events
+            .iter()
+            .filter(|(event, _)| set.matches(event))
+            .map(|(_, tag)| *tag)
+            .collect();
+        assert_eq!(matches, vec![tag]);
+    }
+}
+
+#[test]
+fn native_generation_event_payload_fields_are_required() {
+    for (event, tag) in every_event().into_iter().skip(18) {
+        let value = norito::json::to_value(&event).expect("event JSON");
+        let fields: Vec<_> = value
+            .get("payload")
+            .and_then(norito::json::Value::as_object)
+            .expect("event payload")
+            .keys()
+            .cloned()
+            .collect();
+        for field in fields {
+            let mut missing = value.clone();
+            missing
+                .as_object_mut()
+                .expect("event")
+                .get_mut("payload")
+                .and_then(norito::json::Value::as_object_mut)
+                .expect("event payload")
+                .remove(&field);
+            let json = norito::json::to_json(&missing).expect("missing-field JSON");
+            assert!(
+                norito::json::from_json::<SccpEvent>(&json).is_err(),
+                "{tag} accepted missing {field}"
+            );
+        }
+    }
+}
+
+#[test]
 fn amounts_are_decimal_strings() {
     let (event, _) = every_event()
         .into_iter()
@@ -434,4 +594,71 @@ fn amounts_are_decimal_strings() {
         "{json}"
     );
     assert!(json.contains("\"fee_due\":\"10000000\""), "{json}");
+}
+
+#[test]
+fn every_native_degradation_reason_is_copyable_closed_and_roundtrips() {
+    use norito::codec::DecodeAll as _;
+    fn copy_value<T: Copy>(value: T) -> (T, T) {
+        (value, value)
+    }
+    for (index, reason) in [
+        SccpFinalityDegradedReasonV1::MissingInputs,
+        SccpFinalityDegradedReasonV1::InvalidInputs,
+        SccpFinalityDegradedReasonV1::MissingGeneration,
+        SccpFinalityDegradedReasonV1::InvalidGeneration,
+        SccpFinalityDegradedReasonV1::MissingParent,
+        SccpFinalityDegradedReasonV1::CounterExhausted,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let (original, copied) = copy_value(reason);
+        assert_eq!(original, copied);
+        roundtrip(&reason);
+        assert!(
+            reason
+                .encode()
+                .starts_with(&u32::try_from(index).unwrap().encode())
+        );
+        let event = SccpFinalityDegradedV1 { height: 3, reason };
+        roundtrip(&SccpEvent::FinalityDegraded(event));
+        assert_eq!(copy_value(event), (event, event));
+    }
+    assert!(SccpFinalityDegradedReasonV1::decode_all(&mut 6_u32.encode().as_slice()).is_err());
+    let retired = r#"{"height":3,"reason":"missing_inputs"}"#;
+    assert!(norito::json::from_json::<SccpFinalityDegradedV1>(retired).is_err());
+}
+
+#[test]
+fn fast_pause_lapsed_payload_keeps_original_identity_in_closed_schema() {
+    let event = SccpFastPauseLapsedV1 {
+        network: ETH,
+        certificate_id: [31; 32],
+        until_ms: u64::MAX,
+    };
+    roundtrip(&event);
+    let schema = SccpEvent::schema();
+    let Some(iroha_schema::Metadata::Struct(fields)) = schema.get::<SccpFastPauseLapsedV1>() else {
+        panic!("the event must include its named lapse payload schema");
+    };
+    assert_eq!(
+        fields
+            .declarations
+            .iter()
+            .map(|field| field.name.as_str())
+            .collect::<Vec<_>>(),
+        ["network", "certificate_id", "until_ms"]
+    );
+    for missing in ["network", "certificate_id", "until_ms"] {
+        let mut value = norito::json::to_value(&event).unwrap();
+        value.as_object_mut().unwrap().remove(missing);
+        assert!(
+            norito::json::from_json::<SccpFastPauseLapsedV1>(
+                &norito::json::to_json(&value).unwrap()
+            )
+            .is_err()
+        );
+    }
+    assert_rejects_unknown_field(&event, &[]);
 }

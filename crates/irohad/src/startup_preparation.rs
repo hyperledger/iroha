@@ -349,7 +349,8 @@ impl PreparedStartup {
                     ))
                 })?;
         } else {
-            apply_state_runtime_config_before_snapshot_auth(&mut state, &config);
+            apply_state_runtime_config_before_snapshot_auth(&mut state, &config)
+                .map_err(|error| Report::new(error).change_context(StartError::InitKura))?;
         }
         let startup_lane_policies = if emergency_fast {
             None
@@ -416,7 +417,8 @@ impl PreparedStartup {
                 .map_err(|report| {
                     report.attach("failed to restore effective Nexus tiered lane geometry")
                 })?;
-            state.set_pipeline(config.pipeline.clone());
+            install_node_pipeline_config(&mut state, &config)
+                .map_err(|error| Report::new(error).change_context(StartError::InitKura))?;
             state.set_oracle(config.oracle.clone());
             state.set_fraud_monitoring(config.fraud_monitoring.clone());
             state.set_gov(config.gov.clone());

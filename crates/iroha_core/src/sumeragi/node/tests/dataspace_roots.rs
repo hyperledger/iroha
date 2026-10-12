@@ -46,7 +46,7 @@ fn work_instruction(text: &str) -> InstructionBox {
 }
 
 fn work_fee(text: &str) -> u64 {
-    let gas = crate::gas::meter_instruction(&work_instruction(text));
+    let gas = crate::gas::meter_instruction(&work_instruction(text), &crate::gas::DEFAULT_ZK_GAS);
     assert!(gas > 0, "paid progress requires a positive metered charge");
     // The immutable signed policy burns a positive base charge plus metered gas.
     gas.checked_add(1).unwrap()
@@ -134,10 +134,11 @@ impl DataspaceChain {
         nexus.fees.per_byte_fee = Quantity::zero();
         nexus.fees.per_instruction_fee = Quantity::zero();
         nexus.fees.per_gas_unit_fee = Quantity::zero();
-        let mut pipeline = iroha_config::parameters::actual::Pipeline::default();
-        pipeline.gas.tech_account_id = SAMPLE_GENESIS_ACCOUNT_ID.to_string();
-        pipeline.gas.accepted_assets = vec![fee_asset.canonical_address()];
-        pipeline.gas.units_per_gas = vec![iroha_config::parameters::actual::GasRate {
+        let pipeline = iroha_config::parameters::actual::Pipeline::default();
+        let mut gas = iroha_config::parameters::actual::Gas::default();
+        gas.tech_account_id = SAMPLE_GENESIS_ACCOUNT_ID.to_string();
+        gas.accepted_assets = vec![fee_asset.canonical_address()];
+        gas.units_per_gas = vec![iroha_config::parameters::actual::GasRate {
             asset: fee_asset.canonical_address(),
             units_per_gas: 1,
             twap_local_per_xor: iroha_primitives::numeric::Numeric::one(),
@@ -180,6 +181,9 @@ impl DataspaceChain {
             .with_block_cadence_ms(100_u64.try_into().unwrap())
             .set_topology(entries)
             .with_sumeragi_context_parameters(context);
+        let builder = crate::pipeline_gas_policy::parameters_for_testing(gas)
+            .into_iter()
+            .fold(builder, GenesisBuilder::append_parameter);
         let manifest = instructions
             .into_iter()
             .fold(builder, GenesisBuilder::append_instruction)
@@ -502,7 +506,39 @@ fn independent_dataspace_roots_pay_and_restart_without_sharing_state_or_storage(
     assert_eq!(committed_heights(&b), vec![1; 4]);
     assert!(b.iter().all(|v| !v.state.has_committed_entrypoint(a_work)));
     let a_roots = world_state_roots(&a);
+    let stopped_private_state = Arc::clone(&a[0].state);
     shutdown(a);
+    {
+        // Even a genuinely paid, quorum-certified private receipt is not Global SCCP
+        // authority. Observe the original pool after node workers stop, so unrelated
+        // publication cleanup cannot race the refusal/refund assertion.
+        use crate::smartcontracts::isi::sccp::read::native::{
+            SccpNativeReadControl, SccpNativeReadError, finality,
+        };
+        use crate::sumeragi::certified_chain::{CertifiedChain, QcVerification};
+        let view = stopped_private_state.view();
+        let reader = CertifiedChain::new(&view).unwrap();
+        let original = reader.certified(2).unwrap();
+        assert_eq!(original.verification(), QcVerification::Verified);
+        assert_eq!(original.root_scope(), first.scope);
+        let budget = stopped_private_state.ivm_execution_budget();
+        let occupied = budget.reserved_bytes();
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        assert!(matches!(
+            finality(
+                &view,
+                std::num::NonZeroU64::new(2),
+                &budget,
+                SccpNativeReadControl {
+                    deadline: std::time::Instant::now() + std::time::Duration::from_secs(60),
+                    stop: &stop,
+                },
+            ),
+            Err(SccpNativeReadError::UnsupportedScope)
+        ));
+        assert_eq!(budget.reserved_bytes(), occupied);
+    }
+    drop(stopped_private_state);
     let (_, b_fee) = second.submit(&b, "B advances while A is stopped");
     second.balances(&b, b_fee);
     let inspection_budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);

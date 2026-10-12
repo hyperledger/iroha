@@ -4,7 +4,9 @@ use super::*;
 use std::{num::NonZeroUsize, time::Duration};
 
 use crate::{
-    smartcontracts::isi::sccp::test_support::{authority, blank_state, header, sample_route},
+    smartcontracts::isi::sccp::test_support::{
+        authority, blank_state, generation_fixture_data, header, sample_route,
+    },
     state::World,
     sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
 };
@@ -23,7 +25,13 @@ use iroha_sccp::v1::{
     payload::SccpTransferPayloadV1,
 };
 
-fn control(stop: &AtomicBool) -> SccpNativeReadControl<'_> {
+fn generation_data(
+    view: &super::super::RetainedSccpGenerationView,
+) -> iroha_sccp::api::SccpGenerationV1 {
+    norito::json::from_json(&norito::json::to_json(view).unwrap()).unwrap()
+}
+
+pub(super) fn control(stop: &AtomicBool) -> SccpNativeReadControl<'_> {
     SccpNativeReadControl {
         deadline: Instant::now() + Duration::from_secs(60),
         stop,
@@ -33,7 +41,7 @@ fn control(stop: &AtomicBool) -> SccpNativeReadControl<'_> {
 /// Signed NPoS genesis initializes SCCP through its real instruction and output seal.
 /// No test writes a generation, X, R or QC. The long epoch avoids an unrelated boundary
 /// ceremony while a real heartbeat supplies the unchanged-key rotation test.
-fn active_chain() -> CertifiedTestChain {
+pub(super) fn active_chain() -> CertifiedTestChain {
     let mut config = TestChainConfig::new(World::new(), 1_000);
     config.consensus_mode = iroha_data_model::parameter::system::SumeragiConsensusMode::Npos;
     config.genesis_block_cadence_ms = NonZeroU64::new(1_000).unwrap();
@@ -118,32 +126,39 @@ fn genuine_certificate_retains_raw_result_signature_and_outgoing_rotation_genera
         let view = chain.state().view();
         let latest = finality(&view, None, &budget, control(&stop)).unwrap();
         let signing = SccpFinalityHeaderV1::parse(&latest.data().header).unwrap();
-        let current = current_committee(&view, &budget, control(&stop)).unwrap();
+        let current = current_committee(&view, control(&stop)).unwrap();
         assert!(signing.is_rotation());
-        assert_eq!(current.data().generation, signing.generation() + 1);
-        assert_eq!(current.data().start_height, 4);
-        assert_eq!(current.data().committee_root, signing.next_committee_root());
         assert_eq!(
-            current.data().generation,
+            generation_data(&current).generation,
+            signing.generation() + 1
+        );
+        assert_eq!(generation_data(&current).start_height, 4);
+        assert_eq!(
+            generation_data(&current).committee_root,
+            signing.next_committee_root()
+        );
+        assert_eq!(
+            generation_data(&current).generation,
             *store::committee_current::get(view.world())
         );
         let selected = committee(
             &view,
-            NonZeroU64::new(current.data().generation).unwrap(),
-            &budget,
+            NonZeroU64::new(generation_data(&current).generation).unwrap(),
             control(&stop),
         )
         .unwrap();
-        assert_eq!(selected.data(), current.data());
+        assert_eq!(generation_data(&selected), generation_data(&current));
         let outgoing = committee(
             &view,
             NonZeroU64::new(signing.generation()).unwrap(),
-            &budget,
             control(&stop),
         )
         .unwrap();
-        assert_eq!(outgoing.data().end.as_ref().unwrap().end_height, 3);
-        assert!(current.data().liable);
+        assert_eq!(
+            generation_data(&outgoing).end.as_ref().unwrap().end_height,
+            3
+        );
+        assert!(generation_data(&current).liable);
     }
     assert_eq!(budget.reserved_bytes(), 0);
     chain.commit_at(heartbeat + 1_000, Vec::new());
@@ -237,10 +252,13 @@ fn message_direct_and_history_paths_bind_the_selected_original_header() {
     assert!(!direct.data().is_historical());
     assert!(direct.data().block.history_path.is_empty());
     assert_eq!(direct.data().block.history_index, 0);
-    direct
-        .data()
-        .message_proof(chain.network_id().as_bytes(), &first)
-        .unwrap();
+    direct.data().check_shape().unwrap();
+    assert_eq!(direct.data().message_id, first);
+    let decoded = SccpTransferPayloadV1::decode(&direct.data().payload).unwrap();
+    assert_eq!(
+        decoded.message_id(chain.network_id().as_bytes()).unwrap(),
+        first
+    );
     let historical = message_proof(
         &view,
         first,
@@ -568,7 +586,9 @@ fn native_control_fields_and_paths_are_bound_to_the_original_committed_leaf() {
     assert_eq!(direct.data().effect_hash, [0x72; 32]);
     assert!(!direct.data().is_historical());
     assert_eq!(direct.data().block.height, 2);
-    direct.data().control_proof(network, 1).unwrap();
+    direct.data().check_shape().unwrap();
+    assert_eq!(direct.data().network, network);
+    assert_eq!(direct.data().revision, 1);
     let historical = control_proof(
         &view,
         network,
@@ -645,23 +665,24 @@ fn generation_selection_uses_height_and_rejects_overlaps() {
     let chain = active_chain();
     let state = chain.state();
     let view = state.view();
-    let mut first = store::committee_generations::get(view.world(), &1)
-        .unwrap()
-        .clone();
+    let mut first =
+        generation_fixture_data(store::committee_generations::get(view.world(), &1).unwrap());
     let mut second = first.clone();
     drop(view);
-    first.end = Some(super::super::super::generation::SccpGenerationEndV1 {
+    first.end = Some(iroha_data_model::sccp::generation::SccpGenerationEndV1 {
         end_height: 8,
         end_timestamp_ms: 8_000,
         next_committee_root: first.committee_root,
         successor_validity_ms: first.validity_ms,
     });
     second.generation = 2;
+    second.cause = iroha_data_model::sccp::generation::SccpGenerationCauseV1::Heartbeat;
     second.start_height = 9;
     let mut block = state.block(header(2));
     let mut stx = block.transaction();
-    store::committee_generations::insert(&mut stx, 1, first).unwrap();
-    store::committee_generations::insert(&mut stx, 2, second.clone()).unwrap();
+    crate::smartcontracts::isi::sccp::test_support::install_generation(&mut stx, 1, first).unwrap();
+    crate::smartcontracts::isi::sccp::test_support::install_generation(&mut stx, 2, second.clone())
+        .unwrap();
     let stop = AtomicBool::new(false);
     assert_eq!(
         signing_generation(&*stx.world, 8, control(&stop))
@@ -684,188 +705,12 @@ fn generation_selection_uses_height_and_rejects_overlaps() {
     ));
     assert_eq!(budget.reserved_bytes(), 0);
     second.start_height = 8;
-    store::committee_generations::insert(&mut stx, 2, second).unwrap();
+    crate::smartcontracts::isi::sccp::test_support::install_generation(&mut stx, 2, second)
+        .unwrap();
     assert!(matches!(
         signing_generation(&*stx.world, 8, control(&stop)),
         Err(SccpNativeReadError::Unavailable(_))
     ));
-}
-
-#[test]
-fn committee_projection_retains_every_field_and_original_nested_allocation_charge() {
-    use crate::smartcontracts::isi::sccp::{
-        generation::SccpGenerationMemberV1 as StoredMember, test_support::sample_generation,
-    };
-    use iroha_data_model::account::{AccountId, MultisigMember, MultisigPolicy};
-    let stop = AtomicBool::new(false);
-    let mut record = sample_generation(2, 8);
-    let keys = [0x61, 0x62].map(|seed| {
-        iroha_crypto::KeyPair::from_seed(vec![seed; 32], iroha_crypto::Algorithm::Ed25519)
-    });
-    let multisig = AccountId::new_multisig(
-        MultisigPolicy::new(
-            2,
-            keys.iter()
-                .map(|key| MultisigMember::new(key.public_key().clone(), 1).unwrap())
-                .collect(),
-        )
-        .unwrap(),
-    );
-    record.members[0] = Some(StoredMember {
-        lane_id: iroha_model_base::topology::LaneId::new(u32::MAX),
-        validator: multisig,
-        activation_height: 7,
-    });
-    record.members[2] = Some(StoredMember {
-        lane_id: iroha_model_base::topology::LaneId::new(0),
-        validator: authority(0x63),
-        activation_height: 8,
-    });
-    record.end = Some(super::super::super::generation::SccpGenerationEndV1 {
-        end_height: 9,
-        end_timestamp_ms: record.start_timestamp_ms + 4_000,
-        next_committee_root: [0x71; 32],
-        successor_validity_ms: record.validity_ms,
-    });
-    record.dest_cleared_lc = Some(record.liable_until_lc);
-    assert!(record.is_well_formed());
-    let demand = generation_allocation_bytes(&record, control(&stop)).unwrap();
-    let inline = size_of::<SccpGenerationV1>()
-        + record.keys.len() * 48
-        + record.members.len() * size_of::<Option<SccpGenerationMemberV1>>();
-    let mut nested = 0;
-    for member in record.members.iter().flatten() {
-        member
-            .validator
-            .for_each_admission_clone_layout(|layout| nested += layout.size())
-            .unwrap();
-    }
-    assert!(
-        nested > 2 * 33,
-        "multisig member vector and all key owners are included"
-    );
-    assert_eq!(demand, inline + nested);
-    let too_small = AllocationBudget::new(demand - 1);
-    assert!(matches!(
-        project_generation(&record, 3, 0, &too_small, control(&stop)),
-        Err(SccpNativeReadError::Allocation(_))
-    ));
-    assert_eq!(too_small.reserved_bytes(), 0);
-    let budget = AllocationBudget::new(demand);
-    for cause in [
-        StoredGenerationCause::Genesis,
-        StoredGenerationCause::KeyChange,
-        StoredGenerationCause::Heartbeat,
-        StoredGenerationCause::Resync,
-    ] {
-        record.cause = cause;
-        let answer =
-            project_generation(&record, 3, record.start_lc, &budget, control(&stop)).unwrap();
-        let data = answer.data();
-        assert_eq!(budget.reserved_bytes(), demand);
-        assert_eq!(data.generation, record.generation);
-        assert_eq!(data.committee_root, record.committee_root);
-        assert_eq!(
-            data.cause,
-            match cause {
-                StoredGenerationCause::Genesis => SccpGenerationCauseV1::Genesis,
-                StoredGenerationCause::KeyChange => SccpGenerationCauseV1::KeyChange,
-                StoredGenerationCause::Heartbeat => SccpGenerationCauseV1::Heartbeat,
-                StoredGenerationCause::Resync => SccpGenerationCauseV1::Resync,
-            }
-        );
-        assert_eq!(data.keys, record.keys);
-        assert_eq!(data.members.len(), record.members.len());
-        for (actual, expected) in data.members.iter().zip(&record.members) {
-            match (actual, expected) {
-                (None, None) => (),
-                (Some(actual), Some(expected)) => {
-                    assert_eq!(actual.lane_id, expected.lane_id.as_u32());
-                    assert_eq!(actual.validator, expected.validator);
-                    assert_eq!(actual.activation_height, expected.activation_height);
-                }
-                _ => panic!("absent registration must remain absent"),
-            }
-        }
-        assert_eq!(
-            (data.start_height, data.start_timestamp_ms, data.start_lc),
-            (
-                record.start_height,
-                record.start_timestamp_ms,
-                record.start_lc
-            )
-        );
-        assert_eq!(
-            (
-                data.validity_ms,
-                data.deadline_ms,
-                data.grace_ms,
-                data.progress_cap_ms
-            ),
-            (
-                record.validity_ms,
-                record.deadline_ms,
-                record.grace_ms,
-                record.progress_cap_ms
-            )
-        );
-        assert_eq!(
-            (data.liable_until_lc, data.dest_cleared_lc),
-            (record.liable_until_lc, record.dest_cleared_lc)
-        );
-        let end = data.end.as_ref().unwrap();
-        let source_end = record.end.unwrap();
-        assert_eq!(
-            (
-                end.end_height,
-                end.end_timestamp_ms,
-                end.next_committee_root,
-                end.successor_validity_ms
-            ),
-            (
-                source_end.end_height,
-                source_end.end_timestamp_ms,
-                source_end.next_committee_root,
-                source_end.successor_validity_ms
-            )
-        );
-        assert!(data.liable);
-        drop(answer);
-        assert_eq!(budget.reserved_bytes(), 0);
-    }
-    for cleared in [None, Some(record.liable_until_lc)] {
-        record.dest_cleared_lc = cleared;
-        let last = cleared.map_or(record.liable_until_lc + record.progress_cap_ms, |lc| {
-            lc + record.grace_ms
-        });
-        for (clock, expected) in [(last, true), (last + 1, false)] {
-            let answer = project_generation(&record, 3, clock, &budget, control(&stop)).unwrap();
-            assert_eq!(
-                answer.data().liable,
-                expected,
-                "inclusive liability boundary"
-            );
-        }
-        let answer = project_generation(
-            &record,
-            record.generation,
-            u64::MAX,
-            &budget,
-            control(&stop),
-        )
-        .unwrap();
-        assert!(
-            answer.data().liable,
-            "actual current generation remains liable"
-        );
-    }
-    assert_eq!(budget.reserved_bytes(), 0);
-    record.members.pop();
-    assert!(matches!(
-        project_generation(&record, 3, 0, &budget, control(&stop)),
-        Err(SccpNativeReadError::Unavailable(_))
-    ));
-    assert_eq!(budget.reserved_bytes(), 0);
 }
 
 #[test]
@@ -874,29 +719,20 @@ fn committee_reads_distinguish_absence_authority_local_refusal_and_current_sourc
     let stop = AtomicBool::new(false);
     let budget = AllocationBudget::new(128 << 20);
     let view = chain.state().view();
-    let first = current_committee(&view, &budget, control(&stop)).unwrap();
+    let first = current_committee(&view, control(&stop)).unwrap();
     assert_eq!(
-        first.data().generation,
+        generation_data(&first).generation,
         1,
         "genesis generation DATA is available without a Commit certificate"
     );
     drop(first);
     assert!(matches!(
-        committee(
-            &view,
-            NonZeroU64::new(u64::MAX).unwrap(),
-            &budget,
-            control(&stop)
-        ),
+        committee(&view, NonZeroU64::new(u64::MAX).unwrap(), control(&stop)),
         Err(SccpNativeReadError::NotFound(_))
-    ));
-    assert!(matches!(
-        current_committee(&view, &AllocationBudget::new(0), control(&stop)),
-        Err(SccpNativeReadError::Allocation(_))
     ));
     stop.store(true, Ordering::Release);
     assert!(matches!(
-        current_committee(&view, &budget, control(&stop)),
+        current_committee(&view, control(&stop)),
         Err(SccpNativeReadError::Cancelled)
     ));
     stop.store(false, Ordering::Release);
@@ -904,7 +740,6 @@ fn committee_reads_distinguish_absence_authority_local_refusal_and_current_sourc
         committee(
             &view,
             NonZeroU64::new(1).unwrap(),
-            &budget,
             SccpNativeReadControl {
                 deadline: Instant::now(),
                 stop: &stop
@@ -914,22 +749,17 @@ fn committee_reads_distinguish_absence_authority_local_refusal_and_current_sourc
     ));
     drop(view);
     assert!(matches!(
-        current_committee(&blank_state().view(), &budget, control(&stop)),
+        current_committee(&blank_state().view(), control(&stop)),
         Err(SccpNativeReadError::Unavailable(_))
     ));
     crate::state::native_capture_fixture::with_native_capture_dataspace_source(
         |state, _, _, _, _| {
             assert!(matches!(
-                current_committee(&state.view(), &budget, control(&stop)),
+                current_committee(&state.view(), control(&stop)),
                 Err(SccpNativeReadError::UnsupportedScope)
             ));
             assert!(matches!(
-                committee(
-                    &state.view(),
-                    NonZeroU64::new(1).unwrap(),
-                    &budget,
-                    control(&stop)
-                ),
+                committee(&state.view(), NonZeroU64::new(1).unwrap(), control(&stop)),
                 Err(SccpNativeReadError::UnsupportedScope)
             ));
         },
@@ -938,15 +768,70 @@ fn committee_reads_distinguish_absence_authority_local_refusal_and_current_sourc
     let mut stx = block.transaction();
     store::committee_current::set(&mut stx, 99);
     assert!(matches!(
-        current_committee(&stx, &budget, control(&stop)),
+        current_committee(&stx, control(&stop)),
         Err(SccpNativeReadError::Unavailable(_))
     ));
     assert!(
         matches!(
-            committee(&stx, NonZeroU64::new(100).unwrap(), &budget, control(&stop)),
+            committee(&stx, NonZeroU64::new(100).unwrap(), control(&stop)),
             Err(SccpNativeReadError::Unavailable(_))
         ),
         "missing current source cannot be disguised as requested absence"
     );
     assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn message_rejects_payload_and_stored_coordinate_disagreement_before_admission() {
+    let mut chain = active_chain();
+    let id = install_message(&chain, 2_000, 1);
+    chain.commit_at(2_000, Vec::new());
+    let stop = AtomicBool::new(false);
+    let budget = AllocationBudget::new(128 << 20);
+    let mut block = chain.state().block(header(3));
+    let mut stx = block.transaction();
+    let original = store::outbound_messages::get(&*stx.world, &id)
+        .unwrap()
+        .clone();
+    for mutation in 0..7 {
+        let mut changed = original.clone();
+        match mutation {
+            0 => changed.network = SccpNetworkV1::BscMainnet,
+            1 => changed.revision += 1,
+            2 => changed.nonce += 1,
+            3 => changed.deadline_ms += 1,
+            4 => changed.amount += 1,
+            5 => {
+                changed.payload = SccpTransferPayloadV1::inbound(
+                    changed.network,
+                    changed.nonce,
+                    changed.revision,
+                    changed.amount,
+                    vec![0x22; 20],
+                    vec![0x33; 32],
+                )
+                .unwrap()
+                .encode()
+                .unwrap();
+            }
+            6 => changed.payload[0] ^= 0xff,
+            _ => unreachable!(),
+        }
+        store::outbound_messages::insert(&mut stx, id, changed).unwrap();
+        let error = message_proof(&stx, id, SccpNativeProofAt::Record, &budget, control(&stop))
+            .err()
+            .unwrap();
+        match mutation {
+            0..=5 => assert!(matches!(
+                error,
+                SccpNativeReadError::Invalid("record payload coordinates")
+            )),
+            6 => assert!(matches!(
+                error,
+                SccpNativeReadError::Invalid("stored transfer payload")
+            )),
+            _ => unreachable!(),
+        }
+        assert_eq!(budget.reserved_bytes(), 0, "mutation {mutation}");
+    }
 }

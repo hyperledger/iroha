@@ -94,9 +94,6 @@ pub enum StateStorageAdmissionError {
     /// Original finite-credit refusal from an admitted World storage owner.
     #[error(transparent)]
     World(#[from] mv::storage::AdmittedStorageError),
-    /// Original SCCP generation payload or map admission refused before publication.
-    #[error(transparent)]
-    SccpGeneration(#[from] sccp_generation_custody::GenerationAdmissionError),
     /// Original permanent SCCP offence ownership refused.
     #[error(transparent)]
     SccpForgery(#[from] sccp_forgery_custody::ForgeryStorageError),
@@ -105,7 +102,7 @@ pub enum StateStorageAdmissionError {
     SccpEvidence(#[from] EvidencePreparationError),
     /// The original decoder scope or allocator refused while executing an AMX instruction.
     #[error("local AMX decoder resource refusal: {0}")]
-    AmxDecode(norito::core::DecodeResourceError),
+    AmxDecode(#[source] norito::core::DecodeLocalRefusal),
     /// The original native participant graph or allocator refused before monetary execution.
     #[error("local native AMX graph refusal: {0}")]
     NativeAmx(crate::sumeragi::amx::NativeAmxAdmissionError),
@@ -119,10 +116,6 @@ impl StateStorageAdmissionError {
     pub fn release_wait(&self) -> Option<&iroha_allocation::release::ReleaseWait> {
         match self {
             Self::World(error) => error.release_wait(),
-            Self::SccpGeneration(sccp_generation_custody::GenerationAdmissionError::Storage(e)) => {
-                e.release_wait()
-            }
-            Self::SccpGeneration(_) => None,
             Self::SccpForgery(sccp_forgery_custody::ForgeryStorageError::Storage(e)) => {
                 e.release_wait()
             }

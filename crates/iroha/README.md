@@ -21,6 +21,17 @@ HTTP 429 responses repeat only the status read, respecting Torii's delta-seconds
 `Retry-After` and the original wait deadline. They never resubmit the transaction;
 an exhausted deadline retains the last backpressure diagnostic.
 
+`VerifiedPaymentReceipt::verify` independently joins one direct `SettleAtomic`
+payment to a successful certified Network output. Supply the network, signed
+transaction hash and complete intent retained from the authorized request, plus
+a `VerifiedSumeragiBlock` from the existing verifier rooted in independently
+authenticated signed genesis. The receipt binds exact payer buckets, asset
+scopes, recipients, quantities, reference metadata and the authenticated Nexus
+fee record or its explicit absence. It needs no later block and accepts no
+status-only or deserialized verification claim. PipelineGas carriers are explicitly
+unsupported until their fee outcome has an authenticated receipt. Customer credit
+still requires the application's durable settlement-ID uniqueness transaction.
+
 ## Setup
 
 **Requirements:** install
@@ -300,6 +311,23 @@ without retries. Signed catalogs and acknowledgements use the sole `sorafs_manif
 owner. Caller-selected trust is not network authentication, and returned status/action fields are
 runtime observations, not current native eligibility or package-read authority. Original signing,
 genuine reload observation and crash recovery belong to the managed publisher.
+
+## Durable workflows
+
+`AccountClient::bootstrap_workflow`, `dkg_workflow` and `threshold_opening_workflow` return a
+durable handle for a sequence of transactions and off-chain rounds. A workflow is not atomic across
+its steps: each transaction is atomic by itself, a finalized step is never rolled back, and every
+result carries a progress report that lists confirmed, unresolved and not-started steps.
+
+The handle offers `run`, `recover` (ledger reads only), `cancel` and `progress`. The journal is kept
+in caller-supplied storage: `FileWorkflowStorage` is durable and owner-private,
+`MemoryWorkflowStorage` is for tests. After an interruption, `run` first reads the committed outcome
+of the persisted transaction identity and only then continues. A submission timeout is reported as
+`SubmissionOutcomeUnknown` until that read resolves it, and the transaction is not rebuilt or
+resubmitted while it may still commit. Capability logic (payloads, rounds, custody) comes from a
+`WorkflowDriver`; the module contains no key-generation or threshold cryptography.
+
+The contract is `specs/zk_durable_workflow.md`; its fixtures are in `fixtures/zk/workflow_v1/`.
 
 ## Examples
 

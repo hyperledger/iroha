@@ -14,6 +14,7 @@ use iroha_data_model::{
     bridge::SccpNetworkV1,
     parliament_types::FIRST_RELEASE_MAX_EXACT_JSON_U64,
     sccp::{
+        deployment::SccpCommitteePinV1,
         deployment::{
             SccpDeploymentV1, SccpEvmDeploymentV1, SccpTonCodeRefV1, SccpTonDeploymentV1,
         },
@@ -33,7 +34,6 @@ use iroha_data_model::{
             SccpLcCheckpointOriginV1, SccpLcCheckpointV1, SccpLcInitExpectationV1,
             SccpLightClientParamsError, SccpLightClientParamsV1,
         },
-        native::SccpCommitteePinV1,
         params::{
             SCCP_FAST_PAUSE_HOLD_MARGIN_MS_V1, SCCP_FAST_PAUSE_PANEL_SEATS_V1,
             SCCP_FIXED_EXEMPT_QUOTAS_PER_BLOCK_V1, SCCP_MAX_FAST_PAUSE_MS_V1,

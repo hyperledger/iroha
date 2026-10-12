@@ -84,14 +84,24 @@ impl NativeIntentV1 {
                 }
                 let originals: KagemushaWalletRequestV1 = archive::decode(&request.request)?;
                 valid(originals.verify(scheme))?;
-                let payment = valid(KagemushaWalletPaymentV1::decode_canonical(
-                    &request.payment,
-                    &scheme.scheme_id(),
-                ))?;
-                let payer = valid(KagemushaWalletCredentialV1::decode_canonical(
-                    &request.credential,
-                    &scheme.scheme_id(),
-                ))?;
+                let payment = read_model_original(
+                    || {
+                        KagemushaWalletPaymentV1::decode_canonical(
+                            &request.payment,
+                            &scheme.scheme_id(),
+                        )
+                    },
+                    Error::Invalid("G1 validation"),
+                )?;
+                let payer = read_model_original(
+                    || {
+                        KagemushaWalletCredentialV1::decode_canonical(
+                            &request.credential,
+                            &scheme.scheme_id(),
+                        )
+                    },
+                    Error::Invalid("G1 validation"),
+                )?;
                 let certificates: KagemushaWalletCertificateSetV1 =
                     archive::decode(&request.certificates)?;
                 valid(payment.verify(scheme, &payer, &certificates, &originals))?;

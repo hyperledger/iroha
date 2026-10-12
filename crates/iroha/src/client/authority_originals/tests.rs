@@ -25,10 +25,12 @@ use std::sync::OnceLock;
 fn account_fixture() -> &'static (
     NativeAuthorityOriginalsRequestV1,
     NativeAuthorityOriginalsV1,
+    iroha_data_model::block::consensus::SumeragiRootScope,
 ) {
     static VALUE: OnceLock<(
         NativeAuthorityOriginalsRequestV1,
         NativeAuthorityOriginalsV1,
+        iroha_data_model::block::consensus::SumeragiRootScope,
     )> = OnceLock::new();
     VALUE.get_or_init(|| {
         let alias = AccountAlias::new(
@@ -112,9 +114,7 @@ fn account_fixture() -> &'static (
             signature: SignatureOf::try_from_hash(node.private_key(), body.signing_hash()).unwrap(),
             body,
         };
-        attestation
-            .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
-            .unwrap();
+        attestation.verify(native.root_scope().into()).unwrap();
         let response = NativeAuthorityOriginalsV1 {
             request_sha256,
             selector: request.selector.clone(),
@@ -133,7 +133,7 @@ fn account_fixture() -> &'static (
             }),
         };
         response.validate_request_correlation(&request).unwrap();
-        (request, response)
+        (request, response, native.root_scope())
     })
 }
 
@@ -151,7 +151,7 @@ fn successful(value: &NativeAuthorityOriginalsV1) -> Response<Vec<u8>> {
 }
 #[test]
 fn native_authority_provider_preserves_exact_peer_prefix_in_signed_post() {
-    let (request, value) = account_fixture();
+    let (request, value, _) = account_fixture();
     for prefix in [
         "native-peer-2/",
         "native-peer-3/",
@@ -167,7 +167,7 @@ fn native_authority_provider_preserves_exact_peer_prefix_in_signed_post() {
                 .read_native_authority_originals_wire(
                     request.selector.clone(),
                     request.challenge,
-                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                    account_fixture().2,
                 )
         });
         let result = result.unwrap();
@@ -215,7 +215,7 @@ fn native_authority_provider_preserves_exact_peer_prefix_in_signed_post() {
 #[test]
 fn native_authority_provider_dispatches_signed_post_and_retains_exact_request_preimage() {
     let client = configured();
-    let (request, value) = account_fixture();
+    let (request, value, _) = account_fixture();
     let (result, snapshots) = capture_requests(successful(value), |transport| {
         client
             .clone()
@@ -223,7 +223,7 @@ fn native_authority_provider_dispatches_signed_post_and_retains_exact_request_pr
             .read_native_authority_originals_wire(
                 request.selector.clone(),
                 request.challenge,
-                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                account_fixture().2,
             )
     });
     let result = result.unwrap();
@@ -324,7 +324,7 @@ fn native_authority_provider_dispatches_signed_post_and_retains_exact_request_pr
 #[test]
 fn native_authority_provider_rejects_uncorrelated_digest_selector_and_unsigned_seed_statement() {
     let client = configured();
-    let (request, value) = account_fixture();
+    let (request, value, _) = account_fixture();
     for index in 0..3 {
         let mut changed = value.clone();
         match index {
@@ -351,7 +351,7 @@ fn native_authority_provider_rejects_uncorrelated_digest_selector_and_unsigned_s
                 .read_native_authority_originals_wire(
                     request.selector.clone(),
                     request.challenge,
-                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                    account_fixture().2,
                 )
         });
         assert!(result.is_err());
@@ -362,7 +362,7 @@ fn native_authority_provider_rejects_uncorrelated_digest_selector_and_unsigned_s
 fn native_authority_provider_refuses_zero_entropy_cleartext_prefix_and_foreign_credentials_before_io()
  {
     let client = configured();
-    let (request, value) = account_fixture();
+    let (request, value, _) = account_fixture();
     for additions in [
         vec![("Authorization", "Bearer synthetic-fi-secret")],
         vec![("Cookie", "private")],
@@ -379,7 +379,7 @@ fn native_authority_provider_refuses_zero_entropy_cleartext_prefix_and_foreign_c
             current.read_native_authority_originals_wire(
                 request.selector.clone(),
                 request.challenge,
-                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                account_fixture().2,
             )
         });
         assert!(result.is_err());
@@ -399,7 +399,7 @@ fn native_authority_provider_refuses_zero_entropy_cleartext_prefix_and_foreign_c
             current.read_native_authority_originals_wire(
                 request.selector.clone(),
                 request.challenge,
-                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                account_fixture().2,
             )
         });
         assert!(result.is_err());
@@ -412,7 +412,7 @@ fn native_authority_provider_refuses_zero_entropy_cleartext_prefix_and_foreign_c
             .read_native_authority_originals_wire(
                 request.selector.clone(),
                 [0; 32],
-                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                account_fixture().2,
             )
     });
     assert!(result.is_err());
@@ -421,7 +421,7 @@ fn native_authority_provider_refuses_zero_entropy_cleartext_prefix_and_foreign_c
 #[test]
 fn native_authority_provider_refuses_redirect_noncanonical_and_private_http_error_bodies() {
     let client = configured();
-    let (request, _) = account_fixture();
+    let (request, _, _) = account_fixture();
     for status in [
         StatusCode::TEMPORARY_REDIRECT,
         StatusCode::FORBIDDEN,
@@ -439,7 +439,7 @@ fn native_authority_provider_refuses_redirect_noncanonical_and_private_http_erro
                 .read_native_authority_originals_wire(
                     request.selector.clone(),
                     request.challenge,
-                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                    account_fixture().2,
                 )
         });
         assert!(result.is_err());
@@ -449,7 +449,7 @@ fn native_authority_provider_refuses_redirect_noncanonical_and_private_http_erro
 }
 #[test]
 fn native_authority_provider_normalizes_media_and_keeps_only_listener_token_context() {
-    let (request, value) = account_fixture();
+    let (request, value, _) = account_fixture();
     let mut client = configured();
     client
         .headers
@@ -467,7 +467,7 @@ fn native_authority_provider_normalizes_media_and_keeps_only_listener_token_cont
             .read_native_authority_originals_wire(
                 request.selector.clone(),
                 request.challenge,
-                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                account_fixture().2,
             )
     });
     result.unwrap();
@@ -487,7 +487,7 @@ fn native_authority_provider_normalizes_media_and_keeps_only_listener_token_cont
 #[test]
 fn native_authority_provider_refuses_duplicate_or_seed_response_header() {
     let client = configured();
-    let (request, value) = account_fixture();
+    let (request, value, _) = account_fixture();
     let (_, derived) =
         native_authority_originals_request_digests_v1(&request.canonical_wire().unwrap()).unwrap();
     for duplicate in [false, true] {
@@ -514,7 +514,7 @@ fn native_authority_provider_refuses_duplicate_or_seed_response_header() {
                 .read_native_authority_originals_wire(
                     request.selector.clone(),
                     request.challenge,
-                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                    account_fixture().2,
                 )
         });
         assert!(result.is_err());
@@ -559,7 +559,7 @@ fn identifier_original_pair() -> (
 #[test]
 fn native_authority_provider_carries_identifier_originals_and_refuses_cross_program_rows() {
     let client = configured();
-    let (request, original) = account_fixture();
+    let (request, original, _) = account_fixture();
     let mut request = request.clone();
     let (policy, program) = identifier_original_pair();
     request.selector = NativeAuthorityOriginalsSelectorV1::IdentifierPolicy(policy.id.clone());
@@ -587,7 +587,7 @@ fn native_authority_provider_carries_identifier_originals_and_refuses_cross_prog
             .read_native_authority_originals_wire(
                 request.selector.clone(),
                 request.challenge,
-                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                account_fixture().2,
             )
     });
     let result = result.unwrap();
@@ -609,9 +609,103 @@ fn native_authority_provider_carries_identifier_originals_and_refuses_cross_prog
             .read_native_authority_originals_wire(
                 request.selector.clone(),
                 request.challenge,
-                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                account_fixture().2,
             )
     });
     assert!(result.is_err());
     assert_eq!(snapshots.len(), 1);
+}
+
+fn active_genesis_statement(
+    original: &iroha_data_model::sumeragi_finality::SumeragiFinalityAttestation,
+    node: &iroha_crypto::KeyPair,
+    scope: iroha_data_model::block::consensus::SumeragiRootScope,
+) -> iroha_data_model::sumeragi_finality::SumeragiFinalityAttestation {
+    use iroha_data_model::{
+        block::{CommitCertificate, decode_framed_signed_block},
+        sumeragi_finality::{
+            CertifiedResultV1, SccpFinalityHeaderFieldsV1, SccpFinalityHeaderV1,
+            certified_result::{FLAG_ACTIVE, context_committee_root},
+        },
+    };
+    let mut statement = original.clone();
+    let mut proof = statement.body.genesis_finality_proof.clone();
+    let mut block = decode_framed_signed_block(&proof.block_wire).unwrap();
+    let (x, body) = CertifiedResultV1::decode(
+        block.commit_certificate().unwrap().result_preimage(),
+        scope.into(),
+    )
+    .unwrap()
+    .into_parts();
+    let x = SccpFinalityHeaderV1::from_fields(&SccpFinalityHeaderFieldsV1 {
+        flags: FLAG_ACTIVE,
+        generation: 1,
+        committee_root: context_committee_root(&body.schedule.current).unwrap(),
+        ..x.fields()
+    })
+    .unwrap();
+    let current = CertifiedResultV1::new(x, body, scope.into()).unwrap();
+    block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
+        Vec::new(),
+        Vec::new(),
+        current.preimage().unwrap(),
+        Vec::new(),
+    )));
+    proof.block_wire = block.encode_wire().unwrap();
+    statement.body.genesis_finality_proof = proof.clone();
+    statement.body.finality_proof = proof;
+    statement.body.status.height = 2;
+    statement.body.status.committed_height = 1;
+    statement.body.status.applied_height = 1;
+    statement.signature =
+        iroha_crypto::SignatureOf::try_from_hash(node.private_key(), statement.body.signing_hash())
+            .unwrap();
+    statement
+        .verify(scope.into())
+        .expect("real node signature over structurally valid active G1 candidate");
+    statement
+}
+
+#[test]
+fn native_authority_provider_checks_independently_selected_result_scope() {
+    use iroha_data_model::block::consensus::SumeragiRootScope;
+    let (request, original, scope) = account_fixture();
+    let mut active = original.clone();
+    active.attestation = active_genesis_statement(
+        &original.attestation,
+        &KeyPair::from_seed(vec![1; 32], Algorithm::BlsNormal),
+        *scope,
+    );
+    let private = NativeFinalityFixture::start_with_scope(
+        "authority private root selection",
+        SumeragiRootScope::Dataspace {
+            parent_network_id: request.network_id,
+            dataspace_id: DataSpaceId::new(72),
+        },
+    );
+    assert!(
+        active
+            .attestation
+            .verify(private.root_scope().into())
+            .is_err()
+    );
+    for (selected, accepted) in [(*scope, true), (private.root_scope(), false)] {
+        let (result, snapshots) = capture_requests(successful(&active), |transport| {
+            configured()
+                .with_test_http_transport(transport)
+                .read_native_authority_originals_wire(
+                    request.selector.clone(),
+                    request.challenge,
+                    selected,
+                )
+        });
+        assert_eq!(snapshots.len(), 1);
+        assert_eq!(result.is_ok(), accepted);
+        if let Ok(read) = result {
+            assert_eq!(
+                read.response_wire,
+                norito::encode_canonical(&active).unwrap()
+            );
+        }
+    }
 }

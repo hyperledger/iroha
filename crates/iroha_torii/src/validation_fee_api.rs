@@ -932,8 +932,9 @@ pub(crate) async fn handler_retail_receipts(
             .decode_checked(
                 state
                     .native_execution_tip()
-                    .ok_or_else(|| inconsistent("missing authenticated native execution tip"))?
-                    .result_scope(),
+                    .ok_or_else(|| inconsistent("native execution scope unavailable"))?
+                    .root_scope()
+                    .into(),
             )
             .map_err(|e| inconsistent(format!("receipt finality is malformed: {e}")))?
             .execution()
@@ -1020,13 +1021,14 @@ pub(crate) async fn handler_retail_statement_head(
     }
     let finality_proof = iroha_core::sumeragi::finality::build_proof(&state, height)
         .map_err(|e| inconsistent(format!("wallet head finality unavailable: {e}")))?;
-    let result_scope = state
+    let scope = state
         .native_execution_tip()
-        .ok_or_else(|| inconsistent("missing authenticated native execution tip"))?
-        .result_scope();
+        .ok_or_else(|| inconsistent("native execution scope unavailable"))?
+        .root_scope()
+        .into();
     drop(state);
     let ordinary_writes_root = finality_proof
-        .decode_checked(result_scope)
+        .decode_checked(scope)
         .map_err(|e| inconsistent(format!("wallet head finality is malformed: {e}")))?
         .execution()
         .ordinary_writes_root;

@@ -38,8 +38,8 @@ type CastingBinding =
     iroha_data_model::parliament_casting::ParliamentTimedOvnCastingContextBindingV1;
 
 struct OriginalReceiptSource {
-    finality: SumeragiFinalityProof,
     scope: iroha_data_model::sumeragi_finality::CertifiedResultScope,
+    finality: SumeragiFinalityProof,
     witness: iroha_allocation::RetainedPayload<ExecWitness>,
     casting_bindings: ordinary_writes::CastingOwner,
 }
@@ -55,8 +55,9 @@ fn original_source(
     }
     let scope = view
         .native_execution_tip()
-        .ok_or("historical receipt lacks its authenticated native root scope")?
-        .result_scope();
+        .ok_or("native execution scope is unavailable")?
+        .root_scope()
+        .into();
     let finality = build_proof(view, height).map_err(|error| error.to_string())?;
     let decoded = finality
         .decode_checked(scope)
@@ -98,8 +99,8 @@ fn original_source(
         .recheck_namespace()
         .map_err(|error| error.to_string())?;
     Ok(OriginalReceiptSource {
-        finality,
         scope,
+        finality,
         witness,
         casting_bindings: projection.casting_bindings,
     })
@@ -175,7 +176,7 @@ pub fn private_dataspace_record_proof(
         .ok_or("private-root record carrier lacks a native certificate")?;
     let result =
         iroha_data_model::sumeragi_finality::result_of_preimage(certificate.result_preimage())
-            .ok_or("private-root carrier has malformed certified result preimage")?;
+            .ok_or("private-root carrier has a malformed native result preimage")?;
     let proof = PrivateDataspaceRecordProof::from_writes(
         *view.network_id(),
         height,

@@ -22,7 +22,7 @@ use iroha_plonk_recursion::ACCUMULATOR_BYTES;
 use crate::{
     kagemusha_wallet_artifacts_v1::InstalledVerifierPackV1,
     kagemusha_wallet_proofs_v1::{Error, lineage_public_fields},
-    kagemusha_wallet_state_v1::ReleasedStep,
+    kagemusha_wallet_state_v1::{self as wallet_state, ReleasedStep},
 };
 
 #[path = "kagemusha_wallet_preparation_v1/incoming_statement.rs"]
@@ -120,15 +120,27 @@ fn retained_original(
 fn retained_load_source(
     inputs: &[KagemushaWalletRetainedInputV1],
     digest: [u8; 32],
-) -> Result<(KagemushaWalletLoadReceiptV1, KagemushaWalletLoadFinalityV1), Error> {
-    let ordinary = authority(KagemushaWalletLoadReceiptV1::decode_canonical(
-        retained_original(inputs, KagemushaWalletRetainedInputRoleV1::LoadReceipt)?,
+) -> Result<(KagemushaWalletLoadReceiptV1, KagemushaWalletLoadFinalityV1), wallet_state::Error> {
+    let receipt_bytes = dispatch::proof(retained_original(
+        inputs,
+        KagemushaWalletRetainedInputRoleV1::LoadReceipt,
     ))?;
-    let original = authority(KagemushaWalletLoadFinalityV1::decode_canonical(
-        retained_original(inputs, KagemushaWalletRetainedInputRoleV1::LoadFinality)?,
+    let finality_bytes = dispatch::proof(retained_original(
+        inputs,
+        KagemushaWalletRetainedInputRoleV1::LoadFinality,
     ))?;
-    if authority(ordinary.receipt_digest())? != digest || original.receipt_digest != digest {
-        return Err(Error::Authority);
+    let ordinary = wallet_state::read_model_original(
+        || KagemushaWalletLoadReceiptV1::decode_canonical(receipt_bytes),
+        wallet_state::Error::Proof("retained Load receipt original"),
+    )?;
+    let original = wallet_state::read_model_original(
+        || KagemushaWalletLoadFinalityV1::decode_canonical(finality_bytes),
+        wallet_state::Error::Proof("retained Load finality original"),
+    )?;
+    if dispatch::proof(authority(ordinary.receipt_digest()))? != digest
+        || original.receipt_digest != digest
+    {
+        return dispatch::proof(Err(Error::Authority));
     }
     Ok((ordinary, original))
 }
@@ -644,7 +656,7 @@ impl<'a> PreparationV1<'a> {
         predecessor: &FoldedStateV1,
         public: &KagemushaWalletLineagePublicV1,
         budget: MemoryBudget,
-    ) -> Result<LoadFieldsV1, Error> {
+    ) -> Result<LoadFieldsV1, wallet_state::Error> {
         let capsule = &step.frozen.capsule;
         let KagemushaWalletEffectV1::Load {
             receipt_digest: digest,
@@ -653,10 +665,10 @@ impl<'a> PreparationV1<'a> {
             online_charge,
         } = capsule.body().statement.effect
         else {
-            return Err(Error::Authority);
+            return dispatch::proof(Err(Error::Authority));
         };
         if capsule.body().kind != KagemushaWalletOperationKindV1::Load {
-            return Err(Error::Authority);
+            return dispatch::proof(Err(Error::Authority));
         }
         let (ordinary, _) = retained_load_source(&capsule.body().retained_inputs, digest)?;
         let previous = &predecessor.source_state.core;
@@ -668,10 +680,10 @@ impl<'a> PreparationV1<'a> {
             || ordinary.amount != amount
             || ordinary.online_charge != online_charge
         {
-            return Err(Error::Authority);
+            return dispatch::proof(Err(Error::Authority));
         }
         let (successor, statement, receipt) =
-            self.transition_fields(owner, step, predecessor, public, budget)?;
+            dispatch::proof(self.transition_fields(owner, step, predecessor, public, budget))?;
         Ok(LoadFieldsV1 {
             state: LoadWitness {
                 predecessor: predecessor.witness,
@@ -679,7 +691,7 @@ impl<'a> PreparationV1<'a> {
                 statement,
             },
             sigma: capsule.body().step_proof.bytes.clone(),
-            receipt: authority(ordinary.transcript())?,
+            receipt: dispatch::proof(authority(ordinary.transcript()))?,
             objects: [
                 receipt,
                 owner.certificate_tape.clone(),

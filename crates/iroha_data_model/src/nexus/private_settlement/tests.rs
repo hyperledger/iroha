@@ -588,6 +588,106 @@ fn audit_plaintext_fixture() -> (AtomicPrivateSettlementV1, PrivateSettlementAud
     (manifest, plaintext)
 }
 
+/// A leg payload around `proof` whose statement, delta, capsule and availability
+/// certificate are well-formed records that bind nothing of `manifest(2)`.
+fn unbound_leg_payload(proof: Vec<u8>) -> PrivateSettlementLegPayloadV1 {
+    let (statement, encrypted_outputs) = fixed_output_statement();
+    let delta = PrivateSettlementDeltaV1 {
+        version: ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1,
+        bundle_id: statement.bundle_id,
+        leg_ordinal: statement.leg_ordinal,
+        route: statement.route,
+        pool_id: statement.pool_id,
+        asset_binding_commitment: statement.asset_binding_commitment,
+        old_root: statement.old_root,
+        new_root: statement.new_root,
+        old_epoch: statement.old_epoch,
+        new_epoch: statement.new_epoch,
+        nullifiers: statement.nullifiers.clone(),
+        output_commitments: statement.output_commitments.clone(),
+        encrypted_outputs,
+        statement_digest: statement.digest().expect("statement hashes"),
+        proof_digest: private_settlement_proof_digest_v1(&proof),
+        capsule_digest: statement.audit_capsule_digest,
+        audit_policy_digest: statement.audit_policy_digest,
+        audit_key_epoch: statement.audit_key_epoch,
+    };
+    let audit_capsule = PrivateSettlementAuditCapsuleV1 {
+        version: ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1,
+        aad: PrivateSettlementAuditAadV1 {
+            network_id: statement.network_id,
+            bundle_id: statement.bundle_id,
+            leg_ordinal: statement.leg_ordinal,
+            route: statement.route,
+            authority_digest: hash(0xD1),
+            authority_context_height: statement.authority_context_height,
+            audit_policy_digest: statement.audit_policy_digest,
+            audit_key_epoch: statement.audit_key_epoch,
+            plaintext_commitment: statement.audit_plaintext_commitment,
+        },
+        padding: PrivateSettlementCapsulePaddingV1::KiB4,
+        nonce: [0; PRIVATE_SETTLEMENT_XCHACHA_NONCE_BYTES_V1],
+        ciphertext: Vec::new(),
+        wrapped_deks: Vec::new(),
+    };
+    let availability = PrivateSettlementSidecarAvailabilityV1 {
+        body: PrivateSettlementSidecarAvailabilityBodyV1 {
+            version: ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1,
+            network_id: statement.network_id,
+            bundle_id: statement.bundle_id,
+            leg_ordinal: statement.leg_ordinal,
+            route: statement.route,
+            authority_digest: hash(0xD1),
+            authority_context_height: statement.authority_context_height,
+            payload_digest: hash(0xD2),
+            payload_bytes: 1,
+            retention_until_height: statement.expiry_height,
+        },
+        signers_bitmap: 0b0111,
+        aggregate_signature: vec![1; PRIVATE_SETTLEMENT_BLS_BYTES_V1],
+    };
+    PrivateSettlementLegPayloadV1 {
+        statement,
+        proof,
+        delta,
+        audit_capsule,
+        availability,
+    }
+}
+
+#[test]
+fn leg_payload_proof_of_exactly_the_bound_passes_the_size_check_and_one_byte_more_is_refused() {
+    let manifest = manifest(2);
+    manifest.validate().expect("two legs are admitted");
+    let (policy, _) = policy(manifest.legs[0].route.dataspace_id);
+    policy.validate().expect("fixture policy is valid");
+
+    // A proof of exactly the bound passes the size check. The fixture binds nothing of
+    // the manifest, so validation goes on and refuses it for a binding, not for its size.
+    let mut payload = unbound_leg_payload(vec![0x5A; PRIVATE_SETTLEMENT_MAX_PROOF_BYTES_V1]);
+    let at_bound = payload.validate_against(&manifest, &policy);
+    assert!(
+        at_bound.is_err() && at_bound != Err(PrivateSettlementValidationError::InvalidProofSize),
+        "a proof of exactly the bound is not refused for its size: {at_bound:?}"
+    );
+    // One byte more is refused for its size, before anything else of the payload is read.
+    payload.proof.push(0x5A);
+    assert_eq!(
+        payload.proof.len(),
+        PRIVATE_SETTLEMENT_MAX_PROOF_BYTES_V1 + 1
+    );
+    assert_eq!(
+        payload.validate_against(&manifest, &policy),
+        Err(PrivateSettlementValidationError::InvalidProofSize)
+    );
+    // An empty proof is refused by the same check.
+    payload.proof.clear();
+    assert_eq!(
+        payload.validate_against(&manifest, &policy),
+        Err(PrivateSettlementValidationError::InvalidProofSize)
+    );
+}
+
 #[test]
 fn manifest_enforces_two_through_255_canonical_legs() {
     assert_eq!(

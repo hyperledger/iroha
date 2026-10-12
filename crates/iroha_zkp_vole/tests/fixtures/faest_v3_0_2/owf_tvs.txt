@@ -1,0 +1,21 @@
+# Converted from faest-ref v3.0.2 tests/owf_tvs.hpp (values unmodified).
+# Upstream SHA-256: 46271517a6e5371bcb7f77a00e73279545fd031cdf05cf4a0b10b40bfea8cb34
+# Format: name = lowercase hex (uint8_t array) | [decimal,...] (uint16_t array) | decimal (integer).
+owf_tvs.FAEST_128F.key = d022e7d520f8e938a14e188c47308cfe
+owf_tvs.FAEST_128F.input = f5fff7f728b9f8fbf51c7ccccc4c2401
+owf_tvs.FAEST_128F.output = e41dcd855f4d0c39a3d59a16c18d8b85
+owf_tvs.FAEST_192F.key = 6b1ceaa3cae0f580a7cc095cd936efaead66c1bdbe79646c
+owf_tvs.FAEST_192F.input = a72c2b4db4cc085146df0b2618fed2d2
+owf_tvs.FAEST_192F.output = f3694985b0b7715a188fea239fca91e36ea33a199ca2a5875e80fdc480591a01
+owf_tvs.FAEST_256F.key = b12051c3f37d08a970206135c30dcb092f687d75727ca5cbb5ebc1ce46b4ae00
+owf_tvs.FAEST_256F.input = a7b529a41e747fc6f59257e095ce3904
+owf_tvs.FAEST_256F.output = 3b5c525c2f68a910520e5ecfd19a17dd910652ec2f06d781d2f61fb0e3d191ed
+owf_tvs.FAEST_EM_128F.key = c0d241d281f0b269e46cf5948c2823c3
+owf_tvs.FAEST_EM_128F.input = 263a41cfd7fd4155d04c3e03ed3759e8
+owf_tvs.FAEST_EM_128F.output = 9031d58b736693545056d4b8b9030710
+owf_tvs.FAEST_EM_192F.key = 32d940f49dc779fc5a11d4cb95988cbbeab149aec164c08f
+owf_tvs.FAEST_EM_192F.input = 6135918713670d5a8797c75beff721279165786303ba5663
+owf_tvs.FAEST_EM_192F.output = ef8f8ae7079c6071d3de342970aaf8d2eebd7557e2899fa7
+owf_tvs.FAEST_EM_256F.key = 29edcb6f4fdc879e2a1e9a784357a787b0b7bffd73b815e93a81e98e2780d376
+owf_tvs.FAEST_EM_256F.input = 898bff7214da719a1b7ff6fa0108c6fad15cdead155866db420bcca86ebfe922
+owf_tvs.FAEST_EM_256F.output = ebe22ff13b02435a443cecbe325a5f5ef4cf9cbf3db0e893a8e0f2a41ee82850

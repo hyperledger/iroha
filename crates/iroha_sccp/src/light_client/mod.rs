@@ -23,7 +23,7 @@
 //! Taira execution passes the versions active at the executing height
 //! ([`profile::SccpLcProfileCatalogV1::resolve`]), and the plain forms, used by off-chain tools,
 //! run under the newest compiled versions ([`profile::SccpChainProfilesV1::latest`]).
-//! [`SccpVerifierWorkV1`] estimates the `[zk.sccp]` work categories of every call before it runs,
+//! [`SccpVerifierWorkV1`] estimates the committed `sccp` (ZK validity policy) work categories of every call before it runs,
 //! so core can meter and reject oversized work cheaply.
 
 pub mod bsc;
@@ -299,7 +299,7 @@ impl From<EthereumLcError> for SccpLcError {
     }
 }
 
-/// Verifier work of one call in the `[zk.sccp]` limit categories (§4.12.1 step 5).
+/// Verifier work of one call in the committed `sccp` limit categories of the ZK validity policy (§4.12.1 step 5).
 ///
 /// `proofs` counts inbound and void proofs only; `proof_bytes` counts every verified frame
 /// (proofs, advances and evidence). Core reserves the estimate per transaction and per block

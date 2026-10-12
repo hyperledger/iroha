@@ -31,6 +31,158 @@ mod canonical_codec_tests {
         );
     }
     #[test]
+    fn canonical_consuming_decode_restores_scopes_before_the_consumer() {
+        let value = vec![1_u64, 2, 3, 4];
+        let frame = encode_canonical(&value).unwrap();
+        let nested = encode_canonical(&vec![5_u64; 16]).unwrap();
+        let limits = DecodeLimits::new(4, frame.len(), 32, frame.len() * 64, 16);
+        let alternate_flags = core::default_encode_flags() ^ core::header_flags::COMPACT_LEN;
+        let _ambient_flags = core::DecodeFlagsGuard::enter(alternate_flags);
+        let ambient_payload = b"original ambient payload";
+        let _ambient_payload = core::PayloadCtxGuard::enter(ambient_payload);
+        let context_before = core::payload_ctx();
+        let encoding_before = core::to_bytes(&value).unwrap();
+        let calls = std::cell::Cell::new(0);
+        let result = decode_canonical_for_admission_into(&frame, limits, |decoded: Vec<u64>| {
+            calls.set(calls.get() + 1);
+            assert_eq!(decoded, value);
+            assert_eq!(core::payload_ctx(), context_before);
+            assert_eq!(core::to_bytes(&decoded).unwrap(), encoding_before);
+            // Sixteen elements exceed the retired four-element intrinsic bound. This is a
+            // separate consumer operation, with its own canonical decoder and provenance.
+            assert_eq!(decode_canonical::<Vec<u64>>(&nested).unwrap(), vec![5; 16]);
+            let refused =
+                core::with_decode_limits_scope(DecodeLimits::new(1, 4096, 4096, 4096, 16), || {
+                    decode_canonical_for_admission::<Vec<u64>>(
+                        &nested,
+                        canonical_decode_limits(nested.len()),
+                    )
+                })
+                .unwrap_err();
+            assert_eq!(refused.kind(), core::DecodeAttemptErrorKind::EnclosingLimit);
+            Err::<usize, _>("consumer semantic failure")
+        })
+        .unwrap();
+        assert_eq!(result, Err("consumer semantic failure"));
+        assert_eq!(calls.get(), 1);
+        assert_eq!(core::payload_ctx(), context_before);
+        assert_eq!(core::to_bytes(&value).unwrap(), encoding_before);
+    }
+
+    #[test]
+    fn canonical_consuming_decode_never_calls_consumer_for_invalid_or_refused_frames() {
+        let value = vec![1_u64, 2, 3, 4];
+        let frame = encode_canonical(&value).unwrap();
+        let mut checksum = frame.clone();
+        *checksum.last_mut().unwrap() ^= 1;
+        let mut trailing = frame.clone();
+        trailing.push(0);
+        let alternate = {
+            let _flags = core::DecodeFlagsGuard::enter(
+                core::default_encode_flags() ^ core::header_flags::COMPACT_LEN,
+            );
+            core::to_bytes(&value).unwrap()
+        };
+        let invalid = [
+            frame[..frame.len() - 1].to_vec(),
+            checksum,
+            trailing,
+            alternate,
+            encode_canonical(&7_u64).unwrap(),
+        ];
+        let calls = std::cell::Cell::new(0);
+        for bytes in invalid {
+            let error = decode_canonical_for_admission_into(
+                &bytes,
+                canonical_decode_limits(bytes.len()),
+                |_: Vec<u64>| calls.set(calls.get() + 1),
+            )
+            .unwrap_err();
+            assert_eq!(error.kind(), core::DecodeAttemptErrorKind::Invalid);
+        }
+        let intrinsic =
+            core::with_decode_limits_scope(DecodeLimits::new(64, 4096, 4096, 4096, 32), || {
+                decode_canonical_for_admission_into(
+                    &frame,
+                    DecodeLimits::new(3, frame.len(), 4096, 4096, 32),
+                    |_: Vec<u64>| calls.set(calls.get() + 1),
+                )
+            })
+            .unwrap_err();
+        assert_eq!(intrinsic.kind(), core::DecodeAttemptErrorKind::Invalid);
+        assert!(matches!(
+            intrinsic.error().decode_resource_error(),
+            Some(core::DecodeResourceError::SequenceLengthExceeded {
+                length: 4,
+                limit: 3
+            })
+        ));
+        let error =
+            core::with_decode_limits_scope(DecodeLimits::new(1, 4096, 4096, 4096, 16), || {
+                decode_canonical_for_admission_into(
+                    &frame,
+                    canonical_decode_limits(frame.len()),
+                    |_: Vec<u64>| calls.set(calls.get() + 1),
+                )
+            })
+            .unwrap_err();
+        // Retiring its actual scope and entering an unrelated equal-valued one cannot
+        // replace the original enclosing refusal recorded before the consumer boundary.
+        core::with_decode_limits_scope(DecodeLimits::new(1, 4096, 4096, 4096, 16), || {
+            assert_eq!(error.kind(), core::DecodeAttemptErrorKind::EnclosingLimit);
+            assert!(error.error().decode_resource_error().is_some());
+        });
+        assert_eq!(calls.get(), 0);
+        assert_eq!(
+            decode_canonical_for_admission_into(
+                &frame,
+                canonical_decode_limits(frame.len()),
+                |decoded: Vec<u64>| decoded.iter().sum::<u64>(),
+            )
+            .unwrap(),
+            10
+        );
+    }
+
+    #[test]
+    fn canonical_consuming_decode_preserves_large_fixed_value_and_unwind_cleanup() {
+        let value = [[7_u64; 32]; 32];
+        let frame = encode_canonical(&value).unwrap();
+        assert_eq!(
+            decode_canonical_for_admission_into(
+                &frame,
+                canonical_decode_limits(frame.len()),
+                |decoded: [[u64; 32]; 32]| {
+                    assert_eq!(encode_canonical(&decoded).unwrap(), frame);
+                    decoded.iter().flatten().sum::<u64>()
+                },
+            )
+            .unwrap(),
+            7 * 32 * 32
+        );
+        let owner = std::sync::Arc::new(());
+        let weak = std::sync::Arc::downgrade(&owner);
+        let payload = b"outer consumer context";
+        let _ambient = core::PayloadCtxGuard::enter(payload);
+        let context_before = core::payload_ctx();
+        let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            decode_canonical_for_admission_into(
+                &frame,
+                canonical_decode_limits(frame.len()),
+                |_: [[u64; 32]; 32]| {
+                    let _original_owner = owner;
+                    assert_eq!(core::payload_ctx(), context_before);
+                    panic!("consumer unwind control");
+                },
+            )
+        }));
+        assert!(unwind.is_err());
+        assert!(weak.upgrade().is_none());
+        assert_eq!(core::payload_ctx(), context_before);
+        assert_eq!(decode_canonical::<[[u64; 32]; 32]>(&frame).unwrap(), value);
+    }
+
+    #[test]
     fn canonical_scalar_and_unit_roundtrip() {
         let scalar = encode_canonical(&1_u8).expect("encode canonical scalar");
         assert_eq!(

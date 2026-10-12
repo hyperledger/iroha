@@ -125,6 +125,11 @@ async fn missing_unavailable_bad_request_and_stop_are_different_responses() {
             "sccp_not_found",
         ),
         (
+            SccpNativeReadError::Pruned("committee generation"),
+            StatusCode::GONE,
+            "sccp_pruned",
+        ),
+        (
             SccpNativeReadError::Unavailable("source"),
             StatusCode::SERVICE_UNAVAILABLE,
             "sccp_unavailable",
@@ -163,11 +168,13 @@ async fn missing_unavailable_bad_request_and_stop_are_different_responses() {
     for (error, status, code) in cases {
         let response = source_error(error);
         assert_eq!(response.status(), status);
-        assert_ne!(
-            response.status(),
-            StatusCode::GONE,
-            "absence is not pruning evidence"
-        );
+        if code != "sccp_pruned" {
+            assert_ne!(
+                response.status(),
+                StatusCode::GONE,
+                "absence is not pruning evidence"
+            );
+        }
         assert_eq!(
             response.headers()[header::CACHE_CONTROL],
             "private, no-store"
@@ -320,7 +327,7 @@ async fn native_handlers_reject_bad_selectors_before_source_or_worker_admission(
     )
     .await
     .unwrap();
-    let rotations = handler_committee_rotations(
+    let rotations = handler_rotations(
         State(app),
         NoritoStringQuery(RotationsQuery::default()),
         Extension(RouteExecutionDeadline(deadline)),

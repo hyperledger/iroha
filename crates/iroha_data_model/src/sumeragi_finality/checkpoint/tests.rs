@@ -246,6 +246,7 @@ fn checkpoint_lag_two_binding_and_height_exhaustion_refuse() {
     assert!(
         verifier
             .verify(&third)
+            .map_err(invalid_read_error)
             .unwrap_err()
             .0
             .contains("height exhausted")
@@ -519,9 +520,8 @@ fn native_decision_data_retains_exact_selected_genesis_and_all_three_parents() {
         );
     }
     let bounded = &proofs[2..];
-    let scope = CertifiedResultScope::from_root_scope(fixture.verifier().root_scope());
     let checkpoint = original
-        .with_independently_authenticated_decision_data(bounded, scope)
+        .with_independently_authenticated_decision_data(bounded, fixture.root_scope().into())
         .unwrap();
     let actual = fixture
         .verifier()
@@ -542,25 +542,28 @@ fn native_decision_data_retains_exact_selected_genesis_and_all_three_parents() {
     admitted.verify_retained_decision(fixture.latest()).unwrap();
     assert!(
         original
-            .with_independently_authenticated_decision_data(&bounded[1..], scope)
+            .with_independently_authenticated_decision_data(
+                &bounded[1..],
+                fixture.root_scope().into()
+            )
             .is_err()
     );
     assert!(
         original
             .with_independently_authenticated_decision_data(
                 &[bounded[1].clone(), bounded[0].clone(), bounded[2].clone()],
-                scope
+                fixture.root_scope().into()
             )
             .is_err()
     );
     assert!(
         original
-            .with_independently_authenticated_decision_data(&proofs, scope)
+            .with_independently_authenticated_decision_data(&proofs, fixture.root_scope().into())
             .is_err()
     );
     assert!(
         original
-            .with_independently_authenticated_decision_data(&[], scope)
+            .with_independently_authenticated_decision_data(&[], fixture.root_scope().into())
             .is_err()
     );
 }
@@ -792,32 +795,38 @@ fn checkpoint_import_handoff_preserves_exact_witness_scope_and_resource_errors()
             SumeragiFinalityVerifier::from_trusted_checkpoint(&selected, &fixture.network, CHAIN)
         })
         .unwrap_err();
-        // Each independent attempt has its own opaque budget-boundary identity.
-        // Compare exact resource fields and origin class, never Debug strings from
-        // unrelated owners. An ended attempt cannot acquire a new owner's authority.
-        let exact_resource = |error: FinalityReadError| {
+        // Each API opens an independent attempt. Compare the exact typed refusal,
+        // not Debug output containing intentionally distinct opaque boundary identities.
+        let original_resource = |error| {
             let FinalityReadError::DecodeResource(error) = error else {
-                panic!("expected the original scoped decode refusal");
+                panic!("expected original decode resource refusal: {error:?}");
             };
             assert_eq!(
                 error.kind(),
                 norito::core::DecodeAttemptErrorKind::EnclosingLimit
             );
             let original = error.into_error();
-            let resource = original
+            assert!(matches!(
+                &original,
+                norito::core::Error::ScopedDecodeResource(_)
+            ));
+            let fields = original
                 .decode_resource_error()
-                .expect("exact resource fields");
-            assert!(
-                matches!(resource, norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit: 0 } if attempted > 0)
-            );
-            let later =
-                norito::core::classify_decode_attempt(|| Err::<(), _>(original)).unwrap_err();
-            assert_eq!(later.kind(), norito::core::DecodeAttemptErrorKind::Invalid);
-            assert_eq!(later.into_error().decode_resource_error(), Some(resource));
-            resource
+                .expect("original resource fields");
+            assert!(matches!(fields,
+                norito::core::DecodeResourceError::TotalAllocationExceeded {
+                    attempted, limit: 0
+                } if attempted > 0
+            ));
+            let norito::core::Error::ScopedDecodeResource(scoped) = original else {
+                unreachable!("the original scoped variant was checked above");
+            };
+            (scoped, fields)
         };
-        let ordinary_resource = exact_resource(ordinary);
-        assert_eq!(exact_resource(handoff), ordinary_resource);
+        let (ordinary_error, expected) = original_resource(ordinary);
+        let (handoff_error, actual) = original_resource(handoff);
+        assert_eq!(actual, expected);
+        assert_ne!(handoff_error, ordinary_error);
         let refused = std::cell::Cell::new(0_u32);
         let consumer = norito::with_decode_limits_scope(no_allocation, || {
             SumeragiFinalityVerifier::from_trusted_checkpoint_with_consumer(
@@ -828,7 +837,10 @@ fn checkpoint_import_handoff_preserves_exact_witness_scope_and_resource_errors()
             )
         })
         .unwrap_err();
-        assert_eq!(exact_resource(consumer), ordinary_resource);
+        let (consumer_error, actual) = original_resource(consumer);
+        assert_eq!(actual, expected);
+        assert_ne!(consumer_error, ordinary_error);
+        assert_ne!(consumer_error, handoff_error);
         let owned_source = selected.clone();
         let owned_refusal = norito::with_decode_limits_scope(no_allocation, || {
             SumeragiFinalityVerifier::from_trusted_checkpoint_with_consumer(
@@ -839,7 +851,11 @@ fn checkpoint_import_handoff_preserves_exact_witness_scope_and_resource_errors()
             )
         })
         .unwrap_err();
-        assert_eq!(exact_resource(owned_refusal), ordinary_resource);
+        let (owned_error, actual) = original_resource(owned_refusal);
+        assert_eq!(actual, expected);
+        assert_ne!(owned_error, ordinary_error);
+        assert_ne!(owned_error, handoff_error);
+        assert_ne!(owned_error, consumer_error);
         assert_eq!(refused.get(), 0);
         assert_eq!(selected.encode_canonical().unwrap(), original);
         let retried = SumeragiFinalityVerifier::from_trusted_checkpoint_with_consumer(

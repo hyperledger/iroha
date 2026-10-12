@@ -569,9 +569,7 @@ fn prove(
             },
         );
         let root = finality
-            .decode_checked(CertifiedResultScope::from_root_scope(
-                fixture.verifier().root_scope(),
-            ))
+            .decode_checked(fixture.verifier().root_scope().into())
             .unwrap()
             .execution()
             .ordinary_writes_root;
@@ -611,7 +609,7 @@ fn entitlement(records: &mut [FeeEvidenceRecordV1]) -> &mut ValidationFeeRewardE
 #[test]
 fn fee_evidence_checked_verification_preserves_decode_refusal_and_exact_retry() {
     let fixture = prefix();
-    let scope = CertifiedResultScope::from_root_scope(fixture.verifier().root_scope());
+    let scope = CertifiedResultScope::from(fixture.verifier().root_scope());
     let (window, _) = prove(fixture, vec![Vec::new()]);
     let block = &window.blocks[0];
     let root = block

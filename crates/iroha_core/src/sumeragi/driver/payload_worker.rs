@@ -687,6 +687,22 @@ impl PayloadWorker {
                     codeword: authored.codeword,
                 });
             }
+            Err(AuthoringError::SigningFailed {
+                kind,
+                height,
+                view,
+                error,
+            }) => {
+                progress.events.push(Event::SigningFailed {
+                    kind,
+                    height,
+                    view,
+                    error,
+                });
+                self.author = Some(author);
+                progress.retry = true;
+                progress.refused = true;
+            }
             Err(error) if author_refusal(&error) => {
                 self.author = Some(author);
                 progress.retry = true;

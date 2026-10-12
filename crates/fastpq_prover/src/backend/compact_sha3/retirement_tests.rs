@@ -189,8 +189,12 @@ fn immutable_prefix_binds_catalog_protocol_identity_and_full_context_under_concu
     let expected = norito::encode_canonical(&PrefixFrame {
         version: 1,
         catalog: FASTPQ_CATALOG_V1.as_bytes().to_vec(),
-        protocol: FASTPQ_FINAL_V1.name.as_bytes().to_vec(),
-        identity: super::super::deep_binding::IDENTITY.to_vec(),
+        construction: super::super::transcript_profile::CONSTRUCTION
+            .as_bytes()
+            .to_vec(),
+        profile: super::super::transcript_profile::profile()
+            .as_bytes()
+            .to_vec(),
         context: bytes,
     })
     .unwrap();
@@ -346,12 +350,28 @@ fn every_typed_coordinate_binds_hash_while_prefix_custody_stays_constant() {
 #[test]
 fn independent_complete_prefix_dummy_tape_and_chain_known_answers() {
     // Independently encoded canonical Norito in Python, SHA-256 schema IDs,
-    // CRC64-XZ payload checksums and hashlib SHA3/SHAKE. The producer also
-    // reproduces the prior native framing vector and the CRC64 check string.
+    // CRC64-XZ payload checksums and hashlib SHA3/SHAKE
+    // (`scripts/zk_semantic_profile_reference.py`). The prefix is the header and
+    // the version, catalog and construction fields, then the complete typed
+    // profile descriptor, then the context field; its whole digest is pinned.
     let context = Context::new(b"complete public context without a private witness").unwrap();
+    let profile = super::super::transcript_profile::profile();
+    assert_eq!(profile.as_bytes().len(), 3_871);
+    assert_eq!(context.prefix.encoded.len(), 4_063);
     assert_eq!(
         hex::encode(&context.prefix.encoded),
-        "4e5254300000568fedfb2a9232dfd5dd6e73bda12840009a0100000000000091c36301bb52c59e0202010020180000000000000069726f68612d707269766163792d657861637431322d76312820000000000000006661737470712d73746174652d7472616e736974696f6e2d737461726b2d7631910209010000000000006661737470713a636f6d706163743a646565702d616c693a736861332d3235363a7368616b653235362d61746f6d69632d7261773a726f773330313a71706169722b636f6d706f736974696f6e2d6d61736b3a6f6f643630343a636f6d706f6e656e74733630363a6d61736b2d6c616d626461302b7465726d732d6c616d626461312d3630363a74726163652d7368696674323a71756f7469656e742d7368696674313a617269747931362d31362d382d382d343a6672692d646567726565326e3a7465726d696e616c2d646567726565322d3132383a7137373a6338373a72617739333a6d61736b3136322d37383a6f6d69742d66697273742d6b6e6f776e2d66696265723a7631393100000000000000636f6d706c657465207075626c696320636f6e7465787420776974686f757420612070726976617465207769746e657373"
+        [
+            "4e5254300000568fedfb2a9232dfd5dd6e73bda1284000b70f00000000000057294c5f1254ee100202010020180000000000000069726f68612d707269766163792d657861637431322d76312f2700000000000000666970733230322d61746f6d69632d77686f6c652d746170652d7472616e7363726970742d7631a71e1f0f000000000000",
+            hex::encode(profile.as_bytes()).as_str(),
+            "393100000000000000636f6d706c657465207075626c696320636f6e7465787420776974686f757420612070726976617465207769746e657373",
+        ]
+        .concat()
+    );
+    let mut whole = Sha3_256V1::new();
+    whole.update(&context.prefix.encoded);
+    assert_eq!(
+        hex::encode(whole.finalize().into_bytes()),
+        "0639025aa47dbe15e2792551bad60665e9701324feac90893e126c7b81d040d7"
     );
     let round = RawTapeRoundV1::new(1).unwrap();
     let g = context.frame(4, 0, 1, 0, 0, 32, BodyFields::One(&[0; 32]));
@@ -364,7 +384,7 @@ fn independent_complete_prefix_dummy_tape_and_chain_known_answers() {
     let tape = context.tape(round, &encoded).unwrap();
     assert_eq!(
         hex::encode(tape.as_bytes()),
-        "6a881e7b190b403d125e08c68fc23b695f86bcc2dd0395b8f41b01421cf488c5"
+        "26d8592fc8042efc7dee3349db03b6700b82ecb4512e5e97732d8f0007637a9e"
     );
     let root = [0; 32];
     let chain = context.frame(3, 0, 1, 0, 0, 32, BodyFields::Two(tape.as_bytes(), &root));
@@ -375,10 +395,10 @@ fn independent_complete_prefix_dummy_tape_and_chain_known_answers() {
     assert!(std::ptr::eq(borrowed_root, root.as_slice()));
     assert_eq!(
         hex::encode(norito::encode_canonical(&chain).unwrap()),
-        "4e525430000006b0bfd67e8a9cdc61d3474fc82491dd007000000000000000d0b1db62787f8af8020103010001010400000000040000000004200000005a02000000000000002820000000000000006a881e7b190b403d125e08c68fc23b695f86bcc2dd0395b8f41b01421cf488c52820000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        "4e525430000006b0bfd67e8a9cdc61d3474fc82491dd007000000000000000b723010a45b01dd2020103010001010400000000040000000004200000005a020000000000000028200000000000000026d8592fc8042efc7dee3349db03b6700b82ecb4512e5e97732d8f0007637a9e2820000000000000000000000000000000000000000000000000000000000000000000000000000000"
     );
     assert_eq!(
         hex::encode(context.hash_frame(&chain).unwrap().into_bytes()),
-        "d339ab659a6d2e57f78a3e1157842fcf557c217724c14450be812936d0c7af11"
+        "fb779ea41553b05852feb64ea57dd9fbef344bbd7733264426e0a69bd018773a"
     );
 }

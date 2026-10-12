@@ -5,9 +5,8 @@
 //! carries its own liability, nonces and activation state.
 
 use super::{
-    control::SCCP_FIRST_CONTROL_NONCE_V1,
-    deployment::SccpDeploymentV1,
-    native::{SccpCommitteePinV1, SccpQuarantineV1},
+    control::SCCP_FIRST_CONTROL_NONCE_V1, deployment::SccpCommitteePinV1,
+    deployment::SccpDeploymentV1, native::SccpQuarantineV1,
 };
 use crate::{
     DeriveJsonDeserialize, DeriveJsonSerialize, account::AccountId, bridge::SccpNetworkV1,

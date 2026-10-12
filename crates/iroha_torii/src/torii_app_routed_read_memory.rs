@@ -11,6 +11,18 @@ const APP_ROUTED_READ_MAX_URL_PARAMETERS_V1: usize = 2;
 const APP_ROUTED_READ_URL_PARAMETER_VEC_CAPACITY_V1: usize = 4;
 const APP_ROUTED_READ_URL_PARAMETER_KEY_BYTES_V1: usize = 64;
 fn app_routed_read_url_parameter_fixed_bytes() -> Option<usize> {
+    routed_read_url_parameter_fixed_bytes(
+        APP_ROUTED_READ_MAX_URL_PARAMETERS_V1,
+        APP_ROUTED_READ_URL_PARAMETER_KEY_BYTES_V1,
+    )
+}
+// Keep the original application catalog allowance; SCCP supplies its actual
+// three-key control route geometry without increasing the working-set limit.
+fn routed_read_url_parameter_fixed_bytes(parameters: usize, key_bytes: usize) -> Option<usize> {
+    if parameters > APP_ROUTED_READ_URL_PARAMETER_VEC_CAPACITY_V1 {
+        return None;
+    }
+
     let arc_handle_bytes = core::mem::size_of::<std::sync::Arc<str>>();
     let arc_control_and_padding = core::mem::size_of::<usize>()
         .checked_mul(2)?
@@ -18,18 +30,20 @@ fn app_routed_read_url_parameter_fixed_bytes() -> Option<usize> {
     APP_ROUTED_READ_URL_PARAMETER_VEC_CAPACITY_V1
         .checked_mul(arc_handle_bytes.checked_mul(2)?)?
         .checked_add(
-            APP_ROUTED_READ_MAX_URL_PARAMETERS_V1
+            parameters
                 .checked_mul(2)?
                 .checked_mul(arc_control_and_padding)?,
         )?
-        .checked_add(APP_ROUTED_READ_URL_PARAMETER_KEY_BYTES_V1)
+        .checked_add(key_bytes)
 }
 #[derive(Clone, Copy, Debug)]
+#[cfg(feature = "app_api")]
 struct ToriiRoutedReadDecodePlan {
     limits: norito::DecodeLimits,
     canonical_limit_bytes: usize,
 }
 #[derive(Debug)]
+#[cfg(feature = "app_api")]
 struct ToriiBoundedNoritoPayload<T> {
     value: T,
     canonical_bytes: Vec<u8>,
@@ -44,8 +58,11 @@ struct ToriiBoundedNoritoPayload<T> {
 struct ToriiRoutedReadMemoryBudget {
     envelope: QueryFanoutMemoryEnvelope,
     configured_body_limit_bytes: usize,
+    #[cfg(feature = "app_api")]
     retained_decoded_bytes: usize,
+    #[cfg(feature = "app_api")]
     retained_canonical_bytes: usize,
+    #[cfg(feature = "app_api")]
     merge_allocated_bytes: usize,
 }
 impl ToriiRoutedReadMemoryBudget {
@@ -63,12 +80,16 @@ impl ToriiRoutedReadMemoryBudget {
         Self {
             envelope,
             configured_body_limit_bytes,
+            #[cfg(feature = "app_api")]
             retained_decoded_bytes: 0,
+            #[cfg(feature = "app_api")]
             retained_canonical_bytes: 0,
+            #[cfg(feature = "app_api")]
             merge_allocated_bytes: 0,
         }
     }
     /// Bound the complete routed request retained across transport retries.
+    #[cfg(feature = "app_api")]
     fn admit_request_bytes(&self, bytes: usize) -> Result<(), Response> {
         torii_routed_read_ensure(
             "request representation",
@@ -85,6 +106,7 @@ impl ToriiRoutedReadMemoryBudget {
         Ok(())
     }
     /// Prove every App request representation fits beside each fanout phase.
+    #[cfg(feature = "app_api")]
     fn app_request_phases_fit(&self, bytes: usize) -> bool {
         self.app_request_high_water_bytes(bytes)
             .is_some_and(|total| total <= self.envelope.working_set_bytes)
@@ -161,6 +183,9 @@ impl ToriiRoutedReadMemoryBudget {
         self.configured_body_limit_bytes
             .min(self.envelope.route_body_bytes)
     }
+}
+#[cfg(feature = "app_api")]
+impl ToriiRoutedReadMemoryBudget {
     fn final_body_limit(&self) -> usize {
         self.configured_body_limit_bytes
             .min(self.envelope.final_body_bytes)
@@ -461,6 +486,7 @@ impl ToriiRoutedReadMemoryBudget {
 /// excess after allocation is too late for a strict peak proof, so routed-read retained and merge
 /// vectors use the allocator directly after their complete byte request has been admitted.
 #[allow(unsafe_code)]
+#[cfg(feature = "app_api")]
 fn torii_routed_read_exact_vec<T>(
     capacity: usize,
     label: &'static str,
@@ -488,6 +514,7 @@ fn torii_routed_read_exact_vec<T>(
 /// boundary, so empty and differently sized objects cannot inflate one another's topology charge.
 /// The parser separately charges any
 /// allocator capacity returned above an exact-reserve request.
+#[cfg(feature = "app_api")]
 fn torii_routed_read_json_value_graph_bytes(
     profile: norito::json::JsonPreflightProfile,
 ) -> Result<usize, Response> {
@@ -502,6 +529,7 @@ fn torii_routed_read_json_value_graph_bytes(
         .and_then(|bytes| bytes.checked_add(object_bytes))
         .ok_or_else(torii_routed_read_accounting_response)
 }
+#[cfg(feature = "app_api")]
 fn torii_routed_read_request_bytes(
     path_args: &[String],
     path_arg_capacity: usize,
@@ -522,6 +550,7 @@ fn torii_routed_read_request_bytes(
         .and_then(|bytes| bytes.checked_add(query_string.map_or(0, String::capacity)))
         .ok_or_else(torii_routed_read_accounting_response)
 }
+#[cfg(feature = "app_api")]
 fn torii_routed_read_ensure(
     phase: &'static str,
     attempted: usize,
@@ -532,6 +561,7 @@ fn torii_routed_read_ensure(
     }
     Ok(())
 }
+#[cfg(feature = "app_api")]
 fn torii_routed_read_capacity_response(
     phase: &'static str,
     attempted: usize,
@@ -545,6 +575,7 @@ fn torii_routed_read_capacity_response(
         ),
     )
 }
+#[cfg(feature = "app_api")]
 fn torii_routed_read_accounting_response() -> Response {
     torii_proxy_error_response(
         StatusCode::BAD_GATEWAY,
@@ -552,6 +583,7 @@ fn torii_routed_read_accounting_response() -> Response {
         "proxied application response memory accounting overflowed",
     )
 }
+#[cfg(feature = "app_api")]
 fn torii_routed_read_allocation_response(phase: &'static str, bytes: usize) -> Response {
     torii_proxy_error_response(
         StatusCode::SERVICE_UNAVAILABLE,
@@ -559,6 +591,7 @@ fn torii_routed_read_allocation_response(phase: &'static str, bytes: usize) -> R
         format!("failed to reserve the admitted {bytes}-byte {phase}"),
     )
 }
+#[cfg(feature = "app_api")]
 fn torii_routed_read_json_preflight_response(error: norito::json::JsonPreflightError) -> Response {
     if error.resource_kind().is_some() {
         return torii_routed_read_capacity_response(
@@ -574,6 +607,7 @@ fn torii_routed_read_json_preflight_response(error: norito::json::JsonPreflightE
     )
 }
 /// Consume a hostile parser error without reflecting payload-derived text.
+#[cfg(feature = "app_api")]
 fn torii_routed_read_json_decode_response(_: norito::json::Error) -> Response {
     torii_proxy_error_response(
         StatusCode::BAD_GATEWAY,
@@ -582,6 +616,7 @@ fn torii_routed_read_json_decode_response(_: norito::json::Error) -> Response {
     )
 }
 /// Consume a hostile binary decoder error without reflecting payload bytes.
+#[cfg(feature = "app_api")]
 fn torii_routed_read_norito_decode_response(_: norito::Error) -> Response {
     torii_proxy_error_response(
         StatusCode::BAD_GATEWAY,
@@ -589,6 +624,7 @@ fn torii_routed_read_norito_decode_response(_: norito::Error) -> Response {
         "proxied Norito response failed bounded decoding",
     )
 }
+#[cfg(feature = "app_api")]
 fn torii_routed_read_body_response() -> Response {
     torii_proxy_error_response(
         StatusCode::BAD_GATEWAY,
@@ -596,6 +632,7 @@ fn torii_routed_read_body_response() -> Response {
         "proxied application response body exceeded its admitted bound",
     )
 }
+#[cfg(feature = "app_api")]
 fn torii_routed_read_norito_encode_response() -> Response {
     torii_proxy_error_response(
         StatusCode::BAD_GATEWAY,
@@ -603,6 +640,7 @@ fn torii_routed_read_norito_encode_response() -> Response {
         "proxied Norito response exceeded its bounded canonical representation",
     )
 }
+#[cfg(feature = "app_api")]
 fn torii_routed_read_json_encode_response() -> Response {
     torii_proxy_error_response(
         StatusCode::BAD_GATEWAY,
@@ -610,5 +648,5 @@ fn torii_routed_read_json_encode_response() -> Response {
         "proxied JSON response exceeded its bounded canonical representation",
     )
 }
-#[cfg(test)]
+#[cfg(all(test, feature = "app_api"))]
 include!("tests/lib_routed_reads/routed_read_memory_bounds.rs");

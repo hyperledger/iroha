@@ -181,3 +181,36 @@ fn bound_delivery_after_send_pruning_rejects_mismatched_archive_completion_pair(
         assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 0);
     }
 }
+
+#[test]
+fn delivery_read_refusal_preserves_collected_send_and_exact_retry_without_signing() {
+    let (mut wallet, send, credited, original) = retained_delivery();
+    let root = wallet.manifest().unwrap().0;
+    for limits in [
+        norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+    ] {
+        let status = norito::with_decode_limits_scope(limits, || {
+            wallet.credited_status_for_send(&send, &credited)
+        });
+        assert!(matches!(status, Err(Error::DecodeResource(ref cause))
+            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        let retry = norito::with_decode_limits_scope(limits, || {
+            wallet.accept_credited_for_send(&send, &credited)
+        });
+        assert!(matches!(retry, Err(Error::DecodeResource(ref cause))
+            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        assert_eq!(wallet.manifest().unwrap().0, root);
+        assert_eq!(
+            wallet.credited_status_for_send(&send, &credited).unwrap(),
+            RequestStatusV1::Outcome(Completion::Complete(original.clone()))
+        );
+        assert_eq!(
+            wallet.accept_credited_for_send(&send, &credited).unwrap(),
+            Completion::Complete(original.clone())
+        );
+    }
+    assert_eq!(wallet.custody.signatures, 0);
+    assert_eq!(wallet.proofs.preparations.load(Ordering::SeqCst), 0);
+    assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 0);
+}

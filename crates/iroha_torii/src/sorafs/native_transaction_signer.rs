@@ -625,7 +625,7 @@ pub(crate) mod tests {
     use super::*;
     use iroha_crypto::KeyPair;
     use iroha_data_model::{
-        proof::{ProofAttachment, ProofAttachmentList, ProofBox, VerifyingKeyId},
+        proof::{ProofAttachment, ProofBox, VerifyingKeyId},
         transaction::{FeePaymentIntent, TransactionBuilder, signed::MultisigSignatures},
     };
     use std::sync::{
@@ -793,16 +793,15 @@ pub(crate) mod tests {
                     builder.build_with_signature(signature)
                 }
                 TestSignOutput::AttachProofSidecar => {
-                    let attachments =
-                        ProofAttachmentList::try_from(vec![ProofAttachment::new_ref(
-                            "halo2/ipa".into(),
-                            ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
-                            VerifyingKeyId::new("halo2/ipa", "native-signer-sidecar-vk"),
-                        )])
-                        .expect("one attachment is a valid bounded proof list");
+                    let attachments = vec![ProofAttachment::new_ref(
+                        "halo2/ipa".into(),
+                        ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
+                        VerifyingKeyId::new("halo2/ipa", "native-signer-sidecar-vk"),
+                    )];
                     TransactionBuilder::from_payload(payload)
                         .map_err(|_| ())?
-                        .with_attachments(attachments)
+                        .with_proof_attachments(attachments)
+                        .expect("valid proof carriers")
                         .try_sign(self.keypair.private_key())
                         .map_err(|_| ())?
                 }

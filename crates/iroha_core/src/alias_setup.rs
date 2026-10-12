@@ -1398,7 +1398,8 @@ mod tests {
                         .clone()
                         .into_custom_parameter()
                         .expect("grant parameter"),
-                ));
+                ))
+                .expect("valid fixture parameters");
             transaction.apply();
             block.commit();
         }

@@ -3,7 +3,7 @@
 .PHONY: gost-bench gost-bench-update gost-dudect
 .PHONY: docs-cli docs-kagami-cli
 .PHONY: norito-matrix norito-matrix-downstream
-.PHONY: check-fhe-ownership refresh-fhe-ownership
+.PHONY: check-fhe-ownership refresh-fhe-ownership check-fhe-bgv-cost refresh-fhe-bgv-cost
 .PHONY: check-fastpq-row-usage check-fastpq-rollout check-nexus-lanes check-sns-annex
 .PHONY: bridge-xcframework bridge-checksum
 .PHONY: docs-syscalls
@@ -184,6 +184,14 @@ guards:
 	@python3 scripts/check_first_release_history.py
 	@python3 scripts/check_zk_x509_presentation_interval.py
 	@python3 scripts/check_zk_resource_contract.py
+	@python3 scripts/fhe_bgv_cost_model.py
+	@python3 crates/iroha_fhe/tests/vectors/bgv_reference.py --check
+	@python3 scripts/check_zk_runtime_validity.py
+	@python3 scripts/check_zk_operation_inventory.py
+	@python3 scripts/check_durable_workflow_contract.py
+	@python3 scripts/check_zk_economic_invariants.py
+	@python3 scripts/check_zk_primitive_workloads.py
+	@python3 scripts/check_state_commitment_candidates.py
 	@bash scripts/check_contract_address_chain_identity.sh
 
 # Check the FHE ownership inventory (specs/fhe_ownership_inventory.json) against the tree.
@@ -194,6 +202,19 @@ check-fhe-ownership:
 # Recompute the derived facts of the FHE ownership inventory; classifications are kept.
 refresh-fhe-ownership:
 	@python3 -I -S scripts/check_fhe_ownership_map.py --refresh --write
+
+# Check the RNS-BGV cost summary (specs/fhe_bgv_cost_summary.json), the view of it that
+# `cargo test -p iroha_fhe --test bgv_cost_model_vectors` recomputes, the tables the
+# specifications embed and the independent known-answer vectors.
+check-fhe-bgv-cost:
+	@python3 -I -S scripts/fhe_bgv_cost_model.py
+	@python3 -I -S crates/iroha_fhe/tests/vectors/bgv_reference.py --check
+	@python3 -m unittest scripts/tests/fhe_bgv_cost_model_test.py
+
+# Recompute every derived block of the cost summary from the measured runs it holds, and
+# rewrite the view and the embedded tables. Measured values are kept.
+refresh-fhe-bgv-cost:
+	@python3 -I -S scripts/fhe_bgv_cost_model.py --rederive --write
 
 # Run a local subset of the Norito feature matrix (use --fast for fewer cases)
 norito-matrix:
@@ -323,3 +344,11 @@ android-codegen-verify: android-codegen-docs
 
 android-publish-snapshot:
 	@bash scripts/android_publish_snapshot.sh
+
+# ZK delivery plan task F.4: build iroha_core under several Cargo feature
+# selections and compare the validity record of one fixed scenario (certified
+# history, policy identities, limit decisions and verification gas). Two long
+# builds; not part of the default guards.
+.PHONY: check-zk-feature-parity
+check-zk-feature-parity:
+	@python3 scripts/check_zk_feature_parity.py

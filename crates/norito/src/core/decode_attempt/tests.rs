@@ -30,6 +30,31 @@ fn canonical_refusal_retries_original_frame_and_preserves_bytes() {
 }
 
 #[test]
+fn borrowed_error_keeps_the_original_scope_after_its_budget_retires() {
+    let original = with_decode_limits_scope(allocation_limit(0), || {
+        classify_decode_attempt(|| super::super::reserve_decode_allocation(1))
+    })
+    .unwrap_err();
+    assert_eq!(original.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+    assert!(std::ptr::eq(original.error(), &original.error));
+    let fields = original.error().decode_resource_error();
+    assert_eq!(
+        fields,
+        Some(DecodeResourceError::TotalAllocationExceeded {
+            attempted: 1,
+            limit: 0
+        })
+    );
+    with_decode_limits_scope(allocation_limit(0), || {
+        assert!(std::ptr::eq(original.error(), &original.error));
+        assert!(!super::super::decode_error_matches_active_limits(
+            original.error()
+        ));
+    });
+    assert_eq!(original.into_error().decode_resource_error(), fields);
+}
+
+#[test]
 fn equal_protocol_limit_is_not_relabelled_by_an_enclosing_scope() {
     let failure = with_decode_limits_scope(allocation_limit(8), || {
         classify_decode_attempt(|| {

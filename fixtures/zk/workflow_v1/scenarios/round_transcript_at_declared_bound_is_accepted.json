@@ -1,0 +1,83 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "round_transcript_at_declared_bound_is_accepted",
+  "category": "bounds_and_bindings",
+  "rules": [
+    "plan_fits_the_journal",
+    "rounds_recover_under_one_identity"
+  ],
+  "description": "The round transcript is exactly its declared bound and the workflow completes.",
+  "plan": {
+    "kind": "threshold_opening",
+    "instance": "round_transcript_at_declared_bound_is_accepted",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "collect",
+        "kind": "offchain_round",
+        "irreversible": true,
+        "participants_required": 2,
+        "custody_handles_required": 0,
+        "max_transcript_bytes": 18
+      },
+      {
+        "label": "open",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "accepted"
+        ],
+        "statuses": [
+          "applied"
+        ],
+        "round_starts": [
+          "completed:p1,p2"
+        ]
+      },
+      "expect": {
+        "result": "completed",
+        "effects": [
+          "round_start:0",
+          "build:1#1",
+          "sign:1#1",
+          "dispatch:1#1",
+          "status:1#1"
+        ],
+        "status": "completed",
+        "steps": [
+          "round_completed",
+          "finalized"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0,
+            1
+          ],
+          "irreversible_steps": [
+            0,
+            1
+          ],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        }
+      }
+    }
+  ]
+}

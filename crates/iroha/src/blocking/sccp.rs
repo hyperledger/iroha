@@ -1,9 +1,11 @@
 //! Public SCCP v1 reads on the client's reusable blocking runtime (`specs/sccp.md` §6).
 
+use crate::client::sccp::SccpFinalityAt;
+
 use super::{Client, RuntimeOwner};
 use crate::{
     Result,
-    client::sccp::{SccpDirection, SccpFinalityAt, SccpProofAt},
+    client::sccp::{SccpDirection, SccpProofHeightV1},
 };
 use iroha_data_model::{bridge::SccpNetworkV1, sccp::registry::SccpRouteV1};
 use iroha_sccp::api::{
@@ -14,6 +16,20 @@ use iroha_sccp::api::{
 };
 
 /// Blocking SCCP reads backed by the asynchronous SCCP capability.
+///
+/// Committee reads carry native BLS generation metadata; attestation roster reads are absent:
+///
+/// ```compile_fail,E0599
+/// fn removed_current_roster(api: &iroha::blocking::sccp::Sccp<'_>) {
+///     let _ = api.current_roster();
+/// }
+/// ```
+///
+/// ```compile_fail,E0599
+/// fn removed_roster(api: &iroha::blocking::sccp::Sccp<'_>) {
+///     let _ = api.roster(1);
+/// }
+/// ```
 #[derive(Clone, Copy, Debug)]
 pub struct Sccp<'a> {
     inner: crate::client::sccp::Sccp<'a>,
@@ -32,12 +48,45 @@ impl Client {
 }
 
 impl Sccp<'_> {
-    /// Read the Taira identity, parameters and inbound light-client profiles.
+    /// Read the original native finality certificate selected by `at`.
+    ///
+    /// # Errors
+    /// Preserves the asynchronous client's source and transport failures.
+    pub fn finality(&self, at: SccpFinalityAt) -> Result<SccpCertificateV1> {
+        self.runtime.block_on(self.inner.finality(at))?
+    }
+
+    /// Read the Taira identity, parameters and light-client profiles.
     ///
     /// # Errors
     /// Returns the asynchronous operation error or a typed runtime rejection.
     pub fn capabilities(&self) -> Result<SccpCapabilitiesV1> {
         self.runtime.block_on(self.inner.capabilities())?
+    }
+
+    /// Read current committee metadata; authenticate its keys through signed history.
+    ///
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn current_committee(&self) -> Result<SccpGenerationV1> {
+        self.runtime.block_on(self.inner.current_committee())?
+    }
+
+    /// Read one generation's retained keys and current liability.
+    ///
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn committee(&self, generation: u64) -> Result<SccpGenerationV1> {
+        self.runtime.block_on(self.inner.committee(generation))?
+    }
+
+    /// Read native rotation certificates after an independently pinned generation.
+    ///
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn rotations(&self, after_generation: u64, limit: usize) -> Result<Vec<SccpRotationV1>> {
+        self.runtime
+            .block_on(self.inner.rotations(after_generation, limit))?
     }
 
     /// Read the nonzero per-subject governance revisions.
@@ -96,73 +145,6 @@ impl Sccp<'_> {
     /// Returns the asynchronous operation error or a typed runtime rejection.
     pub fn message(&self, message_id: &[u8; 32]) -> Result<SccpMessageStatusV1> {
         self.runtime.block_on(self.inner.message(message_id))?
-    }
-
-    /// Read native message proof DATA for independent destination verification.
-    ///
-    /// # Errors
-    /// Returns the asynchronous operation error or a typed runtime rejection.
-    pub fn message_proof(
-        &self,
-        message_id: &[u8; 32],
-        at: SccpProofAt,
-    ) -> Result<SccpMessageProofBundleV1> {
-        self.runtime
-            .block_on(self.inner.message_proof(message_id, at))?
-    }
-
-    /// Read native control proof DATA for independent destination verification.
-    ///
-    /// # Errors
-    /// Returns the asynchronous operation error or a typed runtime rejection.
-    pub fn control_proof(
-        &self,
-        network: SccpNetworkV1,
-        revision: u32,
-        control_nonce: u64,
-        at: SccpProofAt,
-    ) -> Result<SccpControlProofBundleV1> {
-        self.runtime.block_on(
-            self.inner
-                .control_proof(network, revision, control_nonce, at),
-        )?
-    }
-
-    /// Read original native certificate DATA at the selected height.
-    ///
-    /// # Errors
-    /// Returns the asynchronous operation error or a typed runtime rejection.
-    pub fn finality(&self, at: SccpFinalityAt) -> Result<SccpCertificateV1> {
-        self.runtime.block_on(self.inner.finality(at))?
-    }
-
-    /// Read current committee DATA through the same bounded asynchronous transport.
-    ///
-    /// # Errors
-    /// Returns the asynchronous operation error or a typed runtime rejection.
-    pub fn current_committee(&self) -> Result<SccpGenerationV1> {
-        self.runtime.block_on(self.inner.current_committee())?
-    }
-
-    /// Read retained generation DATA with its current-view liability.
-    ///
-    /// # Errors
-    /// Preserves the asynchronous operation error or a typed runtime rejection.
-    pub fn committee(&self, generation: std::num::NonZeroU64) -> Result<SccpGenerationV1> {
-        self.runtime.block_on(self.inner.committee(generation))?
-    }
-
-    /// Read ordered native transitions starting with the supplied generation's handoff.
-    ///
-    /// # Errors
-    /// Returns the asynchronous operation error or a typed runtime rejection.
-    pub fn committee_rotations(
-        &self,
-        after_generation: u64,
-        limit: usize,
-    ) -> Result<Vec<SccpRotationV1>> {
-        self.runtime
-            .block_on(self.inner.committee_rotations(after_generation, limit))?
     }
 
     /// Read the newest records of one direction.
@@ -251,5 +233,35 @@ impl Sccp<'_> {
     ) -> Result<SccpGovernanceProposalDetailV1> {
         self.runtime
             .block_on(self.inner.governance_proposal(content_id))?
+    }
+
+    /// Read the proof bundle of one outbound message.
+    ///
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn message_proof(
+        &self,
+        message_id: &[u8; 32],
+        at: SccpProofHeightV1,
+    ) -> Result<SccpMessageProofBundleV1> {
+        self.runtime
+            .block_on(self.inner.message_proof(message_id, at))?
+    }
+
+    /// Read the proof bundle of one destination control.
+    ///
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn control_proof(
+        &self,
+        network: SccpNetworkV1,
+        revision: u32,
+        control_nonce: u64,
+        at: SccpProofHeightV1,
+    ) -> Result<SccpControlProofBundleV1> {
+        self.runtime.block_on(
+            self.inner
+                .control_proof(network, revision, control_nonce, at),
+        )?
     }
 }

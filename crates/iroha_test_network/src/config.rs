@@ -1223,7 +1223,12 @@ fn preexecute_genesis_on_current_thread(
         .map(|config| &config.pipeline)
         .or(pipeline_config)
     {
-        state.set_pipeline(pipeline_config.clone());
+        // As on a node: the configuration supplies local pipeline resources and
+        // the fee policy; execution limits are the committed policy of the
+        // genesis under validation.
+        state
+            .install_node_pipeline(pipeline_config.clone())
+            .map_err(Report::from)?;
     }
     if let Some(config) = runtime_config {
         state.set_crypto(config.crypto.clone());
@@ -1234,12 +1239,19 @@ fn preexecute_genesis_on_current_thread(
         state.set_settlement(config.settlement);
     }
     if let Some(zk_config) = runtime_config.map(|config| &config.zk).or(zk_config) {
-        state.set_zk(zk_config.clone()).map_err(Report::from)?;
+        // As on a node: the configuration supplies local ZK resources only; validity
+        // values are the committed policy of the genesis under validation.
+        state
+            .install_node_zk(zk_config.clone())
+            .map_err(Report::from)?;
     }
     install_preexec_lane_manifests(&state, runtime_config)?;
     let core_topology = CoreTopology::new(topology.to_vec());
     let time_source = TimeSource::new_system();
     let consensus_mode = signed_genesis_consensus_mode(block)?;
+    let root_scope = iroha_genesis::signed_genesis_consensus_metadata(&block.0)?
+        .sumeragi_context
+        .root_scope;
     let validation = ValidBlock::validate_signed_genesis(
         block.0.clone(),
         &core_topology,
@@ -1247,6 +1259,7 @@ fn preexecute_genesis_on_current_thread(
         &time_source,
         &state,
         consensus_mode,
+        root_scope,
     )
     .unpack(|_| {});
     let (valid_block, state_block) = match validation {
@@ -2299,6 +2312,107 @@ mod tests {
                 .all(|result| result.as_ref().is_ok()),
             "pre-executed genesis should not carry errors for valid proof-bearing peers"
         );
+    }
+    #[test]
+    fn preexecuted_genesis_ignores_validity_values_of_the_supplied_configuration() {
+        // The supplied ZK and pipeline settings are a node's own: only their
+        // local resources reach the staged State. A divergent validity value
+        // (proof size limit, verification gas, overlay limit, query fetch size)
+        // changes neither the executed genesis nor the policy hashes it binds.
+        init_instruction_registry();
+        let bls = KeyPair::random_with_algorithm(Algorithm::BlsNormal);
+        let (topology, entries) = genesis_committee_with_key(&bls);
+        let (block, genesis_account, topology_vec, genesis_key_pair, _) =
+            super::genesis_fixture_policy::policy_bound_proposal(
+                Vec::new(),
+                topology,
+                entries,
+                SAMPLE_GENESIS_ACCOUNT_KEYPAIR.clone(),
+            );
+        let default_zk = iroha_core::state::default_zk_config();
+        let default_pipeline = iroha_config::parameters::actual::Pipeline::default();
+        let mut divergent_zk = default_zk.clone();
+        divergent_zk.max_proof_size_bytes = 1;
+        divergent_zk.max_verify_calls_per_block = 1;
+        divergent_zk.gas.proof_base = 1;
+        divergent_zk.gas.per_proof_byte = 1_000;
+        divergent_zk.pipa_r.max_proof_bytes = 1;
+        // A local resource, which a node may set.
+        divergent_zk.trace.verifier_worker_threads = 1;
+        let mut divergent_pipeline = default_pipeline.clone();
+        divergent_pipeline.overlay_max_instructions = 1;
+        divergent_pipeline.query_max_fetch_size = 1;
+        divergent_pipeline.ivm_max_cycles_upper_bound =
+            core::num::NonZeroU64::new(7).expect("nonzero cycle bound");
+        // A local resource, which a node may set.
+        divergent_pipeline.stateless_cache_cap = 3;
+        let preexecute = |pipeline: &iroha_config::parameters::actual::Pipeline,
+                          zk: &iroha_config::parameters::actual::Zk| {
+            super::preexecute_genesis_on_current_thread(
+                &block,
+                &genesis_account,
+                &topology_vec,
+                &genesis_key_pair,
+                Some(pipeline),
+                None,
+                Some(zk),
+                None,
+            )
+            .expect("genesis pre-execution should succeed")
+        };
+        let (default_block, default_hashes) = preexecute(&default_pipeline, &default_zk);
+        let (divergent_block, divergent_hashes) = preexecute(&divergent_pipeline, &divergent_zk);
+        assert_eq!(
+            divergent_hashes, default_hashes,
+            "the policy hashes of a staged genesis are not a function of node validity settings"
+        );
+        assert_eq!(
+            divergent_block
+                .encode_wire()
+                .expect("executed genesis encodes"),
+            default_block
+                .encode_wire()
+                .expect("executed genesis encodes"),
+            "the executed genesis is identical under divergent node validity settings"
+        );
+        assert!(
+            divergent_block
+                .output_results()
+                .all(|result| result.as_ref().is_ok())
+        );
+        // The same settings installed the way the function installs them: the
+        // validity values are the protocol default, the local resources are kept.
+        let mut state = iroha_core::state::State::new_for_testing(
+            iroha_core::state::World::default(),
+            iroha_core::kura::Kura::blank_kura_for_testing(),
+            iroha_core::query::store::LiveQueryStore::start_test(),
+        );
+        state
+            .install_node_pipeline(divergent_pipeline.clone())
+            .expect("node pipeline resources install");
+        state
+            .install_node_zk(divergent_zk.clone())
+            .expect("node ZK resources install");
+        let view = state.view();
+        assert_eq!(
+            view.zk.max_proof_size_bytes,
+            default_zk.max_proof_size_bytes
+        );
+        assert_eq!(view.zk.gas.proof_base, default_zk.gas.proof_base);
+        assert_eq!(
+            view.zk.pipa_r.max_proof_bytes,
+            default_zk.pipa_r.max_proof_bytes
+        );
+        assert_eq!(view.zk.trace.verifier_worker_threads, 1);
+        assert_eq!(
+            view.pipeline.overlay_max_instructions,
+            default_pipeline.overlay_max_instructions
+        );
+        assert_eq!(
+            view.pipeline.query_max_fetch_size,
+            default_pipeline.query_max_fetch_size
+        );
+        assert_eq!(view.pipeline.stateless_cache_cap, 3);
     }
     #[test]
     fn populate_genesis_results_accepts_block_proof_policies() {

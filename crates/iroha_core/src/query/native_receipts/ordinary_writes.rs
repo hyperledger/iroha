@@ -56,6 +56,8 @@ pub(super) struct DecodedProjection<'a> {
     pub(super) carrier_hash: HashOf<BlockHeader>,
     /// Complete lane payload, still borrowing the original input owner.
     pub(super) lane_payload: &'a [u8],
+    /// Exact SCCP delta preimage, joined to the sole synthetic ordinary write.
+    pub(super) sccp_delta: &'a [u8],
     /// Typed original complete casting corpus.
     pub(super) casting_bindings: CastingOwner,
     /// All ordinary-write allocations retained in their original pool.
@@ -413,6 +415,7 @@ pub(super) fn decode_projection<'a>(
         carrier_height,
         carrier_hash,
         lane_payload: lanes.bytes,
+        sccp_delta,
         casting_bindings,
         witness,
     })

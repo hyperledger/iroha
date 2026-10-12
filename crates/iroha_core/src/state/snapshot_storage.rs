@@ -1,7 +1,7 @@
 //! Exact current and predecessor records for stores with compound binary keys.
 
+use super::deserialize::StateRestoreError;
 use super::*;
-use crate::state::deserialize::StateRestoreError;
 use norito::codec::DecodeAll;
 use norito::json::JsonSerialize as _;
 
@@ -185,12 +185,16 @@ impl SnapshotStorage {
     /// Restore exact current and undo entries directly into private admitted maps.
     /// The input JSON envelope belongs to the caller; every new record graph and
     /// current/undo map allocation comes from this unchanged original store pool.
-    pub(super) fn decode_generations(
+    pub(crate) fn decode_generations(
         self,
         budget: &iroha_allocation::AllocationBudget,
-    ) -> Result<sccp_generation_custody::GenerationStorage, StateRestoreError> {
-        use sccp_generation_custody::{
-            GenerationAdmissionError, GenerationStorage, RetainedGeneration,
+    ) -> Result<
+        crate::smartcontracts::isi::sccp::committee_storage::CommitteeStorage,
+        StateRestoreError,
+    > {
+        use crate::smartcontracts::isi::sccp::{
+            committee_storage::CommitteeStorage,
+            generation_record::{GenerationRecordError, RetainedSccpGeneration},
         };
         fn invalid(message: &str) -> StateRestoreError {
             json::Error::InvalidField {
@@ -219,7 +223,7 @@ impl SnapshotStorage {
                 .map_err(|_| invalid("noncanonical generation key"))?;
             Ok(key)
         }
-        let result = GenerationStorage::try_restore_admitted(budget.clone(), |current, undo| {
+        let result = CommitteeStorage::try_restore_admitted(budget.clone(), |current, undo| {
             let mut last = None;
             for original in self.revert {
                 let key = key(original.key)?;
@@ -229,11 +233,15 @@ impl SnapshotStorage {
                 last = Some(key);
                 let value = original
                     .value
-                    .map(|blob| RetainedGeneration::decode_snapshot_hex(&blob.encoded_hex, budget))
+                    .map(|blob| {
+                        RetainedSccpGeneration::decode_snapshot_hex(&blob.encoded_hex, budget)
+                    })
                     .transpose()
                     .map_err(|error| match error {
-                        GenerationAdmissionError::Invalid => invalid("invalid undo record"),
-                        resource => resource.into(),
+                        GenerationRecordError::Invalid(_) => invalid("invalid undo record"),
+                        resource => StateRestoreError::Sccp(
+                            sccp_snapshot_state::SccpRestoreError::Generation(resource),
+                        ),
                     })?;
                 if value.as_ref().is_some_and(|value| value.generation != key) {
                     return Err(invalid("undo record does not match its key"));
@@ -249,12 +257,16 @@ impl SnapshotStorage {
                     ));
                 }
                 last = Some(key);
-                let value =
-                    RetainedGeneration::decode_snapshot_hex(&original.value.encoded_hex, budget)
-                        .map_err(|error| match error {
-                            GenerationAdmissionError::Invalid => invalid("invalid current record"),
-                            resource => resource.into(),
-                        })?;
+                let value = RetainedSccpGeneration::decode_snapshot_hex(
+                    &original.value.encoded_hex,
+                    budget,
+                )
+                .map_err(|error| match error {
+                    GenerationRecordError::Invalid(_) => invalid("invalid current record"),
+                    resource => StateRestoreError::Sccp(
+                        sccp_snapshot_state::SccpRestoreError::Generation(resource),
+                    ),
+                })?;
                 if value.generation != key {
                     return Err(invalid("current record does not match its key"));
                 }

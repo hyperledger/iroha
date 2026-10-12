@@ -1,12 +1,13 @@
 //! Native signed-certificate controls and separate bounded predicate DATA controls.
 //! No test supplies a successful verifier, fabricated execution tip, or recorded-evidence grant.
 
+use iroha_data_model::sccp::generation::SccpGenerationEndV1;
+
 use super::*;
 use crate::{
     smartcontracts::isi::sccp::{
-        generation::SccpGenerationEndV1,
         read::native::finality,
-        test_support::{blank_state, sample_generation},
+        test_support::{blank_state, retained_generation_fixture, sample_generation_at},
     },
     state::World,
     sumeragi::{
@@ -76,19 +77,26 @@ pub(crate) fn active_member_chain_with_output_policy(
     policy: iroha_data_model::parameter::ExecutionOutputPolicyV1,
     callback_bytes: Option<usize>,
 ) -> (CertifiedTestChain, Vec<KeyPair>, KeyPair) {
-    configured_chain_with_output(4, Some((policy, callback_bytes)), None)
+    configured_chain_with_output(4, Some((policy, callback_bytes)), None, None)
 }
 
 /// Supply the selector capacity in the original signed genesis, never the retained parent.
 pub(crate) fn active_member_chain_with_max_transactions(
     max_transactions: NonZeroU64,
 ) -> (CertifiedTestChain, Vec<KeyPair>) {
-    let (chain, keys, _) = configured_chain_with_output(4, None, Some(max_transactions));
+    let (chain, keys, _) = configured_chain_with_output(4, None, Some(max_transactions), None);
     (chain, keys)
 }
 
+/// Genuine signed genesis with an explicit immutable delay and ordinary transaction signer.
+pub(crate) fn active_member_chain_with_penalty_delay(
+    delay: u64,
+) -> (CertifiedTestChain, Vec<KeyPair>, KeyPair) {
+    configured_chain_with_output(4, None, None, Some(delay))
+}
+
 fn configured_chain(register_members: usize) -> (CertifiedTestChain, Vec<KeyPair>) {
-    let (chain, keys, _) = configured_chain_with_output(register_members, None, None);
+    let (chain, keys, _) = configured_chain_with_output(register_members, None, None, None);
     (chain, keys)
 }
 
@@ -99,17 +107,22 @@ fn configured_chain_with_output(
         Option<usize>,
     )>,
     max_transactions: Option<NonZeroU64>,
+    penalty_delay: Option<u64>,
 ) -> (CertifiedTestChain, Vec<KeyPair>, KeyPair) {
     let keys = keys();
     let mut config = TestChainConfig::new(World::new(), 1_000);
     config.validator_keys = Some(keys.clone());
     config.consensus_mode = iroha_data_model::parameter::system::SumeragiConsensusMode::Npos;
     config.genesis_block_cadence_ms = NonZeroU64::new(1_000).unwrap();
-    let npos = SumeragiNposParameters {
+    let mut npos = SumeragiNposParameters {
         epoch_length_blocks: NonZeroU64::new(3_600).unwrap(),
         max_validators: 4,
         ..SumeragiNposParameters::default()
     };
+    if let Some(delay) = penalty_delay {
+        assert_ne!(delay, 0);
+        npos.slashing_delay_blocks = delay;
+    }
     config.genesis_parameters.extend([
         Parameter::Sumeragi(SumeragiParameter::EpochLengthBlocks(
             npos.epoch_length_blocks,
@@ -406,7 +419,7 @@ fn signed_future_candidate_borrows_original_generation_and_refunds_pairing() {
     );
     assert_eq!(
         checked.liability_clock(),
-        advance_liability_clock(
+        iroha_data_model::sccp::generation::next_liability_clock_v1(
             *store::liability_clock::get(view.world()),
             checked.parent().creation_time_ms(),
             3_000,
@@ -713,7 +726,7 @@ fn absent_and_authenticated_dataspace_sources_cannot_supply_global_identity() {
 // candidate and do not stand in for original State/generation or native BLS authority.
 #[test]
 fn mismatch_priority_and_completed_anchor_errors_are_exact() {
-    let mut rec = sample_generation(1, 2);
+    let mut rec = sample_generation_at(1, 2);
     rec.end = Some(SccpGenerationEndV1 {
         end_height: 4,
         end_timestamp_ms: 9_000,
@@ -730,15 +743,39 @@ fn mismatch_priority_and_completed_anchor_errors_are_exact() {
     };
     let no_anchor = || panic!("E1/E2 may not consult an anchor");
     assert_eq!(
-        first_mismatch(&rec, 4, 5, &qc, [3; 32], no_anchor).unwrap(),
+        first_mismatch(
+            &retained_generation_fixture(&rec),
+            4,
+            5,
+            &qc,
+            [3; 32],
+            no_anchor
+        )
+        .unwrap(),
         SccpForgeryRuleV1::E1
     );
     assert_eq!(
-        first_mismatch(&rec, 4, 1, &qc, [3; 32], no_anchor).unwrap(),
+        first_mismatch(
+            &retained_generation_fixture(&rec),
+            4,
+            1,
+            &qc,
+            [3; 32],
+            no_anchor
+        )
+        .unwrap(),
         SccpForgeryRuleV1::E1
     );
     assert_eq!(
-        first_mismatch(&rec, 4, 4, &qc, [3; 32], no_anchor).unwrap(),
+        first_mismatch(
+            &retained_generation_fixture(&rec),
+            4,
+            4,
+            &qc,
+            [3; 32],
+            no_anchor
+        )
+        .unwrap(),
         SccpForgeryRuleV1::E2
     );
     let anchor = SccpAnchorV1 {
@@ -746,11 +783,26 @@ fn mismatch_priority_and_completed_anchor_errors_are_exact() {
         result: [3; 32],
     };
     assert_eq!(
-        first_mismatch(&rec, 4, 3, &qc, [4; 32], || Ok(anchor)).unwrap(),
+        first_mismatch(
+            &retained_generation_fixture(&rec),
+            4,
+            3,
+            &qc,
+            [4; 32],
+            || Ok(anchor)
+        )
+        .unwrap(),
         SccpForgeryRuleV1::E4
     );
     assert!(matches!(
-        first_mismatch(&rec, 4, 3, &qc, [3; 32], || Ok(anchor)),
+        first_mismatch(
+            &retained_generation_fixture(&rec),
+            4,
+            3,
+            &qc,
+            [3; 32],
+            || Ok(anchor)
+        ),
         Err(ForgeryVerificationError::NotEvidence)
     ));
     assert!(matches!(
@@ -778,7 +830,7 @@ fn generation_lookup_and_inclusive_liability_use_captured_values_only() {
     let state = blank_state();
     let mut block = state.block(header(4));
     let mut stx = block.transaction();
-    let mut rec = sample_generation(1, 1);
+    let mut rec = sample_generation_at(1, 1);
     let x = SccpFinalityHeaderV1::from_fields(&SccpFinalityHeaderFieldsV1 {
         network_id: [3; 32],
         height: 2,
@@ -789,22 +841,23 @@ fn generation_lookup_and_inclusive_liability_use_captured_values_only() {
     })
     .unwrap();
     assert!(matches!(
-        generation_for_claim(&*stx.world, &x, 1, 0),
+        generation_for_claim(Current(&*stx.world), &x, 1, 0),
         Err(ForgeryVerificationError::EvidenceExpired)
     ));
     assert!(matches!(
-        generation_for_claim(&*stx.world, &x, 0, 0),
+        generation_for_claim(Current(&*stx.world), &x, 0, 0),
         Err(ForgeryVerificationError::EvidenceUnknownGeneration)
     ));
-    store::committee_generations::insert(&mut stx, 1, rec.clone()).unwrap();
+    crate::smartcontracts::isi::sccp::test_support::install_generation(&mut stx, 1, rec.clone())
+        .unwrap();
     let last = rec.liable_until_lc + rec.progress_cap_ms;
-    assert!(generation_for_claim(&*stx.world, &x, 2, last).is_ok());
+    assert!(generation_for_claim(Current(&*stx.world), &x, 2, last).is_ok());
     assert!(matches!(
-        generation_for_claim(&*stx.world, &x, 2, last + 1),
+        generation_for_claim(Current(&*stx.world), &x, 2, last + 1),
         Err(ForgeryVerificationError::EvidenceExpired)
     ));
     assert!(
-        generation_for_claim(&*stx.world, &x, 1, u64::MAX).is_ok(),
+        generation_for_claim(Current(&*stx.world), &x, 1, u64::MAX).is_ok(),
         "current generation remains liable"
     );
     let mut wrong_root = x.fields();
@@ -812,7 +865,7 @@ fn generation_lookup_and_inclusive_liability_use_captured_values_only() {
     assert!(
         matches!(
             generation_for_claim(
-                &*stx.world,
+                Current(&*stx.world),
                 &SccpFinalityHeaderV1::from_fields(&wrong_root).unwrap(),
                 2,
                 u64::MAX
@@ -829,21 +882,22 @@ fn generation_lookup_and_inclusive_liability_use_captured_values_only() {
     });
     rec.dest_cleared_lc = Some(rec.liable_until_lc + 5);
     let last = rec.dest_cleared_lc.unwrap() + rec.grace_ms;
-    store::committee_generations::insert(&mut stx, 1, rec.clone()).unwrap();
-    assert!(generation_for_claim(&*stx.world, &x, 2, last).is_ok());
+    crate::smartcontracts::isi::sccp::test_support::install_generation(&mut stx, 1, rec.clone())
+        .unwrap();
+    assert!(generation_for_claim(Current(&*stx.world), &x, 2, last).is_ok());
     assert!(matches!(
-        generation_for_claim(&*stx.world, &x, 2, last + 1),
+        generation_for_claim(Current(&*stx.world), &x, 2, last + 1),
         Err(ForgeryVerificationError::EvidenceExpired)
     ));
     // A later parameter change is not an authority to shorten the captured record's terms.
     store::parameters::set(&mut stx, None);
-    assert!(generation_for_claim(&*stx.world, &x, 2, last).is_ok());
+    assert!(generation_for_claim(Current(&*stx.world), &x, 2, last).is_ok());
 }
 
 #[test]
 fn completed_chunk_uses_retained_root_and_preserves_witness_refusals() {
     use iroha_sccp::v1::evidence::{anchor_leaf, anchor_path_root};
-    let rec = sample_generation(1, 1);
+    let rec = sample_generation_at(1, 1);
     let anchor = SccpAnchorV1 {
         core_hash: [1; 32],
         result: [3; 32],
@@ -874,31 +928,50 @@ fn completed_chunk_uses_retained_root_and_preserves_witness_refusals() {
         .map_err(anchor_error)
     };
     assert_eq!(
-        first_mismatch(&rec, 4098, 2, &qc, [9; 32], || lookup(
-            Some(&root),
-            Some((&anchor, &path))
-        ))
+        first_mismatch(
+            &retained_generation_fixture(&rec),
+            4098,
+            2,
+            &qc,
+            [9; 32],
+            || lookup(Some(&root), Some((&anchor, &path)))
+        )
         .unwrap(),
         SccpForgeryRuleV1::E4
     );
     assert!(matches!(
-        first_mismatch(&rec, 4098, 2, &qc, [9; 32], || lookup(
-            None,
-            Some((&anchor, &path))
-        )),
+        first_mismatch(
+            &retained_generation_fixture(&rec),
+            4098,
+            2,
+            &qc,
+            [9; 32],
+            || lookup(None, Some((&anchor, &path)))
+        ),
         Err(ForgeryVerificationError::EvidenceExpired)
     ));
     assert!(matches!(
-        first_mismatch(&rec, 4098, 2, &qc, [9; 32], || lookup(Some(&root), None)),
+        first_mismatch(
+            &retained_generation_fixture(&rec),
+            4098,
+            2,
+            &qc,
+            [9; 32],
+            || lookup(Some(&root), None)
+        ),
         Err(ForgeryVerificationError::WitnessRequired)
     ));
     let mut wrong_path = path;
     wrong_path[0][0] ^= 1;
     assert!(matches!(
-        first_mismatch(&rec, 4098, 2, &qc, [9; 32], || lookup(
-            Some(&root),
-            Some((&anchor, &wrong_path))
-        )),
+        first_mismatch(
+            &retained_generation_fixture(&rec),
+            4098,
+            2,
+            &qc,
+            [9; 32],
+            || lookup(Some(&root), Some((&anchor, &wrong_path)))
+        ),
         Err(ForgeryVerificationError::BadWitness)
     ));
 }
@@ -917,7 +990,7 @@ fn pairing_kernel_handles_maximum_committee_and_rejects_noncanonical_signer_keys
             })
             .collect::<Vec<_>>();
         pairs.sort_by_key(raw_key);
-        let mut rec = sample_generation(1, 1);
+        let mut rec = sample_generation_at(1, 1);
         rec.keys = pairs.iter().map(raw_key).collect();
         rec.members = vec![None; count];
         rec.committee_root = committee_root(&rec.keys).unwrap();
@@ -948,7 +1021,7 @@ fn pairing_kernel_handles_maximum_committee_and_rejects_noncanonical_signer_keys
         let instance = Hash32([8; 32]);
         resign(&mut submission, &pairs, instance);
         verify_signature(
-            &rec,
+            &retained_generation_fixture(&rec),
             instance,
             &header,
             &qc,
@@ -962,7 +1035,7 @@ fn pairing_kernel_handles_maximum_committee_and_rejects_noncanonical_signer_keys
             bad.keys[0] = invalid;
             assert!(matches!(
                 verify_signature(
-                    &bad,
+                    &retained_generation_fixture(&bad),
                     instance,
                     &header,
                     &qc,

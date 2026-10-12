@@ -192,21 +192,23 @@ impl<'a, K: Key, V: Value> StorageField<'a, K, V> {
     }
 }
 
-impl<'a, K: Key, V: Value, P> StorageField<'a, K, V, concread::bptree::Prepaid<P>>
+impl<'a, K, V, P> StorageField<'a, K, V, concread::bptree::Prepaid<P>>
 where
+    K: Key,
+    V: Value,
     P: mv::storage::AdmittedStoragePolicy
         + concread::bptree::ClonePlanning<K, V>
         + concread::bptree::ClonePlanning<K, Option<V>>,
 {
-    pub(crate) fn install_frozen_publication(
+    /// Install the same prepaid pair under the aggregate's original refund scope.
+    /// A foreign pool leaves the exact frozen journal available for its real owner.
+    pub(crate) fn install_frozen_publication_owned(
         &mut self,
         target: &'a mv::storage::Storage<K, V, concread::bptree::Prepaid<P>>,
+        scope: &iroha_allocation::OwnedAllocationScope,
     ) -> Result<(), mv::storage::AdmittedStorageError> {
-        // Every field's installation completes before any physical reacquisition.
-        let scope =
-            crate::state::world_acquisition::original_storage_scope(target.allocation_budget())?;
         self.begin_frozen_publication(|original| {
-            mv::storage::BlockPublicationSlot::try_from_frozen_owned(original, target, &scope)
+            mv::storage::BlockPublicationSlot::try_from_frozen_owned(original, target, scope)
         })
     }
 }

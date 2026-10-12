@@ -391,14 +391,13 @@ fn client_attestation_fixture() -> iroha_data_model::sumeragi_finality::Sumeragi
         iroha_crypto::SignatureOf::try_from_hash(signer.private_key(), body.signing_hash())
             .unwrap();
     let value = SumeragiFinalityAttestation { body, signature };
-    value
-        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
-        .unwrap();
+    value.verify(verifier.root_scope().into()).unwrap();
     value
 }
 
 #[test]
 fn bridge_finality_attestation_reader_binds_exact_request_headers_and_signed_body() {
+    let root_scope = current_finality_fixture().1.root_scope();
     let attestation = client_attestation_fixture();
     let mut client = current_finality_client();
     client
@@ -422,14 +421,11 @@ fn bridge_finality_attestation_reader_binds_exact_request_headers_and_signed_bod
             NonZeroU64::new(1).unwrap(),
             attestation.body.challenge,
             &attestation.body.node_id,
-            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            root_scope,
         )
     });
     let actual = actual.expect("authenticated attestation");
-    assert_eq!(
-        actual.result_scope(),
-        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
-    );
+    assert_eq!(actual.root_scope(), root_scope);
     assert_eq!(actual.attestation(), &attestation);
     assert_eq!(actual.into_attestation(), attestation);
     assert_eq!(request.method, HttpMethod::GET);
@@ -458,6 +454,7 @@ fn bridge_finality_attestation_reader_binds_exact_request_headers_and_signed_bod
 
 #[test]
 fn bridge_finality_attestation_reader_rejects_wrong_bindings_and_invalid_http_body() {
+    let root_scope = current_finality_fixture().1.root_scope();
     let attestation = client_attestation_fixture();
     let client = current_finality_client();
     let wire = norito::to_bytes(&attestation).expect("wire");
@@ -471,7 +468,7 @@ fn bridge_finality_attestation_reader_rejects_wrong_bindings_and_invalid_http_bo
                     NonZeroU64::new(1).unwrap(),
                     [0; 32],
                     &attestation.body.node_id,
-                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                    root_scope,
                 )
         },
     );
@@ -501,7 +498,7 @@ fn bridge_finality_attestation_reader_rejects_wrong_bindings_and_invalid_http_bo
                     NonZeroU64::new(height).unwrap(),
                     challenge,
                     &node,
-                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                    root_scope,
                 )
             },
         );
@@ -524,7 +521,7 @@ fn bridge_finality_attestation_reader_rejects_wrong_bindings_and_invalid_http_bo
                 NonZeroU64::new(1).unwrap(),
                 attestation.body.challenge,
                 &attestation.body.node_id,
-                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                root_scope,
             )
         },
     );
@@ -551,7 +548,7 @@ fn bridge_finality_attestation_reader_rejects_wrong_bindings_and_invalid_http_bo
                 NonZeroU64::new(1).unwrap(),
                 attestation.body.challenge,
                 &attestation.body.node_id,
-                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                root_scope,
             )
         });
         assert!(result.is_err(), "invalid response must fail");
@@ -586,6 +583,7 @@ fn client_tip_progress_envelope(
 
 #[test]
 fn bridge_finality_attestation_reader_preserves_only_bound_typed_tip_progress() {
+    let root_scope = current_finality_fixture().1.root_scope();
     for (requested, applied, status) in [(10, 9, 10), (9, 10, 10), (10, 10, 9)] {
         let mut progress = client_tip_progress_fixture();
         progress.requested_height = requested;
@@ -603,7 +601,7 @@ fn bridge_finality_attestation_reader_preserves_only_bound_typed_tip_progress() 
                 NonZeroU64::new(requested).unwrap(),
                 progress.challenge,
                 &progress.node_id,
-                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                root_scope,
             )
         });
         assert_eq!(requests.len(), 1, "one-shot reader does not poll");
@@ -622,6 +620,7 @@ fn bridge_finality_attestation_reader_preserves_only_bound_typed_tip_progress() 
 
 #[test]
 fn bridge_finality_attestation_reader_rejects_malformed_or_unbound_tip_progress() {
+    let root_scope = current_finality_fixture().1.root_scope();
     let valid = client_tip_progress_fixture();
     let mut cases = Vec::new();
     let mut changed = valid.clone();
@@ -666,7 +665,7 @@ fn bridge_finality_attestation_reader_rejects_malformed_or_unbound_tip_progress(
                 NonZeroU64::new(valid.requested_height).unwrap(),
                 valid.challenge,
                 &valid.node_id,
-                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                root_scope,
             )
         });
         let error = result.expect_err("malformed or foreign progress must fail");
@@ -680,6 +679,7 @@ fn bridge_finality_attestation_reader_rejects_malformed_or_unbound_tip_progress(
 
 #[test]
 fn bridge_finality_attestation_reader_rejects_untyped_or_noncanonical_progress_http() {
+    let root_scope = current_finality_fixture().1.root_scope();
     use iroha_torii_shared::bridge_attestation::{
         FINALITY_ATTESTATION_FAILURE_MAX_BYTES, FinalityAttestationFailureReason as Reason,
     };
@@ -762,7 +762,7 @@ fn bridge_finality_attestation_reader_rejects_untyped_or_noncanonical_progress_h
                 NonZeroU64::new(progress.requested_height).unwrap(),
                 progress.challenge,
                 &progress.node_id,
-                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                root_scope,
             )
         });
         let error = result.expect_err("only canonical bound HTTP409 is progress");
@@ -1018,8 +1018,9 @@ fn bridge_finality_next_reader_response_contract_failures_do_not_advance() {
     );
     assert!(matches!(
         error.downcast_ref::<crate::Error>(),
-        Some(crate::Error::CanonicalDecode { operation: "sumeragi.finality_proof.read", source })
-            if source.kind() == norito::core::DecodeAttemptErrorKind::Invalid
+        Some(crate::Error::CanonicalDecode(failure))
+            if failure.operation == "sumeragi.finality_proof.read"
+                && failure.source.kind() == norito::core::DecodeAttemptErrorKind::Invalid
     ));
 
     let actual = capture_request(
@@ -1829,6 +1830,7 @@ fn independent_custody_state_refuses_foreign_private_or_expired_selection_before
 fn current_finality_interval_fixture() -> (
     Client,
     Vec<iroha_data_model::sumeragi_finality::SumeragiFinalityProof>,
+    iroha_data_model::block::consensus::SumeragiRootScope,
 ) {
     use iroha_data_model::testing::native_finality::NativeFinalityFixture;
     let mut native = NativeFinalityFixture::start("sdk-original-interval");
@@ -1839,11 +1841,11 @@ fn current_finality_interval_fixture() -> (
     }
     let mut client = client_with_base_url(base_url());
     client.network_id = native.network_id();
-    (client, proofs)
+    (client, proofs, native.root_scope())
 }
 #[test]
 fn finality_interval_reader_uses_one_exact_bounded_request_and_original_deadline() {
-    let (client, expected) = current_finality_interval_fixture();
+    let (client, expected, root_scope) = current_finality_interval_fixture();
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     let (result, request) =
         capture_request(norito_response(StatusCode::OK, &expected), |transport| {
@@ -1854,7 +1856,7 @@ fn finality_interval_reader_uses_one_exact_bounded_request_and_original_deadline
             client.get_sumeragi_finality_interval(
                 NonZeroU64::new(1).unwrap(),
                 NonZeroU64::new(4).unwrap(),
-                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                root_scope,
             )
         });
     assert_eq!(result.unwrap(), expected);
@@ -1876,7 +1878,7 @@ fn finality_interval_reader_uses_one_exact_bounded_request_and_original_deadline
 }
 #[test]
 fn finality_interval_reader_refuses_missing_reordered_and_noncanonical_rows_without_fallback() {
-    let (client, expected) = current_finality_interval_fixture();
+    let (client, expected, root_scope) = current_finality_interval_fixture();
     let mut reordered = expected.clone();
     reordered.swap(1, 2);
     let mut duplicated = expected.clone();
@@ -1895,7 +1897,7 @@ fn finality_interval_reader_refuses_missing_reordered_and_noncanonical_rows_with
             client.get_sumeragi_finality_interval(
                 NonZeroU64::new(1).unwrap(),
                 NonZeroU64::new(4).unwrap(),
-                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                root_scope,
             )
         });
         assert!(
@@ -1907,7 +1909,7 @@ fn finality_interval_reader_refuses_missing_reordered_and_noncanonical_rows_with
 }
 #[test]
 fn finality_interval_reader_rejects_invalid_range_and_expired_original_deadline_before_dispatch() {
-    let (client, _) = current_finality_interval_fixture();
+    let (client, _, root_scope) = current_finality_interval_fixture();
     let calls = Arc::new(Mutex::new(Vec::new()));
     let observations = Arc::clone(&calls);
     with_mock_http(
@@ -1924,7 +1926,7 @@ fn finality_interval_reader_rejects_invalid_range_and_expired_original_deadline_
                         .get_sumeragi_finality_interval(
                             NonZeroU64::new(from).unwrap(),
                             NonZeroU64::new(to).unwrap(),
-                            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
+                            root_scope
                         )
                         .is_err()
                 );
@@ -1935,7 +1937,7 @@ fn finality_interval_reader_rejects_invalid_range_and_expired_original_deadline_
                     .get_sumeragi_finality_interval(
                         NonZeroU64::new(1).unwrap(),
                         NonZeroU64::new(4).unwrap(),
-                        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal
+                        root_scope
                     )
                     .is_err()
             );
@@ -1947,7 +1949,7 @@ fn finality_interval_reader_rejects_invalid_range_and_expired_original_deadline_
 #[test]
 fn structural_finality_readers_use_selected_scope_and_reject_old_bare_body() {
     use iroha_data_model::{
-        block::{CommitCertificate, decode_framed_signed_block},
+        block::{CommitCertificate, consensus::SumeragiRootScope, decode_framed_signed_block},
         sumeragi_finality::{
             CertifiedResultScope, CertifiedResultV1, SccpFinalityHeaderV1,
             certified_result::FLAG_ACTIVE, context_committee_root,
@@ -1995,10 +1997,13 @@ fn structural_finality_readers_use_selected_scope_and_reject_old_bare_body() {
         )
         .unwrap();
         for scope in [
-            CertifiedResultScope::TairaGlobal,
-            CertifiedResultScope::NonGlobal,
+            SumeragiRootScope::Global,
+            SumeragiRootScope::Dataspace {
+                parent_network_id: *current_finality_client().network_id(),
+                dataspace_id: DataSpaceId::new(71),
+            },
         ] {
-            let expected = is_wrapper && scope == CertifiedResultScope::TairaGlobal;
+            let expected = is_wrapper && scope == SumeragiRootScope::Global;
             let proof_read =
                 capture_request(norito_response(StatusCode::OK, &proof), |transport| {
                     let client = current_finality_client().with_test_http_transport(transport);
@@ -2035,9 +2040,117 @@ fn structural_finality_readers_use_selected_scope_and_reject_old_bare_body() {
                 .0;
             assert_eq!(statement_read.is_ok(), expected);
             if let Ok(carrier) = statement_read {
-                assert_eq!(carrier.result_scope(), scope);
+                assert_eq!(carrier.root_scope(), scope);
                 assert_eq!(carrier.attestation(), &statement);
             }
         }
     }
+}
+
+#[test]
+fn finality_readers_enforce_independent_non_global_scope_for_active_sccp() {
+    use iroha_data_model::{
+        block::{CommitCertificate, consensus::SumeragiRootScope},
+        sumeragi_finality::{
+            CertifiedResultV1, SccpFinalityHeaderFieldsV1, SccpFinalityHeaderV1,
+            certified_result::{FLAG_ACTIVE, context_committee_root},
+        },
+        testing::native_finality::NativeFinalityFixture,
+    };
+    let (mut proof, verifier, signer) = current_finality_fixture();
+    let root_scope = verifier.root_scope();
+    let client = current_finality_client();
+    let private = NativeFinalityFixture::start_with_scope(
+        "sdk-private-scope",
+        SumeragiRootScope::Dataspace {
+            parent_network_id: *client.network_id(),
+            dataspace_id: iroha_model_base::topology::DataSpaceId::new(71),
+        },
+    );
+    let private_scope = private.root_scope();
+    assert_ne!(root_scope, private_scope);
+    // G1 is structural candidate evidence only; modifying it grants no execution finality.
+    // Its empty QC permits an exact active-header fixture without bypassing any signature.
+    let mut block = decode_framed_signed_block(&proof.block_wire).unwrap();
+    let certificate = block.commit_certificate().unwrap();
+    let decoded =
+        CertifiedResultV1::decode(certificate.result_preimage(), root_scope.into()).unwrap();
+    let (x, body) = decoded.into_parts();
+    let active = SccpFinalityHeaderV1::from_fields(&SccpFinalityHeaderFieldsV1 {
+        flags: FLAG_ACTIVE,
+        generation: 1,
+        committee_root: context_committee_root(&body.schedule.current).unwrap(),
+        ..x.fields()
+    })
+    .unwrap();
+    let result = CertifiedResultV1::new(active, body, root_scope.into()).unwrap();
+    block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
+        vec![],
+        vec![],
+        result.preimage().unwrap(),
+        vec![],
+    )));
+    proof.block_wire = block.encode_wire().unwrap();
+    proof
+        .decode_checked(root_scope.into())
+        .expect("valid active global candidate");
+    assert!(
+        proof
+            .decode_checked(private_scope.into())
+            .unwrap_err()
+            .to_string()
+            .contains("non-global")
+    );
+    let (proof_result, _) = capture_request(norito_response(StatusCode::OK, &proof), |transport| {
+        let client = client.clone().with_test_http_transport(transport);
+        mark_data_model_compatible(&client);
+        client.get_sumeragi_finality_proof(NonZeroU64::new(1).unwrap(), private_scope)
+    });
+    assert!(proof_result.unwrap_err().to_string().contains("non-global"));
+    let (interval_result, _) = capture_request(
+        norito_response(StatusCode::OK, &vec![proof.clone()]),
+        |transport| {
+            let client = client.with_test_http_transport(transport);
+            mark_data_model_compatible(&client);
+            client.get_sumeragi_finality_interval(
+                NonZeroU64::new(1).unwrap(),
+                NonZeroU64::new(1).unwrap(),
+                private_scope,
+            )
+        },
+    );
+    assert!(
+        interval_result
+            .unwrap_err()
+            .to_string()
+            .contains("non-global")
+    );
+    let mut attestation = client_attestation_fixture();
+    attestation.body.genesis_finality_proof = proof.clone();
+    attestation.body.finality_proof = proof;
+    attestation.signature = iroha_crypto::SignatureOf::try_from_hash(
+        signer.private_key(),
+        attestation.body.signing_hash(),
+    )
+    .unwrap();
+    attestation
+        .verify(root_scope.into())
+        .expect("original node signature and active global candidate");
+    let (attestation_result, _) =
+        capture_request(norito_response(StatusCode::OK, &attestation), |transport| {
+            let client = current_finality_client().with_test_http_transport(transport);
+            mark_data_model_compatible(&client);
+            client.get_sumeragi_finality_attestation(
+                NonZeroU64::new(1).unwrap(),
+                attestation.body.challenge,
+                &attestation.body.node_id,
+                private_scope,
+            )
+        });
+    assert!(
+        attestation_result
+            .unwrap_err()
+            .to_string()
+            .contains("non-global")
+    );
 }
