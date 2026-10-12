@@ -989,6 +989,34 @@ fn signed_query_scope_classifies_exact_peer_inventory_as_public_control_plane() 
         super::SignedQueryScope::PublicControlPlane
     );
 }
+#[tokio::test]
+async fn signed_query_scope_classifies_parameters_as_public_control_plane() {
+    let authority =
+        checked_torii_test_account_id(0xf6, "derive parameter query authority fixture key");
+    let app = mk_app_state_for_tests_with_world_and_nexus(
+        World::default(),
+        private_ingress_nexus_for_test(),
+    );
+    let request = roundtrip_request_for_test(
+        &authority,
+        iroha_data_model::query::QueryRequest::Singular(
+            iroha_data_model::query::SingularQueryBox::FindParameters(
+                iroha_data_model::query::executor::FindParameters,
+            ),
+        ),
+    );
+    assert_eq!(
+        super::signed_query_scope(&request),
+        super::SignedQueryScope::PublicControlPlane
+    );
+    let scope = super::signed_query_scope_for_app(app.as_ref(), &request);
+    assert_eq!(scope, super::SignedQueryScope::PublicControlPlane);
+    assert!(
+        super::torii_authorized_signed_query_routes(app.as_ref(), &request, &scope)
+            .expect("public parameters need no unrelated restricted-dataspace grant")
+            .is_empty()
+    );
+}
 #[test]
 fn signed_query_scope_rejects_cross_kind_target_payload_collisions() {
     let authority = checked_torii_test_account_id(
@@ -1701,6 +1729,45 @@ async fn signed_query_scope_for_app_classifies_opaque_find_asset_definition_by_i
         super::signed_query_scope(&request),
         super::SignedQueryScope::CrossDataspaceFanout
     );
+    assert_eq!(
+        super::signed_query_scope_for_app(app.as_ref(), &request),
+        super::SignedQueryScope::TargetDomain(domain_id)
+    );
+}
+#[tokio::test]
+async fn signed_query_scope_for_app_classifies_direct_home_by_exact_definition() {
+    let authority =
+        checked_torii_test_account_id(0xde, "derive direct-home authority fixture key");
+    let domain_id =
+        iroha_model_base::domain::DomainId::try_new("hbl", "governance").expect("domain id");
+    let asset_definition_id = iroha_data_model::asset::AssetDefinitionId::derive_from_components(
+        domain_id.clone(),
+        "asset-definition".parse().expect("asset definition name"),
+    );
+    let app = mk_app_state_for_tests_with_world_and_nexus(
+        World::default(),
+        private_ingress_nexus_for_test(),
+    );
+    let request = roundtrip_request_for_test(
+        &authority,
+        iroha_data_model::query::QueryRequest::Singular(
+            iroha_data_model::query::SingularQueryBox::FindAssetDefinitionDirectHome(
+                iroha_data_model::query::asset::FindAssetDefinitionDirectHome::new(
+                    asset_definition_id.clone(),
+                ),
+            ),
+        ),
+    );
+    assert_eq!(
+        super::signed_query_scope(&request),
+        super::SignedQueryScope::CrossDataspaceFanout
+    );
+    assert_eq!(
+        super::signed_query_scope_for_app(app.as_ref(), &request),
+        super::SignedQueryScope::CrossDataspaceFanout,
+        "an unknown asset must not inherit a public route"
+    );
+    seed_asset_definition_for_test(&app, &asset_definition_id, Some(&domain_id));
     assert_eq!(
         super::signed_query_scope_for_app(app.as_ref(), &request),
         super::SignedQueryScope::TargetDomain(domain_id)

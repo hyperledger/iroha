@@ -16628,6 +16628,10 @@ fn target_scope_singular_query(
         SingularQueryBox::FindAssetDefinitionById(query) => {
             target_asset_definition_scope(&query.id)
         }
+        SingularQueryBox::FindAssetDefinitionDirectHome(query) => {
+            target_asset_definition_scope(query.asset_definition_id())
+        }
+        SingularQueryBox::FindParameters(_) => Some(SignedQueryScope::PublicControlPlane),
         SingularQueryBox::FindAccountById(query) => {
             Some(SignedQueryScope::TargetAccount(query.account_id().clone()))
         }
@@ -16783,6 +16787,9 @@ fn target_scope_singular_query_for_app(
         }
         SingularQueryBox::FindAssetDefinitionById(query) => {
             resolve_asset_definition_scope(app, &query.id)
+        }
+        SingularQueryBox::FindAssetDefinitionDirectHome(query) => {
+            resolve_asset_definition_scope(app, query.asset_definition_id())
         }
         _ => target_scope_singular_query(query),
     }
