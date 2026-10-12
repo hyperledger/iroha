@@ -673,7 +673,6 @@ __all__ = [
     "ContractCallResponse",
     "PipelineTransactionStatus",
     "PipelineTransactionStatusResponse",
-    "MultisigResponse",
     "GovernanceContractEmergencyHold",
     "GovernanceContractLifecycle",
     "GovernanceContractResponse",
@@ -2906,25 +2905,6 @@ class ContractCallResponse:
     transaction_payload_b64: Optional[str]
     signing_message_b64: Optional[str]
     operation_receipt: ContractOperationReceipt
-
-
-@dataclass(frozen=True)
-class MultisigResponse:
-    """Result returned by multisig participation endpoints."""
-
-    ok: bool
-    resolved_multisig_account_id: str
-    submitted: bool
-    proposal_id: Optional[str]
-    instructions_hash: Optional[str]
-    tx_hash_hex: Optional[str]
-    executed_tx_hash_hex: Optional[str]
-    creation_time_ms: Optional[int]
-    fee_payment: Dict[str, Any]
-    transaction_payload_b64: Optional[str]
-    signing_message_b64: Optional[str]
-
-
 
 
 @dataclass(frozen=True)
@@ -11623,96 +11603,6 @@ class ToriiClient(
                 context=f"{context}.payload_digest_hex",
                 expected_length=64,
             ),
-        )
-
-    @staticmethod
-    def _parse_multisig_response(
-        payload: Mapping[str, Any],
-        *,
-        context: str,
-    ) -> MultisigResponse:
-        record = ToriiClient._ensure_mapping(payload, context)
-        if record.get("ok") is not True:
-            raise RuntimeError(f"{context}.ok must be true")
-        for retired in ("transaction_scaffold_b64", "signed_transaction_b64"):
-            if retired in record:
-                raise RuntimeError(f"{context} contains retired field `{retired}`")
-        resolved_multisig_account_id = ToriiClient._require_exact_i105_account_id(
-            record.get("resolved_multisig_account_id"),
-            f"{context}.resolved_multisig_account_id",
-        )
-
-        def optional_hash(field: str) -> Optional[str]:
-            raw = record.get(field)
-            return None if raw is None else ToriiClient._normalize_hex_string(
-                raw, context=f"{context}.{field}", expected_length=64
-            )
-
-        def optional_transaction_hash(field: str) -> Optional[str]:
-            raw = record.get(field)
-            return (
-                None
-                if raw is None
-                else ToriiClient._require_exact_signed_transaction_hash(
-                    raw,
-                    context=f"{context}.{field}",
-                )
-            )
-
-        creation_raw = record.get("creation_time_ms")
-        creation_time_ms = None if creation_raw is None else ToriiClient._coerce_unsigned(
-            creation_raw, f"{context}.creation_time_ms"
-        )
-        proposal_id_raw = record.get("proposal_id")
-        proposal_id = (
-            None
-            if proposal_id_raw is None
-            else ToriiClient._normalize_hex_string(
-                proposal_id_raw,
-                context=f"{context}.proposal_id",
-                expected_length=64,
-            )
-        )
-        instructions_hash = optional_hash("instructions_hash")
-        if (
-            proposal_id is not None
-            and instructions_hash is not None
-            and proposal_id != instructions_hash
-        ):
-            raise RuntimeError(
-                f"{context}.proposal_id and instructions_hash must identify the same proposal"
-            )
-        tx_hash_hex = optional_transaction_hash("tx_hash_hex")
-        executed_tx_hash_hex = optional_transaction_hash("executed_tx_hash_hex")
-        submitted = record.get("submitted")
-        if not isinstance(submitted, bool):
-            raise TypeError(f"{context}.submitted must be a boolean")
-        transaction_payload_b64, signing_message_b64 = ToriiClient._normalize_transaction_response_pair(
-            record.get("transaction_payload_b64"),
-            record.get("signing_message_b64"),
-            submitted=submitted,
-            transaction_hash=tx_hash_hex,
-            context=context,
-        )
-        fee_payment = ToriiClient._normalize_fee_payment_intent(
-            ToriiClient._ensure_mapping(
-                record.get("fee_payment"),
-                f"{context}.fee_payment",
-            ),
-            context=f"{context}.fee_payment",
-        )
-        return MultisigResponse(
-            ok=True,
-            resolved_multisig_account_id=resolved_multisig_account_id,
-            submitted=submitted,
-            proposal_id=proposal_id,
-            instructions_hash=instructions_hash,
-            tx_hash_hex=tx_hash_hex,
-            executed_tx_hash_hex=executed_tx_hash_hex,
-            creation_time_ms=creation_time_ms,
-            fee_payment=fee_payment,
-            transaction_payload_b64=transaction_payload_b64,
-            signing_message_b64=signing_message_b64,
         )
 
     @staticmethod
