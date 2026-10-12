@@ -14351,11 +14351,10 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
             Executable::Instructions(vec![InstructionBox::from(Register::trigger(inner))].into()),
             Executable::Instructions(
                 vec![InstructionBox::from(
-                    iroha_executor_data_model::isi::multisig::MultisigPropose::new(
-                        authority.clone(),
-                        vec![record()],
-                        None,
-                    ),
+                    iroha_executor_data_model::isi::multisig::MultisigPropose::new(authority.clone(),
+iroha_executor_data_model::isi::multisig::MultisigProposalNonce::new([0x61;32]).unwrap(),
+vec![record()],
+None),
                 )]
                 .into(),
             ),

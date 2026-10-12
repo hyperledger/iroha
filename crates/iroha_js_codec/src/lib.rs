@@ -5116,3 +5116,6 @@ mod tests;
 
 mod multisig_contract;
 pub use multisig_contract::build_canonical_multisig_contract_call_json;
+
+mod multisig_occurrence;
+pub use multisig_occurrence::derive_multisig_proposal_id_json;

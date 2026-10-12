@@ -30,7 +30,10 @@ use iroha_data_model::{
     sns::{NameControllerV1, NameRecordV1},
 };
 use iroha_executor_data_model::{
-    isi::multisig::{MultisigApprove, MultisigPropose, MultisigRegister, MultisigSpec},
+    isi::multisig::{
+        MultisigApprove, MultisigProposalId, MultisigProposalNonce, MultisigPropose,
+        MultisigRegister, MultisigSpec,
+    },
     permission::account::{AccountAliasPermissionScope, CanManageAccountAlias},
 };
 use iroha_model_base::{domain::DomainId, topology::DataSpaceId};
@@ -55,9 +58,13 @@ impl RekeyFixture {
         let instructions = vec![instruction];
         let hash = HashOf::new(&instructions);
         let time = 1_000 + self.chain.height() * 10;
+        let mut nonce_bytes = [7; 32];
+        nonce_bytes[..8].copy_from_slice(&time.to_le_bytes());
+        let nonce = MultisigProposalNonce::new(nonce_bytes).unwrap();
+        let proposal_id = MultisigProposalId::derive(&self.chain.network_id(), &account, &nonce);
         let proposal = self.chain.sign(
             &self.signer,
-            [MultisigPropose::new(account.clone(), instructions, None).into()],
+            [MultisigPropose::new(account.clone(), nonce, instructions, None).into()],
             time,
         );
         assert_eq!(
@@ -67,7 +74,7 @@ impl RekeyFixture {
         );
         let approval = self.chain.sign(
             &self.signer,
-            [MultisigApprove::new(account, hash).into()],
+            [MultisigApprove::new(account, proposal_id, hash).into()],
             time + 1,
         );
         let result = self.chain.commit(vec![approval]);

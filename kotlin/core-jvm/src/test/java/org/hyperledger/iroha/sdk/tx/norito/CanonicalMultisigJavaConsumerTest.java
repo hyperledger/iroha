@@ -32,7 +32,7 @@ final class CanonicalMultisigJavaConsumerTest {
   }
 
   private static MultisigProposeRequest request(byte[] instruction, String publicKey, JsonValue assessment) {
-    return new MultisigProposeRequest(null, "controller@bank", "signer-fixture",
+    return new MultisigProposeRequest(null, "controller@bank", "signer-fixture", "0707070707070707070707070707070707070707070707070707070707070707",
         Collections.singletonList(instruction), publicKey, null, 123L,
         FeePaymentIntent.authority(Collections.emptyList(), 7L), "invoice 42", assessment);
   }
@@ -49,6 +49,7 @@ final class CanonicalMultisigJavaConsumerTest {
     Map<String, Object> payload = (Map<String, Object>) JsonParser.parse(new String(first, StandardCharsets.UTF_8));
     assertEquals("controller@bank", payload.get("multisig_account_alias"));
     assertEquals("signer-fixture", payload.get("signer_account_id"));
+    assertEquals("0707070707070707070707070707070707070707070707070707070707070707", payload.get("proposal_nonce"));
     assertEquals(123L, ((Number) payload.get("creation_time_ms")).longValue());
     assertEquals("invoice 42", payload.get("memo"));
     assertEquals(Collections.singletonList(Base64.getEncoder().encodeToString(expected)), payload.get("instructions"));
@@ -101,11 +102,11 @@ final class CanonicalMultisigJavaConsumerTest {
     byte[] instruction = instruction();
     FeePaymentIntent fee = FeePaymentIntent.authority(Collections.emptyList());
     assertThrows(IllegalArgumentException.class, () -> new MultisigProposeRequest(
-        "account-fixture", "controller@bank", "signer-fixture", Collections.singletonList(instruction), null, null, null, fee, null, null));
+        "account-fixture", "controller@bank", "signer-fixture", "0707070707070707070707070707070707070707070707070707070707070707", Collections.singletonList(instruction), null, null, null, fee, null, null));
     assertThrows(IllegalArgumentException.class, () -> new MultisigProposeRequest(
-        null, null, "signer-fixture", Collections.singletonList(instruction), null, null, null, fee, null, null));
+        null, null, "signer-fixture", "0707070707070707070707070707070707070707070707070707070707070707", Collections.singletonList(instruction), null, null, null, fee, null, null));
     assertThrows(IllegalArgumentException.class, () -> new MultisigProposeRequest(
-        null, "controller@bank", "signer-fixture", Collections.emptyList(), null, null, null, fee, null, null));
+        null, "controller@bank", "signer-fixture", "0707070707070707070707070707070707070707070707070707070707070707", Collections.emptyList(), null, null, null, fee, null, null));
     assertThrows(IllegalArgumentException.class, () -> request(new byte[0], null, null));
   }
 
@@ -131,7 +132,7 @@ final class CanonicalMultisigJavaConsumerTest {
         "iroha.custom", InstructionBatchHashFixture.bytes("custom_instruction_frame_hex"));
     FeePaymentIntent fee = FeePaymentIntent.authority(Collections.emptyList(), 7L);
     MultisigProposeRequest request = MultisigProposeRequest.fromInstructionBoxes(
-        null, "controller@bank", "signer-fixture", Collections.singletonList(original),
+        null, "controller@bank", "signer-fixture", "0707070707070707070707070707070707070707070707070707070707070707", Collections.singletonList(original),
         null, null, 123L, fee, "invoice 42", null);
     byte[] expected = NoritoJavaCodecAdapter.encodeInstructionBox(original);
     assertArrayEquals(expected, request.getInstructions().get(0));

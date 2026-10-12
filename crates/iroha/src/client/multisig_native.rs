@@ -16,7 +16,9 @@ use iroha_data_model::{
     isi::InstructionBox,
     transaction::{FeePaymentIntent, TransactionBuilder},
 };
-use iroha_executor_data_model::isi::multisig::{MultisigApprove, MultisigCancel, MultisigPropose};
+use iroha_executor_data_model::isi::multisig::{
+    MultisigApprove, MultisigCancel, MultisigProposalId, MultisigProposalNonce, MultisigPropose,
+};
 use norito::json::{Map, Value};
 
 const MAX_BYTES: usize = 16 * 1024 * 1024;
@@ -42,14 +44,23 @@ pub struct NativeMultisigContext {
 #[derive(Clone, Copy, Debug)]
 pub enum NativeMultisigAction {
     /// Propose the reviewed batch.
-    Propose,
+    Propose {
+        /// Nonzero nonce persisted before preparing this intentional proposal.
+        proposal_nonce: MultisigProposalNonce,
+    },
     /// Approve the reviewed batch after matching its native hash.
     Approve {
+        /// Exact occurrence selected for approval.
+        proposal_id: MultisigProposalId,
         /// Hash supplied by the selected live proposal.
         instructions_hash: HashOf<Vec<InstructionBox>>,
     },
-    /// Propose or approve cancellation of the reviewed batch.
+    /// Propose a cancellation occurrence. Further signers approve its explicit ID.
     Cancel {
+        /// Nonce of the cancellation wrapper, retained across retries.
+        proposal_nonce: MultisigProposalNonce,
+        /// Exact occurrence to cancel.
+        target_proposal_id: MultisigProposalId,
         /// Hash supplied by the selected live proposal.
         instructions_hash: HashOf<Vec<InstructionBox>>,
     },
@@ -157,7 +168,7 @@ impl NativeMultisigIntent {
             .map_err(|error| eyre!("invalid native fee intent: {error}"))?;
         if let Some(memo) = &context.memo {
             ensure!(
-                matches!(action, NativeMultisigAction::Propose)
+                matches!(action, NativeMultisigAction::Propose { .. })
                     && !memo.is_empty()
                     && memo.trim() == memo
                     && memo.len() <= 1024
@@ -167,12 +178,14 @@ impl NativeMultisigIntent {
         }
         let instructions_hash = HashOf::new(&instructions);
         match &action {
-            NativeMultisigAction::Propose => (),
+            NativeMultisigAction::Propose { .. } => (),
             NativeMultisigAction::Approve {
                 instructions_hash: expected,
+                ..
             }
             | NativeMultisigAction::Cancel {
                 instructions_hash: expected,
+                ..
             } => {
                 ensure!(
                     *expected == instructions_hash,
@@ -199,7 +212,7 @@ impl NativeMultisigIntent {
     #[must_use]
     pub fn path(&self) -> &'static str {
         match self.action {
-            NativeMultisigAction::Propose => "/v1/multisig/propose",
+            NativeMultisigAction::Propose { .. } => "/v1/multisig/propose",
             NativeMultisigAction::Approve { .. } => "/v1/multisig/approve",
             NativeMultisigAction::Cancel { .. } => "/v1/multisig/cancel",
         }
@@ -209,6 +222,35 @@ impl NativeMultisigIntent {
     #[must_use]
     pub fn instructions_hash(&self) -> HashOf<Vec<InstructionBox>> {
         self.instructions_hash
+    }
+
+    /// Occurrence participated in by this action, including the cancellation wrapper.
+    #[must_use]
+    pub fn proposal_id(&self) -> MultisigProposalId {
+        match self.action {
+            NativeMultisigAction::Propose { proposal_nonce }
+            | NativeMultisigAction::Cancel { proposal_nonce, .. } => MultisigProposalId::derive(
+                &self.context.network_id,
+                &self.context.multisig_account_id,
+                &proposal_nonce,
+            ),
+            NativeMultisigAction::Approve { proposal_id, .. } => proposal_id,
+        }
+    }
+
+    /// Commitment of the participated proposal, including cancellation's wrapper.
+    #[must_use]
+    pub fn participation_instructions_hash(&self) -> HashOf<Vec<InstructionBox>> {
+        match self.action {
+            NativeMultisigAction::Cancel {
+                target_proposal_id, ..
+            } => HashOf::new(&vec![InstructionBox::from(MultisigCancel::new(
+                self.context.multisig_account_id.clone(),
+                target_proposal_id,
+                self.instructions_hash,
+            ))]),
+            _ => self.instructions_hash,
+        }
     }
 
     /// Exact canonical unsigned Torii request original.
@@ -252,15 +294,38 @@ impl NativeMultisigIntent {
             );
         }
         match self.action {
-            NativeMultisigAction::Propose => {
+            NativeMultisigAction::Propose { proposal_nonce } => {
+                body.insert(
+                    "proposal_nonce".into(),
+                    Value::from(proposal_nonce.to_string()),
+                );
                 if let Some(memo) = &self.context.memo {
                     body.insert("memo".into(), Value::from(memo.clone()));
                 }
                 body.insert("instructions".into(), json_value(&self.instructions)?);
             }
-            NativeMultisigAction::Approve { .. } | NativeMultisigAction::Cancel { .. } => {
+            NativeMultisigAction::Approve { proposal_id, .. } => {
+                body.insert("proposal_id".into(), Value::from(proposal_id.to_string()));
                 body.insert(
                     "instructions_hash".into(),
+                    Value::from(hex::encode(self.instructions_hash.as_ref())),
+                );
+            }
+            NativeMultisigAction::Cancel {
+                proposal_nonce,
+                target_proposal_id,
+                ..
+            } => {
+                body.insert(
+                    "proposal_nonce".into(),
+                    Value::from(proposal_nonce.to_string()),
+                );
+                body.insert(
+                    "target_proposal_id".into(),
+                    Value::from(target_proposal_id.to_string()),
+                );
+                body.insert(
+                    "target_instructions_hash".into(),
                     Value::from(hex::encode(self.instructions_hash.as_ref())),
                 );
             }
@@ -298,7 +363,6 @@ impl NativeMultisigIntent {
         ];
         if matches!(self.action, NativeMultisigAction::Cancel { .. }) {
             keys.extend([
-                "action",
                 "target_proposal_id",
                 "target_instructions_hash",
                 "cancel_proposal_id",
@@ -368,15 +432,21 @@ impl NativeMultisigIntent {
         }
         let hash = hex::encode(self.instructions_hash.as_ref());
         let account = self.context.multisig_account_id.clone();
+        let proposal_id = self.proposal_id();
         let instructions: Vec<InstructionBox> = match self.action {
-            NativeMultisigAction::Propose => {
+            NativeMultisigAction::Propose { proposal_nonce } => {
                 ensure!(
-                    object["proposal_id"].as_str() == Some(&hash)
+                    object["proposal_id"].as_str() == Some(&proposal_id.to_string())
                         && object["instructions_hash"].as_str() == Some(&hash),
-                    "prepare proposal hash differs from complete reviewed instructions"
+                    "prepare occurrence or content hash differs from reviewed intent"
                 );
-                let propose: InstructionBox =
-                    MultisigPropose::new(account.clone(), self.instructions.clone(), None).into();
+                let propose: InstructionBox = MultisigPropose::new(
+                    account.clone(),
+                    proposal_nonce,
+                    self.instructions.clone(),
+                    None,
+                )
+                .into();
                 if expected
                     .clone()
                     .with_instructions([propose.clone()])
@@ -387,38 +457,56 @@ impl NativeMultisigIntent {
                 } else {
                     vec![
                         propose,
-                        MultisigApprove::new(account, self.instructions_hash).into(),
+                        MultisigApprove::new(account, proposal_id, self.instructions_hash).into(),
                     ]
                 }
             }
             NativeMultisigAction::Approve { .. } => {
                 ensure!(
-                    object["proposal_id"].is_null()
+                    object["proposal_id"].as_str() == Some(&proposal_id.to_string())
                         && object["instructions_hash"].as_str() == Some(&hash),
-                    "prepare approval hash differs from selected proposal"
+                    "prepare approval occurrence or content hash differs from selected proposal"
                 );
-                vec![MultisigApprove::new(account, self.instructions_hash).into()]
+                vec![MultisigApprove::new(account, proposal_id, self.instructions_hash).into()]
             }
-            NativeMultisigAction::Cancel { .. } => {
+            NativeMultisigAction::Cancel {
+                proposal_nonce,
+                target_proposal_id,
+                ..
+            } => {
                 let cancel_instructions = vec![InstructionBox::from(MultisigCancel::new(
                     account.clone(),
+                    target_proposal_id,
                     self.instructions_hash,
                 ))];
                 let cancel_hash = HashOf::new(&cancel_instructions);
-                let cancel_literal = cancel_hash.to_string();
                 ensure!(
-                    object["target_proposal_id"].as_str() == Some(&hash)
+                    object["target_proposal_id"].as_str() == Some(&target_proposal_id.to_string())
                         && object["target_instructions_hash"].as_str() == Some(&hash)
-                        && object["cancel_proposal_id"].as_str() == Some(&cancel_literal)
-                        && object["cancel_instructions_hash"].as_str() == Some(&cancel_literal),
-                    "prepare cancellation hashes differ from selected proposal"
+                        && object["cancel_proposal_id"].as_str() == Some(&proposal_id.to_string())
+                        && object["cancel_instructions_hash"].as_str()
+                            == Some(&hex::encode(cancel_hash.as_ref())),
+                    "prepare cancellation occurrence or content commitment differs from reviewed intent"
                 );
-                match object["action"].as_str() {
-                    Some("PROPOSE") => {
-                        vec![MultisigPropose::new(account, cancel_instructions, None).into()]
-                    }
-                    Some("APPROVE") => vec![MultisigApprove::new(account, cancel_hash).into()],
-                    _ => return Err(eyre!("unknown cancellation participation action")),
+                let propose: InstructionBox = MultisigPropose::new(
+                    account.clone(),
+                    proposal_nonce,
+                    cancel_instructions,
+                    None,
+                )
+                .into();
+                if expected
+                    .clone()
+                    .with_instructions([propose.clone()])
+                    .payload()
+                    == builder.payload()
+                {
+                    vec![propose]
+                } else {
+                    vec![
+                        propose,
+                        MultisigApprove::new(account, proposal_id, cancel_hash).into(),
+                    ]
                 }
             }
         };
@@ -547,6 +635,14 @@ mod tests {
     use iroha_crypto::KeyPair;
     use iroha_data_model::{Level, isi::Log};
 
+    fn nonce() -> MultisigProposalNonce {
+        MultisigProposalNonce::new([7; 32]).expect("nonzero nonce")
+    }
+
+    fn selected_id() -> MultisigProposalId {
+        "81".repeat(32).parse().expect("occurrence ID")
+    }
+
     fn fixture(action: u8) -> (NativeMultisigIntent, KeyPair) {
         let key = KeyPair::try_from_seed(vec![37; 32], Algorithm::Ed25519).expect("fixture key");
         let account = AccountId::new(key.public_key().clone());
@@ -554,11 +650,16 @@ mod tests {
             vec![Log::new(Level::INFO, "complete reviewed native batch".into()).into()];
         let hash = HashOf::new(&instructions);
         let action = match action {
-            0 => NativeMultisigAction::Propose,
+            0 => NativeMultisigAction::Propose {
+                proposal_nonce: nonce(),
+            },
             1 => NativeMultisigAction::Approve {
+                proposal_id: selected_id(),
                 instructions_hash: hash,
             },
             _ => NativeMultisigAction::Cancel {
+                proposal_nonce: nonce(),
+                target_proposal_id: selected_id(),
                 instructions_hash: hash,
             },
         };
@@ -592,48 +693,63 @@ mod tests {
         body.insert("tx_hash_hex".into(), Value::Null);
         body.insert("executed_tx_hash_hex".into(), Value::Null);
         let hash = hex::encode(intent.instructions_hash.as_ref());
+        let proposal_id = intent.proposal_id();
         let instructions: Vec<InstructionBox> = match intent.action {
-            NativeMultisigAction::Propose => {
-                body.insert("proposal_id".into(), Value::from(hash.clone()));
+            NativeMultisigAction::Propose { proposal_nonce } => {
+                body.insert("proposal_id".into(), Value::from(proposal_id.to_string()));
                 body.insert("instructions_hash".into(), Value::from(hash));
                 let mut values = vec![
-                    MultisigPropose::new(account.clone(), intent.instructions.clone(), None).into(),
+                    MultisigPropose::new(
+                        account.clone(),
+                        proposal_nonce,
+                        intent.instructions.clone(),
+                        None,
+                    )
+                    .into(),
                 ];
                 if second {
-                    values.push(MultisigApprove::new(account, intent.instructions_hash).into());
+                    values.push(
+                        MultisigApprove::new(account, proposal_id, intent.instructions_hash).into(),
+                    );
                 }
                 values
             }
             NativeMultisigAction::Approve { .. } => {
-                body.insert("proposal_id".into(), Value::Null);
+                body.insert("proposal_id".into(), Value::from(proposal_id.to_string()));
                 body.insert("instructions_hash".into(), Value::from(hash));
-                vec![MultisigApprove::new(account, intent.instructions_hash).into()]
+                vec![MultisigApprove::new(account, proposal_id, intent.instructions_hash).into()]
             }
-            NativeMultisigAction::Cancel { .. } => {
-                let values = vec![InstructionBox::from(MultisigCancel::new(
+            NativeMultisigAction::Cancel {
+                proposal_nonce,
+                target_proposal_id,
+                ..
+            } => {
+                let cancel = vec![InstructionBox::from(MultisigCancel::new(
                     account.clone(),
+                    target_proposal_id,
                     intent.instructions_hash,
                 ))];
-                let cancel_hash = HashOf::new(&values);
-                body.insert("target_proposal_id".into(), Value::from(hash.clone()));
+                let cancel_hash = HashOf::new(&cancel);
+                body.insert(
+                    "target_proposal_id".into(),
+                    Value::from(target_proposal_id.to_string()),
+                );
                 body.insert("target_instructions_hash".into(), Value::from(hash));
                 body.insert(
                     "cancel_proposal_id".into(),
-                    Value::from(cancel_hash.to_string()),
+                    Value::from(proposal_id.to_string()),
                 );
                 body.insert(
                     "cancel_instructions_hash".into(),
-                    Value::from(cancel_hash.to_string()),
+                    Value::from(hex::encode(cancel_hash.as_ref())),
                 );
-                body.insert(
-                    "action".into(),
-                    Value::from(if second { "APPROVE" } else { "PROPOSE" }),
-                );
+                let mut values = vec![
+                    MultisigPropose::new(account.clone(), proposal_nonce, cancel, None).into(),
+                ];
                 if second {
-                    vec![MultisigApprove::new(account, cancel_hash).into()]
-                } else {
-                    vec![MultisigPropose::new(account, values, None).into()]
+                    values.push(MultisigApprove::new(account, proposal_id, cancel_hash).into());
                 }
+                values
             }
         };
         let mut builder = TransactionBuilder::new(
@@ -681,7 +797,9 @@ mod tests {
         context.memo = Some("School fees".to_owned());
         let intent = NativeMultisigIntent::new(
             context.clone(),
-            NativeMultisigAction::Propose,
+            NativeMultisigAction::Propose {
+                proposal_nonce: nonce(),
+            },
             original.instructions.clone(),
         )
         .expect("memo intent");
@@ -705,7 +823,9 @@ mod tests {
             assert!(
                 NativeMultisigIntent::new(
                     context.clone(),
-                    NativeMultisigAction::Propose,
+                    NativeMultisigAction::Propose {
+                        proposal_nonce: nonce()
+                    },
                     original.instructions.clone()
                 )
                 .is_err()
@@ -714,9 +834,12 @@ mod tests {
         context.memo = Some("School fees".to_owned());
         for action in [
             NativeMultisigAction::Approve {
+                proposal_id: selected_id(),
                 instructions_hash: original.instructions_hash,
             },
             NativeMultisigAction::Cancel {
+                proposal_nonce: nonce(),
+                target_proposal_id: selected_id(),
                 instructions_hash: original.instructions_hash,
             },
         ] {
@@ -876,7 +999,9 @@ mod tests {
         assert!(
             NativeMultisigIntent::new(
                 intent.context.clone(),
-                NativeMultisigAction::Propose,
+                NativeMultisigAction::Propose {
+                    proposal_nonce: nonce()
+                },
                 vec![]
             )
             .is_err()
@@ -889,6 +1014,7 @@ mod tests {
             NativeMultisigIntent::new(
                 intent.context.clone(),
                 NativeMultisigAction::Approve {
+                    proposal_id: selected_id(),
                     instructions_hash: intent.instructions_hash()
                 },
                 changed
@@ -901,8 +1027,95 @@ mod tests {
             .public_key()
             .clone();
         assert!(
-            NativeMultisigIntent::new(context, NativeMultisigAction::Propose, intent.instructions)
+            NativeMultisigIntent::new(
+                context,
+                NativeMultisigAction::Propose {
+                    proposal_nonce: nonce()
+                },
+                intent.instructions
+            )
+            .is_err()
+        );
+    }
+    #[test]
+    fn identical_content_has_independent_occurrences_and_cannot_reuse_prepared_originals() {
+        let (first, _) = fixture(0);
+        let second = NativeMultisigIntent::new(
+            first.context.clone(),
+            NativeMultisigAction::Propose {
+                proposal_nonce: MultisigProposalNonce::new([8; 32]).unwrap(),
+            },
+            first.instructions.clone(),
+        )
+        .unwrap();
+        assert_eq!(first.instructions_hash(), second.instructions_hash());
+        assert_ne!(first.proposal_id(), second.proposal_id());
+        assert_ne!(first.request_bytes(), second.request_bytes());
+        let (_, response) = draft(&first, false);
+        let response_bytes = norito::json::to_vec(&response).unwrap();
+        assert!(
+            second
+                .inspect_prepare(second.request_bytes(), &response_bytes, 1_001)
                 .is_err()
         );
+        let mut forged = response;
+        forged.as_object_mut().unwrap().insert(
+            "proposal_id".into(),
+            Value::from(second.proposal_id().to_string()),
+        );
+        assert!(
+            second
+                .inspect_prepare(
+                    second.request_bytes(),
+                    &norito::json::to_vec(&forged).unwrap(),
+                    1_001
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn approvals_and_cancellations_bind_occurrence_even_when_contents_match() {
+        for action in [1, 2] {
+            let (first, _) = fixture(action);
+            let other_id = "82".repeat(32).parse().unwrap();
+            let changed_action = if action == 1 {
+                NativeMultisigAction::Approve {
+                    proposal_id: other_id,
+                    instructions_hash: first.instructions_hash(),
+                }
+            } else {
+                NativeMultisigAction::Cancel {
+                    proposal_nonce: nonce(),
+                    target_proposal_id: other_id,
+                    instructions_hash: first.instructions_hash(),
+                }
+            };
+            let second = NativeMultisigIntent::new(
+                first.context.clone(),
+                changed_action,
+                first.instructions.clone(),
+            )
+            .unwrap();
+            let (_, response) = draft(&first, false);
+            assert!(
+                second
+                    .inspect_prepare(
+                        second.request_bytes(),
+                        &norito::json::to_vec(&response).unwrap(),
+                        1_001
+                    )
+                    .is_err()
+            );
+            assert_ne!(first.request_bytes(), second.request_bytes());
+            if action == 2 {
+                assert_ne!(
+                    first.participation_instructions_hash(),
+                    second.participation_instructions_hash()
+                );
+                // Same cancellation nonce reserves one occurrence even if its target is changed.
+                assert_eq!(first.proposal_id(), second.proposal_id());
+            }
+        }
     }
 }

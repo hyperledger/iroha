@@ -13835,7 +13835,7 @@ pub struct StateTransaction<'block, 'state> {
     /// Active multisig proposals whose deferred instructions are executing in this transaction.
     pub(crate) multisig_deferred_execution_stack: Vec<(
         AccountId,
-        HashOf<Vec<iroha_data_model::isi::InstructionBox>>,
+        iroha_executor_data_model::isi::multisig::MultisigProposalId,
     )>,
     /// Implicit accounts created so far within this transaction.
     pub implicit_account_creations_in_tx: u32,

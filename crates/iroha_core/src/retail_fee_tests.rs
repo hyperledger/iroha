@@ -855,8 +855,17 @@ fn deferred_marker_is_consumed_once_and_preserves_atomic_free_and_paid_payments(
                 marker.clone().execute(&owner, stx).is_err(),
                 "not inside authenticated deferred execution"
             );
-            stx.multisig_deferred_execution_stack
-                .push((owner.clone(), HashOf::new(&instructions)));
+            stx.multisig_deferred_execution_stack.push((
+                owner.clone(),
+                iroha_executor_data_model::isi::multisig::MultisigProposalId::derive(
+                    &stx.network_id,
+                    &owner,
+                    &iroha_executor_data_model::isi::multisig::MultisigProposalNonce::new(
+                        [0x61; 32],
+                    )
+                    .unwrap(),
+                ),
+            ));
             admit_deferred(&[], stx).unwrap();
             stx.world.retail_fee_source_transaction_hash = Some(*Hash::new([used as u8]).as_ref());
             pay(stx, &req);

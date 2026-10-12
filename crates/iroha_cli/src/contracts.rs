@@ -3224,7 +3224,8 @@ seiyaku DebugResult { permission Admin;
             Some(overlay.instruction_count() as u64)
         );
         let expected_queue_json =
-            norito::json::to_value(&overlay.instruction_slice().to_vec()).expect("serialize queue");
+            norito::json::to_value(&overlay.instructions().collect::<Vec<_>>())
+                .expect("serialize queue");
         assert_eq!(
             output.get("queued_instructions"),
             Some(&expected_queue_json)

@@ -656,9 +656,8 @@ export function encodeContractArgumentRecord(argumentSchema, payload, networkPre
 }
 
 /**
- * Compute the canonical proposal identity for an authorized instruction batch
- * (`HashOf::new(&Vec<InstructionBox>)`). This is the value Torii exposes as
- * both `instructions_hash` and `proposal_id` for multisig proposals.
+ * Compute the canonical content commitment for an authorized instruction batch
+ * (`HashOf::new(&Vec<InstructionBox>)`). This is Torii’s `instructions_hash`; proposal occurrence identity is separate.
  * @param {Array<object | string>} instructions
  * @param {number} networkPrefix Canonical I105 network prefix.
  * @param {{ encoding?: BufferEncoding }} [options]

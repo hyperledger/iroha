@@ -431,10 +431,7 @@ export interface MultisigProposalsQueryRequest extends MultisigAccountSelector {
 }
 
 export interface MultisigProposalsResolveRequest extends MultisigAccountSelector {
-  proposalId?: string | null;
-  instructionsHash?: string | null;
-  proposal_id?: string | null;
-  instructions_hash?: string | null;
+  proposalId: string;
 }
 
 export type MultisigProposeInstructionInput =
@@ -453,6 +450,11 @@ export interface LocalTransactionDraftIntent {
   metadataB64: string;
 }
 
+/** Caller-owned native commitment to the contract proposal's exact inner instructions. */
+export interface MultisigContractCallDraftIntent extends LocalTransactionDraftIntent {
+  instructionsHash: string;
+}
+
 /** Caller-trusted resolved contract and payload evidence for one unsigned call. */
 export interface ContractCallDraftIntent extends LocalTransactionDraftIntent {
   contractAddress: string;
@@ -462,6 +464,7 @@ export interface ContractCallDraftIntent extends LocalTransactionDraftIntent {
 
 export interface MultisigProposeRequest extends MultisigAccountSelector {
   signerAccountId: string;
+  proposalNonce: string;
   instructions: MultisigProposeInstructionInput[];
   feePayment: NoritoFeePaymentIntent;
   publicKeyHex?: string | null;
@@ -484,6 +487,7 @@ export interface MultisigProposePayload {
   multisig_account_id?: string;
   multisig_account_alias?: string;
   signer_account_id: string;
+  proposal_nonce: string;
   instructions: string[];
   fee_payment: NoritoFeePaymentIntent;
   public_key_hex?: string;
@@ -496,6 +500,7 @@ export interface MultisigProposePayload {
 export interface MultisigContractCallProposeRequest
   extends MultisigAccountSelector {
   signerAccountId: string;
+  proposalNonce: string;
   contractAddress?: never;
   contractAlias: string;
   entrypoint: string;
@@ -504,8 +509,8 @@ export interface MultisigContractCallProposeRequest
   publicKeyHex?: string | null;
   signatureB64?: string | null;
   creationTimeMs?: number | string | bigint | null;
-  draftIntent?: LocalTransactionDraftIntent;
-  draft_intent?: LocalTransactionDraftIntent;
+  draftIntent?: MultisigContractCallDraftIntent;
+  draft_intent?: MultisigContractCallDraftIntent;
   multisig_account_id?: string;
   multisig_account_alias?: string;
   signer_account_id?: string;
@@ -521,6 +526,7 @@ export interface MultisigContractCallProposePayload {
   multisig_account_id?: string;
   multisig_account_alias?: string;
   signer_account_id: string;
+  proposal_nonce: string;
   contract_address?: never;
   contract_alias: string;
   entrypoint: string;
@@ -534,8 +540,8 @@ export interface MultisigContractCallProposePayload {
 export interface MultisigContractCallApproveRequest
   extends MultisigAccountSelector {
   signerAccountId: string;
-  proposalId?: string | null;
-  instructionsHash?: string | null;
+  proposalId: string;
+  instructionsHash: string;
   feePayment: NoritoFeePaymentIntent;
   publicKeyHex?: string | null;
   signatureB64?: string | null;
@@ -561,8 +567,8 @@ export interface MultisigContractCallApprovePayload {
   multisig_account_id?: string;
   multisig_account_alias?: string;
   signer_account_id: string;
-  proposal_id?: string;
-  instructions_hash?: string;
+  proposal_id: string;
+  instructions_hash: string;
   fee_payment: NoritoFeePaymentIntent;
   public_key_hex?: string;
   signature_b64?: string;
@@ -577,8 +583,8 @@ export interface MultisigContractCallResponse {
   ok: boolean;
   resolved_multisig_account_id: string;
   submitted: boolean;
-  proposal_id: string | null;
-  instructions_hash: string | null;
+  proposal_id: string;
+  instructions_hash: string;
   tx_hash_hex: string | null;
   executed_tx_hash_hex: string | null;
   creation_time_ms: number | null;
@@ -3352,9 +3358,6 @@ type NoritoRuntimeNamespaceExport =
   | "noritoEncodeConfidentialMemoEnvelopeV1"
   | "noritoEncodeContractManifestSignaturePayload"
   | "noritoEncodeFeePaymentIntentArchive"
-  | "noritoEncodeMultisigContractCallApproveRequest"
-  | "noritoEncodeMultisigContractCallProposeRequest"
-  | "noritoEncodeMultisigProposeRequest"
   | "noritoEncodeSorafsBillingAcknowledgementProofV1"
   | "noritoEncodeOpenVerifyEnvelope"
   | "noritoEncodePrivacyExact12FixtureBundleV1"
@@ -11739,37 +11742,6 @@ export function validateNoritoFrame(
   bytes: ArrayBufferView | ArrayBuffer | Buffer,
   options?: NoritoFrameValidationOptions,
 ): ValidatedNoritoFrame;
-export interface MultisigProposeNoritoRequest {
-  multisig_account_id?: string | null;
-  multisigAccountId?: string | null;
-  multisig_account_alias?: string | null;
-  multisigAccountAlias?: string | null;
-  signer_account_id?: string;
-  signerAccountId?: string;
-  public_key_hex?: string | null;
-  publicKeyHex?: string | null;
-  signature_b64?: string | null;
-  signatureB64?: string | null;
-  creation_time_ms?: number | string | bigint | null;
-  creationTimeMs?: number | string | bigint | null;
-  fee_payment?: NoritoFeePaymentIntent;
-  feePayment?: NoritoFeePaymentIntent;
-  memo?: string | null;
-  validation_fee_assessment?: RetailFeeAssessmentV1 | null;
-  instructions: Array<object | string | ArrayBufferView | ArrayBuffer | Buffer>;
-}
-export function noritoEncodeMultisigProposeRequest(
-  request: MultisigProposeNoritoRequest,
-  networkPrefix: number,
-): Buffer;
-export function noritoEncodeMultisigContractCallProposeRequest(
-  request: MultisigContractCallProposeRequest,
-  networkPrefix: number,
-): Buffer;
-export function noritoEncodeMultisigContractCallApproveRequest(
-  request: MultisigContractCallApproveRequest,
-  networkPrefix: number,
-): Buffer;
 export function noritoDecodeInstruction(
   bytes: ArrayBufferView | ArrayBuffer | Buffer,
   networkPrefix: number,
@@ -13734,3 +13706,77 @@ export interface StakingPreparationV1 {
 export function encodeValidatorStakingPreparationFrameV1<K extends "PreparationRequest" | "Preparation">(name: K, value: ValidatorStakingValueMapV1[K]): Buffer;
 export function decodeValidatorStakingPreparationFrameV1<K extends "PreparationRequest" | "Preparation">(name: K, payload: Uint8Array): ValidatorStakingValueMapV1[K];
 export function validateValidatorStakingPreparationV1(prepared: StakingPreparationV1, request: StakingPreparationRequestV1, networkId: NetworkId, xorDefinition: string): StakingPreparationV1;
+
+/** Request-bound native syntax/key inspection; this result does not authorize signing. */
+export function inspectAccountViaNativeTransport(
+  input: { networkId: NetworkId; requestId: string; nonce: string; accountId: string; publicKeyHex: string },
+  transport: (request: Readonly<{ requestId: string; body: string }>) => Promise<unknown>,
+  contract: Readonly<{ responseSchema: string; inspectionSchema: string }>,
+): Promise<Readonly<{ schema: string; networkId: string; accountId: string; publicKeyHex: string;
+  scope: "canonical-syntax-and-key-binding-only" }>>;
+
+/** Service/session context independently admitted by the native authority. */
+export interface NativeMultisigTransportContext {
+  networkId: NetworkId; actorAccountId: string; actorPublicKeyHex: string; deviceId: string;
+  portalOrigin: string; operatorBaseUrl: string; toriiBaseUrl: string; physicalDataspaceId: string; laneId: number;
+}
+/** Closed application-owned semantic intent; the native service enforces its schema and authority. */
+export type NativeMultisigTransportIntent = Readonly<Record<string, unknown> & {action: "propose" | "approve" | "cancel"}>;
+export type NativeMultisigTransport = (request: Readonly<{stage: "request" | "prepare" | "signed" | "finality" | "proposal-finality"; requestId: string; body: string}>) => Promise<unknown>;
+export interface NativeMultisigTransportContract { requestSchema: string; prepareSchema: string; signedSchema: string; }
+/** Immutable admitted handle; constructing a lookalike does not admit it. */
+export interface NativeMultisigRequestOriginal {
+  readonly stage: "request"; readonly path: string; readonly requestBytesBase64: string;
+  readonly requestBytesSha256: string; readonly proposalId: string; readonly instructionsHash: string; readonly expiresAtMs: string;
+}
+/** Native payload and prehash; contains no private signing material. */
+export interface NativeMultisigPreparedOriginal {
+  readonly stage: "prepared"; readonly admissionId: string; readonly path: string;
+  readonly requestBytesSha256: string; readonly prepareBytesSha256: string;
+  readonly payloadBase64: string; readonly payloadSha256: string;
+  readonly signingMessageBase64: string; readonly signingMessageSha256: string;
+  readonly proposalId: string; readonly instructionsHash: string; readonly creationTimeMs: string;
+  readonly payloadExpiresAtMs: string; readonly expiresAtMs: string;
+  readonly feePayment: Readonly<Record<string, unknown>>;
+}
+/** Exact request and native transaction originals for submission and finality verification. */
+export interface NativeMultisigSignedOriginal {
+  readonly stage: "signed"; readonly admissionId: string; readonly path: string;
+  readonly submitBytesBase64: string; readonly submitBytesSha256: string;
+  readonly signedTransactionBytesBase64: string; readonly transactionHashHex: string; readonly expiresAtMs: string;
+}
+export function requestNativeMultisigViaTransport(
+  input: {requestId: string; nonce: string; actionId: string; context: NativeMultisigTransportContext; intent: NativeMultisigTransportIntent},
+  transport: NativeMultisigTransport, contract: NativeMultisigTransportContract,
+): Promise<NativeMultisigRequestOriginal>;
+export function inspectNativeMultisigPrepareViaTransport(
+  request: NativeMultisigRequestOriginal, input: {requestId: string; nonce: string; prepareBytes: Uint8Array},
+): Promise<NativeMultisigPreparedOriginal>;
+export function inspectNativeMultisigSignedViaTransport(
+  prepared: NativeMultisigPreparedOriginal, input: {requestId: string; nonce: string; signature: Uint8Array},
+): Promise<NativeMultisigSignedOriginal>;
+/** Native-rooted execution result; participation commitment alone is not business execution. */
+export interface NativeMultisigFinality {
+  readonly stage: "finality"; readonly admissionId: string; readonly participationCommitted: boolean;
+  readonly businessExecuted: boolean; readonly cancellationCommitted: boolean; readonly subjectCanceled: boolean; readonly transactionHashHex: string;
+  readonly executedTransactionHashHex: string | null; readonly blockHeight: string | null; readonly blockHash: string | null;
+}
+export function queryNativeMultisigFinalityViaTransport(
+  input: {requestId: string; nonce: string; actionId: string; context: NativeMultisigTransportContext; admissionId: string;
+    intent: NativeMultisigTransportIntent; transactionHashHex: string},
+  transport: NativeMultisigTransport, contract: {finalitySchema: string},
+): Promise<NativeMultisigFinality>;
+
+/** Native-rooted effect of a complete reviewed proposal, independent of local participation. */
+export interface NativeMultisigProposalFinality {
+  readonly stage: "proposal-finality"; readonly businessExecuted: boolean; readonly cancellationCommitted: boolean; readonly subjectCanceled: boolean;
+  readonly executedTransactionHashHex: string | null; readonly blockHeight: string | null; readonly blockHash: string | null;
+}
+export function queryNativeMultisigProposalFinalityViaTransport(
+  input: {requestId: string; nonce: string; lookupId: string; context: NativeMultisigTransportContext;
+    intent: {multisigAccountId: string; proposalId: string; instructionsHash: string; operation: Readonly<Record<string, unknown>>; targetProposalId: string | null; targetInstructionsHash: string | null}},
+  transport: NativeMultisigTransport, contract: {proposalFinalitySchema: string},
+): Promise<NativeMultisigProposalFinality>;
+
+/** Native-only occurrence derivation; content commitment is independent. */
+export function deriveMultisigProposalId(networkId: NetworkId, accountId: string, proposalNonce: string): string;

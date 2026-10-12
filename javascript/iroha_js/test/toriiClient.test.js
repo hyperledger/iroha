@@ -71,9 +71,11 @@ import {
 import {
   buildMultisigContractCallProposeRequest,
   buildMultisigProposeRequest,
+  deriveMultisigProposalId,
+  hashInstructionBatch,
+  retailFeeAssessmentMarkerMessage,
   canonicalRequestSignatureMessage,
   NetworkId,
-  noritoEncodeMultisigContractCallProposeRequest,
   normalizeAccountId,
   signEd25519,
   verifyEd25519,
@@ -113,7 +115,6 @@ import {
   registerToriiClientDistributionMemoryTests,
 } from "./toriiClientMemoryBoundsTests.js";
 import {
-  assertFlattenedAliasSelector,
   cloneFixture,
   createSseResponse,
   fileExists,
@@ -370,57 +371,6 @@ function assertContractCallPayloadJson(body, expected, label) {
   assert.deepEqual(JSON.parse(jsonString.payload.toString("utf8")), expected);
 }
 
-function assertMultisigProposeInstructionWireId(body, expectedWireId, label) {
-  const { flags, payload } = noritoFramePayload(body, label);
-  const compactLength = (flags & 0x02) !== 0;
-  let offset = 0;
-  for (const fieldName of [
-    "multisig_account_id",
-    "multisig_account_alias",
-    "signer_account_id",
-    "public_key_hex",
-    "signature_b64",
-    "creation_time_ms",
-    "fee_payment",
-    "memo",
-    "validation_fee_assessment",
-  ]) {
-    offset = readNoritoFieldPayload(
-      payload,
-      offset,
-      `${label}.${fieldName}`,
-      compactLength,
-    ).offset;
-  }
-  const instructions = readNoritoFieldPayload(
-    payload,
-    offset,
-    `${label}.instructions`,
-    compactLength,
-  );
-  const count = readU64Length(instructions.payload, 0, `${label}.instructions.count`);
-  assert.equal(count.length, 1);
-  const first = readNoritoFieldPayload(
-    instructions.payload,
-    count.bytes,
-    `${label}.instructions[0]`,
-    compactLength,
-  );
-  assert.equal(first.offset, instructions.payload.length);
-  const wireId = readNoritoFieldPayload(
-    first.payload,
-    0,
-    `${label}.instructions[0].wire_id`,
-    compactLength,
-  );
-  const wireIdString = readNoritoFieldPayload(
-    wireId.payload,
-    0,
-    `${label}.instructions[0].wire_id.value`,
-    compactLength,
-  );
-  assert.equal(wireIdString.payload.toString("utf8"), expectedWireId);
-}
 
 function sampleAccountForms() {
   const publicKeyHex = SAMPLE_ACCOUNT_SIGNATORY.slice(6);
@@ -16868,7 +16818,7 @@ test("callContract rejects unsupported option fields", async () => {
   );
 });
 
-test("proposeMultisig posts the native Norito request DTO", async () => {
+test("proposeMultisig posts strict JSON with independent native occurrence and content bindings", async () => {
   let captured;
   const instruction = { Custom: { payload: { probe: true } } };
   const draft = multisigDraftForBindings({ creationTimeMs: 123456 });
@@ -16876,8 +16826,9 @@ test("proposeMultisig posts the native Norito request DTO", async () => {
     ...draft,
     ok: true,
     resolved_multisig_account_id: FIXTURE_ALICE_ID,
-    proposal_id: "a".repeat(64),
-    instructions_hash: "a".repeat(64),
+    proposal_id: deriveMultisigProposalId(VK_SIGNING_NETWORK_ID, FIXTURE_ALICE_ID, "12".repeat(32)),
+    instructions_hash: hashInstructionBatch([instruction,
+      {Log: {level: "TRACE", msg: retailFeeAssessmentMarkerMessage(retailAssessmentFixture())}}], 753),
     tx_hash_hex: null,
     executed_tx_hash_hex: null,
     creation_time_ms: 123456,
@@ -16896,7 +16847,8 @@ test("proposeMultisig posts the native Norito request DTO", async () => {
     localSigningContext: new LocalSigningContext(VK_SIGNING_NETWORK_ID, 753),
   });
   const result = await client.proposeMultisig({
-    multisigAccountAlias: "cbdc@banka",
+    multisigAccountId: FIXTURE_ALICE_ID,
+    proposalNonce: "12".repeat(32),
     signerAccountId: FIXTURE_ALICE_ID,
     instructions: [instruction],
     feePayment: authorityFeePayment(),
@@ -16905,27 +16857,24 @@ test("proposeMultisig posts the native Norito request DTO", async () => {
     draftIntent: draftIntentForDraft(draft),
   });
   assert.equal(captured.url, `${BASE_URL}/v1/multisig/propose`);
-  assert.equal(captured.init.headers["Content-Type"], "application/x-norito");
-  const body = Buffer.from(captured.init.body);
-  assert.equal(body.subarray(0, 4).toString("ascii"), "NRT0");
-  assertFlattenedAliasSelector(body, "cbdc@banka", "MultisigProposeDtoV1");
-  assertMultisigProposeInstructionWireId(
-    body,
-    "iroha.custom",
-    "MultisigProposeDtoV1",
-  );
+  assert.equal(captured.init.headers["Content-Type"], "application/json");
+  const body = JSON.parse(captured.init.body);
+  assert.equal(body.proposal_nonce, "12".repeat(32));
+  assert.deepEqual(body.instructions, [instruction]);
   assert.deepEqual(result, responsePayload);
 
   assert.deepEqual(
     buildMultisigProposeRequest({
-      multisigAccountAlias: "cbdc@banka",
+      multisigAccountId: FIXTURE_ALICE_ID,
+    proposalNonce: "12".repeat(32),
       signerAccountId: FIXTURE_ALICE_ID,
       instructions: [instruction],
       feePayment: authorityFeePayment(),
       validation_fee_assessment: retailAssessmentFixture(),
     }),
     {
-      multisig_account_alias: "cbdc@banka",
+      multisig_account_id: FIXTURE_ALICE_ID,
+      proposal_nonce: "12".repeat(32),
       signer_account_id: FIXTURE_ALICE_ID,
       instructions: [instruction],
       fee_payment: authorityFeePayment(),
@@ -16938,7 +16887,8 @@ test("proposeMultisig binds every unsigned payload to local caller intent", asyn
   const trustedDraft = multisigDraftForBindings();
   const trustedIntent = draftIntentForDraft(trustedDraft);
   const request = {
-    multisigAccountAlias: "cbdc@banka",
+    multisigAccountId: FIXTURE_ALICE_ID,
+    proposalNonce: "12".repeat(32),
     signerAccountId: FIXTURE_ALICE_ID,
     instructions: [{ Custom: { payload: { probe: true } } }],
     feePayment: authorityFeePayment(),
@@ -16947,8 +16897,8 @@ test("proposeMultisig binds every unsigned payload to local caller intent", asyn
     ...draft,
     ok: true,
     resolved_multisig_account_id: FIXTURE_ALICE_ID,
-    proposal_id: "a".repeat(64),
-    instructions_hash: "a".repeat(64),
+    proposal_id: deriveMultisigProposalId(VK_SIGNING_NETWORK_ID, FIXTURE_ALICE_ID, "12".repeat(32)),
+    instructions_hash: hashInstructionBatch([{Custom: {payload: {probe: true}}}], 753),
     tx_hash_hex: null,
     executed_tx_hash_hex: null,
     creation_time_ms: 42,
@@ -16984,7 +16934,7 @@ test("proposeMultisig binds every unsigned payload to local caller intent", asyn
       trustedDraft,
       NetworkId.fromBytes(otherNetworkBytes),
     ).proposeMultisig({ ...request, draftIntent: trustedIntent }),
-    /changed caller-trusted networkId/,
+    /changed proposal occurrence identity/,
   );
 
   const alternateExecutable = Buffer.from(trustedIntent.executableB64, "base64");
@@ -17022,58 +16972,23 @@ test("proposeMultisig binds every unsigned payload to local caller intent", asyn
   );
 });
 
-test("native multisig contract-call DTO flattens selector fields", () => {
-  const payload = { amount: 111 };
-  const body = noritoEncodeMultisigContractCallProposeRequest({
-    multisigAccountAlias: "cbdc@banka",
-    signerAccountId: FIXTURE_ALICE_ID,
-    contractAlias: "apps_mint_request::sbp",
-    entrypoint: "create_mint_request",
-    payload,
-    feePayment: authorityFeePayment(10_000),
-    creationTimeMs: 123456,
-  }, 753);
-
-  assertFlattenedAliasSelector(
-    body,
-    "cbdc@banka",
-    "MultisigContractCallProposeDto",
-  );
-  assertContractCallPayloadJson(body, payload, "MultisigContractCallProposeDto");
-});
-
-test("native multisig contract-call DTO encodes concrete multisig IDs canonically", () => {
-  const body = noritoEncodeMultisigContractCallProposeRequest({
-    multisigAccountId: fixtureMultisigAccountId(),
-    signerAccountId: FIXTURE_ALICE_ID,
-    contractAlias: "apps_mint_request::sbp",
-    entrypoint: "create_mint_request",
-    payload: { amount: 111 },
-    feePayment: authorityFeePayment(10_000),
-    creationTimeMs: 123456,
-  }, 753);
-
-  assertConcreteMultisigAccountUsesNativeLengths(
-    body,
-    "MultisigContractCallProposeDto",
-  );
-});
-
 test("proposeMultisig rejects adversarial request shapes before fetch", async () => {
   const client = new ToriiClient(BASE_URL, {
+    localSigningContext: new LocalSigningContext(VK_SIGNING_NETWORK_ID, 753),
     fetchImpl: async () => {
       throw new Error("fetch should not be invoked");
     },
   });
   const request = {
-    multisigAccountAlias: "cbdc@banka",
+    multisigAccountId: FIXTURE_ALICE_ID,
+    proposalNonce: "12".repeat(32),
     signerAccountId: FIXTURE_ALICE_ID,
     instructions: [{ Custom: { payload: { probe: true } } }],
     feePayment: authorityFeePayment(),
   };
 
   await assert.rejects(
-    () => client.proposeMultisig({ ...request, multisigAccountId: FIXTURE_ALICE_ID }),
+    () => client.proposeMultisig({ ...request, multisigAccountAlias: "cbdc@banka" }),
     /requires exactly one/,
   );
   await assert.rejects(
@@ -17128,7 +17043,7 @@ test("proposeMultisig rejects adversarial request shapes before fetch", async ()
   }
   await assert.rejects(
     () => client.proposeMultisig({ ...request, instructions: [Buffer.from("NRT0")] }),
-    { message: "failed to fill whole buffer" },
+    /unsupported instruction/,
   );
   await assert.rejects(
     () => client.proposeMultisig(request, { retry: true }),
@@ -17144,7 +17059,8 @@ test("proposeMultisig rejects adversarial request shapes before fetch", async ()
 test("proposeMultisig rejects malformed success responses", async () => {
   const bindingDraft = multisigDraftForBindings();
   const request = {
-    multisigAccountAlias: "cbdc@banka",
+    multisigAccountId: FIXTURE_ALICE_ID,
+    proposalNonce: "12".repeat(32),
     signerAccountId: FIXTURE_ALICE_ID,
     instructions: [{ Custom: { payload: { probe: true } } }],
     feePayment: authorityFeePayment(),
@@ -17163,6 +17079,8 @@ test("proposeMultisig rejects malformed success responses", async () => {
     });
   const validDraft = {
     ...bindingDraft,
+    proposal_id: deriveMultisigProposalId(VK_SIGNING_NETWORK_ID, FIXTURE_ALICE_ID, "12".repeat(32)),
+    instructions_hash: hashInstructionBatch(request.instructions, 753),
     ok: true,
     resolved_multisig_account_id: FIXTURE_ALICE_ID,
     creation_time_ms: 42,
@@ -17262,6 +17180,7 @@ test("multisig response decoders reject non-exact resolved account ids", async (
   const paddedAccountId = `${FIXTURE_ALICE_ID} `;
   const clientWithResponse = (jsonData) =>
     new ToriiClient(BASE_URL, {
+      localSigningContext: new LocalSigningContext(VK_SIGNING_NETWORK_ID, 753),
       fetchImpl: async () =>
         createResponse({
           status: 200,
@@ -17269,7 +17188,7 @@ test("multisig response decoders reject non-exact resolved account ids", async (
           headers: { "content-type": "application/json" },
         }),
     });
-  const selector = { multisigAccountAlias: "cbdc@banka" };
+  const selector = { multisigAccountId: FIXTURE_ALICE_ID };
   const proposalId = "f".repeat(64);
   const pattern = /resolved_multisig_account_id must not contain surrounding whitespace/;
 
@@ -17280,6 +17199,7 @@ test("multisig response decoders reject non-exact resolved account ids", async (
         resolved_multisig_account_id: paddedAccountId,
       }).proposeMultisig({
         ...selector,
+        proposalNonce: "12".repeat(32),
         signerAccountId: FIXTURE_ALICE_ID,
         instructions: [{ Custom: { payload: { probe: true } } }],
         feePayment: authorityFeePayment(),
@@ -17311,14 +17231,14 @@ test("multisig response decoders reject non-exact resolved account ids", async (
         instructions_hash: proposalId,
         proposal: { approvals: [] },
       }).resolveMultisigProposal(
-        { ...selector, instructionsHash: proposalId },
+        { ...selector, proposalId },
         canonicalReadOptions(),
       ),
     pattern,
   );
 });
 
-test("proposeMultisigContractCall posts alias selector and normalizes response", async () => {
+test("proposeMultisigContractCall posts a caller-resolved selector and binds native occurrence", async () => {
   let captured;
   const draft = multisigDraftForBindings({
     feePayment: authorityFeePayment(5),
@@ -17328,8 +17248,8 @@ test("proposeMultisigContractCall posts alias selector and normalizes response",
     ...draft,
     ok: true,
     resolved_multisig_account_id: FIXTURE_ALICE_ID,
-    proposal_id: "a".repeat(64),
-    instructions_hash: "a".repeat(64),
+    proposal_id: deriveMultisigProposalId(VK_SIGNING_NETWORK_ID, FIXTURE_ALICE_ID, "12".repeat(32)),
+    instructions_hash: hashInstructionBatch([{Custom: {payload: {probe: true}}}], 753),
     creation_time_ms: 123456,
     fee_payment: authorityFeePayment(5),
   };
@@ -17346,18 +17266,20 @@ test("proposeMultisigContractCall posts alias selector and normalizes response",
     localSigningContext: new LocalSigningContext(VK_SIGNING_NETWORK_ID, 753),
   });
   const result = await client.proposeMultisigContractCall({
-    multisigAccountAlias: "cbdc@banka",
+    multisigAccountId: FIXTURE_ALICE_ID,
+    proposalNonce: "12".repeat(32),
     signerAccountId: FIXTURE_ALICE_ID,
     contractAlias: "apps_review::universal",
     entrypoint: "execute",
     payload: { amount: "10" },
     feePayment: authorityFeePayment(5),
-    draftIntent: draftIntentForDraft(draft),
+    draftIntent: {...draftIntentForDraft(draft), instructionsHash: responsePayload.instructions_hash},
   });
   assert.equal(captured.url, `${BASE_URL}/v1/contracts/call/multisig/propose`);
   const body = JSON.parse(captured.init.body);
   assert.deepEqual(body, {
-    multisig_account_alias: "cbdc@banka",
+    multisig_account_id: FIXTURE_ALICE_ID,
+      proposal_nonce: "12".repeat(32),
     signer_account_id: FIXTURE_ALICE_ID,
     contract_alias: "apps_review::universal",
     entrypoint: "execute",
@@ -17369,6 +17291,20 @@ test("proposeMultisigContractCall posts alias selector and normalizes response",
     tx_hash_hex: null,
     executed_tx_hash_hex: null,
   });
+  const reviewed = {...draftIntentForDraft(draft), instructionsHash: responsePayload.instructions_hash};
+  const request = {
+    multisigAccountId: FIXTURE_ALICE_ID,
+    proposalNonce: "12".repeat(32),
+    signerAccountId: FIXTURE_ALICE_ID,
+    contractAlias: "apps_review::universal",
+    entrypoint: "execute",
+    payload: {amount: "10"},
+    feePayment: authorityFeePayment(5),
+    draftIntent: reviewed,
+  };
+  await assert.rejects(() => client.proposeMultisigContractCall({...request, draftIntent: draftIntentForDraft(draft)}), /instructionsHash/);
+  responsePayload.instructions_hash = "ab".repeat(32);
+  await assert.rejects(() => client.proposeMultisigContractCall(request), /changed the native instruction commitment/);
 });
 
 test("contract-call propose client rejects an unapprovable target", async () => {
@@ -17376,7 +17312,8 @@ test("contract-call propose client rejects an unapprovable target", async () => 
     fetchImpl: async () => { throw new Error("unexpected fetch"); },
   });
   const request = {
-    multisigAccountAlias: "treasury@west.test",
+    multisigAccountId: FIXTURE_ALICE_ID,
+    proposalNonce: "12".repeat(32),
     signerAccountId: FIXTURE_ALICE_ID,
     contractAlias: "apps_review::universal",
     entrypoint: "execute",
@@ -17416,7 +17353,7 @@ test("approveMultisigContractCall posts concrete selector and normalizes respons
     resolved_multisig_account_id: FIXTURE_ALICE_ID,
     submitted: true,
     proposal_id: "b".repeat(64),
-    instructions_hash: "b".repeat(64),
+    instructions_hash: "d".repeat(64),
     tx_hash_hex: "d".repeat(64),
     executed_tx_hash_hex: "d".repeat(64),
     fee_payment: authorityFeePayment(),
@@ -17434,6 +17371,7 @@ test("approveMultisigContractCall posts concrete selector and normalizes respons
     multisigAccountId: FIXTURE_ALICE_ID,
     signerAccountId: FIXTURE_BOB_ID,
     proposalId: "b".repeat(64),
+    instructionsHash: "d".repeat(64),
     signatureB64: "AQ==",
     contract_alias: "apps_mint_request::sbp",
     entrypoint: "create_mint_request",
@@ -17446,6 +17384,7 @@ test("approveMultisigContractCall posts concrete selector and normalizes respons
     multisig_account_id: FIXTURE_ALICE_ID,
     signer_account_id: FIXTURE_BOB_ID,
     proposal_id: "b".repeat(64),
+    instructions_hash: "d".repeat(64),
     signature_b64: "AQ==",
     contract_alias: "apps_mint_request::sbp",
     entrypoint: "create_mint_request",
@@ -17467,7 +17406,7 @@ test("approveMultisigContractCall rejects unmarked transaction hashes", async ()
       resolved_multisig_account_id: FIXTURE_ALICE_ID,
       submitted: true,
       proposal_id: "b".repeat(64),
-      instructions_hash: "b".repeat(64),
+      instructions_hash: "d".repeat(64),
       tx_hash_hex: "d".repeat(64),
       executed_tx_hash_hex: "d".repeat(64),
       fee_payment: authorityFeePayment(),
@@ -17485,6 +17424,7 @@ test("approveMultisigContractCall rejects unmarked transaction hashes", async ()
         multisigAccountId: FIXTURE_ALICE_ID,
         signerAccountId: FIXTURE_BOB_ID,
         proposalId: "b".repeat(64),
+    instructionsHash: "d".repeat(64),
         signatureB64: "AQ==",
         contract_alias: "apps_mint_request::sbp",
         entrypoint: "create_mint_request",
@@ -17588,6 +17528,19 @@ test("TypeScript declarations expose only first-release multisig proposal names"
   }
 });
 
+test("multisig read selectors reject another exact account and duplicated occurrence IDs", async () => {
+  const entry = {proposal_id: "ab".repeat(32), instructions_hash: "cd".repeat(32), operation_type: "MINT",
+    intent: null, proposal: {}, status: "COLLECTING_SIGNATURES", terminal_at_ms: null};
+  let payload = {resolved_multisig_account_id: FIXTURE_BOB_ID, spec: {quorum: 2}, proposals: [entry], next_cursor: null};
+  const client = new ToriiClient(BASE_URL, {fetchImpl: async () => createResponse({status: 200,
+    jsonData: payload, headers: {"content-type": "application/json"}})});
+  const request = {multisigAccountId: FIXTURE_ALICE_ID};
+  await assert.rejects(() => client.getMultisigSpec(request, canonicalReadOptions()), /changed selected account/);
+  await assert.rejects(() => client.queryMultisigProposals(request, canonicalReadOptions()), /changed selected account/);
+  payload = {...payload, resolved_multisig_account_id: FIXTURE_ALICE_ID, proposals: [entry, entry]};
+  await assert.rejects(() => client.queryMultisigProposals(request, canonicalReadOptions()), /repeats an occurrence ID/);
+});
+
 test("queryMultisigProposals decodes proposal entries", async () => {
   let captured;
   const responsePayload = {
@@ -17641,7 +17594,7 @@ test("queryMultisigProposals decodes proposal entries", async () => {
   assert.deepEqual(result, responsePayload);
 });
 
-test("resolveMultisigProposal resolves by instructions hash", async () => {
+test("resolveMultisigProposal resolves by exact occurrence ID", async () => {
   let captured;
   const responsePayload = {
     resolved_multisig_account_id: FIXTURE_ALICE_ID,
@@ -17668,7 +17621,7 @@ test("resolveMultisigProposal resolves by instructions hash", async () => {
   const result = await client.resolveMultisigProposal(
     {
       multisigAccountAlias: "cbdc@banka",
-      instructionsHash: "e".repeat(64),
+      proposalId: "e".repeat(64),
     },
     canonicalReadOptions(),
   );
@@ -17676,7 +17629,7 @@ test("resolveMultisigProposal resolves by instructions hash", async () => {
   assert.notEqual(captured.url, `${BASE_URL}/v1/multisig/proposals/get`);
   assert.deepEqual(JSON.parse(captured.init.body), {
     multisig_account_alias: "cbdc@banka",
-    instructions_hash: "e".repeat(64),
+    proposal_id: "e".repeat(64),
   });
   assert.deepEqual(result, responsePayload);
 });
@@ -17719,7 +17672,7 @@ test("queryMultisigProposals rejects unsupported request and response statuses",
         },
         canonicalReadOptions(),
       ),
-    /requires exactly one/,
+    /requires occurrence ID only/,
   );
 
   const invalidResponseClient = new ToriiClient(BASE_URL, {

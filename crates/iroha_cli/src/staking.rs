@@ -586,6 +586,7 @@ mod tests {
     use eyre::Result;
     use iroha_crypto::{Algorithm, KeyPair};
     use iroha_i18n::Language;
+    use iroha_primitives::numeric::Quantity;
     use iroha_test_samples::{ALICE_ID, BOB_ID};
     use norito::json::JsonSerialize;
     use std::fmt::Display;

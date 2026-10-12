@@ -44,6 +44,16 @@ const DOMAIN_REGISTRATION_RECOVERY_POLL: Duration = Duration::from_millis(250);
 const ACCOUNT_VISIBILITY_TIMEOUT: Duration = Duration::from_secs(30);
 const ACCOUNT_VISIBILITY_POLL: Duration = Duration::from_millis(100);
 const CANONICAL_EXECUTOR: &[u8] = include_bytes!("../../defaults/executor.to");
+fn proposal_nonce(seed: u8) -> MultisigProposalNonce {
+    MultisigProposalNonce::new([seed; 32]).expect("nonzero fixture nonce")
+}
+fn occurrence(
+    client: &Client,
+    account: &AccountId,
+    nonce: MultisigProposalNonce,
+) -> MultisigProposalId {
+    MultisigProposalId::derive(client.client().network_id(), account, &nonce)
+}
 fn start_network(
     builder: NetworkBuilder,
     context: &'static str,
@@ -288,8 +298,7 @@ fn wait_for_multisig_proposal_status(
             &endpoint,
             &MultisigProposalsResolveRequestDto {
                 selector: selector.clone(),
-                proposal_id: Some(proposal_id.to_owned()),
-                instructions_hash: None,
+                proposal_id: proposal_id.parse()?,
             },
         ) {
             Ok(payload) => {
@@ -320,62 +329,6 @@ fn wait_for_multisig_proposal_status(
     } else {
         Err(eyre!(
             "timed out waiting for multisig proposal `{proposal_id}` status `{expected_status}`"
-        ))
-    }
-}
-fn wait_for_multisig_cancel_action(
-    rt: &Runtime,
-    torii_base: &str,
-    selector: &MultisigAccountSelectorDto,
-    signer_account_id: &AccountId,
-    proposal_id: &str,
-    expected_action: &str,
-) -> Result<JsonValue> {
-    let endpoint = format!("{torii_base}/v1/multisig/cancel");
-    let deadline = Instant::now() + Duration::from_secs(30);
-    let mut last_action = None;
-    let mut last_error = None;
-    while Instant::now() < deadline {
-        match post_torii_app_json(
-            rt,
-            &endpoint,
-            &MultisigCancelRequestDto {
-                selector: selector.clone(),
-                signer_account_id: signer_account_id.clone(),
-                public_key_hex: None,
-                signature_b64: None,
-                creation_time_ms: None,
-                fee_payment: FeePaymentIntent::authority(Vec::new(), None),
-                proposal_id: Some(proposal_id.to_owned()),
-                instructions_hash: None,
-            },
-        ) {
-            Ok(payload) => {
-                let action = payload
-                    .get("action")
-                    .and_then(JsonValue::as_str)
-                    .map(ToOwned::to_owned);
-                if action.as_deref() == Some(expected_action) {
-                    return Ok(payload);
-                }
-                last_action = action;
-                last_error = None;
-            }
-            Err(err) => last_error = Some(err),
-        }
-        std::thread::sleep(Duration::from_millis(250));
-    }
-    if let Some(action) = last_action {
-        Err(eyre!(
-            "timed out waiting for multisig cancel action `{expected_action}`; last action `{action}`"
-        ))
-    } else if let Some(err) = last_error {
-        Err(err).wrap_err_with(|| {
-            format!("timed out waiting for multisig cancel action `{expected_action}`")
-        })
-    } else {
-        Err(eyre!(
-            "timed out waiting for multisig cancel action `{expected_action}`"
         ))
     }
 }
@@ -516,19 +469,8 @@ fn multisig_expires() -> Result<()> {
     multisig_base(TestSuite::expires(), stringify!(multisig_expires))
 }
 #[test]
-fn multisig_recursion_normal() -> Result<()> {
-    multisig_recursion_base(TestSuite::normal(), stringify!(multisig_recursion_normal))
-}
-#[test]
-fn multisig_recursion_unauthorized() -> Result<()> {
-    multisig_recursion_base(
-        TestSuite::unauthorized(),
-        stringify!(multisig_recursion_unauthorized),
-    )
-}
-#[test]
-fn multisig_recursion_expires() -> Result<()> {
-    multisig_recursion_base(TestSuite::expires(), stringify!(multisig_recursion_expires))
+fn nested_multisig_registration_is_rejected() -> Result<()> {
+    multisig_recursion_base(stringify!(nested_multisig_registration_is_rejected))
 }
 #[test]
 fn multisig_cancel_route_persists_canceled_terminal_state() -> Result<()> {
@@ -568,9 +510,16 @@ fn multisig_cancel_route_persists_canceled_terminal_state() -> Result<()> {
         .into(),
     ];
     let instructions_hash = HashOf::new(&instructions).to_string();
+    let target_id = occurrence(&test_client, &multisig_account_id, proposal_nonce(1));
     test_client
         .submit::<InstructionBox>(
-            MultisigPropose::new(multisig_account_id.clone(), instructions, None).into(),
+            MultisigPropose::new(
+                multisig_account_id.clone(),
+                proposal_nonce(1),
+                instructions,
+                None,
+            )
+            .into(),
             FeePaymentIntent::authority(Vec::new(), None),
         )
         .wrap_err("submit tarlookup multisig proposal")?;
@@ -594,19 +543,16 @@ fn multisig_cancel_route_persists_canceled_terminal_state() -> Result<()> {
             signature_b64: None,
             creation_time_ms: None,
             fee_payment: FeePaymentIntent::authority(Vec::new(), None),
-            proposal_id: Some(instructions_hash.clone()),
-            instructions_hash: None,
+            proposal_nonce: proposal_nonce(2),
+            target_proposal_id: target_id,
+            target_instructions_hash: instructions_hash.parse()?,
         },
     )?;
-    assert_eq!(
-        propose_cancel.get("action").and_then(JsonValue::as_str),
-        Some("PROPOSE")
-    );
     assert_eq!(
         propose_cancel
             .get("target_proposal_id")
             .and_then(JsonValue::as_str),
-        Some(instructions_hash.as_str())
+        Some(target_id.to_string().as_str())
     );
     let cancel_proposal_id = propose_cancel
         .get("cancel_proposal_id")
@@ -614,37 +560,40 @@ fn multisig_cancel_route_persists_canceled_terminal_state() -> Result<()> {
         .expect("cancel proposal id should be returned")
         .to_owned();
     let target_instructions_hash = instructions_hash.parse().unwrap();
-    let cancel_instructions =
-        vec![MultisigCancel::new(multisig_account_id.clone(), target_instructions_hash).into()];
-    let expected_cancel_proposal_id = HashOf::new(&cancel_instructions).to_string();
+    let cancel_instructions = vec![
+        MultisigCancel::new(
+            multisig_account_id.clone(),
+            target_id,
+            target_instructions_hash,
+        )
+        .into(),
+    ];
+    let cancel_instructions_hash = HashOf::new(&cancel_instructions);
+    let expected_cancel_proposal_id =
+        occurrence(&test_client, &multisig_account_id, proposal_nonce(2));
     assert_eq!(
-        cancel_proposal_id, expected_cancel_proposal_id,
-        "cancel route should report the deterministic cancel proposal hash"
+        cancel_proposal_id,
+        expected_cancel_proposal_id.to_string(),
+        "cancel route must bind the original cancellation nonce"
     );
     alt_client((BOB_ID.clone(), BOB_KEYPAIR.clone()), &test_client)
         .submit::<InstructionBox>(
-            MultisigPropose::new(multisig_account_id.clone(), cancel_instructions, None).into(),
+            MultisigPropose::new(
+                multisig_account_id.clone(),
+                proposal_nonce(2),
+                cancel_instructions,
+                None,
+            )
+            .into(),
             FeePaymentIntent::authority(Vec::new(), None),
         )
         .wrap_err("submit cancel wrapper proposal for cancel route test")?;
-    let approve_cancel = wait_for_multisig_cancel_action(
-        &rt,
-        &torii_base,
-        &selector,
-        &ALICE_ID,
-        &instructions_hash,
-        "APPROVE",
-    )
-    .wrap_err("wait for cancel route to expose approval mode")?;
-    assert_eq!(
-        approve_cancel.get("action").and_then(JsonValue::as_str),
-        Some("APPROVE")
-    );
     test_client
         .submit::<InstructionBox>(
             MultisigApprove::new(
                 multisig_account_id.clone(),
-                expected_cancel_proposal_id.parse().unwrap(),
+                expected_cancel_proposal_id,
+                cancel_instructions_hash,
             )
             .into(),
             FeePaymentIntent::authority(Vec::new(), None),
@@ -654,7 +603,7 @@ fn multisig_cancel_route_persists_canceled_terminal_state() -> Result<()> {
         &rt,
         &torii_base,
         &selector,
-        &instructions_hash,
+        &target_id.to_string(),
         "CANCELED",
     )
     .wrap_err("wait for canceled terminal state")?;
@@ -686,7 +635,7 @@ fn multisig_cancel_route_persists_canceled_terminal_state() -> Result<()> {
     assert!(
         proposals.iter().any(|proposal| {
             proposal.get("proposal_id").and_then(JsonValue::as_str)
-                == Some(instructions_hash.as_str())
+                == Some(target_id.to_string().as_str())
                 && proposal.get("status").and_then(JsonValue::as_str) == Some("CANCELED")
         }),
         "canceled proposal should remain visible in terminal proposal queries"
@@ -779,10 +728,11 @@ fn multisig_cli_list_all_resolves_hashed_role_suffixes() -> Result<()> {
             )
             .into(),
         ];
-        let proposal_id = HashOf::new(&instructions).to_string();
+        let nonce = proposal_nonce(suffix.as_bytes()[0]);
+        let proposal_id = occurrence(&test_client, &multisig_account_id, nonce).to_string();
         proposer_client
             .submit::<InstructionBox>(
-                MultisigPropose::new(multisig_account_id.clone(), instructions, None).into(),
+                MultisigPropose::new(multisig_account_id.clone(), nonce, instructions, None).into(),
                 FeePaymentIntent::authority(Vec::new(), None),
             )
             .wrap_err_with(|| format!("submit multisig proposal `{proposal_id}` for CLI test"))?;
@@ -1047,8 +997,15 @@ fn multisig_materialized_signatory_can_propose_and_approve() -> Result<()> {
         .into(),
     ];
     let instructions_hash = HashOf::new(&instructions);
+    let nonce = proposal_nonce(1);
+    let proposal_id = occurrence(&test_client, &multisig_account_id, nonce);
     let proposer_client = alt_client(missing_signer.clone(), &test_client);
-    let propose = MultisigPropose::new(multisig_account_id.clone(), instructions.clone(), None);
+    let propose = MultisigPropose::new(
+        multisig_account_id.clone(),
+        nonce,
+        instructions.clone(),
+        None,
+    );
     let proposal_tx = {
         let account = proposer_client.account_client();
         account
@@ -1085,7 +1042,7 @@ fn multisig_materialized_signatory_can_propose_and_approve() -> Result<()> {
     );
     let approver_client = alt_client(existing_signer.clone(), &test_client);
     let approve: InstructionBox =
-        MultisigApprove::new(multisig_account_id.clone(), instructions_hash).into();
+        MultisigApprove::new(multisig_account_id.clone(), proposal_id, instructions_hash).into();
     let approve_tx = {
         let account = approver_client.account_client();
         account
@@ -1554,9 +1511,11 @@ fn multisig_base(suite: TestSuite, context: &'static str) -> Result<()> {
         .into(),
     ];
     let instructions_hash = HashOf::new(&instructions);
+    let nonce = proposal_nonce(1);
+    let proposal_id = occurrence(&test_client, &multisig_account_id, nonce);
     let proposer = signatories.pop_last().unwrap();
     let mut approvers = signatories.into_iter();
-    let propose = MultisigPropose::new(multisig_account_id.clone(), instructions, None);
+    let propose = MultisigPropose::new(multisig_account_id.clone(), nonce, instructions, None);
     let proposer_client = alt_client(proposer.clone(), &test_client);
     let proposer_account = test_client
         .client()
@@ -1609,7 +1568,7 @@ fn multisig_base(suite: TestSuite, context: &'static str) -> Result<()> {
         )
         .wrap_err("tick time after multisig proposal")?;
     let approve: InstructionBox =
-        MultisigApprove::new(multisig_account_id.clone(), instructions_hash).into();
+        MultisigApprove::new(multisig_account_id.clone(), proposal_id, instructions_hash).into();
     // Approve once to see if the proposal expires
     let approver = approvers.next().unwrap();
     alt_client(approver, &test_client)
@@ -1685,7 +1644,7 @@ fn multisig_base(suite: TestSuite, context: &'static str) -> Result<()> {
     let res = fetch_account(&multisig_account_id).and_then(|account| {
         account
             .metadata()
-            .get(format!("multisig/proposals/{instructions_hash}").as_str())
+            .get(format!("multisig/proposals/{proposal_id}").as_str())
             .cloned()
     });
     // Proposals are removed once quorum processing runs, including unauthorized execution failures.
@@ -1703,8 +1662,7 @@ fn multisig_base(suite: TestSuite, context: &'static str) -> Result<()> {
 ///    /       /  \     / | \
 ///   0       1    2   3  4  5 <--- personal signatories
 /// ```
-fn multisig_recursion_base(suite: TestSuite, context: &'static str) -> Result<()> {
-    let _ = suite;
+fn multisig_recursion_base(context: &'static str) -> Result<()> {
     let builder = NetworkBuilder::new();
     let Some((network, _rt)) = start_network(builder, context) else {
         return Ok(());
@@ -1814,18 +1772,6 @@ fn alt_client(signatory: (AccountId, KeyPair), base_client: &Client) -> Client {
         client.account = signatory.0;
         client.key_pair = signatory.1;
     })
-}
-#[expect(dead_code)]
-fn debug_account(account_id: &AccountId, client: &Client) {
-    let account = client
-        .client()
-        .query(FindAccounts)
-        .execute_all()
-        .unwrap()
-        .into_iter()
-        .find(|account| account.id() == account_id)
-        .unwrap();
-    eprintln!("{account:#?}");
 }
 #[test]
 fn inconclusive_domain_registration_error_matches_queue_timeout() {

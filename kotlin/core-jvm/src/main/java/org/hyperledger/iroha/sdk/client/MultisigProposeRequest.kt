@@ -12,6 +12,7 @@ class MultisigProposeRequest @JvmOverloads constructor(
     val multisigAccountId: String? = null,
     val multisigAccountAlias: String? = null,
     val signerAccountId: String,
+    val proposalNonce: String,
     instructions: List<ByteArray>,
     val publicKeyHex: String? = null,
     val signatureB64: String? = null,
@@ -24,6 +25,7 @@ class MultisigProposeRequest @JvmOverloads constructor(
     val instructions: List<ByteArray> get() = instructionSnapshot.map(ByteArray::copyOf)
 
     init {
+        require(Regex("[0-9a-f]{64}").matches(proposalNonce) && proposalNonce.any { it != '0' }) { "proposalNonce must be nonzero canonical 32-byte hex" }
         require((multisigAccountId == null) != (multisigAccountAlias == null)) {
             "Exactly one multisig account identity is required"
         }
@@ -67,6 +69,7 @@ class MultisigProposeRequest @JvmOverloads constructor(
             multisigAccountId: String? = null,
             multisigAccountAlias: String? = null,
             signerAccountId: String,
+            proposalNonce: String,
             instructions: List<InstructionBox>,
             publicKeyHex: String? = null,
             signatureB64: String? = null,
@@ -78,6 +81,7 @@ class MultisigProposeRequest @JvmOverloads constructor(
             multisigAccountId = multisigAccountId,
             multisigAccountAlias = multisigAccountAlias,
             signerAccountId = signerAccountId,
+            proposalNonce = proposalNonce,
             instructions = instructions.map { NoritoJavaCodecAdapter.encodeInstructionBox(it) },
             publicKeyHex = publicKeyHex,
             signatureB64 = signatureB64,

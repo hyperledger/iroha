@@ -1,3 +1,5 @@
+import { requireMultisigId, requireMultisigNonce } from "./multisigIdentifiers.js";
+import { deriveMultisigProposalId } from "./multisigOccurrence.js";
 import { normalizeContractEmissionV1 } from "./contractEmissions.js";
 import { normalizeContractEventsV1 } from "./contractDeclarations.js";
 import { normalizeIvmFault } from "./ivmFault.js";
@@ -7968,7 +7970,7 @@ export class ToriiClient {
 
   /**
    * Propose a generic multisig instruction batch (`POST /v1/multisig/propose`).
-   * Sends the whole request DTO as native Norito (`application/x-norito`).
+   * Sends the closed JSON request; native construction and exact executable inspection own monetary semantics.
    * @param {object} request
    * @param {{signal?: AbortSignal}} [options]
    * @returns {Promise<object>}
@@ -7976,11 +7978,13 @@ export class ToriiClient {
   async proposeMultisig(request = {}, options = {}) {
     const { signal } = normalizeSignalOnlyOption(options, "proposeMultisig");
     const payload = normalizeMultisigProposeRequest(request);
-    // Complete native request validation before consulting the off-wire trust
-    // intent so malformed instruction archives fail before any network I/O.
-    const { noritoEncodeMultisigProposeRequest } = await loadToriiOptionalModule();
-    requireLocalDraftSigningContext(this._localSigningContext, "proposeMultisig");
-    const requestBody = noritoEncodeMultisigProposeRequest(payload, this._localSigningContext.chainDiscriminant);
+    requireMultisigProposalContext(payload, this._localSigningContext, "proposeMultisig");
+    const { hashInstructionBatch, retailFeeAssessmentMarkerMessage } = await loadToriiOptionalModule();
+    const committedInstructions = payload.validation_fee_assessment === undefined
+      ? payload.instructions
+      : [...payload.instructions, {Log: {level: "TRACE", msg: retailFeeAssessmentMarkerMessage(payload.validation_fee_assessment)}}];
+    const instructionsHash = hashInstructionBatch(committedInstructions, this._localSigningContext.chainDiscriminant);
+    const requestBody = JSON.stringify(payload);
     const draftIntent = normalizeLocalTransactionDraftIntent(
       request,
       "proposeMultisig",
@@ -7991,7 +7995,7 @@ export class ToriiClient {
     }
     const response = await this._request("POST", "/v1/multisig/propose", {
       headers: {
-        "Content-Type": "application/x-norito",
+        "Content-Type": "application/json",
         Accept: APPLICATION_JSON,
       },
       body: requestBody,
@@ -8008,6 +8012,7 @@ export class ToriiClient {
       "multisig propose response",
       draftIntent,
       this._localSigningContext,
+      instructionsHash,
     );
   }
 
@@ -8020,10 +8025,12 @@ export class ToriiClient {
   async proposeMultisigContractCall(request = {}, options = {}) {
     const { signal } = normalizeSignalOnlyOption(options, "proposeMultisigContractCall");
     const payload = normalizeMultisigContractCallProposeRequest(request);
+    requireMultisigProposalContext(payload, this._localSigningContext, "proposeMultisigContractCall");
     const draftIntent = normalizeLocalTransactionDraftIntent(
       request,
       "proposeMultisigContractCall",
-      payload.signature_b64 === undefined,
+      true,
+      true,
     );
     if (draftIntent !== null) {
       requireLocalDraftSigningContext(
@@ -8050,6 +8057,7 @@ export class ToriiClient {
       "multisig contract propose response",
       draftIntent,
       this._localSigningContext,
+      draftIntent.instructionsHash,
     );
   }
 
@@ -8116,7 +8124,9 @@ export class ToriiClient {
     if (!body) {
       rejectError("multisig spec endpoint returned no payload");
     }
-    return normalizeMultisigSpecResponse(body);
+    const result = normalizeMultisigSpecResponse(body);
+    if (payload.multisig_account_id && result.resolved_multisig_account_id !== payload.multisig_account_id) rejectType("multisig spec changed selected account");
+    return result;
   }
 
   /**
@@ -8143,11 +8153,14 @@ export class ToriiClient {
     if (!body) {
       rejectError("multisig proposals query endpoint returned no payload");
     }
-    return normalizeMultisigProposalsQueryResponse(body);
+    const result = normalizeMultisigProposalsQueryResponse(body);
+    if (payload.multisig_account_id && result.resolved_multisig_account_id !== payload.multisig_account_id) rejectType("multisig query changed selected account");
+    if (new Set(result.proposals.map(entry => entry.proposal_id)).size !== result.proposals.length) rejectType("multisig query repeats an occurrence ID");
+    return result;
   }
 
   /**
-   * Resolve one multisig proposal by proposal id or instructions hash (`POST /v1/multisig/proposals/resolve`).
+   * Resolve one multisig proposal by its exact occurrence ID (`POST /v1/multisig/proposals/resolve`).
    * @param {object} request
    * @param {{signal?: AbortSignal, canonicalAuth: CanonicalRequestAuth}} options
    * @returns {Promise<object>}
@@ -8167,7 +8180,10 @@ export class ToriiClient {
     if (!body) {
       rejectError("multisig proposal resolve endpoint returned no payload");
     }
-    return normalizeMultisigProposalResolveResponse(body);
+    const result = normalizeMultisigProposalResolveResponse(body);
+    if (result.proposal_id !== payload.proposal_id) rejectType("multisig resolve changed requested occurrence ID");
+    if (payload.multisig_account_id && result.resolved_multisig_account_id !== payload.multisig_account_id) rejectType("multisig resolve changed selected account");
+    return result;
   }
 
   /**
@@ -16564,12 +16580,6 @@ function requireNonZeroLowerHex32String(value, name) {
   return literal;
 }
 
-function requireOptionalExactLowerHex32String(value, name) {
-  return value === undefined || value === null
-    ? null
-    : requireExactLowerHex32String(value, name);
-}
-
 function requireExactLowerHexBytesString(value, name, expectedBytes) {
   const literal = requireExactNonEmptyString(value, name);
   if (
@@ -18446,7 +18456,7 @@ function normalizeContractTargetSelector(record, context) {
   };
 }
 
-function normalizeLocalTransactionDraftIntent(input, context, required) {
+function normalizeLocalTransactionDraftIntent(input, context, required, includeInstructionsHash = false) {
   const record = ensureRecord(input, `${context} request`);
   const raw = pickOverride(record, "draft_intent", "draftIntent");
   if (raw === undefined || raw === null) {
@@ -18458,7 +18468,7 @@ function normalizeLocalTransactionDraftIntent(input, context, required) {
   const intent = ensureRecord(raw, `${context}.draftIntent`);
   assertSupportedOptionKeys(
     intent,
-    new Set(["executableB64", "metadataB64"]),
+    new Set(["executableB64", "metadataB64", ...(includeInstructionsHash ? ["instructionsHash"] : [])]),
     `${context}.draftIntent`,
   );
   const executableB64 = normalizeRequiredExactBase64Payload(
@@ -18472,6 +18482,7 @@ function normalizeLocalTransactionDraftIntent(input, context, required) {
   return Object.freeze({
     executableArchive: Buffer.from(strictDecodeBase64(executableB64)),
     metadataArchive: Buffer.from(strictDecodeBase64(metadataB64)),
+    ...(includeInstructionsHash ? {instructionsHash: requireMultisigId(intent.instructionsHash, `${context}.draftIntent.instructionsHash`)} : {}),
   });
 }
 
@@ -19171,6 +19182,7 @@ function normalizeMultisigProposeRequest(input) {
   }
   const payload = {
     ...selector,
+    proposal_nonce: requireMultisigNonce(record.proposal_nonce ?? record.proposalNonce),
     signer_account_id: ToriiClient._normalizeAccountId(
       record.signer_account_id ?? record.signerAccountId,
       "proposeMultisig request.signer_account_id",
@@ -19234,6 +19246,7 @@ function normalizeMultisigContractCallProposeRequest(input) {
   );
   const payload = {
     ...selector,
+    proposal_nonce: requireMultisigNonce(record.proposal_nonce ?? record.proposalNonce),
     signer_account_id: ToriiClient._normalizeAccountId(
       record.signer_account_id ?? record.signerAccountId,
       "proposeMultisigContractCall request.signer_account_id",
@@ -19328,31 +19341,8 @@ function normalizeMultisigContractCallApproveRequest(input) {
       { allowZero: true },
     );
   }
-  const proposalId = pickOverride(record, "proposal_id", "proposalId");
-  if (proposalId !== undefined && proposalId !== null) {
-    payload.proposal_id = requireNonEmptyString(
-      proposalId,
-      "approveMultisigContractCall request.proposal_id",
-    );
-  }
-  const instructionsHash = pickOverride(
-    record,
-    "instructions_hash",
-    "instructionsHash",
-  );
-  if (instructionsHash !== undefined && instructionsHash !== null) {
-    payload.instructions_hash = normalizeHex32String(
-      instructionsHash,
-      "approveMultisigContractCall request.instructions_hash",
-    );
-  }
-  if (!payload.proposal_id && !payload.instructions_hash) {
-    throw createValidationError(
-      ValidationErrorCode.INVALID_OBJECT,
-      "approveMultisigContractCall request requires proposal_id or instructions_hash",
-      "approveMultisigContractCall.request",
-    );
-  }
+  payload.proposal_id = requireMultisigId(record.proposal_id ?? record.proposalId);
+  payload.instructions_hash = requireMultisigId(record.instructions_hash ?? record.instructionsHash, "instructionsHash");
   payload.fee_payment = normalizeFeePaymentIntentValue(
     record.fee_payment ?? record.feePayment,
     "approveMultisigContractCall request.fee_payment",
@@ -19400,11 +19390,11 @@ function normalizeMultisigContractCallResponse(
       `${context}.resolved_multisig_account_id`,
     ),
     submitted: requireExactBoolean(record.submitted, `${context}.submitted`),
-    proposal_id: requireOptionalExactLowerHex32String(
+    proposal_id: requireMultisigId(
       record.proposal_id,
       `${context}.proposal_id`,
     ),
-    instructions_hash: requireOptionalExactLowerHex32String(
+    instructions_hash: requireMultisigId(
       record.instructions_hash,
       `${context}.instructions_hash`,
     ),
@@ -19443,13 +19433,7 @@ function normalizeMultisigContractCallResponse(
       `${context}.signing_message_b64`,
     ),
   };
-  if (
-    normalized.proposal_id !== null
-    && normalized.instructions_hash !== null
-    && normalized.proposal_id !== normalized.instructions_hash
-  ) {
-    rejectType(`${context}.proposal_id and instructions_hash must identify the same proposal`);
-  }
+
   if (normalized.submitted) {
     if (
       normalized.tx_hash_hex === null ||
@@ -19536,13 +19520,29 @@ async function validateUnsignedResponsePayloadBinding(
   }
 }
 
+function requireMultisigProposalContext(request, context, label) {
+  requireLocalDraftSigningContext(context, label);
+  if (!request.multisig_account_id) rejectType(`${label} requires a caller-trusted resolved account before proposal preparation`);
+}
+
 async function validateMultisigResponseRequestBinding(
   response,
   request,
   context,
   draftIntent,
   localSigningContext,
+  expectedInstructionsHash,
 ) {
+  if (expectedInstructionsHash !== undefined && response.instructions_hash !== expectedInstructionsHash) rejectType(`${context} changed the native instruction commitment`);
+  if (request.multisig_account_id && response.resolved_multisig_account_id !== request.multisig_account_id) rejectType(`${context} changed selected multisig account`);
+  if (request.proposal_nonce !== undefined) {
+    requireLocalDraftSigningContext(localSigningContext, context);
+    if (!request.multisig_account_id) rejectType(`${context} requires a caller-trusted resolved account`);
+    const expected = deriveMultisigProposalId(localSigningContext.networkId, request.multisig_account_id, request.proposal_nonce);
+    if (response.proposal_id !== expected) rejectType(`${context} changed proposal occurrence identity`);
+  } else if (response.proposal_id !== request.proposal_id || response.instructions_hash !== request.instructions_hash) {
+    rejectType(`${context} changed proposal occurrence or instruction commitment`);
+  }
   if (!feeQuoteSelectionsMatch(response.fee_payment, request.fee_payment)) {
     rejectType(`${context}.fee_payment changed the requested payer, sponsor revision, or gas bound`);
   }
@@ -19580,8 +19580,8 @@ function normalizeMultisigSpecResponse(payload, context = "multisig spec respons
 function normalizeMultisigProposalEntry(payload, context) {
   const record = ensureRecord(payload, context);
   return {
-    proposal_id: requireNonEmptyString(record.proposal_id, `${context}.proposal_id`),
-    instructions_hash: normalizeHex32String(
+    proposal_id: requireMultisigId(record.proposal_id, `${context}.proposal_id`),
+    instructions_hash: requireMultisigId(
       record.instructions_hash,
       `${context}.instructions_hash`,
     ),
@@ -19632,35 +19632,8 @@ function normalizeMultisigProposalsQueryResponse(
 
 function normalizeMultisigProposalsResolveRequest(input) {
   const record = ensureRecord(input, "resolveMultisigProposal request");
-  const payload = normalizeMultisigAccountSelector(record, "resolveMultisigProposal request");
-  const proposalId = pickOverride(record, "proposal_id", "proposalId");
-  if (proposalId !== undefined && proposalId !== null) {
-    payload.proposal_id = requireNonEmptyString(
-      proposalId,
-      "resolveMultisigProposal request.proposal_id",
-    );
-  }
-  const instructionsHash = pickOverride(
-    record,
-    "instructions_hash",
-    "instructionsHash",
-  );
-  if (instructionsHash !== undefined && instructionsHash !== null) {
-    payload.instructions_hash = normalizeHex32String(
-      instructionsHash,
-      "resolveMultisigProposal request.instructions_hash",
-    );
-  }
-  const hasProposalId = payload.proposal_id !== undefined;
-  const hasInstructionsHash = payload.instructions_hash !== undefined;
-  if (hasProposalId === hasInstructionsHash) {
-    throw createValidationError(
-      ValidationErrorCode.INVALID_OBJECT,
-      "resolveMultisigProposal request requires exactly one of proposal_id or instructions_hash",
-      "resolveMultisigProposal.request",
-    );
-  }
-  return payload;
+  if (record.instructions_hash !== undefined || record.instructionsHash !== undefined) rejectType("resolveMultisigProposal requires occurrence ID only");
+  return {...normalizeMultisigAccountSelector(record, "resolveMultisigProposal request"), proposal_id: requireMultisigId(record.proposal_id ?? record.proposalId)};
 }
 
 function normalizeMultisigProposalResolveResponse(

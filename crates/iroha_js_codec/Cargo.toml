@@ -13,6 +13,7 @@ workspace = true
 iroha_crypto = { workspace = true, default-features = false, features = ["json", "gost", "sm", "bls", "pqc"] }
 iroha_data_model = { workspace = true, default-features = false, features = ["application-model", "transparent_api", "gost", "sm", "bls"] }
 iroha_model_base = { workspace = true }
+iroha_executor_data_model = { workspace = true }
 iroha_primitives = { workspace = true }
 norito = { workspace = true, default-features = false, features = ["base-codec"] }
 base64 = { workspace = true }

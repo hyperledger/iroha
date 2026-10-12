@@ -326,14 +326,11 @@ export {
   noritoEncodeFeePaymentIntentArchive,
   noritoEncodeTransactionPayloadBatch,
   noritoEncodeSorafsBillingAcknowledgementProofV1,
-  noritoEncodeMultisigProposeRequest,
   encodeRetailFeeQuoteRequestV1,
   retailFeePaymentIntentHash,
   encodeRetailFeeAssessmentV1,
   retailFeeAssessmentMarkerMessage,
   decodeRetailFeeAssessmentMarkerMessage,
-  noritoEncodeMultisigContractCallProposeRequest,
-  noritoEncodeMultisigContractCallApproveRequest,
   SORAFS_BILLING_ACKNOWLEDGEMENT_PROOF_MAX_BYTES_V1,
   SORAFS_BILLING_ACKNOWLEDGEMENT_PROOF_SCHEMA_NAME_V1,
   PRIVACY_EXACT12_FIXTURE_BUNDLE_MAX_BYTES_V1,
@@ -651,3 +648,8 @@ export {
 export { buildCanonicalMultisigContractCall } from "./multisigContractCall.js";
 
 export { ConfidentialProver, ConfidentialProverError, computeConfidentialRoot, defaultConfidentialDiversifier, confidentialChangeToInput } from "./confidentialProofBuilders.js";
+
+export { inspectAccountViaNativeTransport } from "./nativeAccountInspection.js";
+export { requestNativeMultisigViaTransport, inspectNativeMultisigPrepareViaTransport, inspectNativeMultisigSignedViaTransport, queryNativeMultisigFinalityViaTransport, queryNativeMultisigProposalFinalityViaTransport } from "./nativeMultisigTransport.js";
+
+export { deriveMultisigProposalId } from "./multisigOccurrence.js";

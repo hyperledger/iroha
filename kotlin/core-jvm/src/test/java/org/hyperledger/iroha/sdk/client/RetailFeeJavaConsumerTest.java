@@ -30,7 +30,7 @@ final class RetailFeeJavaConsumerTest {
     byte[] instruction = new byte[] {1, 2, 3};
     JsonValue assessment = JsonValue.parse("{\"fee_minor\":0,\"policy_revision\":2,\"retail_enrolled\":true}");
     MultisigProposeRequest request = new MultisigProposeRequest(
-        "model-fixture", null, "signer-fixture", Collections.singletonList(instruction),
+        "model-fixture", null, "signer-fixture", "0707070707070707070707070707070707070707070707070707070707070707", Collections.singletonList(instruction),
         null, null, 123L, FeePaymentIntent.authority(Collections.emptyList()), null, assessment);
     instruction[0] = 9;
     request.getInstructions().get(0)[1] = 9;
@@ -38,7 +38,7 @@ final class RetailFeeJavaConsumerTest {
     assertEquals(assessment, request.getValidationFeeAssessment());
     assertTrue(request.getValidationFeeAssessment().getCanonicalJson().contains("\"fee_minor\":0"));
     assertThrows(IllegalArgumentException.class, () -> new MultisigProposeRequest(
-        "model-fixture", null, "signer-fixture", Collections.singletonList(instruction),
+        "model-fixture", null, "signer-fixture", "0707070707070707070707070707070707070707070707070707070707070707", Collections.singletonList(instruction),
         null, null, 123L, FeePaymentIntent.authority(Collections.emptyList()), null, JsonValue.number(0)));
   }
 }

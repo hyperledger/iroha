@@ -81,8 +81,7 @@ fn install_trigger_contract(
     IvmBytecode,
     iroha_data_model::smart_contract::ContractAddress,
 ) {
-    let manifest_signing =
-        crate::manifest_signing_test_support::ManifestSigningFixture::new();
+    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     let code_hash = ivm::contract_code_hash(&code);
     let bytecode = IvmBytecode::from_compiled(code.clone());
     let contract_address = iroha_data_model::smart_contract::ContractAddress::derive(
@@ -118,7 +117,13 @@ fn install_trigger_contract(
         contract_address
             .dataspace_id()
             .expect("test contract dataspace"),
-        manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), signing_keypair).expect("sign bounded fixture manifest"),
+        manifest
+            .try_signed(
+                manifest_signing.context(),
+                manifest_signing.max_frame_bytes(),
+                signing_keypair,
+            )
+            .expect("sign bounded fixture manifest"),
         state_transaction,
     )
     .expect("register trigger contract manifest");

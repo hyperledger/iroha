@@ -1600,7 +1600,7 @@
             "format": "uint64",
             "type": "integer"
           },
-          "invalidated_multisig_proposal_hashes": {
+          "invalidated_multisig_proposal_ids": {
             "items": {
               "maxLength": 64,
               "minLength": 64,
@@ -1626,7 +1626,7 @@
           "active_account_id_at_proposal",
           "proposed_controller",
           "approvals",
-          "invalidated_multisig_proposal_hashes",
+          "invalidated_multisig_proposal_ids",
           "proposed_by",
           "execute_after_ms",
           "status"
@@ -5831,7 +5831,7 @@
         "type": "object"
       },
       "CollectionFilter": {
-        "description": "Filter in the text form (`owned_by = \"sorau…\" and quantity >= 10.5`) or the JSON form; see specs/torii/collection_queries.md.",
+        "description": "Filter in the text form (`owned_by = \"sorau\u2026\" and quantity >= 10.5`) or the JSON form; see specs/torii/collection_queries.md.",
         "oneOf": [
           {
             "maxLength": 32768,
@@ -22488,38 +22488,6 @@
                 ]
               }
             ]
-          },
-          {
-            "oneOf": [
-              {
-                "properties": {
-                  "proposal_id": {
-                    "description": "Exactly one non-null proposal selector is required. Native parsing verifies the complete canonical instruction hash; a second selector is rejected even when equal.",
-                    "maxLength": 64,
-                    "minLength": 64,
-                    "pattern": "^[0-9a-f]{64}$",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "proposal_id"
-                ]
-              },
-              {
-                "properties": {
-                  "instructions_hash": {
-                    "description": "Exactly one non-null proposal selector is required. Native parsing verifies the complete canonical instruction hash; a second selector is rejected even when equal.",
-                    "maxLength": 64,
-                    "minLength": 64,
-                    "pattern": "^[0-9a-f]{64}$",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "instructions_hash"
-                ]
-              }
-            ]
           }
         ],
         "description": "Complete flattened current DTO for canonical multisig authority preparation or detached submission. Missing and null optional fields decode as None. Detached public key and signature must be provided together. Native account/instruction decoding, signature verification, live signatory/target checks and exact monetary admission remain mandatory.",
@@ -22541,18 +22509,11 @@
             "$ref": "#/components/schemas/FeePaymentIntent"
           },
           "instructions_hash": {
-            "oneOf": [
-              {
-                "description": "Exactly one non-null proposal selector is required. Native parsing verifies the complete canonical instruction hash; a second selector is rejected even when equal.",
-                "maxLength": 64,
-                "minLength": 64,
-                "pattern": "^[0-9a-f]{64}$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "description": "Exact instruction commitment of the selected occurrence.",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
           },
           "multisig_account_alias": {
             "description": "Omit or null for unsigned draft preparation. Every non-null alias selector is rejected before account resolution; authenticated read routes retain their separately permission-checked alias surface.",
@@ -22562,18 +22523,11 @@
             "$ref": "#/components/schemas/GovernanceCanonicalAccountIdV1"
           },
           "proposal_id": {
-            "oneOf": [
-              {
-                "description": "Exactly one non-null proposal selector is required. Native parsing verifies the complete canonical instruction hash; a second selector is rejected even when equal.",
-                "maxLength": 64,
-                "minLength": 64,
-                "pattern": "^[0-9a-f]{64}$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "description": "Exact occurrence identity, distinct from its instruction commitment.",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
           },
           "public_key_hex": {
             "oneOf": [
@@ -22602,7 +22556,9 @@
         "required": [
           "multisig_account_id",
           "signer_account_id",
-          "fee_payment"
+          "fee_payment",
+          "proposal_id",
+          "instructions_hash"
         ],
         "type": "object"
       },
@@ -22638,41 +22594,9 @@
                 ]
               }
             ]
-          },
-          {
-            "oneOf": [
-              {
-                "properties": {
-                  "proposal_id": {
-                    "description": "Exactly one non-null proposal selector is required. Native parsing verifies the complete canonical instruction hash; a second selector is rejected even when equal.",
-                    "maxLength": 64,
-                    "minLength": 64,
-                    "pattern": "^[0-9a-f]{64}$",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "proposal_id"
-                ]
-              },
-              {
-                "properties": {
-                  "instructions_hash": {
-                    "description": "Exactly one non-null proposal selector is required. Native parsing verifies the complete canonical instruction hash; a second selector is rejected even when equal.",
-                    "maxLength": 64,
-                    "minLength": 64,
-                    "pattern": "^[0-9a-f]{64}$",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "instructions_hash"
-                ]
-              }
-            ]
           }
         ],
-        "description": "Complete flattened current DTO for canonical multisig authority preparation or detached submission. Missing and null optional fields decode as None. Detached public key and signature must be provided together. Native account/instruction decoding, signature verification, live signatory/target checks and exact monetary admission remain mandatory.",
+        "description": "Always proposes a separate cancellation occurrence using the retained caller nonce and exact target occurrence plus instruction commitment. Later signers approve the returned cancellation occurrence through the generic approve endpoint.",
         "properties": {
           "creation_time_ms": {
             "oneOf": [
@@ -22690,20 +22614,6 @@
           "fee_payment": {
             "$ref": "#/components/schemas/FeePaymentIntent"
           },
-          "instructions_hash": {
-            "oneOf": [
-              {
-                "description": "Exactly one non-null proposal selector is required. Native parsing verifies the complete canonical instruction hash; a second selector is rejected even when equal.",
-                "maxLength": 64,
-                "minLength": 64,
-                "pattern": "^[0-9a-f]{64}$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "multisig_account_alias": {
             "description": "Omit or null for unsigned draft preparation. Every non-null alias selector is rejected before account resolution; authenticated read routes retain their separately permission-checked alias surface.",
             "type": "null"
@@ -22711,19 +22621,15 @@
           "multisig_account_id": {
             "$ref": "#/components/schemas/GovernanceCanonicalAccountIdV1"
           },
-          "proposal_id": {
-            "oneOf": [
-              {
-                "description": "Exactly one non-null proposal selector is required. Native parsing verifies the complete canonical instruction hash; a second selector is rejected even when equal.",
-                "maxLength": 64,
-                "minLength": 64,
-                "pattern": "^[0-9a-f]{64}$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
+          "proposal_nonce": {
+            "description": "Caller-retained nonzero random occurrence nonce. Retries preserve the exact nonce and content.",
+            "maxLength": 64,
+            "minLength": 64,
+            "not": {
+              "const": "0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
           },
           "public_key_hex": {
             "oneOf": [
@@ -22747,25 +22653,43 @@
           },
           "signer_account_id": {
             "$ref": "#/components/schemas/GovernanceCanonicalAccountIdV1"
+          },
+          "target_instructions_hash": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "target_proposal_id": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
           }
         },
         "required": [
           "multisig_account_id",
           "signer_account_id",
-          "fee_payment"
+          "fee_payment",
+          "proposal_nonce",
+          "target_proposal_id",
+          "target_instructions_hash"
         ],
         "type": "object"
       },
       "MultisigCancelResponse": {
         "additionalProperties": false,
         "properties": {
-          "action": {
-            "type": "string"
-          },
           "cancel_instructions_hash": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
             "type": "string"
           },
           "cancel_proposal_id": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
             "type": "string"
           },
           "creation_time_ms": {
@@ -22812,9 +22736,15 @@
             "type": "boolean"
           },
           "target_instructions_hash": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
             "type": "string"
           },
           "target_proposal_id": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
             "type": "string"
           },
           "transaction_payload_b64": {
@@ -22842,7 +22772,6 @@
           "ok",
           "resolved_multisig_account_id",
           "submitted",
-          "action",
           "target_proposal_id",
           "target_instructions_hash",
           "cancel_proposal_id",
@@ -22888,38 +22817,6 @@
                 ]
               }
             ]
-          },
-          {
-            "oneOf": [
-              {
-                "properties": {
-                  "proposal_id": {
-                    "description": "Exactly one non-null proposal selector is required. Native parsing verifies the complete canonical instruction hash; a second selector is rejected even when equal.",
-                    "maxLength": 64,
-                    "minLength": 64,
-                    "pattern": "^[0-9a-f]{64}$",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "proposal_id"
-                ]
-              },
-              {
-                "properties": {
-                  "instructions_hash": {
-                    "description": "Exactly one non-null proposal selector is required. Native parsing verifies the complete canonical instruction hash; a second selector is rejected even when equal.",
-                    "maxLength": 64,
-                    "minLength": 64,
-                    "pattern": "^[0-9a-f]{64}$",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "instructions_hash"
-                ]
-              }
-            ]
           }
         ],
         "description": "Complete flattened current DTO for canonical multisig authority preparation or detached submission. Missing and null optional fields decode as None. Detached public key and signature must be provided together. Native account/instruction decoding, signature verification, live signatory/target checks and exact monetary admission remain mandatory.",
@@ -22949,18 +22846,11 @@
             "$ref": "#/components/schemas/FeePaymentIntent"
           },
           "instructions_hash": {
-            "oneOf": [
-              {
-                "description": "Exactly one non-null proposal selector is required. Native parsing verifies the complete canonical instruction hash; a second selector is rejected even when equal.",
-                "maxLength": 64,
-                "minLength": 64,
-                "pattern": "^[0-9a-f]{64}$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "description": "Exact instruction commitment of the selected occurrence.",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
           },
           "multisig_account_alias": {
             "description": "Omit or null for unsigned draft preparation. Every non-null alias selector is rejected before account resolution; authenticated read routes retain their separately permission-checked alias surface.",
@@ -22974,18 +22864,11 @@
             "type": "object"
           },
           "proposal_id": {
-            "oneOf": [
-              {
-                "description": "Exactly one non-null proposal selector is required. Native parsing verifies the complete canonical instruction hash; a second selector is rejected even when equal.",
-                "maxLength": 64,
-                "minLength": 64,
-                "pattern": "^[0-9a-f]{64}$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "description": "Exact occurrence identity, distinct from its instruction commitment.",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
           },
           "public_key_hex": {
             "oneOf": [
@@ -23017,7 +22900,9 @@
           "fee_payment",
           "contract_alias",
           "entrypoint",
-          "payload"
+          "payload",
+          "proposal_id",
+          "instructions_hash"
         ],
         "type": "object"
       },
@@ -23112,6 +22997,16 @@
             "description": "Exact normalized object payload of the selected deployed contract entrypoint. Approval must match the active proposal alias, entrypoint and payload exactly.",
             "type": "object"
           },
+          "proposal_nonce": {
+            "description": "Caller-retained nonzero random occurrence nonce. Retries preserve the exact nonce and content.",
+            "maxLength": 64,
+            "minLength": 64,
+            "not": {
+              "const": "0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
           "public_key_hex": {
             "oneOf": [
               {
@@ -23142,7 +23037,8 @@
           "fee_payment",
           "contract_alias",
           "entrypoint",
-          "payload"
+          "payload",
+          "proposal_nonce"
         ],
         "type": "object"
       },
@@ -23150,61 +23046,135 @@
         "additionalProperties": false,
         "properties": {
           "creation_time_ms": {
-            "format": "uint64",
-            "type": "integer"
+            "oneOf": [
+              {
+                "format": "uint64",
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "executed_tx_hash_hex": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "fee_payment": {
             "$ref": "#/components/schemas/FeePaymentIntent"
           },
           "instructions_hash": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
             "type": "string"
           },
           "ok": {
             "type": "boolean"
           },
           "proposal_id": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
             "type": "string"
           },
           "resolved_multisig_account_id": {
             "type": "string"
           },
           "signing_message_b64": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "submitted": {
             "type": "boolean"
           },
           "transaction_payload_b64": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "tx_hash_hex": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
           "ok",
           "resolved_multisig_account_id",
           "submitted",
-          "fee_payment"
+          "fee_payment",
+          "proposal_id",
+          "instructions_hash",
+          "tx_hash_hex",
+          "executed_tx_hash_hex",
+          "creation_time_ms",
+          "transaction_payload_b64",
+          "signing_message_b64"
         ],
         "type": "object"
       },
       "MultisigExecutionEvidenceV1": {
         "additionalProperties": false,
-        "description": "Data-only immutable multisig originals from one complete certified native World cut. Decoding grants no finality authority: the reader independently verifies the certified prefix, complete snapshot and both original records. Canonical response reader ceiling is 16777216 bytes.",
+        "description": "Data-only immutable multisig originals from one complete certified native World cut. Decoding grants no finality authority: the reader verifies the certified prefix, complete snapshot, exact occurrence and instruction commitment, and every original record. Cancellation includes the exact canceled target original from the same cut. Canonical response reader ceiling is 16777216 bytes.",
         "properties": {
           "approval_outcome": {
-            "items": {
-              "maximum": 255,
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 65536,
-            "minItems": 1,
-            "type": "array"
+            "description": "Original approval record when present. Financial execution verification requires it. An independently authenticated Canceled subject terminal can be read without an approval record and grants no monetary execution.",
+            "oneOf": [
+              {
+                "items": {
+                  "maximum": 255,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "maxItems": 65536,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "canceled_target_terminal_execution": {
+            "description": "Exact target terminal-execution original from this same certified World cut. Required non-null iff the wrapper executed exactly one MultisigCancel; otherwise null. Native verification requires matching target ID/hash, canceled status and entrypoint.",
+            "oneOf": [
+              {
+                "items": {
+                  "maximum": 255,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "maxItems": 65536,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "context_id": {
             "$ref": "#/components/schemas/Hash"
@@ -23226,6 +23196,12 @@
           "multisig_account_id": {
             "maxLength": 1024,
             "minLength": 1,
+            "type": "string"
+          },
+          "proposal_id": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
             "type": "string"
           },
           "terminal_execution": {
@@ -23250,7 +23226,9 @@
           "instructions_hash",
           "world_snapshot",
           "approval_outcome",
-          "terminal_execution"
+          "terminal_execution",
+          "proposal_id",
+          "canceled_target_terminal_execution"
         ],
         "type": "object",
         "x-iroha-norito-frame": "iroha.torii.v1.multisig.execution-evidence.response"
@@ -23288,9 +23266,11 @@
             "type": "string"
           },
           "intent": {
-            "$ref": "#/components/schemas/JsonValue"
+            "$ref": "#/components/schemas/JsonValue",
+            "description": "MULTISIG_CANCEL carries target_proposal_id, target_instructions_hash, operation_type and operation for the exact native target; other operations carry their native semantic projection."
           },
           "operation_type": {
+            "description": "Native semantic projection, including MULTISIG_CANCEL for visible cancellation wrappers. Projection is read data, not finality authority.",
             "maxLength": 64,
             "minLength": 1,
             "pattern": "^[A-Z][A-Z0-9_]*$",
@@ -23354,26 +23334,51 @@
             },
             "type": "array"
           },
-          "is_relayed": {
-            "anyOf": [
+          "network_id": {
+            "$ref": "#/components/schemas/NetworkId"
+          },
+          "proposal_id": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "proposal_nonce": {
+            "description": "Caller-retained nonzero random occurrence nonce. Retries preserve the exact nonce and content.",
+            "maxLength": 64,
+            "minLength": 64,
+            "not": {
+              "const": "0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "proposed_at_ms": {
+            "format": "uint64",
+            "type": "integer"
+          },
+          "transaction_ttl_ms": {
+            "oneOf": [
               {
-                "type": "boolean"
+                "format": "uint64",
+                "minimum": 1,
+                "type": "integer"
               },
               {
                 "type": "null"
               }
             ]
-          },
-          "proposed_at_ms": {
-            "format": "uint64",
-            "type": "integer"
           }
         },
         "required": [
           "instructions",
           "proposed_at_ms",
           "expires_at_ms",
-          "approvals"
+          "approvals",
+          "network_id",
+          "proposal_nonce",
+          "proposal_id",
+          "transaction_ttl_ms"
         ],
         "type": "object"
       },
@@ -23387,9 +23392,11 @@
             "type": "string"
           },
           "intent": {
-            "$ref": "#/components/schemas/JsonValue"
+            "$ref": "#/components/schemas/JsonValue",
+            "description": "MULTISIG_CANCEL carries target_proposal_id, target_instructions_hash, operation_type and operation for the exact native target; other operations carry their native semantic projection."
           },
           "operation_type": {
+            "description": "Native semantic projection, including MULTISIG_CANCEL for visible cancellation wrappers. Projection is read data, not finality authority.",
             "maxLength": 64,
             "minLength": 1,
             "pattern": "^[A-Z][A-Z0-9_]*$",
@@ -23428,6 +23435,20 @@
                 "type": "null"
               }
             ]
+          },
+          "terminal_entrypoint_hash": {
+            "description": "Untrusted terminal lookup candidate. Completion requires independently rooted native execution evidence.",
+            "oneOf": [
+              {
+                "maxLength": 64,
+                "minLength": 64,
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -23436,7 +23457,8 @@
           "instructions_hash",
           "operation_type",
           "proposal",
-          "status"
+          "status",
+          "terminal_entrypoint_hash"
         ],
         "type": "object"
       },
@@ -23562,29 +23584,9 @@
                 ]
               }
             ]
-          },
-          {
-            "oneOf": [
-              {
-                "required": [
-                  "proposal_id"
-                ]
-              },
-              {
-                "required": [
-                  "instructions_hash"
-                ]
-              }
-            ]
           }
         ],
         "properties": {
-          "instructions_hash": {
-            "maxLength": 64,
-            "minLength": 64,
-            "pattern": "^[0-9a-f]{64}$",
-            "type": "string"
-          },
           "multisig_account_alias": {
             "description": "Canonical stable alias in name@dataspace or name@domain.dataspace form.",
             "maxLength": 512,
@@ -23604,6 +23606,9 @@
             "type": "string"
           }
         },
+        "required": [
+          "proposal_id"
+        ],
         "type": "object"
       },
       "MultisigProposeInstructionInput": {
@@ -23688,6 +23693,16 @@
           "multisig_account_id": {
             "$ref": "#/components/schemas/GovernanceCanonicalAccountIdV1"
           },
+          "proposal_nonce": {
+            "description": "Caller-retained nonzero random occurrence nonce. Retries preserve the exact nonce and content.",
+            "maxLength": 64,
+            "minLength": 64,
+            "not": {
+              "const": "0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
           "public_key_hex": {
             "oneOf": [
               {
@@ -23726,7 +23741,8 @@
           "multisig_account_id",
           "signer_account_id",
           "fee_payment",
-          "instructions"
+          "instructions",
+          "proposal_nonce"
         ],
         "type": "object"
       },
@@ -23758,27 +23774,19 @@
             "$ref": "#/components/schemas/FeePaymentIntent"
           },
           "instructions_hash": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
           },
           "ok": {
             "type": "boolean"
           },
           "proposal_id": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
           },
           "resolved_multisig_account_id": {
             "type": "string"
@@ -51217,7 +51225,7 @@
         "additionalProperties": false,
         "properties": {
           "confidence_ms": {
-            "description": "Confidence interval (±ms) reported by the network time service.",
+            "description": "Confidence interval (\u00b1ms) reported by the network time service.",
             "format": "uint64",
             "type": "integer"
           },
@@ -51292,7 +51300,7 @@
         "additionalProperties": false,
         "properties": {
           "confidence_ms": {
-            "description": "Confidence interval (±ms) reported by the network time service.",
+            "description": "Confidence interval (\u00b1ms) reported by the network time service.",
             "format": "uint64",
             "type": "integer"
           },
@@ -55131,7 +55139,7 @@
         "description": "List accounts with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Rows follow `sort`, then the collection's identity order. Unknown parameters and fields are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -57668,7 +57676,7 @@
             }
           },
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -57857,7 +57865,7 @@
             }
           },
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -58098,7 +58106,7 @@
             }
           },
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -58287,7 +58295,7 @@
             }
           },
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -60124,7 +60132,7 @@
         "description": "List asset definitions with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Rows follow `sort`, then the collection's identity order. Unknown parameters and fields are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -60524,7 +60532,7 @@
             }
           },
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -62517,7 +62525,7 @@
         "description": "Call-derived contract activity: one row per committed top-level `ContractCall`, with `contract_address` and `contract_entrypoint` from the signed invocation; `contract_alias` and `contract_payload` appear only when the call committed successfully, because only then has consensus bound that metadata to the invocation. Rows are in descending chain position order, with bounded authenticated history reads. Accepts shared filter, select, limit and cursor. Continue until next_cursor is null, including after short or empty pages. sort, include_total, aggregate, offset and count_mode are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -64232,7 +64240,7 @@
         "description": "Call-derived contract events: one row per committed top-level `ContractCall`, projected from the signed invocation and the metadata consensus bound to it; contracts do not emit these rows, `provenance` is always `derived`, and `contract_module`/`contract_event_*` transaction metadata is ignored. Rows are in descending chain position order, with bounded authenticated history reads. Accepts shared filter, select, limit and cursor. Continue until next_cursor is null, including after short or empty pages. sort, include_total, aggregate, offset and count_mode are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -66157,7 +66165,7 @@
         "description": "List domains with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Rows follow `sort`, then the collection's identity order. Unknown parameters and fields are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -73310,7 +73318,7 @@
     },
     "/v1/gov/parliament/attempts/{governance_attempt_id}/plan": {
       "get": {
-        "description": "Returns the transitions the Parliament reducer accepts at the execution height of a transaction submitted now, the exact-height checkpoints, and the ballots waiting for a corpus relay or the combined TLE release (`specs/sccp.md` §4.14.5 item 4). The plan is advice for a driver; consensus rechecks every submitted transition.",
+        "description": "Returns the transitions the Parliament reducer accepts at the execution height of a transaction submitted now, the exact-height checkpoints, and the ballots waiting for a corpus relay or the combined TLE release (`specs/sccp.md` \u00a74.14.5 item 4). The plan is advice for a driver; consensus rechecks every submitted transition.",
         "operationId": "governanceParliamentAttemptPlanV1",
         "parameters": [
           {
@@ -79666,9 +79674,9 @@
         "x-iroha-tool-effect": "write"
       }
     },
-    "/v1/multisig/execution-evidence/{multisig_account_id}/{entrypoint_hash}/{instructions_hash}": {
+    "/v1/multisig/execution-evidence/{multisig_account_id}/{entrypoint_hash}/{proposal_id}/{instructions_hash}": {
       "get": {
-        "description": "Returns the complete native World snapshot and both immutable original records selected by exact account, entrypoint and instructions identities. Standard Torii listener access controls apply. The reader independently authenticates the certified prefix and snapshot; successful decoding grants no finality authority. Bounded admission, memory and egress controls fail closed. Responses are never stored.",
+        "description": "Returns the complete native World snapshot and immutable originals selected by exact account, entrypoint, occurrence ID and instruction commitment. A cancellation wrapper includes its exact canceled target original from the same cut. Standard Torii listener access controls apply. The reader independently authenticates the certified prefix, snapshot and originals; successful decoding grants no finality authority. Bounded admission, memory and egress controls fail closed. Responses are never stored.",
         "parameters": [
           {
             "description": "Exact canonical encoded AccountId.",
@@ -79685,6 +79693,18 @@
             "description": "Exact lowercase native hash selector.",
             "in": "path",
             "name": "entrypoint_hash",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 64,
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Exact canonical occurrence identity, distinct from the instruction commitment.",
+            "in": "path",
+            "name": "proposal_id",
             "required": true,
             "schema": {
               "maxLength": 64,
@@ -79721,7 +79741,7 @@
                 }
               }
             },
-            "description": "Both immutable originals at one certified native cut.",
+            "description": "Exact occurrence originals and any canceled target original at one certified native cut.",
             "headers": {
               "Cache-Control": {
                 "schema": {
@@ -84663,7 +84683,7 @@
         "description": "List NFTs with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Rows follow `sort`, then the collection's identity order. Unknown parameters and fields are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -88497,7 +88517,7 @@
         "description": "List repo agreements with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Rows follow `sort`, then the collection's identity order. Unknown parameters and fields are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -89719,7 +89739,7 @@
         "description": "List RWA lots with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Rows follow `sort`, then the collection's identity order. Unknown parameters and fields are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -116338,7 +116358,7 @@
             }
           },
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -116518,7 +116538,7 @@
         "description": "Subscriptions with flat state fields and optional invoice and plan. Accepts filter, sort, select, limit, cursor and include_total. Returns {items,next_cursor,total?}; pass next_cursor as cursor until null.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -116765,7 +116785,7 @@
         "description": "Subscription plans. Accepts filter, sort, select, limit, cursor and include_total. Returns {items,next_cursor,total?}; pass next_cursor as cursor until null.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -124267,7 +124287,7 @@
       "name": "Applications"
     },
     {
-      "description": "SCCP v1 public read API under `/v1/sccp/*` (`specs/sccp.md` §6). Every peer serves identical bytes derived from committed state; readers verify every proof themselves.",
+      "description": "SCCP v1 public read API under `/v1/sccp/*` (`specs/sccp.md` \u00a76). Every peer serves identical bytes derived from committed state; readers verify every proof themselves.",
       "name": "SCCP"
     }
   ]

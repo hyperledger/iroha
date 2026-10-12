@@ -161,6 +161,8 @@ class NoritoJavaCodecAdapter @JvmOverloads constructor(
         fun verifyCanonicalMultisigProposeExecutable(
             transactionPayload: TransactionPayload,
             expectedMultisigAccountId: String,
+            expectedProposalNonce: String,
+            expectedProposalId: String,
             expectedInstructionBoxes: List<ByteArray>,
         ): ByteArray {
             val expected = snapshotInstructionBoxes(expectedInstructionBoxes)
@@ -182,6 +184,7 @@ class NoritoJavaCodecAdapter @JvmOverloads constructor(
                         executable.instructions[0],
                     ),
                     canonicalAccount,
+                    expectedProposalNonce,
                     expected,
                 )
                 if (executable.instructions.size == 2) {
@@ -190,6 +193,7 @@ class NoritoJavaCodecAdapter @JvmOverloads constructor(
                             executable.instructions[1],
                         ),
                         canonicalAccount,
+                        expectedProposalId,
                         HashLiteral.canonicalize(instructionsHash),
                     )
                 }
@@ -237,6 +241,7 @@ class NoritoJavaCodecAdapter @JvmOverloads constructor(
         private fun verifyMultisigProposeJson(
             json: String,
             expectedAccount: String,
+            expectedProposalNonce: String,
             expectedInstructions: List<ByteArray>,
         ) {
             val root = requireJsonObject(JsonParser.parse(json), "multisig custom")
@@ -244,7 +249,7 @@ class NoritoJavaCodecAdapter @JvmOverloads constructor(
             val propose = requireJsonObject(root["Propose"], "multisig custom.Propose")
             requireExactKeys(
                 propose,
-                setOf("account", "instructions", "transaction_ttl_ms"),
+                setOf("account", "proposal_nonce", "instructions", "transaction_ttl_ms"),
                 "multisig custom.Propose",
             )
             requireExactString(
@@ -252,6 +257,7 @@ class NoritoJavaCodecAdapter @JvmOverloads constructor(
                 expectedAccount,
                 "multisig custom.Propose.account",
             )
+            requireExactString(propose["proposal_nonce"], expectedProposalNonce, "multisig custom.Propose.proposal_nonce")
             require(propose["transaction_ttl_ms"] == null) {
                 "multisig custom.Propose.transaction_ttl_ms must be null"
             }
@@ -274,6 +280,7 @@ class NoritoJavaCodecAdapter @JvmOverloads constructor(
         private fun verifyMultisigApproveJson(
             json: String,
             expectedAccount: String,
+            expectedProposalId: String,
             expectedHashLiteral: String,
         ) {
             val root = requireJsonObject(JsonParser.parse(json), "multisig custom")
@@ -281,7 +288,7 @@ class NoritoJavaCodecAdapter @JvmOverloads constructor(
             val approve = requireJsonObject(root["Approve"], "multisig custom.Approve")
             requireExactKeys(
                 approve,
-                setOf("account", "instructions_hash"),
+                setOf("account", "proposal_id", "instructions_hash"),
                 "multisig custom.Approve",
             )
             requireExactString(
@@ -289,6 +296,7 @@ class NoritoJavaCodecAdapter @JvmOverloads constructor(
                 expectedAccount,
                 "multisig custom.Approve.account",
             )
+            requireExactString(approve["proposal_id"], expectedProposalId, "multisig custom.Approve.proposal_id")
             requireExactString(
                 approve["instructions_hash"],
                 expectedHashLiteral,

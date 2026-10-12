@@ -3429,6 +3429,7 @@ class HttpClientTransport private constructor(
                 payload["multisig_account_alias"] = normalizeNonBlank(accountAlias!!, "multisigAccountAlias")
             }
             payload["signer_account_id"] = normalizeNonBlank(request.signerAccountId, "signerAccountId")
+            payload["proposal_nonce"] = request.proposalNonce
             if (request.publicKeyHex != null) {
                 payload["public_key_hex"] =
                     normalizeEd25519PublicKeyHex(request.publicKeyHex, "publicKeyHex")
@@ -3476,8 +3477,7 @@ class HttpClientTransport private constructor(
                 NoritoJavaCodecAdapter.hashCanonicalInstructionBoxes(proposalInstructions),
             )
             check(
-                response.proposalId == expectedProposalHash &&
-                    response.instructionsHash == expectedProposalHash,
+                response.instructionsHash == expectedProposalHash,
             ) {
                 "multisig response proposal hash does not match the exact requested instructions"
             }
@@ -3488,6 +3488,8 @@ class HttpClientTransport private constructor(
             check(response.resolvedMultisigAccountId == requestedMultisigAccount) {
                 "multisig response resolved account does not match the requested account"
             }
+            val expectedProposalId = org.hyperledger.iroha.sdk.crypto.NativeSignerBridge.deriveMultisigProposalId(expectedNetworkId, requestedMultisigAccount, request.proposalNonce)
+            check(response.proposalId == expectedProposalId) { "multisig response changed occurrence identity" }
             if (response.submitted) return response
             val transactionBytes = Base64.getDecoder().decode(
                 checkNotNull(response.transactionPayloadB64) {
@@ -3529,6 +3531,8 @@ class HttpClientTransport private constructor(
             val executableHash = NoritoJavaCodecAdapter.verifyCanonicalMultisigProposeExecutable(
                 decoded,
                 requestedMultisigAccount,
+                request.proposalNonce,
+                expectedProposalId,
                 proposalInstructions,
             )
             check(hexLower(executableHash) == expectedProposalHash) {

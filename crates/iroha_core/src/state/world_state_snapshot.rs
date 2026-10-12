@@ -579,6 +579,90 @@ impl State {
         })
     }
 
+    /// Borrow wrapper execution originals and, for a cancellation, its exact target original
+    /// from the same certified cut. All originals remain untrusted publication data.
+    pub fn with_native_multisig_execution_snapshot_v1<T>(
+        &self,
+        tip: &CommittedBlock,
+        keys: &[iroha_model_base::state_path::StatePath; 2],
+        budget: &AllocationBudget,
+        consume: impl FnOnce(
+            &WorldStateSnapshotV1,
+            Option<&Vec<u8>>,
+            &Vec<u8>,
+            Option<&Vec<u8>>,
+        ) -> Result<T, String>,
+    ) -> Result<T, WorldStateSnapshotError> {
+        use crate::smartcontracts::isi::multisig::multisig_proposal_terminal_execution_state_key;
+        use iroha_executor_data_model::isi::multisig::{
+            MultisigInstructionBox, MultisigProposalTerminalExecutionStateV1,
+            MultisigProposalTerminalStatus,
+        };
+        if keys[0] == keys[1] {
+            return Err("World snapshot target keys must differ".into());
+        }
+        self.with_native_world_state_snapshot_cut_v1(tip, None, budget, |snapshot, world| {
+            let _decode_scratch = budget
+                .try_reserve_bytes(512 * 1024)
+                .map_err(|error| error.to_string())?;
+            let original =
+                |key: &iroha_model_base::state_path::StatePath| -> Result<&Vec<u8>, String> {
+                    let bytes = world
+                        .smart_contract_state
+                        .get(key)
+                        .ok_or("immutable multisig execution record is absent")?;
+                    if bytes.is_empty() || bytes.len() > 64 * 1024 {
+                        return Err("multisig execution original exceeds bound".into());
+                    }
+                    require_target(
+                        snapshot,
+                        "world.smart_contract_state",
+                        WorldStateElementKindV1::Table,
+                        Some(hash_value(key)?),
+                        hash_value(bytes)?,
+                    )?;
+                    Ok(bytes)
+                };
+            let outcome = world
+                .smart_contract_state
+                .get(&keys[0])
+                .map(|_| original(&keys[0]))
+                .transpose()?;
+            let terminal = original(&keys[1])?;
+            let execution: MultisigProposalTerminalExecutionStateV1 =
+                norito::with_decode_limits_scope(
+                    norito::canonical_decode_limits(terminal.len()),
+                    || norito::decode_from_bytes(terminal),
+                )
+                .map_err(|e| e.to_string())?;
+            if norito::to_bytes(&execution).map_err(|e| e.to_string())? != *terminal {
+                return Err("multisig terminal is not canonical".into());
+            }
+            let target = if execution.terminal.status == MultisigProposalTerminalStatus::Finalized {
+                match execution.terminal.proposal.instructions.as_slice() {
+                    [inner] => match MultisigInstructionBox::try_from(inner) {
+                        Ok(MultisigInstructionBox::Cancel(cancel)) => {
+                            let key = multisig_proposal_terminal_execution_state_key(
+                                execution.terminal_entrypoint_hash,
+                                &cancel.account,
+                                &cancel.proposal_id,
+                            );
+                            if keys.contains(&key) {
+                                return Err("cancellation target equals wrapper record".into());
+                            }
+                            Some(original(&key)?)
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            consume(snapshot, outcome, terminal, target)
+        })
+    }
+
     /// Publish complete canonical alias bindings and smart-contract key originals
     /// to a currently registered native ledger-wide reader at one certified cut.
     ///

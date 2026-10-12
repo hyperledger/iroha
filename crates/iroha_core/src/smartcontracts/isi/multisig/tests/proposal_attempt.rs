@@ -30,6 +30,7 @@ fn signed_xor_transfer_retry(check_body_binding: bool) {
         2,
         2_000,
         |block, authority, _, _| {
+            let network_id = block.network_id;
             let signer = KeyPair::from_seed(vec![55; 32], Algorithm::Ed25519);
             assert_eq!(*authority, AccountId::new(signer.public_key().clone()));
             let spec = MultisigSpec::new(
@@ -47,16 +48,24 @@ fn signed_xor_transfer_retry(check_body_binding: bool) {
                     .into(),
             ];
             let hash = HashOf::new(&instructions);
-            let approval = MultisigApprove::new(multisig.clone(), hash);
-            let key = multisig_proposal_state_key(&multisig, &hash);
-            let original = MultisigProposalState::new(
+            let approval = MultisigApprove::new(
                 multisig.clone(),
+                test_id(&network_id, &multisig.clone(), &hash),
                 hash,
+            );
+            let key =
+                multisig_proposal_state_key(&multisig, &test_id(&network_id, &multisig, &hash));
+            let original = MultisigProposalState::new(
+                network_id,
+                multisig.clone(),
+                test_nonce(&hash),
+                test_id(&network_id, &multisig.clone(), &hash),
+                hash,
+                None,
                 instructions.clone(),
                 1_000,
                 60_000,
                 BTreeSet::new(),
-                None,
             );
             let bytes = norito::to_bytes(&original).unwrap();
             {
@@ -260,13 +269,18 @@ fn live_multisig_proposal_missing_malformed_and_rebound_state_are_not_deferrals(
     );
     let mut block = state.block(runtime_header(&state, 2_000));
     let mut tx = block.transaction_for_callback_testing();
+    let network_id = tx.network_id;
     let instructions = vec![InstructionBox::from(Log::new(
         Level::INFO,
         "reviewed".into(),
     ))];
     let hash = HashOf::new(&instructions);
-    let approval = MultisigApprove::new(authority.clone(), hash);
-    let key = multisig_proposal_state_key(&authority, &hash);
+    let approval = MultisigApprove::new(
+        authority.clone(),
+        test_id(&network_id, &authority.clone(), &hash),
+        hash,
+    );
+    let key = multisig_proposal_state_key(&authority, &test_id(&network_id, &authority, &hash));
     assert_eq!(
         live_proposal_instructions_for_approval(&tx, &approval).unwrap(),
         None
@@ -281,26 +295,42 @@ fn live_multisig_proposal_missing_malformed_and_rebound_state_are_not_deferrals(
         ))
     ));
     let original = MultisigProposalState::new(
+        network_id,
         authority.clone(),
+        test_nonce(&hash),
+        test_id(&network_id, &authority.clone(), &hash),
         hash,
+        None,
         instructions,
         1_000,
         60_000,
         BTreeSet::new(),
-        None,
     );
-    for account_mismatch in [true, false] {
+    for mutation in 0..6 {
         let mut altered = original.clone();
-        if account_mismatch {
-            altered.multisig_account_id = new_account_id(&checked_keypair());
-        } else {
-            altered.instructions_hash = HashOf::new(&Vec::<InstructionBox>::new());
+        match mutation {
+            0 => altered.multisig_account_id = new_account_id(&checked_keypair()),
+            1 => altered.instructions_hash = HashOf::new(&Vec::<InstructionBox>::new()),
+            2 => altered.proposal_nonce = MultisigProposalNonce::new([0x81; 32]).unwrap(),
+            3 => {
+                altered.proposal_id = MultisigProposalId::derive(
+                    &network_id,
+                    &authority,
+                    &MultisigProposalNonce::new([0x82; 32]).unwrap(),
+                )
+            }
+            4 => {
+                altered.network_id = iroha_data_model::NetworkId::from_genesis_hash(
+                    HashOf::from_untyped_unchecked(Hash::prehashed([0x83; 32])),
+                )
+            }
+            _ => altered.transaction_ttl_ms = NonZeroU64::new(1),
         }
         tx.world
             .smart_contract_state
             .insert(key.clone(), norito::to_bytes(&altered).unwrap());
         assert!(
-            matches!(live_proposal_instructions_for_approval(&tx, &approval), Err(ExecutionAttemptError::Rejected(ValidationFail::QueryFailed(QueryExecutionFail::Conversion(ref message)))) if message.contains("exact account and instruction-hash key"))
+            matches!(live_proposal_instructions_for_approval(&tx, &approval), Err(ExecutionAttemptError::Rejected(ValidationFail::QueryFailed(QueryExecutionFail::Conversion(ref message)))) if message.contains("exact network, account, occurrence key"))
         );
     }
     assert!(tx.execution_deferral().is_none());
@@ -346,6 +376,7 @@ fn terminal_decode_retry(expired: bool) {
         2,
         2_000,
         |block, authority, _, _| {
+            let network_id = block.network_id;
             let signer = KeyPair::from_seed(vec![55; 32], Algorithm::Ed25519);
             assert_eq!(*authority, AccountId::new(signer.public_key().clone()));
             let spec = MultisigSpec::new(
@@ -360,29 +391,43 @@ fn terminal_decode_retry(expired: bool) {
             ))];
             let leaf_hash = HashOf::new(&leaf_instructions);
             let instructions = vec![if expired {
-                InstructionBox::from(MultisigApprove::new(account.clone(), leaf_hash))
+                InstructionBox::from(MultisigApprove::new(
+                    account.clone(),
+                    test_id(&network_id, &account.clone(), &leaf_hash),
+                    leaf_hash,
+                ))
             } else {
-                InstructionBox::from(MultisigCancel::new(account.clone(), leaf_hash))
+                InstructionBox::from(MultisigCancel::new(
+                    account.clone(),
+                    test_id(&network_id, &account.clone(), &leaf_hash),
+                    leaf_hash,
+                ))
             }];
             let hash = HashOf::new(&instructions);
             let expiry = if expired { 1_500 } else { 60_000 };
             let proposal = MultisigProposalState::new(
+                network_id,
                 account.clone(),
+                test_nonce(&hash),
+                test_id(&network_id, &account.clone(), &hash),
                 hash,
+                None,
                 instructions,
                 1_000,
                 expiry,
                 BTreeSet::new(),
-                None,
             );
             let leaf = MultisigProposalState::new(
+                network_id,
                 account.clone(),
+                test_nonce(&leaf_hash),
+                test_id(&network_id, &account.clone(), &leaf_hash),
                 leaf_hash,
+                None,
                 leaf_instructions,
                 1_000,
                 expiry,
                 BTreeSet::new(),
-                None,
             );
             {
                 let mut tx = block.transaction_for_callback_testing();
@@ -403,7 +448,11 @@ fn terminal_decode_retry(expired: bool) {
                 store_multisig_proposal_state(&mut tx, &proposal).unwrap();
                 tx.apply();
             }
-            let approval = MultisigApprove::new(account.clone(), hash);
+            let approval = MultisigApprove::new(
+                account.clone(),
+                test_id(&network_id, &account.clone(), &hash),
+                hash,
+            );
             let signed = TransactionBuilder::new(
                 block.network_id,
                 authority.clone(),
@@ -424,9 +473,15 @@ fn terminal_decode_retry(expired: bool) {
                 ivm::error::ExecutionDeferral::ActiveMemoryCapacity.into();
             {
                 let mut tx = block.transaction_for_fastpq_testing(call);
+                let network_id = tx.network_id;
                 if expired {
                     let read_budget = proposal_decode_allocation_used(|| {
-                        proposal_state_attempt(&tx, &account, &hash).unwrap();
+                        proposal_state_attempt(
+                            &tx,
+                            &account,
+                            &test_id(&network_id, &account, &hash),
+                        )
+                        .unwrap();
                     });
                     let limits = norito::DecodeLimits::new(
                         usize::MAX,
@@ -436,37 +491,32 @@ fn terminal_decode_retry(expired: bool) {
                         usize::MAX,
                     );
                     norito::with_decode_limits_scope(limits, || {
-                        let exact = proposal_state_attempt(&tx, &account, &hash)
-                            .expect("the funded retained row read completes first");
+                        let exact = proposal_state_attempt(
+                            &tx,
+                            &account,
+                            &test_id(&network_id, &account, &hash),
+                        )
+                        .expect("the funded retained row read completes first");
                         assert_eq!(
                             proposal_instruction_attempt(&exact.instructions[0]),
                             Err(ExecutionAttemptError::Deferred(expected.clone()))
                         );
                     });
                     norito::with_decode_limits_scope(limits, || {
-                        prune_expired(&mut tx, &account, &hash, &account)
+                        prune_expired(
+                            &mut tx,
+                            &account,
+                            &test_id(&network_id, &account, &hash),
+                            &account,
+                        )
                     })
                     .expect_err(
                         "expiry cannot skip its child approval when local decoding refuses",
                     );
-                } else {
-                    limited(|| {
-                        assert_eq!(
-                            proposal_is_cancel_wrapper(&proposal),
-                            Err(ExecutionAttemptError::Deferred(expected.clone()))
-                        );
-                        maybe_store_terminal_proposal_state(
-                            &mut tx,
-                            &proposal,
-                            MultisigProposalTerminalStatus::Finalized,
-                            &account,
-                        )
-                        .expect_err(
-                            "an unfinished cancel-wrapper read cannot create a terminal record",
-                        );
-                    });
                 }
-                assert_eq!(tx.execution_deferral(), Some(expected.clone()));
+                if expired {
+                    assert_eq!(tx.execution_deferral(), Some(expected.clone()));
+                }
                 assert_eq!(
                     tx.world
                         .smart_contract_state
@@ -546,6 +596,7 @@ fn terminal_decode_retry(expired: bool) {
                 before
             );
             let mut tx = block.transaction_for_fastpq_testing(call);
+            let network_id = tx.network_id;
             tx.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
             tx.world.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
             Executor::Initial
@@ -560,153 +611,107 @@ fn terminal_decode_retry(expired: bool) {
             tx.apply();
             assert_eq!(block.committed_fragment_count(), fragments + 1);
             let tx = block.transaction_for_callback_testing();
-            for proposal_hash in [hash, leaf_hash] {
+            for proposal_hash in if expired {
+                vec![hash]
+            } else {
+                vec![hash, leaf_hash]
+            } {
                 assert!(
                     tx.world
                         .smart_contract_state
-                        .get(&multisig_proposal_state_key(&account, &proposal_hash))
+                        .get(&multisig_proposal_state_key(
+                            &account,
+                            &test_id(&network_id, &account, &proposal_hash)
+                        ))
                         .is_none()
                 );
             }
-            let leaf_terminal = tx
-                .world
-                .smart_contract_state
-                .get(&multisig_proposal_terminal_state_key(&account, &leaf_hash))
-                .expect("the exact target receives its terminal status");
-            let terminal: MultisigProposalTerminalState =
-                norito::decode_from_bytes(leaf_terminal).unwrap();
+            let leaf_key = multisig_proposal_state_key(&account, &leaf.proposal_id);
+            let leaf_terminal_key =
+                multisig_proposal_terminal_state_key(&account, &leaf.proposal_id);
+            if expired {
+                assert_eq!(
+                    tx.world.smart_contract_state.get(&leaf_key),
+                    before.get(&leaf_key),
+                    "an expired parent never executes or expires its child approval"
+                );
+                assert!(
+                    tx.world
+                        .smart_contract_state
+                        .get(&leaf_terminal_key)
+                        .is_none()
+                );
+            } else {
+                let leaf_terminal = tx
+                    .world
+                    .smart_contract_state
+                    .get(&leaf_terminal_key)
+                    .expect("the selected cancellation target receives its terminal status");
+                let terminal: MultisigProposalTerminalState =
+                    norito::decode_from_bytes(leaf_terminal).unwrap();
+                assert_eq!(terminal.status, MultisigProposalTerminalStatus::Canceled);
+            }
+            let parent_terminal: MultisigProposalTerminalState = norito::decode_from_bytes(
+                tx.world
+                    .smart_contract_state
+                    .get(&multisig_proposal_terminal_state_key(
+                        &account,
+                        &proposal.proposal_id,
+                    ))
+                    .unwrap(),
+            )
+            .unwrap();
             assert_eq!(
-                terminal.status,
+                parent_terminal.status,
                 if expired {
                     MultisigProposalTerminalStatus::Expired
                 } else {
-                    MultisigProposalTerminalStatus::Canceled
+                    MultisigProposalTerminalStatus::Finalized
                 }
             );
-            assert_eq!(
+            let outcome: MultisigApprovalOutcomeV1 = norito::decode_from_bytes(
                 tx.world
                     .smart_contract_state
-                    .get(&multisig_proposal_terminal_state_key(&account, &hash))
-                    .is_some(),
-                expired,
-                "a cancel wrapper never creates a terminal proposal record"
+                    .get(&multisig_approval_outcome_state_key(
+                        *call.as_ref(),
+                        &account,
+                        &proposal.proposal_id,
+                    ))
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                outcome.status,
+                if expired {
+                    MultisigApprovalOutcomeStatusV1::NotExecuted
+                } else {
+                    MultisigApprovalOutcomeStatusV1::Executed
+                }
             );
         },
     );
 }
 
 #[test]
-fn proposal_migration_validates_original_physical_key_and_body_before_writes() {
-    let owner = new_account_id(&checked_keypair());
-    let next = new_account_id(&checked_keypair());
-    let state = runtime_state(
-        World::with([], [Account::new(owner.clone()).build(&owner)], []),
-        ChainId::from("multisig-proposal-migration-binding"),
-        None,
-    );
-    let mut block = state.block(runtime_header(&state, 2_000));
-    let instructions = vec![InstructionBox::from(Log::new(
-        Level::INFO,
-        "original approved body".into(),
-    ))];
-    let hash = HashOf::new(&instructions);
-    let original = MultisigProposalState::new(
-        owner.clone(),
-        hash,
-        instructions,
-        1_000,
-        60_000,
-        BTreeSet::from([owner.clone()]),
-        Some(true),
-    );
-    let key = multisig_proposal_state_key(&owner, &hash);
-    let next_key = multisig_proposal_state_key(&next, &hash);
-    let bytes = norito::to_bytes(&original).unwrap();
-    {
-        let mut tx = block.transaction_for_callback_testing();
-        store_multisig_proposal_state(&mut tx, &original).unwrap();
-        tx.apply();
-    }
-    for rebound in [false, true] {
-        let mut tx = block.transaction_for_callback_testing();
-        let mut altered = original.clone();
-        if rebound {
-            altered.multisig_account_id = next.clone();
-        } else {
-            altered.instructions = Vec::new();
-        }
-        tx.world
-            .smart_contract_state
-            .insert(key.clone(), norito::to_bytes(&altered).unwrap());
-        let before: BTreeMap<_, _> = tx
-            .world
-            .smart_contract_state
-            .iter()
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect();
-        assert_eq!(
-            move_multisig_proposals(&mut tx, &owner, &next),
-            Err(invalid_proposal_binding())
-        );
-        assert_eq!(
-            invalidate_outstanding_proposals(&mut tx, &owner),
-            Err(invalid_proposal_binding())
-        );
-        assert!(matches!(
-            validate_persisted_proposals(&tx.world),
-            Err(ExecutionAttemptError::Rejected(_))
-        ));
-        assert!(tx.execution_deferral().is_none());
-        assert_eq!(
-            tx.world
-                .smart_contract_state
-                .iter()
-                .map(|(key, value)| (key.clone(), value.clone()))
-                .collect::<BTreeMap<_, _>>(),
-            before
-        );
-        drop(tx);
-        let tx = block.transaction_for_callback_testing();
-        assert_eq!(tx.world.smart_contract_state.get(&key), Some(&bytes));
-        assert!(tx.world.smart_contract_state.get(&next_key).is_none());
-    }
-    {
-        let mut tx = block.transaction_for_callback_testing();
-        limited(|| move_multisig_proposals(&mut tx, &owner, &next))
-            .expect_err("original decode refusal cannot become migration corruption");
-        assert_eq!(
-            tx.execution_deferral(),
-            Some(ivm::error::ExecutionDeferral::ActiveMemoryCapacity.into())
-        );
-        assert_eq!(tx.world.smart_contract_state.get(&key), Some(&bytes));
-        assert!(tx.world.smart_contract_state.get(&next_key).is_none());
-    }
-    {
-        let mut tx = block.transaction_for_callback_testing();
-        let mut destination = original.clone();
-        destination.multisig_account_id = next.clone();
-        store_multisig_proposal_state(&mut tx, &destination).unwrap();
-        move_multisig_proposals(&mut tx, &owner, &next)
-            .expect_err("migration must not overwrite an existing destination row");
-        assert_eq!(tx.world.smart_contract_state.get(&key), Some(&bytes));
-        assert_eq!(
-            tx.world.smart_contract_state.get(&next_key),
-            Some(&norito::to_bytes(&destination).unwrap())
-        );
-    }
-    let mut tx = block.transaction_for_callback_testing();
-    move_multisig_proposals(&mut tx, &owner, &next).unwrap();
-    validate_persisted_proposals(&tx.world).unwrap();
-    let mut expected = original;
-    expected.multisig_account_id = next;
-    assert_eq!(
-        decode_proposal_state_at_key(
-            &next_key,
-            tx.world.smart_contract_state.get(&next_key).unwrap()
+fn outstanding_occurrence_invalidation_preserves_original_decode_refusal() {
+    with_occurrence_fixture(|tx, first, _, account, _| {
+        let nonce = MultisigProposalNonce::new([0x55; 32]).unwrap();
+        let id = MultisigProposalId::derive(&tx.network_id, account, &nonce);
+        execute_propose(
+            tx,
+            first,
+            &MultisigPropose::new(account.clone(), nonce, vec![], None),
         )
-        .unwrap(),
-        expected
-    );
-    assert!(tx.world.smart_contract_state.get(&key).is_none());
-    tx.apply();
+        .unwrap();
+        let key = multisig_proposal_state_key(account, &id);
+        let original = tx.world.smart_contract_state.get(&key).unwrap().clone();
+        assert!(limited(|| invalidate_outstanding_proposals(tx, account)).is_err());
+        assert_eq!(tx.world.smart_contract_state.get(&key), Some(&original));
+        assert!(require_no_outstanding_proposals(tx, account).is_err());
+        assert_eq!(
+            invalidate_outstanding_proposals(tx, account).unwrap(),
+            vec![id]
+        );
+        assert!(tx.world.smart_contract_state.get(&key).is_none());
+    });
 }

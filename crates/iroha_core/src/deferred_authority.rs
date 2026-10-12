@@ -45,6 +45,7 @@ enum OpaqueDeferredAuthorityError {
     },
     UnresolvedMultisigApproval {
         account_id: String,
+        proposal_id: String,
         instructions_hash_hex: String,
     },
     ProposalDepthExceeded,
@@ -71,10 +72,11 @@ impl fmt::Display for OpaqueDeferredAuthorityError {
             ),
             Self::UnresolvedMultisigApproval {
                 account_id,
+                proposal_id,
                 instructions_hash_hex,
             } => write!(
                 f,
-                "opaque deferred executable contains a multisig approval that cannot be resolved before execution for account {account_id} and instructions hash {instructions_hash_hex}"
+                "opaque deferred executable contains a multisig approval that cannot be resolved before execution for account {account_id}, occurrence {proposal_id} and instructions hash {instructions_hash_hex}"
             ),
             Self::ProposalDepthExceeded => write!(
                 f,
@@ -312,15 +314,12 @@ where
                     else {
                         return Err(OpaqueDeferredAuthorityError::UnresolvedMultisigApproval {
                             account_id: approval.account.to_string(),
+                            proposal_id: approval.proposal_id.to_string(),
                             instructions_hash_hex: hex::encode(approval.instructions_hash.as_ref()),
                         }
                         .into());
                     };
-                    let identity = format!(
-                        "{}:{}",
-                        authority,
-                        hex::encode(approval.instructions_hash.as_ref())
-                    );
+                    let identity = format!("{}:{}", authority, approval.proposal_id);
                     if visited.insert(identity) {
                         reject_opaque_committee_operations_with(
                             instructions.iter(),
@@ -435,6 +434,10 @@ mod tests {
     fn propose(instructions: Vec<InstructionBox>) -> InstructionBox {
         iroha_executor_data_model::isi::multisig::MultisigPropose::new(
             iroha_test_samples::ALICE_ID.clone(),
+            iroha_executor_data_model::isi::multisig::MultisigProposalNonce::new(
+                *iroha_crypto::HashOf::new(&instructions).as_ref(),
+            )
+            .unwrap(),
             instructions,
             None,
         )
@@ -479,7 +482,17 @@ mod tests {
         assert_eq!(check(&[propose(vec![sccp_record()])], None), refused(0));
         // In a live proposal that an opaque multisig approval would execute.
         let approval: InstructionBox = MultisigApprove::new(
-            iroha_test_samples::ALICE_ID.clone(),
+            iroha_test_samples::ALICE_ID.clone().clone(),
+            iroha_executor_data_model::isi::multisig::MultisigProposalId::derive(
+                &iroha_data_model::NetworkId::from_genesis_hash(
+                    iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::prehashed(
+                        [0x41; 32],
+                    )),
+                ),
+                &iroha_test_samples::ALICE_ID.clone(),
+                &iroha_executor_data_model::isi::multisig::MultisigProposalNonce::new([0x51; 32])
+                    .unwrap(),
+            ),
             iroha_crypto::HashOf::new(&vec![sccp_record()]),
         )
         .into();
@@ -537,7 +550,17 @@ mod tests {
         )));
         // An approval needs live state; the execution-time check resolves it.
         let approval: InstructionBox = MultisigApprove::new(
-            iroha_test_samples::ALICE_ID.clone(),
+            iroha_test_samples::ALICE_ID.clone().clone(),
+            iroha_executor_data_model::isi::multisig::MultisigProposalId::derive(
+                &iroha_data_model::NetworkId::from_genesis_hash(
+                    iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::prehashed(
+                        [0x41; 32],
+                    )),
+                ),
+                &iroha_test_samples::ALICE_ID.clone(),
+                &iroha_executor_data_model::isi::multisig::MultisigProposalNonce::new([0x51; 32])
+                    .unwrap(),
+            ),
             iroha_crypto::HashOf::new(&vec![sccp_record()]),
         )
         .into();

@@ -47,6 +47,8 @@ pub mod multisig {
     use iroha_model_base::domain::DomainId;
     use norito::json::{self, JsonDeserialize, JsonSerialize};
     use std::{borrow::ToOwned, collections::BTreeSet};
+    mod occurrence;
+    pub use occurrence::{MultisigProposalId, MultisigProposalNonce};
     /// Multisig-related instructions
     #[derive(
         Debug,
@@ -354,12 +356,17 @@ pub mod multisig {
         norito::NoritoSchema,
     )]
     #[norito_schema(name = "iroha_executor_data_model::isi::multisig::MultisigPropose")]
+    #[norito(deny_unknown_fields)]
     pub struct MultisigPropose {
         /// Multisig account to propose
         pub account: AccountId,
+        /// Nonzero nonce identifying this proposal occurrence.
+        pub proposal_nonce: MultisigProposalNonce,
         /// Proposal contents
         pub instructions: Vec<InstructionBox>,
-        /// Optional TTL to override the account default. Cannot be longer than the account default
+        /// Optional TTL to override the account default. Cannot be longer than the account default.
+        /// The JSON field is required; explicit null selects the account default.
+        #[norito(required)]
         pub transaction_ttl_ms: Option<NonZeroU64>,
     }
     /// Approve a certain multisig transaction
@@ -379,9 +386,12 @@ pub mod multisig {
         norito::NoritoSchema,
     )]
     #[norito_schema(name = "iroha_executor_data_model::isi::multisig::MultisigApprove")]
+    #[norito(deny_unknown_fields)]
     pub struct MultisigApprove {
         /// Multisig account to approve
         pub account: AccountId,
+        /// Exact proposal occurrence, distinct from its instruction fingerprint.
+        pub proposal_id: MultisigProposalId,
         /// Proposal to approve
         pub instructions_hash: HashOf<Vec<InstructionBox>>,
     }
@@ -402,9 +412,12 @@ pub mod multisig {
         norito::NoritoSchema,
     )]
     #[norito_schema(name = "iroha_executor_data_model::isi::multisig::MultisigCancel")]
+    #[norito(deny_unknown_fields)]
     pub struct MultisigCancel {
         /// Multisig account that owns the target proposal
         pub account: AccountId,
+        /// Exact proposal occurrence, distinct from its instruction fingerprint.
+        pub proposal_id: MultisigProposalId,
         /// Proposal to cancel
         pub instructions_hash: HashOf<Vec<InstructionBox>>,
     }
@@ -513,20 +526,26 @@ pub mod multisig {
     )]
     #[norito_schema(name = "iroha_executor_data_model::isi::multisig::MultisigProposalState")]
     pub struct MultisigProposalState {
-        /// Canonical multisig account id that owns this proposal.
+        /// Original native network identity.
+        pub network_id: NetworkId,
+        /// Immutable concrete account which owns this occurrence.
         pub multisig_account_id: AccountId,
-        /// Hash of the proposed instruction list.
+        /// Original caller nonce.
+        pub proposal_nonce: MultisigProposalNonce,
+        /// Derived network/account/nonce occurrence identity.
+        pub proposal_id: MultisigProposalId,
+        /// Independent fingerprint of the exact instruction vector.
         pub instructions_hash: HashOf<Vec<InstructionBox>>,
-        /// Proposal contents.
+        /// Original signed TTL choice; never renewed on retry.
+        pub transaction_ttl_ms: Option<NonZeroU64>,
+        /// Exact proposal instructions.
         pub instructions: Vec<InstructionBox>,
-        /// Time in milliseconds at which the proposal was made.
+        /// First committed proposal time.
         pub proposed_at_ms: u64,
-        /// Time in milliseconds at which the proposal will expire.
+        /// Immutable deadline selected at creation.
         pub expires_at_ms: u64,
-        /// List of approvers of the proposal so far.
+        /// Approvals granted under this original controller.
         pub approvals: BTreeSet<AccountId>,
-        /// In case this proposal is some relaying approval, indicates if it has executed or not.
-        pub is_relayed: Option<bool>,
     }
     /// Terminal lifecycle states persisted for top-level multisig proposals.
     #[derive(
@@ -573,6 +592,8 @@ pub mod multisig {
     pub struct MultisigProposalTerminalState {
         /// Canonical multisig account id that owns this proposal.
         pub multisig_account_id: AccountId,
+        /// Exact immutable proposal occurrence.
+        pub proposal_id: MultisigProposalId,
         /// Hash of the proposed instruction list.
         pub instructions_hash: HashOf<Vec<InstructionBox>>,
         /// Proposal contents and collected approvals at the time it became terminal.
@@ -659,6 +680,8 @@ pub mod multisig {
         pub entrypoint_account_id: AccountId,
         /// Canonical multisig account to which the entrypoint resolved during execution.
         pub resolved_multisig_account_id: AccountId,
+        /// Exact occurrence carried by the signed approval.
+        pub proposal_id: MultisigProposalId,
         /// Hash carried by the signed approval instruction.
         pub instructions_hash: HashOf<Vec<InstructionBox>>,
         /// Whether this approval actually executed its concrete proposal instructions.
@@ -708,17 +731,25 @@ pub mod multisig {
         norito::NoritoSchema,
     )]
     #[norito_schema(name = "iroha_executor_data_model::isi::multisig::MultisigProposalValue")]
+    #[norito(deny_unknown_fields)]
     pub struct MultisigProposalValue {
-        /// Proposal contents
+        /// Immutable original network.
+        pub network_id: NetworkId,
+        /// Original caller nonce.
+        pub proposal_nonce: MultisigProposalNonce,
+        /// Native occurrence identity.
+        pub proposal_id: MultisigProposalId,
+        /// Original signed TTL selection; JSON retains an explicit null for the account default.
+        #[norito(required)]
+        pub transaction_ttl_ms: Option<NonZeroU64>,
+        /// Exact proposal contents.
         pub instructions: Vec<InstructionBox>,
-        /// Time in milliseconds at which the proposal was made
+        /// First committed creation time.
         pub proposed_at_ms: u64,
-        /// Time in milliseconds at which the proposal will expire
+        /// Non-sliding expiry.
         pub expires_at_ms: u64,
-        /// List of approvers of the proposal so far
+        /// Approvers under the original controller.
         pub approvals: BTreeSet<AccountId>,
-        /// In case this proposal is some relaying approval, indicates if it has executed or not
-        pub is_relayed: Option<bool>,
     }
     impl JsonSerialize for MultisigSpec {
         fn json_serialize(&self, out: &mut String) {
@@ -782,9 +813,21 @@ pub mod multisig {
             out.push(':');
             self.approvals.json_serialize(out);
             out.push(',');
-            norito::json::write_json_string("is_relayed", out);
+            norito::json::write_json_string("network_id", out);
             out.push(':');
-            self.is_relayed.json_serialize(out);
+            self.network_id.json_serialize(out);
+            out.push(',');
+            json::write_json_string("proposal_nonce", out);
+            out.push(':');
+            self.proposal_nonce.json_serialize(out);
+            out.push(',');
+            json::write_json_string("proposal_id", out);
+            out.push(':');
+            self.proposal_id.json_serialize(out);
+            out.push(',');
+            json::write_json_string("transaction_ttl_ms", out);
+            out.push(':');
+            self.transaction_ttl_ms.json_serialize(out);
             out.push('}');
         }
 
@@ -811,9 +854,21 @@ pub mod multisig {
                 out.push(':')?;
                 self.approvals.json_serialize_to(out)?;
                 out.push(',')?;
-                json::write_json_string_to("is_relayed", out)?;
+                json::write_json_string_to("network_id", out)?;
                 out.push(':')?;
-                self.is_relayed.json_serialize_to(out)?;
+                self.network_id.json_serialize_to(out)?;
+                out.push(',')?;
+                json::write_json_string_to("proposal_nonce", out)?;
+                out.push(':')?;
+                self.proposal_nonce.json_serialize_to(out)?;
+                out.push(',')?;
+                json::write_json_string_to("proposal_id", out)?;
+                out.push(':')?;
+                self.proposal_id.json_serialize_to(out)?;
+                out.push(',')?;
+                json::write_json_string_to("transaction_ttl_ms", out)?;
+                out.push(':')?;
+                self.transaction_ttl_ms.json_serialize_to(out)?;
                 out.push('}')?;
                 Ok(())
             })();
@@ -854,6 +909,18 @@ pub mod multisig {
             collections::BTreeMap,
             num::{NonZeroU16, NonZeroU64},
         };
+
+        fn fixture_network() -> NetworkId {
+            NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
+                iroha_crypto::Hash::prehashed([0x49; 32]),
+            ))
+        }
+        fn fixture_nonce() -> MultisigProposalNonce {
+            MultisigProposalNonce::new([0x71; 32]).unwrap()
+        }
+        fn fixture_id(account: &AccountId) -> MultisigProposalId {
+            MultisigProposalId::derive(&fixture_network(), account, &fixture_nonce())
+        }
         fn fixture_key_pair(seed: u8) -> KeyPair {
             assert_ne!(seed, 0, "multisig fixture seeds must be nonzero");
             KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519)
@@ -944,11 +1011,14 @@ pub mod multisig {
         #[test]
         fn multisig_proposal_rejects_every_duplicate_field_including_null() {
             let expected = MultisigProposalValue::new(
+                fixture_network(),
+                fixture_nonce(),
+                fixture_id(&fixture_account(3)),
+                None,
                 vec![sample_instruction_box()],
                 1,
                 2,
                 BTreeSet::from([fixture_account(4)]),
-                Some(false),
             );
             let source = json::to_json(&expected).unwrap();
             for (name, value) in [
@@ -956,7 +1026,7 @@ pub mod multisig {
                 ("proposed_at_ms", "0"),
                 ("expires_at_ms", "0"),
                 ("approvals", "[]"),
-                ("is_relayed", "null"),
+                ("transaction_ttl_ms", "null"),
             ] {
                 let duplicate = format!("{{\"{name}\":{value},{}", &source[1..]);
                 let error = json::from_str::<MultisigProposalValue>(&duplicate)
@@ -966,7 +1036,7 @@ pub mod multisig {
         }
 
         #[test]
-        fn canonical_multisig_readers_keep_wire_values_required_fields_and_optional_null() {
+        fn canonical_multisig_readers_require_nullable_ttl_and_preserve_explicit_null() {
             let spec = sample_spec();
             let source = json::to_json(&spec).unwrap();
             let decoded = json::from_str::<MultisigSpec>(&source).unwrap();
@@ -975,22 +1045,39 @@ pub mod multisig {
             assert!(matches!(json::from_str::<MultisigSpec>("{}"),
                 Err(json::Error::MissingField { field }) if field == "signatories"));
             let expected = MultisigProposalValue::new(
+                fixture_network(),
+                fixture_nonce(),
+                fixture_id(&fixture_account(3)),
+                None,
                 vec![sample_instruction_box()],
                 1,
                 2,
                 BTreeSet::from([fixture_account(4)]),
-                None,
             );
             let source = json::to_json(&expected).unwrap();
-            assert!(source.contains(",\"is_relayed\":null"));
-            let omitted = source.replace(",\"is_relayed\":null", "");
-            for input in [source.as_str(), omitted.as_str()] {
-                let decoded = json::from_str::<MultisigProposalValue>(input).unwrap();
-                assert_eq!(decoded, expected);
-                assert_eq!(json::to_json(&decoded).unwrap(), source);
-            }
+            assert!(source.contains(",\"transaction_ttl_ms\":null"));
+            let omitted = source.replace(",\"transaction_ttl_ms\":null", "");
+            let decoded = json::from_str::<MultisigProposalValue>(&source).unwrap();
+            assert_eq!(decoded, expected);
+            assert_eq!(json::to_json(&decoded).unwrap(), source);
+            assert!(matches!(json::from_str::<MultisigProposalValue>(&omitted),
+                Err(json::Error::MissingField { field }) if field == "transaction_ttl_ms"));
+            let propose = MultisigPropose::new(
+                fixture_account(3),
+                fixture_nonce(),
+                vec![sample_instruction_box()],
+                None,
+            );
+            let source = json::to_json(&propose).unwrap();
+            assert!(source.contains(",\"transaction_ttl_ms\":null"));
+            let decoded = json::from_str::<MultisigPropose>(&source).unwrap();
+            assert_eq!(decoded, propose);
+            assert_eq!(json::to_json(&decoded).unwrap(), source);
+            let omitted = source.replace(",\"transaction_ttl_ms\":null", "");
+            assert!(matches!(json::from_str::<MultisigPropose>(&omitted),
+                Err(json::Error::MissingField { field }) if field == "transaction_ttl_ms"));
             assert!(matches!(json::from_str::<MultisigProposalValue>("{}"),
-                Err(json::Error::MissingField { field }) if field == "instructions"));
+                Err(json::Error::MissingField { field }) if field == "network_id"));
         }
 
         fn allocation_limits(bytes: usize) -> norito::DecodeLimits {
@@ -1095,11 +1182,14 @@ pub mod multisig {
         #[test]
         fn multisig_proposal_metadata_keeps_original_resource_fields_and_same_context_retry() {
             let expected = MultisigProposalValue::new(
+                fixture_network(),
+                fixture_nonce(),
+                fixture_id(&fixture_account(3)),
+                None,
                 vec![sample_instruction_box()],
                 1,
                 2,
                 BTreeSet::from([fixture_account(4)]),
-                Some(false),
             );
             let payload = Json::try_new(expected.clone()).unwrap();
             assert_metadata_refusal_and_retry(&payload, &expected, |value| {
@@ -1117,11 +1207,14 @@ pub mod multisig {
             );
 
             let proposal = MultisigProposalValue::new(
+                fixture_network(),
+                fixture_nonce(),
+                fixture_id(&fixture_account(3)),
+                None,
                 vec![sample_instruction_box()],
                 1,
                 2,
                 BTreeSet::from([fixture_account(4)]),
-                Some(false),
             );
             let encoded_proposal =
                 Json::try_new(proposal.clone()).expect("bounded multisig proposal JSON");
@@ -1274,7 +1367,11 @@ pub mod multisig {
         fn multisig_cancel_instruction_roundtrip_preserves_target_hash() {
             let multisig_account = fixture_account(11);
             let instructions_hash = HashOf::new(&vec![sample_instruction_box()]);
-            let cancel = MultisigCancel::new(multisig_account.clone(), instructions_hash);
+            let cancel = MultisigCancel::new(
+                multisig_account.clone(),
+                fixture_id(&multisig_account.clone()),
+                instructions_hash,
+            );
             let instruction_box = InstructionBox::from(cancel.clone());
             let decoded = MultisigInstructionBox::try_from(&instruction_box)
                 .expect("decode multisig cancel instruction");
@@ -1317,14 +1414,18 @@ pub mod multisig {
             let instructions = vec![sample_instruction_box()];
             let instructions_hash = HashOf::new(&instructions);
             let proposal = MultisigProposalValue::new(
+                fixture_network(),
+                fixture_nonce(),
+                fixture_id(&fixture_account(3)),
+                None,
                 instructions,
                 1_700_000_000_000,
                 1_700_000_060_000,
                 BTreeSet::from([multisig_account.clone()]),
-                None,
             );
             let terminal = MultisigProposalTerminalState::new(
                 multisig_account.clone(),
+                fixture_id(&multisig_account.clone()),
                 instructions_hash,
                 proposal.clone(),
                 MultisigProposalTerminalStatus::Canceled,
@@ -1346,13 +1447,17 @@ pub mod multisig {
             let instructions_hash = HashOf::new(&instructions);
             let terminal = MultisigProposalTerminalState::new(
                 multisig_account.clone(),
+                fixture_id(&multisig_account.clone()),
                 instructions_hash,
                 MultisigProposalValue::new(
+                    fixture_network(),
+                    fixture_nonce(),
+                    fixture_id(&fixture_account(3)),
+                    None,
                     instructions,
                     1_700_000_000_000,
                     1_700_000_060_000,
                     BTreeSet::new(),
-                    None,
                 ),
                 MultisigProposalTerminalStatus::Finalized,
                 1_700_000_010_000,
@@ -1380,6 +1485,7 @@ pub mod multisig {
             let outcome = MultisigApprovalOutcomeV1::new(
                 entrypoint_account.clone(),
                 resolved_account.clone(),
+                fixture_id(&resolved_account.clone()),
                 instructions_hash,
                 MultisigApprovalOutcomeStatusV1::Executed,
                 43,
@@ -1526,7 +1632,10 @@ pub mod multisig {
                 proposed_at_ms: 17,
                 expires_at_ms: 23,
                 approvals: [fixture_account(1), fixture_account(2)].into(),
-                is_relayed: Some(false),
+                network_id: fixture_network(),
+                proposal_nonce: fixture_nonce(),
+                proposal_id: fixture_id(&fixture_account(3)),
+                transaction_ttl_ms: None,
             };
             let pointer = value.instructions.as_ptr();
             audit(&value);
@@ -1546,15 +1655,18 @@ pub mod multisig {
                 sample_spec(),
             )));
             audit(&MultisigInstructionBox::Propose(MultisigPropose {
+                proposal_nonce: fixture_nonce(),
                 account: account.clone(),
                 instructions,
                 transaction_ttl_ms: NonZeroU64::new(17),
             }));
             audit(&MultisigInstructionBox::Approve(MultisigApprove {
+                proposal_id: fixture_id(&account),
                 account: account.clone(),
                 instructions_hash: hash,
             }));
             audit(&MultisigInstructionBox::Cancel(MultisigCancel {
+                proposal_id: fixture_id(&account),
                 account: account.clone(),
                 instructions_hash: hash,
             }));

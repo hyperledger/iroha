@@ -252,7 +252,9 @@ fn borrowed_trap_rendering_uses_exact_original_error_and_success_has_no_trap() {
     };
     let error = run(&mut vm, &mut host).unwrap().unwrap_err();
     assert_eq!(error, original);
-    let diagnostic = super::super::map_local_vm_diagnostic(vm.last_diagnostic().unwrap(), &error);
+    let source_hash = iroha_crypto::Hash::prehashed(vm.code_hash());
+    let diagnostic =
+        super::super::map_local_vm_diagnostic(vm.last_diagnostic().unwrap(), &error, &source_hash);
     assert_eq!(diagnostic.message, error.to_string());
     assert_eq!(diagnostic.syscall, Some(0x7fff));
     let (vm, _, _) = completed_return();

@@ -10034,7 +10034,8 @@ mod tests {
         transaction::executable::IvmBytecode,
     };
     use iroha_executor_data_model::isi::multisig::{
-        MultisigApprove, MultisigCancel, MultisigPropose, MultisigRegister, MultisigSpec,
+        MultisigApprove, MultisigCancel, MultisigProposalId, MultisigProposalNonce,
+        MultisigPropose, MultisigRegister, MultisigSpec,
     };
     use iroha_model_base::name::Name;
     use iroha_model_base::{chain::ChainId, peer::PeerId};
@@ -10832,6 +10833,12 @@ mod tests {
             "multisig proposal".to_owned(),
         ))];
         let instructions_hash = HashOf::new(&proposed_instructions);
+        let nonce = MultisigProposalNonce::new([7; 32]).unwrap();
+        let proposal_id = MultisigProposalId::derive(
+            &executor_test_network_id(b"fee-sponsor-occurrence"),
+            &target,
+            &nonce,
+        );
         let spec = MultisigSpec::new(
             BTreeMap::from([(signatory, 1)]),
             nonzero!(1_u16),
@@ -10840,14 +10847,20 @@ mod tests {
         let instructions = [
             InstructionBox::from(MultisigPropose::new(
                 target.clone(),
+                nonce,
                 proposed_instructions,
                 None,
             )),
             InstructionBox::from(MultisigApprove::new(
                 target.clone(),
+                proposal_id,
                 instructions_hash.clone(),
             )),
-            InstructionBox::from(MultisigCancel::new(target.clone(), instructions_hash)),
+            InstructionBox::from(MultisigCancel::new(
+                target.clone(),
+                proposal_id,
+                instructions_hash,
+            )),
             InstructionBox::from(MultisigRegister::new(target.clone(), None, spec)),
         ];
         let expected = [
@@ -10871,8 +10884,12 @@ mod tests {
     fn fee_sponsor_multisig_selector_is_exact_and_register_is_opt_in() {
         let target = checked_account_id();
         let other_target = checked_account_id();
-        let propose_instruction =
-            InstructionBox::from(MultisigPropose::new(target.clone(), Vec::new(), None));
+        let propose_instruction = InstructionBox::from(MultisigPropose::new(
+            target.clone(),
+            MultisigProposalNonce::new([7; 32]).unwrap(),
+            Vec::new(),
+            None,
+        ));
         assert_eq!(
             iroha_data_model::isi::instruction_wire_id(&propose_instruction),
             Some("iroha.custom"),

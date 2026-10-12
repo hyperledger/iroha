@@ -21,8 +21,9 @@ use iroha_data_model::{
 };
 use iroha_executor_data_model::isi::multisig::{
     DEFAULT_MULTISIG_TTL_MS, MultisigApprovalOutcomeStatusV1, MultisigApprovalOutcomeV1,
-    MultisigApprove, MultisigProposalTerminalExecutionStateV1, MultisigProposalTerminalStatus,
-    MultisigPropose, MultisigRegister, MultisigSpec,
+    MultisigApprove, MultisigProposalId, MultisigProposalNonce,
+    MultisigProposalTerminalExecutionStateV1, MultisigProposalTerminalStatus, MultisigPropose,
+    MultisigRegister, MultisigSpec,
 };
 use iroha_model_base::{domain::DomainId, state_path::StatePath};
 use iroha_primitives::numeric::Quantity;
@@ -37,6 +38,7 @@ struct ExecutedMultisig {
     holding: AssetId,
     instructions: Vec<InstructionBox>,
     instructions_hash: HashOf<Vec<InstructionBox>>,
+    proposal_id: MultisigProposalId,
     entrypoint_hash: [u8; 32],
     keys: [StatePath; 2],
     approval_height: u64,
@@ -102,27 +104,25 @@ fn executed_multisig() -> ExecutedMultisig {
         holding.clone(),
     ))];
     let instructions_hash = HashOf::new(&instructions);
+    let nonce = MultisigProposalNonce::new([7; 32]).unwrap();
+    let proposal_id = MultisigProposalId::derive(&chain.network_id(), &account, &nonce);
     let propose = chain.sign(
         &first,
-        [MultisigPropose::new(account.clone(), instructions.clone(), None).into()],
+        [MultisigPropose::new(account.clone(), nonce, instructions.clone(), None).into()],
         4_000,
     );
     assert_eq!(chain.commit_at(4_000, vec![propose]), [true]);
     let approve = chain.sign(
         &second,
-        [MultisigApprove::new(account.clone(), instructions_hash).into()],
+        [MultisigApprove::new(account.clone(), proposal_id, instructions_hash).into()],
         5_000,
     );
     let entrypoint_hash = *approve.hash_as_entrypoint().as_ref();
     assert_eq!(chain.commit_at(5_000, vec![approve]), [true]);
     let approval_height = chain.height();
     let keys = [
-        multisig_approval_outcome_state_key(entrypoint_hash, &account, &instructions_hash),
-        multisig_proposal_terminal_execution_state_key(
-            entrypoint_hash,
-            &account,
-            &instructions_hash,
-        ),
+        multisig_approval_outcome_state_key(entrypoint_hash, &account, &proposal_id),
+        multisig_proposal_terminal_execution_state_key(entrypoint_hash, &account, &proposal_id),
     ];
     assert_eq!(
         chain
@@ -141,6 +141,7 @@ fn executed_multisig() -> ExecutedMultisig {
         holding,
         instructions,
         instructions_hash,
+        proposal_id,
         entrypoint_hash,
         keys,
         approval_height,
@@ -233,6 +234,7 @@ fn native_multisig_records_are_authenticated_by_real_certified_execution() {
                 assert_eq!(outcome.entrypoint_account_id, fixture.account);
                 assert_eq!(outcome.resolved_multisig_account_id, fixture.account);
                 assert_eq!(outcome.instructions_hash, fixture.instructions_hash);
+                assert_eq!(outcome.proposal_id, fixture.proposal_id);
                 assert_eq!(outcome.block_height, fixture.approval_height);
                 assert_eq!(outcome.entrypoint_hash, fixture.entrypoint_hash);
                 assert_eq!(terminal.entrypoint_account_id, fixture.account);
@@ -251,6 +253,7 @@ fn native_multisig_records_are_authenticated_by_real_certified_execution() {
                     fixture.instructions_hash
                 );
                 assert_eq!(terminal.terminal.multisig_account_id, fixture.account);
+                assert_eq!(terminal.terminal.proposal_id, fixture.proposal_id);
                 assert!(
                     verified
                         .verify_table_value("world.smart_contract_state", &fixture.keys[1], first)

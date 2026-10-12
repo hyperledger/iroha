@@ -100,6 +100,10 @@ fn parameter_control_cannot_hide_in_deferred_multisig_or_an_unknown_local_target
     let mut tx = block.transaction();
     bind_scope(&mut tx, ds);
     let propose = iroha_executor_data_model::isi::multisig::MultisigPropose {
+        proposal_nonce: iroha_executor_data_model::isi::multisig::MultisigProposalNonce::new(
+            [7; 32],
+        )
+        .unwrap(),
         account: ALICE_ID.clone(),
         instructions: vec![
             SetParameter::new(test_support::metadata(SumeragiRootScope::Global)).into(),

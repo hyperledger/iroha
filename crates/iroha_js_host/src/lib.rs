@@ -6324,7 +6324,7 @@ pub fn hash_signed_transaction_payload(bytes: Uint8Array) -> napi::Result<Buffer
     Ok(Buffer::from(hash.as_ref().to_vec()))
 }
 /// Compute the canonical identity of an authorized instruction batch. Torii
-/// uses this hash as both the multisig `instructions_hash` and `proposal_id`.
+/// uses this hash as the multisig instruction commitment, independently of occurrence identity.
 #[napi]
 pub fn hash_instruction_batch(
     instructions_json: Vec<String>,
@@ -14197,4 +14197,10 @@ pub fn build_canonical_multisig_contract_call_json(
     let prefix = iroha_js_codec::checked_network_prefix(network_prefix).map_err(codec_to_napi)?;
     iroha_js_codec::build_canonical_multisig_contract_call_json(&input, prefix)
         .map_err(codec_to_napi)
+}
+
+/// Derive a proposal occurrence through the canonical native model.
+#[napi]
+pub fn derive_multisig_proposal_id_json(input: String) -> napi::Result<String> {
+    iroha_js_codec::derive_multisig_proposal_id_json(&input).map_err(codec_to_napi)
 }

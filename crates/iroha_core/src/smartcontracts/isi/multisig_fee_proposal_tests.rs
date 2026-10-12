@@ -6,7 +6,13 @@ use crate::{
     state::{State, World},
 };
 use iroha_crypto::{Algorithm, KeyPair};
-use iroha_data_model::{Registrable, account::Account, block::BlockHeader};
+use iroha_data_model::{
+    Registrable,
+    account::Account,
+    block::BlockHeader,
+    prelude::{Level, Log},
+};
+use iroha_executor_data_model::isi::multisig::MultisigProposalNonce;
 use iroha_model_base::chain::ChainId;
 use std::num::{NonZeroU16, NonZeroU64};
 
@@ -39,21 +45,26 @@ fn with_fixture(test: impl FnOnce(&mut StateTransaction<'_, '_>, &MultisigAccoun
     persist_multisig_account_state(&mut tx, None, &native).unwrap();
     test(&mut tx, &native);
 }
-fn proposal(account: &AccountId) -> MultisigProposalState {
+fn proposal(tx: &StateTransaction<'_, '_>, account: &AccountId) -> MultisigProposalState {
     let instructions = vec![Log::new(Level::INFO, "exact proposed body".into()).into()];
+    let nonce = MultisigProposalNonce::new([7; 32]).unwrap();
     MultisigProposalState::new(
+        tx.network_id,
         account.clone(),
+        nonce,
+        MultisigProposalId::derive(&tx.network_id, account, &nonce),
         HashOf::new(&instructions),
+        None,
         instructions,
         100,
         1_000,
         BTreeSet::new(),
-        None,
     )
 }
 fn terminal(proposal: &MultisigProposalState) -> MultisigProposalTerminalState {
     MultisigProposalTerminalState::new(
         proposal.multisig_account_id.clone(),
+        proposal.proposal_id,
         proposal.instructions_hash,
         proposal_state_value(proposal),
         MultisigProposalTerminalStatus::Finalized,
@@ -194,50 +205,73 @@ fn fee_registered_home_domain_uses_canonical_json_and_preserves_refusal() {
 }
 
 #[test]
-fn fee_pending_proposal_is_exact_live_nonrelayed_and_never_terminal() {
+fn fee_pending_proposal_is_exact_live_occurrence_and_never_terminal() {
     with_fixture(|tx, native| {
-        let p = proposal(&native.account_id);
-        let h = &p.instructions_hash;
+        let p = proposal(tx, &native.account_id);
         assert!(
-            read_pending_fee_proposal(&tx.world, &native.account_id, h, 500)
-                .unwrap()
-                .is_none()
+            read_pending_fee_proposal(
+                &tx.world,
+                &native.account_id,
+                &p.proposal_id,
+                &p.instructions_hash,
+                500
+            )
+            .unwrap()
+            .is_none()
         );
         store_multisig_proposal_state(tx, &p).unwrap();
         assert_eq!(
-            read_pending_fee_proposal(&tx.world, &native.account_id, h, 100).unwrap(),
+            read_pending_fee_proposal(
+                &tx.world,
+                &native.account_id,
+                &p.proposal_id,
+                &p.instructions_hash,
+                100
+            )
+            .unwrap(),
             Some(p.instructions.clone())
         );
         for time in [99, 1_000, u64::MAX] {
             assert!(
-                read_pending_fee_proposal(&tx.world, &native.account_id, h, time)
-                    .unwrap()
-                    .is_none()
-            );
-        }
-        for relayed in [Some(false), Some(true)] {
-            let mut changed = p.clone();
-            changed.is_relayed = relayed;
-            store_multisig_proposal_state(tx, &changed).unwrap();
-            assert!(
-                read_pending_fee_proposal(&tx.world, &native.account_id, h, 500)
-                    .unwrap()
-                    .is_none()
+                read_pending_fee_proposal(
+                    &tx.world,
+                    &native.account_id,
+                    &p.proposal_id,
+                    &p.instructions_hash,
+                    time
+                )
+                .unwrap()
+                .is_none()
             );
         }
         store_multisig_proposal_state(tx, &p).unwrap();
         store_multisig_proposal_terminal_state(tx, &terminal(&p)).unwrap();
         assert!(matches!(
-            read_pending_fee_proposal(&tx.world, &native.account_id, h, 500),
+            read_pending_fee_proposal(
+                &tx.world,
+                &native.account_id,
+                &p.proposal_id,
+                &p.instructions_hash,
+                500
+            ),
             Err(Attempt::Rejected(_))
         ));
         tx.world
             .smart_contract_state
-            .remove(multisig_proposal_state_key(&native.account_id, h));
+            .remove(multisig_proposal_state_key(
+                &native.account_id,
+                &p.proposal_id,
+            ));
         assert!(
-            read_pending_fee_proposal(&tx.world, &native.account_id, h, 500)
-                .unwrap()
-                .is_none()
+            read_pending_fee_proposal(
+                &tx.world,
+                &native.account_id,
+                &p.proposal_id,
+                &p.instructions_hash,
+                500
+            )
+            .unwrap()
+            .is_none()
         );
     });
 }
@@ -245,8 +279,8 @@ fn fee_pending_proposal_is_exact_live_nonrelayed_and_never_terminal() {
 #[test]
 fn fee_pending_proposal_rejects_rehashed_key_and_body_substitution() {
     with_fixture(|tx, native| {
-        let p = proposal(&native.account_id);
-        let key = multisig_proposal_state_key(&native.account_id, &p.instructions_hash);
+        let p = proposal(tx, &native.account_id);
+        let key = multisig_proposal_state_key(&native.account_id, &p.proposal_id);
         for recompute in [false, true] {
             let mut wrong = p.clone();
             wrong.instructions =
@@ -258,7 +292,13 @@ fn fee_pending_proposal_rejects_rehashed_key_and_body_substitution() {
                 .smart_contract_state
                 .insert(key.clone(), norito::to_bytes(&wrong).unwrap());
             assert!(matches!(
-                read_pending_fee_proposal(&tx.world, &native.account_id, &p.instructions_hash, 500),
+                read_pending_fee_proposal(
+                    &tx.world,
+                    &native.account_id,
+                    &p.proposal_id,
+                    &p.instructions_hash,
+                    500
+                ),
                 Err(Attempt::Rejected(_))
             ));
         }
@@ -268,30 +308,56 @@ fn fee_pending_proposal_rejects_rehashed_key_and_body_substitution() {
 #[test]
 fn fee_settlement_requires_this_transaction_executed_outcome_and_block() {
     with_fixture(|tx, native| {
-        let p = proposal(&native.account_id);
+        let p = proposal(tx, &native.account_id);
         let t = terminal(&p);
         let hash = *Hash::new(b"exact settlement entrypoint").as_ref();
         install_terminal(tx, &t, hash);
-        let h = &p.instructions_hash;
         let read = |tx: &StateTransaction<'_, '_>| {
-            read_settled_fee_proposal(&tx.world, &native.account_id, h, hash, 1)
+            read_settled_fee_proposal(
+                &tx.world,
+                &native.account_id,
+                &p.proposal_id,
+                &p.instructions_hash,
+                hash,
+                1,
+            )
         };
         assert_eq!(read(tx).unwrap(), Some(p.instructions.clone()));
         assert!(
-            read_settled_fee_proposal(&tx.world, &native.account_id, h, [8; 32], 1)
-                .unwrap()
-                .is_none()
+            read_settled_fee_proposal(
+                &tx.world,
+                &native.account_id,
+                &p.proposal_id,
+                &p.instructions_hash,
+                [8; 32],
+                1
+            )
+            .unwrap()
+            .is_none()
         );
         assert!(matches!(
-            read_settled_fee_proposal(&tx.world, &native.account_id, h, hash, 2),
+            read_settled_fee_proposal(
+                &tx.world,
+                &native.account_id,
+                &p.proposal_id,
+                &p.instructions_hash,
+                hash,
+                2
+            ),
             Err(Attempt::Rejected(_))
         ));
         assert!(
-            read_pending_fee_proposal(&tx.world, &native.account_id, h, 500)
-                .unwrap()
-                .is_none()
+            read_pending_fee_proposal(
+                &tx.world,
+                &native.account_id,
+                &p.proposal_id,
+                &p.instructions_hash,
+                500
+            )
+            .unwrap()
+            .is_none()
         );
-        let key = multisig_approval_outcome_state_key(hash, &native.account_id, h);
+        let key = multisig_approval_outcome_state_key(hash, &native.account_id, &p.proposal_id);
         let bytes = tx.world.smart_contract_state.get(&key).unwrap().clone();
         tx.world.smart_contract_state.remove(key.clone());
         assert!(
@@ -305,7 +371,7 @@ fn fee_settlement_requires_this_transaction_executed_outcome_and_block() {
             .insert(key.clone(), norito::to_bytes(&outcome).unwrap());
         assert!(read(tx).unwrap().is_none());
         let correct = norito::decode_from_bytes::<MultisigApprovalOutcomeV1>(&bytes).unwrap();
-        for field in 0..5 {
+        for field in 0..6 {
             let mut wrong = correct.clone();
             match field {
                 0 => {
@@ -318,7 +384,8 @@ fn fee_settlement_requires_this_transaction_executed_outcome_and_block() {
                 }
                 2 => wrong.instructions_hash = HashOf::new(&Vec::<InstructionBox>::new()),
                 3 => wrong.entrypoint_hash = [5; 32],
-                _ => wrong.block_height += 1,
+                4 => wrong.block_height += 1,
+                _ => wrong.proposal_id = "82".repeat(32).parse().unwrap(),
             }
             tx.world
                 .smart_contract_state
@@ -334,13 +401,15 @@ fn fee_settlement_requires_this_transaction_executed_outcome_and_block() {
 #[test]
 fn fee_settlement_rejects_substituted_execution_and_terminal_bodies() {
     with_fixture(|tx, native| {
-        let p = proposal(&native.account_id);
+        let p = proposal(tx, &native.account_id);
         let t = terminal(&p);
         let hash = *Hash::new(b"exact settlement entrypoint").as_ref();
         install_terminal(tx, &t, hash);
-        let h = &p.instructions_hash;
-        let execution_key =
-            multisig_proposal_terminal_execution_state_key(hash, &native.account_id, h);
+        let execution_key = multisig_proposal_terminal_execution_state_key(
+            hash,
+            &native.account_id,
+            &p.proposal_id,
+        );
         let original = tx
             .world
             .smart_contract_state
@@ -365,7 +434,14 @@ fn fee_settlement_rejects_substituted_execution_and_terminal_bodies() {
                 .smart_contract_state
                 .insert(execution_key.clone(), norito::to_bytes(&wrong).unwrap());
             assert!(matches!(
-                read_settled_fee_proposal(&tx.world, &native.account_id, h, hash, 1),
+                read_settled_fee_proposal(
+                    &tx.world,
+                    &native.account_id,
+                    &p.proposal_id,
+                    &p.instructions_hash,
+                    hash,
+                    1
+                ),
                 Err(Attempt::Rejected(_))
             ));
         }
@@ -376,30 +452,35 @@ fn fee_settlement_rejects_substituted_execution_and_terminal_bodies() {
         wrong.proposal.instructions =
             vec![Log::new(Level::INFO, "substituted terminal body".into()).into()];
         tx.world.smart_contract_state.insert(
-            multisig_proposal_terminal_state_key(&native.account_id, h),
+            multisig_proposal_terminal_state_key(&native.account_id, &p.proposal_id),
             norito::to_bytes(&wrong).unwrap(),
         );
         assert!(matches!(
-            read_settled_fee_proposal(&tx.world, &native.account_id, h, hash, 1),
+            read_settled_fee_proposal(
+                &tx.world,
+                &native.account_id,
+                &p.proposal_id,
+                &p.instructions_hash,
+                hash,
+                1
+            ),
             Err(Attempt::Rejected(_))
         ));
     });
 }
 
 #[test]
-fn fee_settlement_denies_canceled_expired_and_relayed_history() {
+fn fee_settlement_denies_canceled_and_expired_history() {
     with_fixture(|tx, native| {
-        let p = proposal(&native.account_id);
+        let p = proposal(tx, &native.account_id);
         let original = terminal(&p);
         let hash = *Hash::new(b"exact settlement entrypoint").as_ref();
-        let key = multisig_proposal_terminal_state_key(&native.account_id, &p.instructions_hash);
-        for field in 0..4 {
+        let key = multisig_proposal_terminal_state_key(&native.account_id, &p.proposal_id);
+        for field in 0..2 {
             let mut t = original.clone();
             match field {
                 0 => t.status = MultisigProposalTerminalStatus::Canceled,
-                1 => t.status = MultisigProposalTerminalStatus::Expired,
-                2 => t.proposal.is_relayed = Some(false),
-                _ => t.proposal.is_relayed = Some(true),
+                _ => t.status = MultisigProposalTerminalStatus::Expired,
             }
             tx.world
                 .smart_contract_state
@@ -408,6 +489,7 @@ fn fee_settlement_denies_canceled_expired_and_relayed_history() {
                 read_settled_fee_proposal(
                     &tx.world,
                     &native.account_id,
+                    &p.proposal_id,
                     &p.instructions_hash,
                     hash,
                     1
@@ -422,7 +504,7 @@ fn fee_settlement_denies_canceled_expired_and_relayed_history() {
 #[test]
 fn fee_evidence_readers_preserve_actual_decoder_refusal_without_mutation() {
     with_fixture(|tx, native| {
-        let p = proposal(&native.account_id);
+        let p = proposal(tx, &native.account_id);
         store_multisig_proposal_state(tx, &p).unwrap();
         assert!(matches!(
             limited(|| read_registered_account_state(&tx.world, &native.account_id)),
@@ -432,30 +514,38 @@ fn fee_evidence_readers_preserve_actual_decoder_refusal_without_mutation() {
             limited(|| read_pending_fee_proposal(
                 &tx.world,
                 &native.account_id,
+                &p.proposal_id,
                 &p.instructions_hash,
                 500
             )),
             Err(Attempt::Deferred(_))
         ));
         assert_eq!(
-            read_pending_fee_proposal(&tx.world, &native.account_id, &p.instructions_hash, 500)
-                .unwrap(),
+            read_pending_fee_proposal(
+                &tx.world,
+                &native.account_id,
+                &p.proposal_id,
+                &p.instructions_hash,
+                500
+            )
+            .unwrap(),
             Some(p.instructions.clone())
         );
         tx.world
             .smart_contract_state
             .remove(multisig_proposal_state_key(
                 &native.account_id,
-                &p.instructions_hash,
+                &p.proposal_id,
             ));
         let hash = *Hash::new(b"exact settlement entrypoint").as_ref();
         install_terminal(tx, &terminal(&p), hash);
-        let key = multisig_proposal_terminal_state_key(&native.account_id, &p.instructions_hash);
+        let key = multisig_proposal_terminal_state_key(&native.account_id, &p.proposal_id);
         let original = tx.world.smart_contract_state.get(&key).unwrap().clone();
         assert!(matches!(
             limited(|| read_settled_fee_proposal(
                 &tx.world,
                 &native.account_id,
+                &p.proposal_id,
                 &p.instructions_hash,
                 hash,
                 1
@@ -464,8 +554,15 @@ fn fee_evidence_readers_preserve_actual_decoder_refusal_without_mutation() {
         ));
         assert_eq!(tx.world.smart_contract_state.get(&key), Some(&original));
         assert_eq!(
-            read_settled_fee_proposal(&tx.world, &native.account_id, &p.instructions_hash, hash, 1)
-                .unwrap(),
+            read_settled_fee_proposal(
+                &tx.world,
+                &native.account_id,
+                &p.proposal_id,
+                &p.instructions_hash,
+                hash,
+                1
+            )
+            .unwrap(),
             Some(p.instructions)
         );
     });
@@ -474,12 +571,15 @@ fn fee_evidence_readers_preserve_actual_decoder_refusal_without_mutation() {
 #[test]
 fn fee_proposal_new_key_requires_both_physical_rows_absent() {
     with_fixture(|tx, native| {
-        let p = proposal(&native.account_id);
-        let h = &p.instructions_hash;
-        assert!(fee_proposal_key_is_unused(&tx.world, &native.account_id, h));
+        let p = proposal(tx, &native.account_id);
+        assert!(fee_proposal_key_is_unused(
+            &tx.world,
+            &native.account_id,
+            &p.proposal_id
+        ));
         for key in [
-            multisig_proposal_state_key(&native.account_id, h),
-            multisig_proposal_terminal_state_key(&native.account_id, h),
+            multisig_proposal_state_key(&native.account_id, &p.proposal_id),
+            multisig_proposal_terminal_state_key(&native.account_id, &p.proposal_id),
         ] {
             tx.world
                 .smart_contract_state
@@ -487,7 +587,7 @@ fn fee_proposal_new_key_requires_both_physical_rows_absent() {
             assert!(!fee_proposal_key_is_unused(
                 &tx.world,
                 &native.account_id,
-                h
+                &p.proposal_id
             ));
             tx.world.smart_contract_state.remove(key);
         }
@@ -495,16 +595,19 @@ fn fee_proposal_new_key_requires_both_physical_rows_absent() {
         assert!(!fee_proposal_key_is_unused(
             &tx.world,
             &native.account_id,
-            h
+            &p.proposal_id
         ));
         tx.world
             .smart_contract_state
-            .remove(multisig_proposal_state_key(&native.account_id, h));
+            .remove(multisig_proposal_state_key(
+                &native.account_id,
+                &p.proposal_id,
+            ));
         store_multisig_proposal_terminal_state(tx, &terminal(&p)).unwrap();
         assert!(!fee_proposal_key_is_unused(
             &tx.world,
             &native.account_id,
-            h
+            &p.proposal_id
         ));
     });
 }
@@ -529,11 +632,11 @@ fn fee_registered_metadata_refusal_retains_original_json_attempt() {
 
 #[test]
 fn fee_terminal_comparison_checks_every_field_and_approved_body() {
-    with_fixture(|_, native| {
-        let p = proposal(&native.account_id);
+    with_fixture(|tx, native| {
+        let p = proposal(tx, &native.account_id);
         let original = terminal(&p);
         assert!(same_terminal_evidence(&original, &original).unwrap());
-        for field in 0..9 {
+        for field in 0..13 {
             let mut changed = original.clone();
             match field {
                 0 => {
@@ -551,7 +654,15 @@ fn fee_terminal_comparison_checks_every_field_and_approved_body() {
                         .approvals
                         .insert(native.spec.signatories.keys().next().unwrap().clone());
                 }
-                7 => changed.proposal.is_relayed = Some(false),
+                7 => changed.proposal.proposal_nonce = MultisigProposalNonce::new([8; 32]).unwrap(),
+                9 => changed.proposal.proposal_id = "81".repeat(32).parse().unwrap(),
+                10 => {
+                    changed.proposal.network_id = iroha_data_model::NetworkId::from_genesis_hash(
+                        HashOf::from_untyped_unchecked(Hash::new(b"different network")),
+                    )
+                }
+                11 => changed.proposal.transaction_ttl_ms = NonZeroU64::new(700),
+                12 => changed.proposal_id = "82".repeat(32).parse().unwrap(),
                 _ => {
                     changed.proposal.instructions = vec![
                         Log::new(

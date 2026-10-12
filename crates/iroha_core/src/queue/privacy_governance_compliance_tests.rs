@@ -111,6 +111,14 @@ async fn governance_manifest_allows_multisig_propose_envelope_from_live_signer()
         &time_source,
         vec![InstructionBox::from(MultisigPropose::new(
             multisig_id,
+            iroha_executor_data_model::isi::multisig::MultisigProposalNonce::new(
+                *iroha_crypto::HashOf::new(&vec![InstructionBox::from(Log::new(
+                    Level::INFO,
+                    "multisig envelope".into(),
+                ))])
+                .as_ref(),
+            )
+            .unwrap(),
             vec![InstructionBox::from(Log::new(
                 Level::INFO,
                 "multisig envelope".into(),

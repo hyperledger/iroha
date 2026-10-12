@@ -10,6 +10,7 @@ fn multisig_cancel_requires_quorum_and_prunes_target_proposal() {
     let block_header = runtime_header(&state, 0);
     let mut block = state.block(block_header);
     let mut state_transaction = block.transaction_for_callback_testing();
+    let network_id = state_transaction.network_id;
     let domain_id: iroha_model_base::domain::DomainId =
         DomainId::try_new("cancel", "universal").unwrap();
     let owner_key = checked_keypair();
@@ -59,8 +60,12 @@ fn multisig_cancel_requires_quorum_and_prunes_target_proposal() {
     );
     let target_instructions: Vec<InstructionBox> = Vec::new();
     let target_hash = HashOf::new(&target_instructions);
-    let target_proposal =
-        MultisigPropose::new(multisig_id.clone(), target_instructions.clone(), None);
+    let target_proposal = MultisigPropose::new(
+        multisig_id.clone(),
+        test_nonce(&HashOf::new(&target_instructions.clone())),
+        target_instructions.clone(),
+        None,
+    );
     Executor::Initial
         .execute_instruction(
             &mut state_transaction,
@@ -68,7 +73,11 @@ fn multisig_cancel_requires_quorum_and_prunes_target_proposal() {
             InstructionBox::from(target_proposal),
         )
         .expect("create target proposal");
-    let cancel = MultisigCancel::new(multisig_id.clone(), target_hash);
+    let cancel = MultisigCancel::new(
+        multisig_id.clone(),
+        test_id(&network_id, &multisig_id.clone(), &target_hash),
+        target_hash,
+    );
     let direct_err = Executor::Initial
         .execute_instruction(
             &mut state_transaction,
@@ -86,12 +95,22 @@ fn multisig_cancel_requires_quorum_and_prunes_target_proposal() {
         other => panic!("unexpected direct cancel error: {other:?}"),
     }
     assert!(
-        proposal_value(&state_transaction, &multisig_id, &target_hash).is_ok(),
+        proposal_value(
+            &state_transaction,
+            &multisig_id,
+            &test_id(&network_id, &multisig_id, &target_hash)
+        )
+        .is_ok(),
         "target proposal should remain after rejected direct cancel"
     );
     let cancel_instructions = vec![InstructionBox::from(cancel)];
     let cancel_hash = HashOf::new(&cancel_instructions);
-    let cancel_proposal = MultisigPropose::new(multisig_id.clone(), cancel_instructions, None);
+    let cancel_proposal = MultisigPropose::new(
+        multisig_id.clone(),
+        test_nonce(&HashOf::new(&cancel_instructions)),
+        cancel_instructions,
+        None,
+    );
     Executor::Initial
         .execute_instruction(
             &mut state_transaction,
@@ -103,15 +122,29 @@ fn multisig_cancel_requires_quorum_and_prunes_target_proposal() {
         .execute_instruction(
             &mut state_transaction,
             &signer2_id,
-            InstructionBox::from(MultisigApprove::new(multisig_id.clone(), cancel_hash)),
+            InstructionBox::from(MultisigApprove::new(
+                multisig_id.clone(),
+                test_id(&network_id, &multisig_id.clone(), &cancel_hash),
+                cancel_hash,
+            )),
         )
         .expect("approve cancel proposal");
     assert!(
-        proposal_value(&state_transaction, &multisig_id, &target_hash).is_err(),
+        proposal_value(
+            &state_transaction,
+            &multisig_id,
+            &test_id(&network_id, &multisig_id, &target_hash)
+        )
+        .is_err(),
         "target proposal should be pruned once cancel reaches quorum"
     );
     assert!(
-        proposal_value(&state_transaction, &multisig_id, &cancel_hash).is_err(),
+        proposal_value(
+            &state_transaction,
+            &multisig_id,
+            &test_id(&network_id, &multisig_id, &cancel_hash)
+        )
+        .is_err(),
         "cancel proposal should also be pruned after execution"
     );
 }
