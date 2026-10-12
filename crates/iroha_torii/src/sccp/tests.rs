@@ -18,7 +18,6 @@ use iroha_data_model::{
     account::AccountId,
     block::BlockHeader,
     sccp::{
-        attestation::{SccpAttestationStatusV1, SccpAttestationSubjectV1},
         control::{SccpControlRecordV1, SccpLeafRefV1, SccpTransferLeafRefV1},
         deployment::{SccpDeploymentV1, SccpEvmDeploymentV1},
         escrow::sccp_xor_route_escrow_account_id_v1,
@@ -31,7 +30,6 @@ use iroha_data_model::{
         },
         outbound::{SccpOutboundMessageRecordV1, SccpOutboundStatusV1, SccpStatusHeightV1},
         registry::{SccpRouteRevisionV1, SccpRouteV1},
-        roster::{SccpBridgeRosterV1, SccpRosterMemberV1},
     },
 };
 use std::num::NonZeroU64;
@@ -111,8 +109,6 @@ fn route(state: &State, next_outbound_nonce: u64) -> SccpRouteV1 {
         }),
         1_000_000,
         1,
-        [0x35; 32],
-        1,
     );
     revision.next_outbound_nonce = next_outbound_nonce;
     revision.next_control_nonce = 2;
@@ -183,26 +179,8 @@ fn inbound_record(height: u64) -> SccpInboundRecordV1 {
     }
 }
 
-fn roster() -> SccpBridgeRosterV1 {
-    SccpBridgeRosterV1 {
-        generation: 1,
-        valid_from_ms: 0,
-        valid_until_ms: 1_209_600_000,
-        activation_height: 1,
-        handoff_height: None,
-        members: (1..=4_u8)
-            .map(|seed| SccpRosterMemberV1 {
-                address: [seed; 20],
-                peer: None,
-            })
-            .collect(),
-        threshold: 3,
-        digest: [1; 32],
-    }
-}
-
-/// A state with route revision 1 of Ethereum, three outbound records (nonce 0 recorded and
-/// attested, nonce 1 recorded, nonce 2 refunded), one inbound record, two controls and an
+/// A state with route revision 1 of Ethereum, three outbound records (nonce 0 recorded,
+/// nonce 1 recorded, nonce 2 refunded), one inbound record, two controls and an
 /// Ethereum light client with three checkpoints.
 fn seeded() -> (State, [u8; 32], [u8; 32], u64) {
     let state = blank_state();
@@ -212,7 +190,6 @@ fn seeded() -> (State, [u8; 32], [u8; 32], u64) {
     let route = route(&state, 3);
     seed(&state, |transaction| {
         store::routes::insert(transaction, ETH, route).expect("route");
-        store::rosters::insert(transaction, 1, roster()).expect("roster");
         record_outbound(transaction, 0, 10, SccpOutboundStatusV1::Recorded);
         record_outbound(transaction, 1, 11, SccpOutboundStatusV1::Recorded);
         record_outbound(
@@ -221,32 +198,6 @@ fn seeded() -> (State, [u8; 32], [u8; 32], u64) {
             12,
             SccpOutboundStatusV1::Refunded(SccpStatusHeightV1 { height: 20 }),
         );
-        store::attestation_subjects::insert(
-            transaction,
-            10,
-            SccpAttestationSubjectV1 {
-                height: 10,
-                epoch: 0,
-                timestamp_ms: 40_000,
-                sccp_root: [0; 32],
-                message_count: 1,
-                history_root: [0; 32],
-                history_size: 1,
-                generation: 1,
-                roster_digest: [1; 32],
-                next_roster_digest: [0; 32],
-            },
-        )
-        .expect("subject");
-        store::attestation_status::insert(
-            transaction,
-            10,
-            SccpAttestationStatusV1 {
-                signer_bitmap: 0b111,
-                attested_at_height: Some(11),
-            },
-        )
-        .expect("status");
         store::inbound_messages::insert(transaction, [0x44; 32], inbound_record(15))
             .expect("inbound");
         for (nonce, height) in [(1_u64, 10_u64), (2, 11)] {
@@ -338,21 +289,21 @@ fn numbers_and_directions_parse_with_defaults() {
 }
 
 #[test]
-fn attestation_choices_default_to_own() {
+fn certificate_choices_default_to_record() {
     assert_eq!(
-        parse_choice(&AttestationQuery::default()).ok(),
-        Some(SccpAttestationChoiceV1::Own)
+        parse_choice(&CertificateQuery::default()).ok(),
+        Some(SccpCertificateChoiceV1::Record)
     );
     assert_eq!(
-        parse_choice(&AttestationQuery {
-            attestation: Some("latest".into())
+        parse_choice(&CertificateQuery {
+            at: Some("latest".into())
         })
         .ok(),
-        Some(SccpAttestationChoiceV1::Latest)
+        Some(SccpCertificateChoiceV1::Latest)
     );
     assert!(
-        parse_choice(&AttestationQuery {
-            attestation: Some("soon".into())
+        parse_choice(&CertificateQuery {
+            at: Some("soon".into())
         })
         .is_err()
     );
@@ -362,7 +313,11 @@ fn attestation_choices_default_to_own() {
 fn read_errors_map_to_http_statuses() {
     for (failure, status) in [
         (SccpReadError::NotFound("x".into()), StatusCode::NOT_FOUND),
-        (SccpReadError::Pending("x".into()), StatusCode::CONFLICT),
+        (
+            SccpReadError::Unavailable("x".into()),
+            StatusCode::SERVICE_UNAVAILABLE,
+        ),
+        (SccpReadError::RotationPruned("x".into()), StatusCode::GONE),
         (SccpReadError::Pruned("x".into()), StatusCode::GONE),
         (SccpReadError::Invalid("x".into()), StatusCode::BAD_REQUEST),
     ] {
@@ -424,7 +379,7 @@ async fn immutable_response_validator_refuses_changed_representation_or_body() {
 
 #[tokio::test]
 async fn message_route_serves_the_status_union() {
-    let (state, recorded_attested, refunded, _) = seeded();
+    let (state, first_recorded, refunded, _) = seeded();
     let view = state.view();
     let accept = norito_accept();
     let headers = HeaderMap::new();
@@ -436,21 +391,16 @@ async fn message_route_serves_the_status_union() {
     ))
     .await;
     assert_eq!(unknown, SccpMessageStatusV1::Unknown);
-    let attested = message_response(
-        &view,
-        &hex::encode(recorded_attested),
-        Some(&accept),
-        &headers,
-    );
+    let first = message_response(&view, &hex::encode(first_recorded), Some(&accept), &headers);
     assert!(
-        attested.headers().get(header::ETAG).is_none(),
+        first.headers().get(header::ETAG).is_none(),
         "a recorded state can still change"
     );
-    let attested: SccpMessageStatusV1 = decode(attested).await;
+    let first: SccpMessageStatusV1 = decode(first).await;
     assert!(matches!(
-        attested.outbound().map(|view| view.state),
-        Some(SccpOutboundStateV1::Attested(progress))
-            if progress.subject_height == 10 && progress.signers == 3 && progress.threshold == 3
+        first.outbound().map(|view| view.state),
+        Some(SccpOutboundStateV1::Recorded(record))
+            if record.deadline_ms == 9_000 && !record.provable
     ));
     let recorded: SccpMessageStatusV1 = decode(message_response(
         &view,
@@ -461,7 +411,7 @@ async fn message_route_serves_the_status_union() {
     .await;
     assert!(matches!(
         recorded.outbound().map(|view| view.state),
-        Some(SccpOutboundStateV1::Recorded(state)) if state.deadline_ms == 9_001
+        Some(SccpOutboundStateV1::Recorded(state)) if state.deadline_ms == 9_001 && !state.provable
     ));
     // A refunded record is final: it carries an ETag and revalidates to 304.
     let final_state = message_response(&view, &hex::encode(refunded), Some(&accept), &headers);
@@ -601,7 +551,7 @@ async fn recent_route_pages_both_directions() {
 }
 
 #[tokio::test]
-async fn controls_route_reports_attestation_progress() {
+async fn controls_route_reports_stored_commands() {
     let (state, ..) = seeded();
     let view = state.view();
     let accept = norito_accept();
@@ -615,8 +565,6 @@ async fn controls_route_reports_attestation_progress() {
     .await;
     assert_eq!(page.next_control_nonce, 2);
     assert_eq!(page.controls.len(), 2);
-    assert!(page.controls[0].attestation.is_attested());
-    assert!(!page.controls[1].attestation.is_attested());
     assert!(page.controls[0].record.paused);
     let after: SccpControlPageV1 = decode(controls_response(
         &view,
@@ -779,7 +727,7 @@ async fn proof_and_governance_routes_report_missing_records() {
         error_code(message_proof_response(
             &view,
             &"99".repeat(32),
-            &AttestationQuery::default(),
+            &CertificateQuery::default(),
             Some(&accept),
             &headers,
         ))
@@ -790,7 +738,7 @@ async fn proof_and_governance_routes_report_missing_records() {
         error_code(control_proof_response(
             &view,
             ("ethereum-mainnet", 1, 9),
-            &AttestationQuery::default(),
+            &CertificateQuery::default(),
             Some(&accept),
             &headers,
         ))
@@ -883,10 +831,10 @@ async fn numeric_query_values_reach_the_handlers_as_text() {
         .await
         .expect("history query");
     assert_eq!(history.size.as_deref(), Some("16"));
-    let attestation: AttestationQuery = extract_query("/v1/sccp/messages/00/proof?attestation=42")
+    let certificate: CertificateQuery = extract_query("/v1/sccp/messages/00/proof?at=42")
         .await
-        .expect("attestation query");
-    assert_eq!(attestation.attestation.as_deref(), Some("42"));
+        .expect("certificate query");
+    assert_eq!(certificate.at.as_deref(), Some("42"));
     let rotation: RotationQuery = extract_query("/v1/sccp/rotations?after_generation=3&limit=4")
         .await
         .expect("rotation query");
@@ -899,5 +847,62 @@ async fn numeric_query_values_reach_the_handlers_as_text() {
         .err(),
         Some(StatusCode::BAD_REQUEST),
         "duplicate keys are still refused"
+    );
+}
+
+#[tokio::test]
+async fn native_query_and_unavailable_errors_are_explicit() {
+    assert!(
+        extract_query::<CertificateQuery>("/v1/sccp/messages/00/proof?attestation=own")
+            .await
+            .is_err()
+    );
+    for value in ["own", "0", "-1", "garbage"] {
+        assert!(
+            parse_choice(&CertificateQuery {
+                at: Some(value.into())
+            })
+            .is_err()
+        );
+    }
+    assert_eq!(
+        error_code(read_error(&SccpReadError::Unavailable(
+            "original carrier unavailable".into()
+        )))
+        .await,
+        (StatusCode::SERVICE_UNAVAILABLE, "sccp_unavailable".into())
+    );
+    assert_eq!(
+        error_code(read_error(&SccpReadError::RotationPruned(
+            "generation1".into()
+        )))
+        .await,
+        (StatusCode::GONE, "sccp_rotation_pruned".into())
+    );
+    let paths: Vec<_> = iroha_torii_shared::route_catalog::sccp::ROUTES
+        .iter()
+        .map(|route| route.path())
+        .collect();
+    for native in [
+        "/v1/sccp/finality/{height}",
+        "/v1/sccp/finality/latest",
+        "/v1/sccp/committees/current",
+        "/v1/sccp/committees/{generation}",
+        "/v1/sccp/committees/rotations",
+    ] {
+        assert!(paths.contains(&native));
+    }
+    assert!(paths.iter().all(|path| !path.contains("/rosters/")
+        && !path.contains("/attestations/")
+        && !path.contains("bridge-keys")));
+    let state = blank_state();
+    assert_eq!(
+        error_code(generation_response(
+            state.view().world(),
+            1,
+            Some(&json_accept())
+        ))
+        .await,
+        (StatusCode::NOT_FOUND, "sccp_not_found".into())
     );
 }

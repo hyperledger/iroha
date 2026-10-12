@@ -194,6 +194,7 @@ impl<V: StateReadOnly + ?Sized> CertifiedChain<'_, V> {
         let prefix = cursor.as_mut().expect("authenticated genesis cursor");
         let context = PrefixVerifierContext {
             instance: self.instance,
+            root_scope: self.root_scope,
         };
         let pending = self.terminal.as_mut().expect("original terminal selection");
         pending.target.decode(height, prefix, budget)?;

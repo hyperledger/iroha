@@ -297,6 +297,75 @@ fn request_publication_failure_never_reaches_proving_or_advance() {
 }
 
 #[test]
+fn load_request_intake_preserves_actual_model_refusal_before_publication() {
+    use iroha_data_model::{
+        events::{
+            EventBox,
+            data::{DataEvent, kagemusha::KagemushaLoadCommittedV1},
+        },
+        isi::kagemusha_wallet::KagemushaWalletLoadReceiptV1,
+        sumeragi_finality::SumeragiCommitCertificateV1,
+    };
+    let scheme: KagemushaWalletSchemeV1 = fixture("KagemushaWalletSchemeV1");
+    let encoded: norito::json::Value = norito::json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/kagemusha/ordinary_load_receipt_v1.json"
+    )))
+    .unwrap();
+    let receipt_bytes = hex::decode(encoded["receipt_frame_hex"].as_str().unwrap()).unwrap();
+    let mut receipt = KagemushaWalletLoadReceiptV1::decode_canonical(&receipt_bytes).unwrap();
+    receipt.scheme_id = scheme.scheme_id();
+    let event = EventBox::Data(
+        DataEvent::KagemushaLoadCommitted(
+            KagemushaLoadCommittedV1::from_receipt(&receipt).unwrap(),
+        )
+        .into(),
+    );
+    let tree: iroha_crypto::MerkleTree<EventBox> =
+        [iroha_crypto::HashOf::new(&event)].into_iter().collect();
+    // Intake checks canonical shape only; these bytes grant no native finality.
+    let finality = KagemushaWalletLoadFinalityV1 {
+        version: 1,
+        receipt_digest: receipt.receipt_digest().unwrap(),
+        certificate: SumeragiCommitCertificateV1 {
+            consensus_header: vec![1],
+            commit_qc: vec![2],
+            result_preimage: vec![3],
+        },
+        event_proof: tree.get_proof(0).unwrap(),
+    };
+    let request = OperationRequestV1 {
+        request_id: [72; 32],
+        action: OperationActionV1::Load {
+            receipt: receipt.to_canonical_bytes().unwrap(),
+            finality: finality.to_canonical_bytes().unwrap(),
+        },
+    };
+    request.validate(&scheme).unwrap();
+    let unchanged = request.clone();
+    for limits in [
+        norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+    ] {
+        let error =
+            norito::with_decode_limits_scope(limits, || request.validate(&scheme)).unwrap_err();
+        assert!(matches!(error, Error::DecodeResource(ref original)
+            if original.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        assert_eq!(request, unchanged);
+        request.validate(&scheme).unwrap();
+    }
+    let mut malformed = request;
+    let OperationActionV1::Load { finality, .. } = &mut malformed.action else {
+        unreachable!()
+    };
+    *finality = vec![0];
+    assert!(matches!(
+        malformed.validate(&scheme),
+        Err(Error::Invalid(_))
+    ));
+}
+
+#[test]
 fn canonical_request_bounds_and_originals_are_checked_before_publication() {
     let scheme: KagemushaWalletSchemeV1 = fixture("KagemushaWalletSchemeV1");
     let bytes = archive::encode(&request()).unwrap();

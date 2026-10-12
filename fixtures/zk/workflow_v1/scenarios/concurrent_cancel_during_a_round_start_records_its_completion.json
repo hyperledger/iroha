@@ -54,7 +54,7 @@
         "status": "cancelled",
         "steps": [
           "round_completed",
-          "planned"
+          "cancelled_before_submission"
         ],
         "partial_completion": {
           "confirmed_steps": [

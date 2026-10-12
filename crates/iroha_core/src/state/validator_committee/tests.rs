@@ -585,14 +585,16 @@ fn committee_retention_extends_exit_and_pending_unbond_liability() {
         },
     );
     let mut parameters = fixture.world.parameters.block();
-    parameters.set_parameter(Parameter::Custom(
-        SumeragiNposParameters {
-            evidence_horizon_blocks: 2,
-            slashing_delay_blocks: 1,
-            ..SumeragiNposParameters::default()
-        }
-        .into_custom_parameter(),
-    ));
+    parameters
+        .set_parameter(Parameter::Custom(
+            SumeragiNposParameters {
+                evidence_horizon_blocks: 2,
+                slashing_delay_blocks: 1,
+                ..SumeragiNposParameters::default()
+            }
+            .into_custom_parameter(),
+        ))
+        .expect("valid fixture parameters");
     parameters.commit();
     // This component fixture exercises the native boundary reducer with the exact original
     // credentials. It does not claim a certified chain or executed transition.

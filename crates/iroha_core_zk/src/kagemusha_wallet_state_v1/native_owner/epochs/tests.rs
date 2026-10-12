@@ -9,6 +9,48 @@ use iroha_data_model::sumeragi_finality::{
 
 mod later_epochs;
 
+#[test]
+fn epoch_read_resource_refusal_preserves_selected_custody_and_allows_retry() {
+    let (native, chain, genesis) = chain();
+    let original = certificate(&native, &chain[2]);
+    let mut w = wallet(&native);
+    let before = w.custody.archive_checkpoint().unwrap();
+    for allocation in [0, 64] {
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, allocation, 64);
+        let error = norito::with_decode_limits_scope(limits, || {
+            w.ingest_epoch_original(&genesis, 0, &original)
+        })
+        .unwrap_err();
+        let Error::DecodeResource(original) = error else {
+            panic!("epoch ingress resource refusal became a verdict: {error:?}");
+        };
+        assert_eq!(
+            original.kind(),
+            norito::core::DecodeAttemptErrorKind::EnclosingLimit
+        );
+        assert_eq!(w.custody.archive_checkpoint().unwrap(), before);
+    }
+    assert!(matches!(
+        w.ingest_epoch_original(&genesis, 0, &[0]),
+        Err(Error::Invalid(_))
+    ));
+    assert_eq!(w.custody.archive_checkpoint().unwrap(), before);
+    let selected = w.ingest_epoch_original(&genesis, 0, &original).unwrap();
+    let after = w.custody.archive_checkpoint().unwrap();
+    let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+    let error = norito::with_decode_limits_scope(limits, || w.epoch_progress_selected(&genesis))
+        .unwrap_err();
+    assert!(matches!(error, Error::DecodeResource(ref cause)
+        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+    assert_eq!(w.custody.archive_checkpoint().unwrap(), after);
+    assert_eq!(w.epoch_progress_selected(&genesis).unwrap(), selected);
+    assert_eq!(
+        w.ingest_epoch_original(&genesis, 0, &original).unwrap(),
+        selected
+    );
+    assert_eq!(w.custody.archive_checkpoint().unwrap(), after);
+}
+
 fn chain() -> (
     NativeFinalityFixture,
     Vec<SumeragiFinalityProof>,

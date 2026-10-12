@@ -731,13 +731,16 @@ fn network_xor_resolver_requires_exact_committed_identity() {
             .is_none()
     );
     let mut parameters = world.parameters.block();
-    parameters.get_mut().set_parameter(Parameter::Custom(
-        SumeragiNposParameters {
-            xor_asset_definition_id: other.clone(),
-            ..Default::default()
-        }
-        .into_custom_parameter(),
-    ));
+    parameters
+        .get_mut()
+        .set_parameter(Parameter::Custom(
+            SumeragiNposParameters {
+                xor_asset_definition_id: other.clone(),
+                ..Default::default()
+            }
+            .into_custom_parameter(),
+        ))
+        .expect("valid fixture parameters");
     parameters.commit();
     assert_eq!(
         resolve_network_xor_asset_definition(&world.view(), &other.to_string(), 0)
@@ -5456,15 +5459,13 @@ pub(crate) mod valid {
         fn amx_deadline_error(
             error: iroha_data_model::sumeragi_amx::AmxError,
         ) -> BlockValidationError {
-            match error {
-                iroha_data_model::sumeragi_amx::AmxError::Resource(original)
-                    if !cfg!(all(test, sumeragi_core_mutation = "HC162")) =>
-                {
+            match crate::sumeragi::amx::classified_decode_refusal(&error) {
+                Some(original) if !cfg!(all(test, sumeragi_core_mutation = "HC162")) => {
                     BlockValidationError::StateStorageAdmission(
                         crate::state::StateStorageAdmissionError::AmxDecode(original),
                     )
                 }
-                other => Self::execution_context_error(other.to_string()),
+                _ => Self::execution_context_error(error.to_string()),
             }
         }
         fn execution_context_error(message: impl Into<String>) -> BlockValidationError {
@@ -6932,21 +6933,29 @@ pub(crate) mod valid {
         #[test]
         fn amx_deadline_finalizer_preserves_exact_local_refusal_without_rejection() {
             use iroha_data_model::sumeragi_amx::AmxError;
-            use norito::core::DecodeResourceError;
 
             for original in [
-                DecodeResourceError::AllocationFailed { bytes: 57 },
-                DecodeResourceError::TotalAllocationExceeded {
-                    attempted: 99,
-                    limit: 73,
-                },
+                norito::core::classify_decode_attempt(|| {
+                    Err::<(), _>(norito::Error::AllocationFailed { bytes: 57 })
+                })
+                .unwrap_err(),
+                norito::with_decode_limits_scope(
+                    norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 73, 64),
+                    || {
+                        norito::core::classify_decode_attempt(|| {
+                            norito::core::reserve_decode_allocation(99)
+                        })
+                    },
+                )
+                .unwrap_err(),
             ] {
+                let expected = original.error().decode_resource_error().unwrap();
                 let mapped = ValidBlock::amx_deadline_error(AmxError::Resource(original));
                 assert!(matches!(
                     &mapped,
                     BlockValidationError::StateStorageAdmission(
                         crate::state::StateStorageAdmissionError::AmxDecode(retained)
-                    ) if *retained == original
+                    ) if *retained == expected
                 ));
                 assert_eq!(
                     map_block_err_to_reason(&mapped),
@@ -7953,7 +7962,9 @@ pub(crate) mod valid {
             params.sumeragi.key_overlap_grace_blocks = 2;
             params.sumeragi.key_expiry_grace_blocks = 1;
             let mut world = World::new();
-            world.parameters = mv::cell::Cell::new(params);
+            world.parameters = mv::cell::Cell::new(
+                crate::state::StateParameters::try_from(params).expect("valid fixture parameters"),
+            );
             insert_consensus_key(
                 &mut world,
                 "leader",
@@ -9437,7 +9448,7 @@ pub(crate) mod tests {
         component_chain_with_genesis_parameters(state, Vec::new())
     }
 
-    fn component_chain_with_genesis_parameters(
+    pub(crate) fn component_chain_with_genesis_parameters(
         state: State,
         genesis_parameters: Vec<iroha_data_model::parameter::Parameter>,
     ) -> crate::sumeragi::test_chain::CertifiedTestChain {
@@ -9494,7 +9505,9 @@ pub(crate) mod tests {
         params.transaction = params
             .transaction
             .with_ingress_enforcement(require_height_ttl, require_sequence);
-        world.parameters = mv::cell::Cell::new(params);
+        world.parameters = mv::cell::Cell::new(
+            crate::state::StateParameters::try_from(params).expect("valid fixture parameters"),
+        );
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::start_test();
         let state = State::new_with_chain_and_network_id_for_testing(

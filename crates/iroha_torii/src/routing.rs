@@ -3507,25 +3507,16 @@ fn quote_app_api_transaction_builder(
             "failed to quote {context} transaction fees: multi-route execution is unsupported"
         )));
     };
-    let latest_header = state.latest_block_header_fast();
-    let observation_time_ms = latest_header
-        .as_ref()
-        .map_or(0, |header| header.creation_time_ms);
-    let next_block_height = latest_header
-        .as_ref()
-        .map_or(1, |header| header.height().get().saturating_add(1));
-    let nexus = state.nexus_snapshot();
-    let pipeline = state.pipeline_snapshot();
     let quote = {
-        let world = state.world_view();
+        let view = state.view();
         iroha_core::executor::quote_nexus_fee_admission_draft(
-            &world,
-            &nexus,
-            &pipeline,
-            &state.zk_snapshot().gas,
+            view.world(),
+            view.nexus(),
+            view.pipeline(),
+            &view.zk().gas,
             &payload,
-            observation_time_ms,
-            next_block_height,
+            view.query_ledger_time_ms(),
+            u64::try_from(view.height()).unwrap_or(u64::MAX).saturating_add(1),
             Some(route.route.dataspace_id),
         )
     }
@@ -7519,9 +7510,7 @@ mod evidence_list_query_contract_tests {
                 sig: Signature([0; iroha_sumeragi::types::SIGNATURE_LEN]),
             };
             vote.sig = Signature(
-                iroha_crypto::Signature::new(key.private_key(), &vote.preimage())
-                    .payload()
-                    .try_into()
+                iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &vote.preimage())
                     .unwrap(),
             );
             vote
@@ -43222,7 +43211,8 @@ mod validation_fee_torii_ingress_tests {
         stx.world
             .parameters_mut_for_testing()
             .get_mut()
-            .set_parameter(Parameter::Custom(custom_registry));
+            .set_parameter(Parameter::Custom(custom_registry))
+            .expect("valid fixture parameters");
         stx.apply();
         block
             .commit_world_overlay_for_testing()

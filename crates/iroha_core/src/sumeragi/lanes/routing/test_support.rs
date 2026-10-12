@@ -34,7 +34,9 @@ pub(crate) fn metadata(scope: SumeragiRootScope) -> Parameter {
 pub(crate) fn world(scope: SumeragiRootScope) -> World {
     let world = World::new();
     let mut parameters = world.parameters.block();
-    parameters.set_parameter(metadata(scope));
+    parameters
+        .set_parameter(metadata(scope))
+        .expect("valid fixture parameters");
     parameters.commit();
     world
 }

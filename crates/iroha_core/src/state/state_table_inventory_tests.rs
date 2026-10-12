@@ -738,10 +738,10 @@ const ROOTS: &[Root] = &[
     Root {
         id: "consensus_authority_binding",
         class: RootClass::ConsensusBinding,
-        carrier: "EpochId.context in every Sumeragi core header, vote, QC, timeout vote and timeout certificate; ExecutionResultCommitment.schedule and ExecutionResultCommitment.beacon in the preimage of R; the epoch context identifiers inside the schedule and the beacon pulse",
+        carrier: "EpochId.context in every Sumeragi core header, vote, QC, timeout vote and timeout certificate; ExecutionResultCommitment.schedule and ExecutionResultCommitment.beacon in the preimage of R; the epoch context identifiers inside the schedule and the beacon pulse; the current and successor ordered-key committee roots of the fixed native X header",
         keyed: false,
-        scope: "three members. (1) The epoch context and its exact validator-generation and scheduling-authorization identities: the complete ordered BLS roster, scalar generation, epoch bounds, beacon binding and predecessor. (2) The schedule of R: the current epoch context, the boundary with its immutable E+2 preparation and the two successor slots, embedded as records; the preparation identity binds every frozen election input. (3) The finalized beacon pulse of R, embedded as a record. Canonical State sources: world.consensus_schedule for (1) and (2), world.validator_committee_transitions for the frozen preparation, world.global_beacon_pulses for (3)",
-        construction: "(1) domain-separated identities of the canonical context, exact ordered BLS generation and scheduling authorization; (2) the complete frozen preparation has its own domain-separated identity, while the schedule and (3) pulse records are part of the preimage that R hashes",
+        scope: "four members. (1) The epoch context and its exact validator-generation and scheduling-authorization identities: the complete ordered BLS roster, scalar generation, epoch bounds, beacon binding and predecessor. (2) The schedule of R: the current epoch context, the boundary with its immutable E+2 preparation and the two successor slots, embedded as records; the preparation identity binds every frozen election input. (3) The finalized beacon pulse of R, embedded as a record. (4) The fixed native X current and successor committee roots: C3/C4 bind them to the exact ordered keys of the same current/boundary epoch graph. Canonical State sources: world.consensus_schedule for (1) and (2), world.validator_committee_transitions for the frozen preparation, world.global_beacon_pulses for (3); (4) projects those authenticated epoch keys and retains the SCCP generation in world.sccp_committee_generations",
+        construction: "(1) domain-separated identities of the canonical context, exact ordered BLS generation and scheduling authorization; (2) the complete frozen preparation has its own domain-separated identity, while the schedule and (3) pulse records are part of the body that R hashes; (4) SCCP committee_root over the original ordered key bytes, checked against that same schedule before the native result can be accepted",
         witnesses: "none over State: votes and certificates bind the epoch context, and R binds the schedule and the pulse. Authority follows signed genesis and authenticated predecessor transitions; it does not depend on a State opening authenticated by the certificate being verified",
         owner: "Sumeragi (specs/sumeragi.md §§3, 4.1, 10)",
         disposition: "kept in its specified role under §§3, 4.1 and 10: the binding authenticates no State read, and its canonical State source entries are also committed by the keyed State root",
@@ -768,6 +768,10 @@ const ROOTS: &[Root] = &[
             (
                 "crates/iroha_data_model/src/nexus/committee.rs",
                 "let mut bytes = b\"iroha:validator-committee-preparation:v1\".to_vec();",
+            ),
+            (
+                "crates/iroha_data_model/src/sumeragi_finality/certified_result.rs",
+                "pub fn context_committee_root(",
             ),
             ("crates/iroha_sumeragi/src/types.rs", "pub context: Hash32,"),
             (
@@ -1516,7 +1520,7 @@ const APPLICATION_ACCUMULATORS: &[ApplicationAccumulator] = &[
             "world.sccp_history",
             "world.sccp_history_leaves",
         ],
-        statement: "inclusion of an SCCP message leaf in the root of its block and of that block root in the history accumulator, for the statements that bridge keys sign",
+        statement: "inclusion of an SCCP message leaf in the root of its block and of that block root in the history accumulator, bound by fixed native X and the same original Sumeragi quorum that certifies R",
         domains: &[],
         evidence: &[(
             "crates/iroha_core/src/smartcontracts/isi/sccp/commitment.rs",
@@ -4073,6 +4077,8 @@ struct Carrier {
 const HEADER_MODEL: &str = "crates/iroha_data_model/src/block/header.rs";
 const CONSENSUS_MODEL: &str = "crates/iroha_data_model/src/block/consensus.rs";
 const RESULT_MODEL: &str = "crates/iroha_data_model/src/sumeragi_finality/commitment.rs";
+const CERTIFIED_RESULT_MODEL: &str =
+    "crates/iroha_data_model/src/sumeragi_finality/certified_result.rs";
 const EPOCH_GRAPH_MODEL: &str = "crates/iroha_data_model/src/sumeragi_finality/epoch_graph.rs";
 const EPOCH_MODEL: &str = "crates/iroha_data_model/src/sumeragi/epoch.rs";
 const BEACON_MODEL: &str = "crates/iroha_data_model/src/consensus.rs";
@@ -4561,8 +4567,13 @@ const CARRIERS: &[Carrier] = &[
     },
     Carrier {
         id: "execution_result",
-        object: "R = H(RESULT_TAG ‖ norito(ExecutionResultCommitment)), which every commit vote and certificate binds",
+        object: "CertifiedResultV1 is exactly X || body, where X is the fixed 221-byte finality header and body is canonical Norito ExecutionResultCommitment; R = SHA-256(RESULT_TAG ‖ X ‖ H(RESULT_BODY_TAG ‖ body)), which every native commit vote and certificate binds",
         types: &[
+            (CERTIFIED_RESULT_MODEL, "pub struct CertifiedResultV1 {"),
+            (
+                CERTIFIED_RESULT_MODEL,
+                "pub struct SccpFinalityHeaderFieldsV1 {",
+            ),
             (RESULT_MODEL, "pub struct ExecutionResultCommitment {"),
             (RESULT_MODEL, "pub struct ExecutionCommitment {"),
             (EPOCH_GRAPH_MODEL, "pub struct ScheduleOutcome {"),
@@ -4613,6 +4624,30 @@ const CARRIERS: &[Carrier] = &[
             ),
         ],
         hashes: &[
+            (
+                "SccpFinalityHeaderFieldsV1.network_id",
+                HashUse::Block("identity of the original signed genesis, never a State opening"),
+            ),
+            (
+                "SccpFinalityHeaderFieldsV1.sccp_root",
+                HashUse::Block(
+                    "root of the exact SCCP leaves emitted by this block; the application message accumulator, not a State membership root",
+                ),
+            ),
+            (
+                "SccpFinalityHeaderFieldsV1.history_root",
+                HashUse::Block(
+                    "SCCP application history accumulator over committed block leaves; authenticates message history, not arbitrary State entries",
+                ),
+            ),
+            (
+                "SccpFinalityHeaderFieldsV1.committee_root",
+                HashUse::State("consensus_authority_binding"),
+            ),
+            (
+                "SccpFinalityHeaderFieldsV1.next_committee_root",
+                HashUse::State("consensus_authority_binding"),
+            ),
             (
                 "ExecutionCommitment.parent_state_root",
                 HashUse::State("execution_witness_roots"),
@@ -4768,6 +4803,42 @@ const CARRIERS: &[Carrier] = &[
         ],
         reviewed: &[],
         content: &[
+            (
+                "CertifiedResultV1.header",
+                "fixed X bytes; every named field is walked through SccpFinalityHeaderFieldsV1 and checked against the actual codec offsets",
+            ),
+            (
+                "CertifiedResultV1.commitment",
+                "canonical body, walked as ExecutionResultCommitment; no body-only native result is accepted",
+            ),
+            (
+                "SccpFinalityHeaderFieldsV1.height",
+                "nonzero exact certified block height",
+            ),
+            (
+                "SccpFinalityHeaderFieldsV1.timestamp_ms",
+                "exact certified block time in milliseconds",
+            ),
+            (
+                "SccpFinalityHeaderFieldsV1.flags",
+                "closed ACTIVE and ROTATION bit flags",
+            ),
+            (
+                "SccpFinalityHeaderFieldsV1.message_count",
+                "number of SCCP leaves in this block",
+            ),
+            (
+                "SccpFinalityHeaderFieldsV1.history_size",
+                "number of leaves in the SCCP application history accumulator",
+            ),
+            (
+                "SccpFinalityHeaderFieldsV1.generation",
+                "scalar SCCP committee generation, not an independently authoritative State digest",
+            ),
+            (
+                "SccpFinalityHeaderFieldsV1.validity_ms",
+                "certified successor committee validity duration in milliseconds",
+            ),
             ("ExecutionResultCommitment.height", "height of the block"),
             (
                 "ExecutionResultCommitment.execution",
@@ -4895,6 +4966,8 @@ const CARRIERS: &[Carrier] = &[
             ),
         ],
         exhaustive: &[
+            "CertifiedResultV1",
+            "SccpFinalityHeaderFieldsV1",
             "ExecutionResultCommitment",
             "ExecutionCommitment",
             "ValidatorCommitteeMemberV1",
@@ -4905,6 +4978,10 @@ const CARRIERS: &[Carrier] = &[
             "ValidatorElectionPolicyV1",
         ],
         opaque: &[
+            (
+                "SccpFinalityHeaderV1",
+                "the exact private [u8; X_LEN] wrapper; all twelve projected fields are walked and the actual codec is checked against every fixed byte range",
+            ),
             ("ChainParamsRecord", "chain parameters: numbers"),
             ("NetworkId", "network identity fixed at genesis"),
             ("ConsensusMode", "enumeration without a hash payload"),
@@ -7308,7 +7385,7 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
                 "{}: remove",
                 stringify!($field)
             );
-            covered.push(concat!("world.", stringify!($field)));
+            covered.push((concat!("world.", stringify!($field)), Commitment::Certified));
         }};
     }
     typed_table!(
@@ -7334,14 +7411,86 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
         (1_u64, [1_u8; 32]),
         (2_u64, [1_u8; 32])
     );
-    typed_table!(
-        sccp_attestation_signatures,
-        (7_u64, 1_u8),
-        [1_u8; 65],
-        [2_u8; 65]
-    );
-    typed_table!(sccp_member_last_signed, [7_u8; 20], 1_u64, 2_u64);
-    typed_table!(sccp_handoff_stalled, 7_u64, 1_u64, 2_u64);
+    {
+        let budget = world.sccp_committee_generations.allocation_budget().clone();
+        let original =
+            crate::smartcontracts::isi::sccp::test_support::sample_generation(1, 1, &budget);
+        let ended = original
+            .with_lifecycle(
+                Some(iroha_data_model::sccp::committee::SccpGenerationEndV1 {
+                    end_height: 2,
+                    end_timestamp_ms: original.start_timestamp_ms + 1,
+                    next_committee_root: original.committee_root,
+                    successor_validity_ms: original.validity_ms,
+                }),
+                None,
+                &budget,
+            )
+            .unwrap();
+        let mut block = world.block();
+        let parent = WorldStateAccumulator::capture(&block).unwrap();
+        block
+            .sccp_committee_generations
+            .try_insert_admitted(1, original)
+            .unwrap();
+        let inserted = parent.apply_block(&block).unwrap();
+        assert_ne!(inserted.root(), parent.root(), "native committee insert");
+        assert_eq!(
+            inserted.root(),
+            WorldStateAccumulator::capture(&block).unwrap().root()
+        );
+        block
+            .sccp_committee_generations
+            .try_insert_admitted(1, ended)
+            .unwrap();
+        let replaced = parent.apply_block(&block).unwrap();
+        assert_ne!(
+            replaced.root(),
+            inserted.root(),
+            "native committee replacement"
+        );
+        assert_eq!(
+            replaced.root(),
+            WorldStateAccumulator::capture(&block).unwrap().root()
+        );
+        block
+            .sccp_committee_generations
+            .try_remove_admitted(1)
+            .unwrap();
+        assert_eq!(
+            parent.apply_block(&block).unwrap().root(),
+            parent.root(),
+            "native committee removal"
+        );
+        covered.push(("world.sccp_committee_generations", Commitment::Certified));
+    }
+    {
+        let mut block = world.block();
+        let parent = WorldStateAccumulator::capture(&block).unwrap();
+        block
+            .sccp_anchor_chunks
+            .try_insert_admitted(1, [1; 32])
+            .unwrap();
+        let first = parent.apply_block(&block).unwrap().root();
+        assert_ne!(first, parent.root());
+        assert_eq!(
+            first,
+            WorldStateAccumulator::capture(&block).unwrap().root()
+        );
+        block
+            .sccp_anchor_chunks
+            .try_insert_admitted(1, [2; 32])
+            .unwrap();
+        let second = parent.apply_block(&block).unwrap().root();
+        assert_ne!(first, second);
+        assert_eq!(
+            second,
+            WorldStateAccumulator::capture(&block).unwrap().root()
+        );
+        block.sccp_anchor_chunks.try_remove_admitted(1).unwrap();
+        assert_eq!(parent.apply_block(&block).unwrap().root(), parent.root());
+        covered.push(("world.sccp_anchor_chunks", Commitment::Certified));
+    }
     typed_table!(
         consensus_keys_by_pk,
         "typed-public-key".to_owned(),
@@ -7387,7 +7536,7 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
                 stringify!($field)
             );
             assert_eq!(changed.entries(), parent.entries());
-            covered.push(concat!("world.", stringify!($field)));
+            covered.push((concat!("world.", stringify!($field)), Commitment::Certified));
         }};
     }
     typed_cell!(soradns_last_publish_ms, Some(42_u64));
@@ -7398,8 +7547,21 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
     typed_cell!(merge_hint_roots, vec![Hash::new(b"hint")]);
     typed_cell!(merge_global_state_root, Some(Hash::new(b"root")));
     typed_cell!(sccp_reset_nonce, Some([1_u8; 32]));
-    typed_cell!(sccp_roster_current, 4_u64);
-    typed_cell!(sccp_heartbeat_marker, Some(8_u64));
+    typed_cell!(sccp_committee_current, 4_u64);
+    typed_cell!(sccp_liability_clock, 8_u64);
+    typed_cell!(sccp_degraded_run, 2_u32);
+    let anchor_pool = world.sccp_anchor_chunks.allocation_budget().clone();
+    typed_cell!(
+        sccp_anchor_open,
+        crate::smartcontracts::isi::sccp::anchor_owner::RetainedSccpAnchorOpen::admit_claim(
+            &[iroha_data_model::sccp::committee::SccpAnchorV1 {
+                core_hash: [1; 32],
+                result: [2; 32]
+            }],
+            &anchor_pool
+        )
+        .unwrap()
+    );
 
     macro_rules! typed_derived {
         ($field:ident, $key:expr, $value:expr) => {{
@@ -7418,7 +7580,7 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
                 "{}",
                 stringify!($field)
             );
-            covered.push(concat!("world.", stringify!($field)));
+            covered.push((concat!("world.", stringify!($field)), Commitment::Derived));
         }};
     }
     typed_derived!(
@@ -7433,19 +7595,14 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
 
     // Each typed field is inventoried in the class the typed mutation observed.
     let rows = rows();
-    for (position, id) in covered.iter().enumerate() {
+    for (id, expected) in &covered {
         let row = rows
             .iter()
             .find(|row| row.field.id == *id)
             .unwrap_or_else(|| panic!("{id} is not inventoried"));
-        let expected = if position < 26 {
-            Commitment::Certified
-        } else {
-            Commitment::Derived
-        };
-        assert_eq!(row.commitment, expected, "{id}");
+        assert_eq!(row.commitment, *expected, "{id}");
     }
-    assert_eq!(covered.len(), 31);
+    assert_eq!(covered.len(), 32);
 }
 
 /// Canonical State-level fields reach no certified root: the truth that open defect
@@ -8045,13 +8202,14 @@ fn state_hash_function_scan_lists_every_state_reader_that_returns_a_hash() {
     for id in RECORD_RETURN_CARRIERS {
         assert!(CARRIERS.iter().any(|carrier| carrier.id == *id), "{id}");
     }
+    // The retired SCCP subject digest is not a parallel native authority path.
+    assert!(
+        scan.state_hash_functions
+            .keys()
+            .all(|(path, _)| path != "crates/iroha_core/src/smartcontracts/isi/sccp/subjects.rs")
+    );
     // The functions of the tree that only the whole header matches are listed.
     for (path, name, count) in [
-        (
-            "crates/iroha_core/src/smartcontracts/isi/sccp/subjects.rs",
-            "statement_digest",
-            1,
-        ),
         (
             "crates/iroha_core/src/governance/parliament/planner.rs",
             "verified_pulse",
@@ -9208,7 +9366,6 @@ fn witness_families_cover_every_witness_key_tag() {
     assert_eq!(
         fields_of("parliament_timed_ovn_casting"),
         [
-            "world.global_beacon_pulses",
             "world.parliament_attempts",
             "world.timed_ovn_evidence",
             "world.tle_key_sessions"
@@ -9345,7 +9502,7 @@ fn witness_families_cover_every_witness_key_tag() {
     );
     assert_eq!(
         sources.into_iter().collect::<Vec<_>>(),
-        ["world.global_beacon_pulses", "world.parliament_attempts"]
+        ["world.parliament_attempts"]
     );
 }
 
@@ -9353,6 +9510,130 @@ fn witness_families_cover_every_witness_key_tag() {
 /// consensus-carried types and of their declared nested types is classified as a digest
 /// of State content with its listed commitment, or as the content it commits, and every
 /// nested type is walked or declared.
+#[test]
+fn native_result_carrier_walk_matches_every_fixed_header_byte_range() {
+    use iroha_data_model::sumeragi_finality::{
+        SccpFinalityHeaderV1,
+        certified_result::{
+            FLAG_ACTIVE, FLAG_ROTATION, SccpFinalityHeaderFieldsV1, X_LEN, X_MAGIC,
+        },
+    };
+    let source = source(CERTIFIED_RESULT_MODEL);
+    assert_eq!(
+        source
+            .matches("pub struct SccpFinalityHeaderV1([u8; X_LEN]);")
+            .count(),
+        1,
+        "the reviewed wrapper must retain only its exact fixed byte array"
+    );
+    assert_eq!(core::mem::size_of::<SccpFinalityHeaderV1>(), 221);
+    assert_eq!(X_LEN, 221);
+    let fields = SccpFinalityHeaderFieldsV1 {
+        network_id: [1; 32],
+        height: 2,
+        timestamp_ms: 3,
+        flags: FLAG_ACTIVE | FLAG_ROTATION,
+        message_count: 1,
+        sccp_root: [4; 32],
+        history_size: 1,
+        history_root: [5; 32],
+        generation: 1,
+        committee_root: [6; 32],
+        validity_ms: 7,
+        next_committee_root: [8; 32],
+    };
+    let header = SccpFinalityHeaderV1::from_fields(&fields).unwrap();
+    let bytes = header.as_bytes();
+    assert_eq!(&bytes[..16], X_MAGIC);
+    // Destructure without `..`: a new projected field requires an explicit byte-range review.
+    let SccpFinalityHeaderFieldsV1 {
+        network_id,
+        height,
+        timestamp_ms,
+        flags,
+        message_count,
+        sccp_root,
+        history_size,
+        history_root,
+        generation,
+        committee_root,
+        validity_ms,
+        next_committee_root,
+    } = header.fields();
+    assert_eq!(&bytes[16..48], &network_id);
+    assert_eq!(&bytes[48..56], &height.to_be_bytes());
+    assert_eq!(&bytes[56..64], &timestamp_ms.to_be_bytes());
+    assert_eq!(bytes[64], flags);
+    assert_eq!(&bytes[65..69], &message_count.to_be_bytes());
+    assert_eq!(&bytes[69..101], &sccp_root);
+    assert_eq!(&bytes[101..109], &history_size.to_be_bytes());
+    assert_eq!(&bytes[109..141], &history_root);
+    assert_eq!(&bytes[141..149], &generation.to_be_bytes());
+    assert_eq!(&bytes[149..181], &committee_root);
+    assert_eq!(&bytes[181..189], &validity_ms.to_be_bytes());
+    assert_eq!(&bytes[189..221], &next_committee_root);
+    assert_eq!(header.fields(), fields);
+    assert_eq!(SccpFinalityHeaderV1::parse(bytes).unwrap(), header);
+    // Flip one actual byte in every field. Only the reserved flag mutation is structurally
+    // invalid; the others must change exactly the corresponding decoded field. This guards
+    // the real byte decoder, not merely the non-serialized Fields declaration.
+    let expected = [
+        "network_id",
+        "height",
+        "timestamp_ms",
+        "flags",
+        "message_count",
+        "sccp_root",
+        "history_size",
+        "history_root",
+        "generation",
+        "committee_root",
+        "validity_ms",
+        "next_committee_root",
+    ];
+    let decoded_fields = declared_fields(&source, "pub struct SccpFinalityHeaderFieldsV1 {");
+    assert_eq!(
+        decoded_fields
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>(),
+        expected
+    );
+    for (field, offset) in [47, 55, 63, 64, 68, 100, 108, 140, 148, 180, 188, 220]
+        .into_iter()
+        .enumerate()
+    {
+        let mut changed = *bytes;
+        changed[offset] ^= 0x80;
+        if field == 3 {
+            assert!(SccpFinalityHeaderV1::parse(&changed).is_err());
+            continue;
+        }
+        let actual = SccpFinalityHeaderV1::parse(&changed).unwrap().fields();
+        let differences = [
+            actual.network_id != fields.network_id,
+            actual.height != fields.height,
+            actual.timestamp_ms != fields.timestamp_ms,
+            actual.flags != fields.flags,
+            actual.message_count != fields.message_count,
+            actual.sccp_root != fields.sccp_root,
+            actual.history_size != fields.history_size,
+            actual.history_root != fields.history_root,
+            actual.generation != fields.generation,
+            actual.committee_root != fields.committee_root,
+            actual.validity_ms != fields.validity_ms,
+            actual.next_committee_root != fields.next_committee_root,
+        ];
+        assert_eq!(
+            differences,
+            std::array::from_fn(|index| index == field),
+            "{}",
+            expected[field]
+        );
+    }
+}
+
+/// Exhaustively classify the original protocol carrier declarations and detect new fields.
 #[test]
 fn protocol_carriers_classify_every_hash_bearing_field() {
     check_carriers();
@@ -9565,6 +9846,9 @@ fn protocol_carriers_classify_every_hash_bearing_field() {
     let authority = carrier("execution_result");
     let mut authority_types = carrier_types(authority);
     for (name, field, kind) in [
+        ("CertifiedResultV1", "shadow_header", "UnknownPolicy"),
+        ("SccpFinalityHeaderFieldsV1", "shadow_root", "[u8; 32]"),
+        ("SccpFinalityHeaderFieldsV1", "shadow_flag", "u8"),
         (
             "ValidatorEpochAuthorizationV1",
             "shadow_generation",
@@ -10101,10 +10385,9 @@ fn protocol_carriers_classify_every_hash_bearing_field() {
             ),
         ]
     );
-    // The DA commitment bundle has the same private storage in its own source. Its
-    // storage enumeration and canonical parts share their names with those of the
-    // proof-policy bundle, so both declarations are walked and a hash field added to the
-    // parts of the commitment bundle is still reported.
+    // The DA commitment bundle has the same private storage in its own source.
+    // The block body delegates its complete walk to da_commitment_bundle; the
+    // same-named proof-policy parts cannot mask a new hash in this distinct owner.
     assert_eq!(
         declared_fields(&source(DA_BUNDLE_MODEL), "pub struct DaCommitmentBundle {"),
         [("storage".to_owned(), "Storage".to_owned())]
@@ -10124,16 +10407,17 @@ fn protocol_carriers_classify_every_hash_bearing_field() {
         declared_fields(&source(DA_BUNDLE_MODEL), "struct CanonicalParts {"),
         commitment_parts
     );
-    let mut body_types = carrier_types(body);
-    let parts_at = body_types
+    let commitment = carrier("da_commitment_bundle");
+    let mut commitment_types = carrier_types(commitment);
+    let parts_at = commitment_types
         .iter()
         .position(|(name, fields)| *name == "CanonicalParts" && fields[..] == commitment_parts)
         .expect("the canonical parts of the commitment bundle are walked");
-    body_types[parts_at]
+    commitment_types[parts_at]
         .1
         .push(("shadow_root".to_owned(), "Hash".to_owned()));
     assert_eq!(
-        unclassified_value_fields(&body_types, body.hashes, body.opaque),
+        unclassified_value_fields(&commitment_types, commitment.hashes, commitment.opaque),
         ["unclassified hash field CanonicalParts.shadow_root: Hash"]
     );
     assert!(is_hash_type("MerkleTree<ExecutionOutputV1>") && !is_hash_type("Vec<u64>"));
@@ -10521,11 +10805,14 @@ fn contract_section_states_every_publication_and_binding_rule_once() {
          crypto capabilities that a node compares them with)",
         "In the types listed under `protocol_carriers[*].every_field_classified` every field \
          is classified, so a new field fails the check whatever its type. They are the block, \
-         its payload and its result, the header with its confidential feature digest, the two \
-         records of `R`, the lane batch and the lane result, the genesis context parameters, \
-         the epoch identity, every walked record of the peer handshake, and the network \
-         envelope with its Sumeragi frame. In the other walked types a new field fails only \
-         when its type is hash-bearing or names an unclassified nested type.",
+         its payload and its result, the header with its confidential feature digest, the native \
+         `CertifiedResultV1`, all twelve fixed X fields, the two body records of `R`, the walked \
+         committee-member, authorization, beacon-binding and frozen-election-policy records, \
+         the lane batch and the lane result, the genesis context parameters, the epoch identity, \
+         every walked record of the peer handshake, the network envelope with its Sumeragi \
+         frame, and the DA commitment bundle with its storage variants, canonical parts and \
+         commitment records. In the other walked types a new field fails only when its type is hash-bearing \
+         or names an unclassified nested type.",
         "It also matches a function that reads State and returns a walked record of the peer \
          handshake or of a lane block (`source_scan.carried_records`), whatever the name of \
          the record; it does not read the node binary, which fills the handshake capabilities.",
@@ -10572,7 +10859,18 @@ fn contract_section_states_every_publication_and_binding_rule_once() {
             ),
             (
                 "execution_result",
-                &["ExecutionResultCommitment", "ExecutionCommitment"][..]
+                &[
+                    "CertifiedResultV1",
+                    "SccpFinalityHeaderFieldsV1",
+                    "ExecutionResultCommitment",
+                    "ExecutionCommitment",
+                    "ValidatorCommitteeMemberV1",
+                    "ValidatorEpochAuthorizationV1",
+                    "BeaconEpochBindingV1",
+                    "InstalledBeaconEpochBindingV1",
+                    "ValidatorCommitteePreparationV1",
+                    "ValidatorElectionPolicyV1",
+                ][..]
             ),
             ("consensus_messages", &["EpochId"][..]),
             ("lane_result", &["LaneBatch", "LaneResult"][..]),
@@ -10595,6 +10893,15 @@ fn contract_section_states_every_publication_and_binding_rule_once() {
             (
                 "node_network_envelope",
                 &["NetworkMessage", "SumeragiFrame"][..]
+            ),
+            (
+                "da_commitment_bundle",
+                &[
+                    "DaCommitmentBundle",
+                    "Storage",
+                    "CanonicalParts",
+                    "DaCommitmentRecord"
+                ][..]
             ),
         ]
     );

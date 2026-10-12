@@ -94,14 +94,18 @@ fn malformed_original_deadline_cannot_release_retained_custody() {
 
 fn parameters(world: &mut WorldBlock<'_>, horizon: u64, delay: u64) {
     use iroha_data_model::parameter::{Parameter, system::SumeragiNposParameters};
-    world.parameters.get_mut().set_parameter(Parameter::Custom(
-        SumeragiNposParameters {
-            evidence_horizon_blocks: horizon,
-            slashing_delay_blocks: delay,
-            ..SumeragiNposParameters::default()
-        }
-        .into_custom_parameter(),
-    ));
+    world
+        .parameters
+        .get_mut()
+        .set_parameter(Parameter::Custom(
+            SumeragiNposParameters {
+                evidence_horizon_blocks: horizon,
+                slashing_delay_blocks: delay,
+                ..SumeragiNposParameters::default()
+            }
+            .into_custom_parameter(),
+        ))
+        .expect("valid fixture parameters");
 }
 
 fn lane(original: &PublicLaneValidatorRecord) -> SumeragiLaneRecord {

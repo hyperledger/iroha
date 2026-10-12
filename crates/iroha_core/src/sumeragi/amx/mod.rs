@@ -54,8 +54,6 @@
 //! distinct open resource and whole-network qualification boundaries.
 
 pub use crate::query::native_receipts::amx_record_proof;
-#[cfg(test)]
-pub(crate) use native::NativeAmxCellFixtureBlock;
 
 use iroha_data_model::{
     account::AccountId,
@@ -77,14 +75,27 @@ use crate::{
 
 /// Retain decoder refusal outside every deterministic instruction/result carrier.
 fn amx_error(error: AmxError, transaction: &mut StateTransaction<'_, '_>) -> Error {
-    if let AmxError::Resource(resource) = &error
+    if let Some(resource) = classified_decode_refusal(&error)
         && !cfg!(all(test, sumeragi_core_mutation = "HC19"))
     {
         transaction.arm_local_storage_refusal(crate::state::StateStorageAdmissionError::AmxDecode(
-            *resource,
+            resource,
         ));
     }
     Error::InvariantViolation(format!("AMX: {error}").into())
+}
+
+/// Project exact refusal fields only after the original decoder captured local provenance.
+/// The sticky State owner retains this completed classification and never reclassifies the
+/// numbers against a different budget. No allocation-pool release is manufactured here.
+pub(crate) fn classified_decode_refusal(
+    error: &AmxError,
+) -> Option<norito::core::DecodeResourceError> {
+    let AmxError::Resource(original) = error else {
+        return None;
+    };
+    crate::execution_attempt::canonical_decode_deferral(original)?;
+    original.error().decode_resource_error()
 }
 
 /// Record `record` as a World write of the executing block.
@@ -115,23 +126,22 @@ fn decode_anchor(bytes: &[u8]) -> Result<ValidatorEpochContextV1, AmxError> {
     if bytes.is_empty() || bytes.len() > MAX_RESULT_PREIMAGE_BYTES {
         return Err(AmxError::Anchor("the anchor exceeds its bound".into()));
     }
-    let outer_scope = norito::core::decode_limits_active();
     let canonical = norito::canonical_decode_limits(bytes.len());
-    norito::decode_canonical_with_limits(
-        bytes,
-        norito::DecodeLimits::new(
-            96,
-            MAX_RESULT_PREIMAGE_BYTES,
-            canonical.max_total_elements(),
-            canonical.max_total_allocated_bytes(),
-            32,
-        ),
-    )
+    norito::core::classify_decode_attempt(|| {
+        norito::decode_canonical_with_limits(
+            bytes,
+            norito::DecodeLimits::new(
+                96,
+                MAX_RESULT_PREIMAGE_BYTES,
+                canonical.max_total_elements(),
+                canonical.max_total_allocated_bytes(),
+                32,
+            ),
+        )
+    })
     .map_err(|error| {
-        if (outer_scope || matches!(error, norito::Error::AllocationFailed { .. }))
-            && let Some(resource) = error.decode_resource_error()
-        {
-            return AmxError::Resource(resource);
+        if error.kind() != norito::core::DecodeAttemptErrorKind::Invalid {
+            return AmxError::Resource(error);
         }
         AmxError::Anchor(error.to_string())
     })
@@ -153,8 +163,12 @@ impl Execute for RegisterAmxDataspaceV1 {
         }
         let anchor =
             decode_anchor(&self.anchor).map_err(|error| amx_error(error, state_transaction))?;
-        let tracker = AmxForeignInstanceV1::new(self.instance, anchor)
-            .map_err(|error| amx_error(error, state_transaction))?;
+        let tracker = AmxForeignInstanceV1::new(
+            self.instance,
+            anchor,
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::NonGlobal,
+        )
+        .map_err(|error| amx_error(error, state_transaction))?;
         state_transaction
             .world
             .sumeragi_amx

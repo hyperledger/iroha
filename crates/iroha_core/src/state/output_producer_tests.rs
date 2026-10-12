@@ -46,10 +46,14 @@ fn state(row_bytes: u64) -> State {
     policy.validate().expect("feasible fixture policy");
     parameters
         .get_mut()
-        .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)));
-    parameters.get_mut().set_parameter(Parameter::Block(
-        BlockParameter::MaxTimeTriggerInvocations(NonZeroU32::MIN),
-    ));
+        .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)))
+        .expect("valid fixture parameters");
+    parameters
+        .get_mut()
+        .set_parameter(Parameter::Block(BlockParameter::MaxTimeTriggerInvocations(
+            NonZeroU32::MIN,
+        )))
+        .expect("valid fixture parameters");
     parameters.commit();
     state
 }
@@ -739,10 +743,14 @@ fn receipt_source(
     policy.validate().expect("finite receipt fixture policy");
     parameters
         .get_mut()
-        .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)));
-    parameters.get_mut().set_parameter(Parameter::Block(
-        BlockParameter::MaxTimeTriggerInvocations(NonZeroU32::MIN),
-    ));
+        .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)))
+        .expect("valid fixture parameters");
+    parameters
+        .get_mut()
+        .set_parameter(Parameter::Block(BlockParameter::MaxTimeTriggerInvocations(
+            NonZeroU32::MIN,
+        )))
+        .expect("valid fixture parameters");
     parameters.commit();
     let state = authenticate_output_state(state);
 
@@ -1154,7 +1162,8 @@ fn poisoned_carrier_refuses_consensus_world_application() {
         .get_mut()
         .set_parameter(Parameter::Block(BlockParameter::MaxTransactions(
             NonZeroU64::new(7).unwrap(),
-        )));
+        )))
+        .expect("valid fixture parameters");
     *tx.block_execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
     tx.apply_consensus_effects();
     assert_eq!(*block.world.parameters.get(), before);

@@ -15,8 +15,9 @@ use norito::json::{Map, Value};
 
 use super::{
     contract::{
-        MAX_WORKFLOW_TRANSACTION_BYTES_V1, RoundStateV1, StepKindV1, TransactionStateV1,
-        WORKFLOW_RULES_V1, WorkflowErrorCode, WorkflowKindV1, WorkflowStatusV1, state_machine_json,
+        MAX_ROUND_TRANSCRIPT_BYTES_V1, MAX_WORKFLOW_TRANSACTION_BYTES_V1, RoundStateV1, StepKindV1,
+        TransactionStateV1, WORKFLOW_RULES_V1, WorkflowErrorCode, WorkflowKindV1, WorkflowStatusV1,
+        state_machine_json,
     },
     engine::{
         BuiltStepPayload, CommittedOutcome, DispatchOutcome, RoundContext, RoundRecovery,
@@ -156,6 +157,14 @@ fn parse_plan(plan: &Map) -> WorkflowPlanV1 {
                     flag(step, "irreversible"),
                     u32::try_from(number(step, "participants_required", 0)).expect("participants"),
                     u32::try_from(number(step, "custody_handles_required", 0)).expect("custody"),
+                )
+                .with_max_transcript_bytes(
+                    u32::try_from(number(
+                        step,
+                        "max_transcript_bytes",
+                        MAX_ROUND_TRANSCRIPT_BYTES_V1 as u64,
+                    ))
+                    .expect("transcript bound"),
                 ),
             }
         })

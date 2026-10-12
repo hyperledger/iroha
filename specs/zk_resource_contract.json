@@ -828,7 +828,7 @@
       "group": "block",
       "what": "Largest block payload: the exact wire of the unsigned, resultless block proposal.",
       "unit": "bytes",
-      "value": 4194304,
+      "value": 16777216,
       "source": "committed",
       "class": "consensus",
       "owner": {
@@ -836,7 +836,7 @@
         "symbol": "max_block_bytes",
         "kind": "fn",
         "anchor": "pub mod sumeragi {",
-        "expr": "nonzero_ext::nonzero!(4_194_304_u32)"
+        "expr": "nonzero_ext::nonzero!(16_777_216_u32)"
       },
       "committed_as": "Parameters.sumeragi.max_block_bytes (SumeragiParameter::MaxBlockBytes), scheduled at h + 2 as ChainParams.max_block_bytes",
       "inclusive": true,
@@ -902,7 +902,7 @@
       "group": "block",
       "what": "The consensus core's default of the same payload limit.",
       "unit": "bytes",
-      "value": 4194304,
+      "value": 16777216,
       "source": "constant",
       "class": "consensus",
       "owner": {
@@ -910,7 +910,7 @@
         "symbol": "max_block_bytes",
         "kind": "field",
         "anchor": "impl Default for ChainParams",
-        "expr": "4 * 1024 * 1024"
+        "expr": "16 * 1024 * 1024"
       },
       "enforcement": [
         {
@@ -1721,18 +1721,18 @@
       "group": "proof",
       "what": "Largest Norito-encoded privacy action envelope (statement, digest and proof).",
       "unit": "bytes",
-      "value": 9437184,
+      "value": 9699840,
       "source": "committed",
       "class": "consensus",
       "owner": {
         "path": "crates/iroha_data_model/src/privacy.rs",
         "symbol": "TAIRA_PRIVACY_MAX_ACTION_BYTES_V1",
         "kind": "const",
-        "expr": "9 * 1024 * 1024"
+        "expr": "TAIRA_PRIVACY_MAX_PROOF_BYTES_PER_ACTION_V1 + TAIRA_PRIVACY_MAX_STATEMENT_AND_ENCRYPTED_OUTPUT_BYTES_PER_TRANSACTION_V1 + TAIRA_PRIVACY_PROOF_ENVELOPE_METADATA_ALLOWANCE_BYTES_V1"
       },
       "committed_as": "PrivacyConsensusPolicyV1.current_limits.max_action_bytes in State; this constant is the hard ceiling and governance may only tighten below it",
       "inclusive": true,
-      "framing": "Measured on norito::to_bytes of the whole envelope, framing included.",
+      "framing": "Measured on norito::encode_canonical of the complete envelope, including its canonical frame and regardless of ambient decode-layout flags.",
       "enforcement": [
         {
           "stage": "sdk",
@@ -1743,23 +1743,32 @@
       "tests": [
         {
           "path": "crates/iroha_data_model/tests/resource_contract_v1.rs",
-          "name": "privacy_limits_keep_their_order_and_record_the_open_envelope_relation"
+          "name": "privacy_limits_keep_their_order_and_fit_complete_envelopes"
+        },
+        {
+          "path": "crates/iroha_data_model/src/privacy/tests/protocol_and_proofs.rs",
+          "name": "canonical_privacy_byte_limits_ignore_ambient_layout_flags"
         }
-      ]
+      ],
+      "refs": {
+        "TAIRA_PRIVACY_MAX_PROOF_BYTES_PER_ACTION_V1": "proof.privacy_max_proof_bytes_per_action",
+        "TAIRA_PRIVACY_MAX_STATEMENT_AND_ENCRYPTED_OUTPUT_BYTES_PER_TRANSACTION_V1": "proof.privacy_max_statement_and_encrypted_output_bytes_per_transaction",
+        "TAIRA_PRIVACY_PROOF_ENVELOPE_METADATA_ALLOWANCE_BYTES_V1": "proof.privacy_envelope_metadata_allowance_bytes"
+      }
     },
     {
       "id": "proof.privacy_max_bytes_per_transaction",
       "group": "proof",
       "what": "Largest aggregate of encoded privacy actions in one transaction.",
       "unit": "bytes",
-      "value": 9437184,
+      "value": 9699840,
       "source": "committed",
       "class": "consensus",
       "owner": {
         "path": "crates/iroha_data_model/src/privacy.rs",
         "symbol": "TAIRA_PRIVACY_MAX_BYTES_PER_TRANSACTION_V1",
         "kind": "const",
-        "expr": "9 * 1024 * 1024"
+        "expr": "TAIRA_PRIVACY_MAX_ACTION_BYTES_V1"
       },
       "committed_as": "PrivacyConsensusPolicyV1.current_limits.max_privacy_bytes_per_transaction in State; this constant is the hard ceiling and governance may only tighten below it",
       "inclusive": true,
@@ -1777,23 +1786,26 @@
         },
         {
           "path": "crates/iroha_data_model/tests/resource_contract_v1.rs",
-          "name": "privacy_limits_keep_their_order_and_record_the_open_envelope_relation"
+          "name": "privacy_limits_keep_their_order_and_fit_complete_envelopes"
         }
-      ]
+      ],
+      "refs": {
+        "TAIRA_PRIVACY_MAX_ACTION_BYTES_V1": "proof.privacy_max_action_bytes"
+      }
     },
     {
       "id": "proof.privacy_max_bytes_per_block",
       "group": "proof",
       "what": "Largest aggregate of encoded privacy actions in one block.",
       "unit": "bytes",
-      "value": 18874368,
+      "value": 16711680,
       "source": "committed",
       "class": "consensus",
       "owner": {
         "path": "crates/iroha_data_model/src/privacy.rs",
         "symbol": "TAIRA_PRIVACY_MAX_BYTES_PER_BLOCK_V1",
         "kind": "const",
-        "expr": "18 * 1024 * 1024"
+        "expr": "16 * 1024 * 1024 - crate::parameter::system::BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES"
       },
       "committed_as": "PrivacyConsensusPolicyV1.current_limits.max_privacy_bytes_per_block in State; this constant is the hard ceiling and governance may only tighten below it",
       "inclusive": true,
@@ -1811,9 +1823,12 @@
         },
         {
           "path": "crates/iroha_data_model/tests/resource_contract_v1.rs",
-          "name": "privacy_limits_keep_their_order_and_record_the_open_envelope_relation"
+          "name": "privacy_limits_keep_their_order_and_fit_complete_envelopes"
         }
-      ]
+      ],
+      "refs": {
+        "BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES": "block.payload_transaction_reserve_bytes"
+      }
     },
     {
       "id": "proof.privacy_max_actions_per_transaction",
@@ -1916,6 +1931,10 @@
         {
           "path": "crates/iroha_data_model/src/privacy/tests/protocol_and_proofs.rs",
           "name": "taira_consensus_limits_reject_zero_overflow_and_inconsistent_profiles"
+        },
+        {
+          "path": "crates/iroha_data_model/src/privacy/tests/protocol_and_proofs.rs",
+          "name": "canonical_privacy_byte_limits_ignore_ambient_layout_flags"
         }
       ]
     },
@@ -4462,18 +4481,27 @@
         {
           "stage": "transport",
           "path": "crates/iroha_sumeragi/src/pacemaker.rs",
-          "contains": "if u64::from(chain.max_block_bytes) + u64::from(FRAME_OVERHEAD) > transport_limit {"
+          "contains": "if chain.max_block_bytes.checked_add(FRAME_OVERHEAD).is_none() || needed > transport_limit {"
         },
         {
           "stage": "transport",
           "path": "crates/iroha_core/src/sumeragi/net.rs",
           "contains": "usize::try_from(u64::from(bytes) + u64::from(FRAME_OVERHEAD)).unwrap_or(usize::MAX)"
+        },
+        {
+          "stage": "transport",
+          "path": "crates/iroha_sumeragi/src/pacemaker.rs",
+          "contains": "let needed = minimum_transport_frame_bytes(chain.max_block_bytes);"
         }
       ],
       "tests": [
         {
           "path": "crates/iroha_sumeragi/src/pacemaker.rs",
           "name": "frame_and_sync_bounds_are_inclusive_at_the_committed_payload_limit"
+        },
+        {
+          "path": "crates/iroha_sumeragi/src/pacemaker.rs",
+          "name": "det_l31_chain_parameters_leave_a_feasible_sync_frame_budget"
         }
       ]
     },
@@ -4482,14 +4510,14 @@
       "group": "transport",
       "what": "Largest consensus frame every node accepts: the chain-wide bound committed chain parameters are validated against, and the driver's frame limit.",
       "unit": "bytes",
-      "value": 17041440,
+      "value": 17305664,
       "source": "constant",
       "class": "consensus",
       "owner": {
         "path": "crates/iroha_data_model/src/sumeragi_finality/commitment.rs",
         "symbol": "CHAIN_TRANSPORT_FRAME_LIMIT",
         "kind": "const",
-        "expr": "16 * 1024 * 1024 + FRAME_OVERHEAD as u64"
+        "expr": "16 * 1024 * 1024 + 2 * FRAME_OVERHEAD as u64"
       },
       "refs": {
         "FRAME_OVERHEAD": "transport.frame_overhead_bytes"
@@ -4701,14 +4729,14 @@
       "group": "transport",
       "what": "Largest transaction-gossip frame. A transaction that does not fit is not gossiped; it stays in the queue of the node that admitted it.",
       "unit": "bytes",
-      "value": 262144,
+      "value": 17825792,
       "source": "node_local",
       "class": "local_defer",
       "owner": {
         "path": "crates/iroha_config/src/parameters/defaults.rs",
         "symbol": "MAX_FRAME_BYTES_TX_GOSSIP",
         "kind": "const",
-        "expr": "nonzero!(262_144_usize)",
+        "expr": "MAX_PLAINTEXT_FRAME_BYTES",
         "anchor": [
           "pub mod network {"
         ]
@@ -4722,6 +4750,19 @@
           "stage": "queue",
           "path": "crates/iroha_core/src/gossiper.rs",
           "contains": "let plaintext_cap = network_cfg .max_frame_bytes_tx_gossip .min(iroha_p2p::frame_plaintext_cap(network_cfg.max_frame_bytes));"
+        }
+      ],
+      "refs": {
+        "MAX_PLAINTEXT_FRAME_BYTES": "transport.max_plaintext_frame_bytes"
+      },
+      "tests": [
+        {
+          "path": "crates/iroha_core/src/gossiper/certified_single_owner_tests.rs",
+          "name": "ordinary_gossip_exact_frame_boundary_preserves_original_body_on_requeue"
+        },
+        {
+          "path": "crates/iroha_core/src/gossiper/certified_single_owner_tests.rs",
+          "name": "shipped_gossip_frames_carry_the_maximum_admitted_signed_transaction"
         }
       ]
     },
@@ -4759,7 +4800,7 @@
       "group": "sync",
       "what": "Bytes of one sync response; a node-local Sumeragi parameter.",
       "unit": "bytes",
-      "value": 16777216,
+      "value": 17041440,
       "source": "node_local",
       "class": "local_defer",
       "owner": {
@@ -4767,7 +4808,7 @@
         "symbol": "sync_max_bytes",
         "kind": "field",
         "anchor": "impl Default for LocalParams",
-        "expr": "16 * 1024 * 1024"
+        "expr": "16 * 1024 * 1024 + crate::pacemaker::FRAME_OVERHEAD"
       },
       "validity": false,
       "on_exhaustion": "local_refusal",
@@ -4790,7 +4831,10 @@
           "path": "crates/iroha_sumeragi/src/pacemaker.rs",
           "name": "frame_and_sync_bounds_are_inclusive_at_the_committed_payload_limit"
         }
-      ]
+      ],
+      "refs": {
+        "FRAME_OVERHEAD": "transport.frame_overhead_bytes"
+      }
     },
     {
       "id": "sync.max_sync_entries",
@@ -10178,7 +10222,7 @@
         {
           "stage": "follower",
           "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
-          "contains": "if rec.circuit_id.len() > iroha_data_model::zk::OPEN_VERIFY_DEFAULT_MAX_CIRCUIT_ID_BYTES"
+          "contains": "if raw.len() > iroha_data_model::zk::OPEN_VERIFY_DEFAULT_MAX_CIRCUIT_ID_BYTES"
         },
         {
           "stage": "follower",
@@ -10887,20 +10931,226 @@
         }
       ],
       "test_note": "The test accepts a document of exactly 1,048,576 bytes through the raw constructor, FromStr, the JSON deserializer and the serializer, and refuses one of 1,048,577 through each; it also covers the wire decoders. The constant lies outside the four compared crates: the scan finds it because two limits of the data model and the node are defined as it (MAX_NEXUS_RUNTIME_CATALOG_BYTES, LANE_COMPLIANCE_POLICY_MAX_FIELD_BYTES). The committed metadata and trigger-payload defaults (transaction.metadata_value_default_max_bytes, transaction.instruction_payload_default_max_bytes) equal it."
+    },
+    {
+      "id": "proof.native_pipa_r_key_carrier_bytes",
+      "group": "proof",
+      "what": "Largest complete canonical compiled native PIPA-R verifier key carrier, before key construction or comparison.",
+      "unit": "bytes",
+      "value": 65536,
+      "source": "constant",
+      "class": "consensus",
+      "owner": {
+        "path": "crates/iroha_core_zk/src/native_pipa_r.rs",
+        "symbol": "MAX_KEY_BYTES",
+        "kind": "const",
+        "expr": "64 * 1024"
+      },
+      "enforcement": [
+        {
+          "stage": "follower",
+          "path": "crates/iroha_core_zk/src/native_pipa_r.rs",
+          "contains": "if bytes.len() > MAX_KEY_BYTES {"
+        },
+        {
+          "stage": "follower",
+          "path": "crates/iroha_core_zk/src/native_pipa_r.rs",
+          "contains": "if key.backend != backend || key.bytes.len() > MAX_KEY_BYTES {"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/iroha_core_zk/src/native_pipa_r_tests.rs",
+          "name": "native_key_records_bind_curve_schema_relation_length_and_compiled_key"
+        }
+      ],
+      "test_note": "Real compiled keys and one-over declared-key rejection are covered; this is not a claim that an arbitrary maximum-sized key is a valid compiled relation."
+    },
+    {
+      "id": "proof.native_pipa_r_proof_carrier_bytes",
+      "group": "proof",
+      "what": "Largest native proof carrier passed to canonical Norito decoding, before exact circuit-shape checks.",
+      "unit": "bytes",
+      "value": 131072,
+      "source": "constant",
+      "class": "consensus",
+      "owner": {
+        "path": "crates/iroha_core_zk/src/native_pipa_r.rs",
+        "symbol": "MAX_PROOF_BYTES",
+        "kind": "const",
+        "expr": "128 * 1024"
+      },
+      "enforcement": [
+        {
+          "stage": "follower",
+          "path": "crates/iroha_core_zk/src/native_pipa_r.rs",
+          "contains": "if bytes.len() > MAX_PROOF_BYTES {"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/iroha_core_zk/src/native_pipa_r_tests.rs",
+          "name": "native_proof_carrier_cap_precedes_decode_and_includes_the_boundary"
+        }
+      ],
+      "test_note": "The test distinguishes malformed frames reaching the decoder at the inclusive byte boundary from one-over rejection before decoding; genuine fixed circuit proofs are smaller."
+    },
+    {
+      "id": "guest_memory.contract_call_binding_bytes",
+      "group": "guest_memory",
+      "what": "Largest canonical framed target binding decoded at the typed cross-contract call boundary.",
+      "unit": "bytes",
+      "value": 128,
+      "source": "constant",
+      "class": "consensus",
+      "owner": {
+        "path": "crates/ivm_abi/src/contract_call.rs",
+        "symbol": "MAX_CONTRACT_CALL_BINDING_BYTES_V1",
+        "kind": "const",
+        "expr": "128"
+      },
+      "enforcement": [
+        {
+          "stage": "vm",
+          "path": "crates/ivm_abi/src/contract_call.rs",
+          "contains": "if bytes.len() > MAX_CONTRACT_CALL_BINDING_BYTES_V1 {"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/ivm_abi/src/contract_call.rs",
+          "name": "rejects_retired_unframed_truncated_and_extended_records"
+        }
+      ],
+      "test_note": "Rejects all truncations, extension and a 129-byte one-over carrier; the canonical fixed record is smaller than the 128-byte resource boundary."
+    },
+    {
+      "id": "work_budget.mock_wsv_nested_contract_calls",
+      "group": "work_budget",
+      "what": "Deterministic nesting cap of the standalone IVM host, separately pinned from the node host.",
+      "unit": "count",
+      "value": 32,
+      "source": "constant",
+      "class": "consensus",
+      "owner": {
+        "path": "crates/ivm/src/mock_wsv/contract_calls.rs",
+        "symbol": "MAX_NESTED_CALLS",
+        "kind": "const",
+        "expr": "32"
+      },
+      "enforcement": [
+        {
+          "stage": "vm",
+          "path": "crates/ivm/src/mock_wsv/contract_calls.rs",
+          "contains": "if self.contract_ancestors.len() >= MAX_NESTED_CALLS {"
+        }
+      ],
+      "test_gap": {
+        "owner": "F.2",
+        "summary": "Add current-candidate exact-boundary and one-over coverage for this newly inventoried stage limit."
+      }
+    },
+    {
+      "id": "proof.native_pipa_r_registry_key_bytes",
+      "group": "proof",
+      "what": "Registry admission alias of the native PIPA-R compiled-key carrier cap.",
+      "unit": "bytes",
+      "value": 65536,
+      "source": "constant",
+      "class": "consensus",
+      "owner": {
+        "path": "crates/iroha_core_zk/src/lib.rs",
+        "symbol": "NATIVE_PIPA_R_VERIFYING_KEY_V1_MAX_BYTES",
+        "kind": "const",
+        "expr": "native_pipa_r::MAX_KEY_BYTES"
+      },
+      "enforcement": [
+        {
+          "stage": "follower",
+          "path": "crates/iroha_core_zk/src/lib.rs",
+          "contains": "iroha_data_model::zk::BackendTag::NativePipaRPasta => { NATIVE_PIPA_R_VERIFYING_KEY_V1_MAX_BYTES }"
+        },
+        {
+          "stage": "follower",
+          "path": "crates/iroha_core_zk/src/lib.rs",
+          "contains": "if u64::from(record.vk_len) > max_payload_bytes as u64 {"
+        },
+        {
+          "stage": "follower",
+          "path": "crates/iroha_core_zk/src/lib.rs",
+          "contains": "if vk.bytes.len() > max_payload_bytes {"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/iroha_core_zk/src/native_pipa_r_tests.rs",
+          "name": "native_key_records_bind_curve_schema_relation_length_and_compiled_key"
+        }
+      ],
+      "refs": {
+        "native_pipa_r::MAX_KEY_BYTES": "proof.native_pipa_r_key_carrier_bytes"
+      }
+    },
+    {
+      "id": "proof.privacy_envelope_metadata_allowance_bytes",
+      "group": "proof",
+      "what": "Canonical envelope metadata and framing allowance above the raw proof and complete canonical statement limits.",
+      "unit": "bytes",
+      "value": 512,
+      "source": "constant",
+      "class": "consensus",
+      "owner": {
+        "path": "crates/iroha_data_model/src/privacy.rs",
+        "symbol": "TAIRA_PRIVACY_PROOF_ENVELOPE_METADATA_ALLOWANCE_BYTES_V1",
+        "kind": "const",
+        "expr": "512"
+      },
+      "inclusive": true,
+      "framing": "Covers the twelve closed protocol layouts, both nested ZK-AMS proof variants and statement length-prefix growth. Encrypted outputs are already included in the complete statement frame; they are not added again.",
+      "enforcement": [
+        {
+          "stage": "sdk",
+          "path": "crates/iroha_data_model/src/privacy/proofs.rs",
+          "contains": "if encoded_len > u64::from(limits.max_action_bytes) {"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/iroha_data_model/tests/maximum_proof_transport_v1.rs",
+          "name": "ceiling_proof_complete_envelopes_fit_the_fixed_transaction_cap",
+          "features": [
+            "privacy-exact12-conformance"
+          ]
+        },
+        {
+          "path": "crates/iroha_data_model/tests/maximum_proof_transport_v1.rs",
+          "name": "maximum_statement_and_proof_fit_with_sixteen_mldsa_signatures",
+          "features": [
+            "privacy-exact12-conformance"
+          ]
+        },
+        {
+          "path": "crates/iroha_data_model/tests/maximum_proof_transport_v1.rs",
+          "name": "zk_ams_action_variants_have_the_same_proof_frame_size",
+          "features": [
+            "privacy-exact12-conformance"
+          ]
+        }
+      ]
     }
   ],
   "relations": [
     {
       "id": "transaction_cap_fits_block_payload",
       "expr": "transaction.max_tx_bytes + block.payload_transaction_reserve_bytes <= block.max_block_bytes",
-      "why": "A transaction admission accepts must fit a block. Until this holds, queue admission and SDK preflight apply min(max_tx_bytes, max_block_bytes - reserve), so nothing admitted waits for a block that cannot carry it; the parameter relation itself is enforced at parameter validation by X.2.",
+      "why": "A transaction admitted under the committed cap must fit the effective block payload after its non-transaction reserve. Pure policy checks and complete-invocation/genesis/restore hooks validate the next and following effective heights; full Core runtime qualification remains open.",
       "expect": {
-        "today": "violated",
+        "today": "holds",
         "x2_target": "holds"
       },
       "open": {
         "owner": "X.2",
-        "summary": "Default max_block_bytes (4 MiB) is below max_tx_bytes (10 MiB) plus the reserve. Raise the default payload limit to 16 MiB and reject committed parameters that break this relation."
+        "summary": "Selected defaults satisfy the relation. Complete authoritative committed-policy validation at transaction, future schedule, executed genesis and restore boundaries is being implemented and independently verified."
       },
       "tests": [
         {
@@ -10940,20 +11190,30 @@
     },
     {
       "id": "action_envelope_holds_a_ceiling_proof",
-      "expr": "proof.privacy_max_proof_bytes_per_action < proof.privacy_max_action_bytes",
-      "why": "The action envelope adds the statement, its digest and Norito framing to the proof, so its bound must be strictly above the proof bound.",
+      "expr": "proof.privacy_max_proof_bytes_per_action + proof.privacy_max_statement_and_encrypted_output_bytes_per_transaction + proof.privacy_envelope_metadata_allowance_bytes <= proof.privacy_max_action_bytes",
+      "why": "The action limit carries a ceiling raw proof plus a complete ceiling statement and a separately measured canonical metadata/framing allowance. The statement cap already includes encrypted outputs.",
       "expect": {
-        "today": "violated",
-        "x2_target": "violated"
-      },
-      "open": {
-        "owner": "X.2",
-        "summary": "max_action_bytes and max_privacy_bytes_per_transaction equal the proof ceiling, so an action carrying a 9,437,184-byte proof is rejected as ActionTooLarge. Set them from the measured maximum envelope."
+        "today": "holds",
+        "x2_target": "holds"
       },
       "tests": [
         {
           "path": "crates/iroha_data_model/tests/resource_contract_v1.rs",
-          "name": "privacy_limits_keep_their_order_and_record_the_open_envelope_relation"
+          "name": "privacy_limits_keep_their_order_and_fit_complete_envelopes"
+        },
+        {
+          "path": "crates/iroha_data_model/tests/maximum_proof_transport_v1.rs",
+          "name": "ceiling_proof_complete_envelopes_fit_the_fixed_transaction_cap",
+          "features": [
+            "privacy-exact12-conformance"
+          ]
+        },
+        {
+          "path": "crates/iroha_data_model/tests/maximum_proof_transport_v1.rs",
+          "name": "maximum_statement_and_proof_fit_with_sixteen_mldsa_signatures",
+          "features": [
+            "privacy-exact12-conformance"
+          ]
         }
       ]
     },
@@ -10967,29 +11227,35 @@
     },
     {
       "id": "privacy_block_bytes_within_block_payload",
-      "expr": "proof.privacy_max_bytes_per_block <= block.max_block_bytes",
-      "why": "The privacy bytes one block may carry must fit its payload.",
+      "expr": "proof.privacy_max_bytes_per_block + block.payload_transaction_reserve_bytes <= block.max_block_bytes",
+      "why": "Actual aggregate privacy envelope bytes must leave the non-transaction block reserve. Complete signed transaction and block framing are checked separately.",
       "expect": {
-        "today": "violated",
-        "x2_target": "violated"
+        "today": "holds",
+        "x2_target": "holds"
       },
       "open": {
         "owner": "X.2",
-        "summary": "18 MiB per block exceeds both the 4 MiB payload of today and the selected 16 MiB. Make the per-block privacy bound consistent with the payload limit and enforce it at parameter validation."
+        "summary": "Defaults fit with the reserve. Authoritative future-height privacy and chain policy coherence checks are still undergoing integration and verification."
       }
     },
     {
-      "id": "privacy_actions_per_block_fit_block_payload",
-      "expr": "proof.privacy_max_actions_per_block * proof.privacy_max_action_bytes <= block.max_block_bytes",
-      "why": "Every admitted number of maximum actions must fit one payload.",
+      "id": "privacy_action_bytes_fit_the_independent_block_aggregate",
+      "expr": "proof.privacy_max_action_bytes <= proof.privacy_max_bytes_per_block",
+      "why": "Action count and actual aggregate bytes are independent admission limits. Two smaller actions may fit; two maximum-sized actions are rejected by the actual block-byte budget, without requiring count times maximum bytes to fit.",
       "expect": {
-        "today": "violated",
-        "x2_target": "violated"
+        "today": "holds",
+        "x2_target": "holds"
       },
-      "open": {
-        "owner": "X.2",
-        "summary": "Two maximum actions are 18 MiB. With a 16 MiB payload one maximum action fits; the per-block action count or the action bound must follow."
-      }
+      "tests": [
+        {
+          "path": "crates/iroha_data_model/tests/resource_contract_v1.rs",
+          "name": "privacy_limits_keep_their_order_and_fit_complete_envelopes"
+        },
+        {
+          "path": "crates/iroha_core/src/privacy.rs",
+          "name": "privacy_block_counts_and_actual_aggregate_bytes_are_independent"
+        }
+      ]
     },
     {
       "id": "proof_box_codec_ceiling_above_transaction_cap",
@@ -11062,8 +11328,8 @@
     },
     {
       "id": "chain_frame_limit_is_rs16_payload_plus_overhead",
-      "expr": "transport.chain_frame_limit_bytes == rs16.max_payload_size_bytes + transport.frame_overhead_bytes",
-      "why": "The chain frame limit admits exactly the largest RS16 payload plus the overhead.",
+      "expr": "transport.chain_frame_limit_bytes == rs16.max_payload_size_bytes + 2 * transport.frame_overhead_bytes",
+      "why": "The committed frame budget permits the maximum RS16 payload plus one allowance inside a sync response and one for its outer transport frame; this is a configured budget, not a measured wire size.",
       "expect": {
         "today": "holds"
       }
@@ -11113,16 +11379,16 @@
       "why": "A node must be able to serve one committed block in a sync response (validate_local).",
       "expect": {
         "today": "holds",
-        "x2_target": "violated"
-      },
-      "open": {
-        "owner": "X.2",
-        "summary": "The default sync_max_bytes (16 MiB) cannot serve a 16 MiB payload: it needs 17,041,440 bytes."
+        "x2_target": "holds"
       },
       "tests": [
         {
           "path": "crates/iroha_sumeragi/src/pacemaker.rs",
           "name": "frame_and_sync_bounds_are_inclusive_at_the_committed_payload_limit"
+        },
+        {
+          "path": "crates/iroha_sumeragi/src/pacemaker.rs",
+          "name": "det_l31_chain_parameters_leave_a_feasible_sync_frame_budget"
         }
       ]
     },
@@ -11138,15 +11404,17 @@
     {
       "id": "committed_payload_has_a_feasible_sync_setting",
       "expr": "block.max_block_bytes + 2 * transport.frame_overhead_bytes <= transport.chain_frame_limit_bytes",
-      "why": "A sync_max_bytes that serves the block and still fits the frame limit must exist (B + 2H <= frame limit under the current checks). The chain rule admits a payload of up to 16,777,216 bytes, but such a setting exists only up to 16,512,992 bytes: above it every node refuses to start.",
+      "why": "The chain rule requires B + 2H <= frame limit and a u32-representable B + H, leaving at least one valid sync response size. The local rule separately enforces that chosen size.",
       "expect": {
         "today": "holds",
-        "x2_target": "violated"
+        "x2_target": "holds"
       },
-      "open": {
-        "owner": "X.2",
-        "summary": "With a 16 MiB payload no sync_max_bytes satisfies both rules: the configured frame budget would have to be 17,305,664 bytes (a budget under the current accounting, not a measured wire size) against a 17,041,440-byte frame limit and a 17,825,792-byte P2P ceiling. Reconcile the sync frame accounting or raise both limits, and reject committed parameters that leave no feasible setting."
-      }
+      "tests": [
+        {
+          "path": "crates/iroha_sumeragi/src/pacemaker.rs",
+          "name": "det_l31_chain_parameters_leave_a_feasible_sync_frame_budget"
+        }
+      ]
     },
     {
       "id": "sync_batch_within_entry_bound",
@@ -11159,15 +11427,21 @@
     {
       "id": "gossip_frame_carries_max_transaction",
       "expr": "transaction.max_tx_bytes <= transport.max_frame_bytes_tx_gossip",
-      "why": "A transaction above the gossip frame is not gossiped: only the node that admitted it can propose it.",
+      "why": "Necessary byte inequality only: the actual complete signed direct/broadcast relay/Data frames must also fit. The selected17MiB default and aligned shipped profiles leave room above the10MiB canonical transaction cap; exact full framing and finite low-priority shaping are tested separately.",
       "expect": {
-        "today": "violated",
-        "x2_target": "violated"
+        "today": "holds",
+        "x2_target": "holds"
       },
       "open": {
         "owner": "X.2",
-        "summary": "The 256 KiB gossip frame cannot carry a maximum transaction, so a maximum-proof transaction is proposed only when its ingress node leads. Size the gossip path for the maximum transaction or state the single-node propagation explicitly."
-      }
+        "summary": "Execute the complete maximum-admitted signed transaction frame regression after Core compiles, then qualify native maximum-proof propagation/commit/restart on four validators."
+      },
+      "tests": [
+        {
+          "path": "crates/iroha_core/src/gossiper/certified_single_owner_tests.rs",
+          "name": "shipped_gossip_frames_carry_the_maximum_admitted_signed_transaction"
+        }
+      ]
     },
     {
       "id": "torii_body_carries_max_transaction",
@@ -11512,14 +11786,14 @@
     {
       "id": "private_settlement_carrier_within_includable_transaction",
       "expr": "transaction.config_private_settlement_max_carrier_bytes + block.payload_transaction_reserve_bytes <= block.max_block_bytes",
-      "why": "A settlement carrier the State check admits travels in one signed transaction, which a proposer must be able to select. Today the configured carrier limit (4,194,304 bytes) is above the includable transaction bound of the default payload (4,128,768 bytes): a carrier near its limit passes the State check and is refused at queue admission as never includable.",
+      "why": "A settlement carrier travels in one signed transaction and must fit the proposer selection bound. The current 4 MiB carrier default fits the 16 MiB payload and fixed 10 MiB transaction cap.",
       "expect": {
-        "today": "violated",
+        "today": "holds",
         "x2_target": "holds"
       },
       "open": {
         "owner": "X.2",
-        "summary": "The 16 MiB payload default makes the relation hold. F.4 moves the carrier limit into committed State, where parameter validation must reject a limit above the includable transaction bound."
+        "summary": "Defaults satisfy the numeric relation. F.4 still must move the carrier limit into authoritative committed State and reject incoherent governed policies."
       }
     },
     {
@@ -11705,7 +11979,7 @@
   "profiles": {
     "x2_target": {
       "owner": "X.2",
-      "what": "The selected 16 MiB block payload default with every other bound unchanged. A relation recorded `violated` here is something X.2 must change together with the default.",
+      "what": "The selected 16 MiB payload profile, now also the committed and core defaults. Explicit overrides retain the reviewed target identity while all related current bounds are verified.",
       "overrides": {
         "block.max_block_bytes": 16777216,
         "block.core_default_max_block_bytes": 16777216
@@ -11791,7 +12065,7 @@
       "group": "block",
       "status": "not_implemented",
       "what": "The selected 16 MiB block payload default with committed genesis parameters, RS16 geometry, frame, sync, storage and proposer bounds that carry a maximum-proof transaction (the X.2 change).",
-      "today": "The default payload limit is 4 MiB, so a transaction above 4,128,768 bytes is refused at queue admission although the transaction cap is 10 MiB.",
+      "today": "The selected default payload is16MiB; the10MiB signed-transaction cap plus65,536-byte reserve fits. Canonical privacy envelope, actual aggregate, h+1/h+2 policy and B+2H frame checks are implemented. Final Core/native-proof/network qualification and full proposal/sync frame measurements remain open; gossip defaults/profile shaping are being reconciled.",
       "requires": [
         "Every relation of this contract holds under the committed defaults, and parameter validation rejects committed parameters that break one.",
         "The complete signed maximum envelope is measured with the supported signatures and all framing; the 1 MiB over the proof ceiling holds all required context.",
@@ -11802,12 +12076,12 @@
         "sync_response_serves_committed_payload",
         "committed_payload_has_a_feasible_sync_setting",
         "privacy_block_bytes_within_block_payload",
-        "privacy_actions_per_block_fit_block_payload",
+        "privacy_action_bytes_fit_the_independent_block_aggregate",
         "gossip_frame_carries_max_transaction"
       ],
       "open": {
         "owner": "X.2",
-        "summary": "The 16 MiB payload default is not implemented."
+        "summary": "Complete full-candidate Core compilation and policy/restore execution, actual maximum native-proof four-peer commit/restart/replay, and maximal proposal/sync frame measurements; reconcile all shipped gossip profile and shaping limits."
       }
     },
     {
@@ -11815,7 +12089,7 @@
       "group": "proof",
       "status": "not_implemented",
       "what": "The proof and proof-envelope ceilings that an instruction of one product compares, as listed bounds with their comparison sites, relations and boundary tests.",
-      "today": "Each is an excluded limit: its value is pinned, so a change fails the checker, but this contract records no comparison site, no relation to the transaction, STARK or Halo2 bounds and no boundary test for it. They are: CONFIDENTIAL_V2_MAX_PROOF_BYTES (192 KiB, a confidential-asset proof; crates/iroha_core_zk/src/confidential_v2.rs); EXECUTION_PROOF_MAX_ENVELOPE_BYTES_V1 (4 MiB, a native execution-proof envelope; crates/iroha_data_model/src/execution_proofs.rs); MAX_PRIVATE_DATASPACE_RECORD_PROOF_BYTES (128 KiB, a private-dataspace record proof; crates/iroha_data_model/src/private_dataspace/proof.rs); SCCP_LC_DEFAULT_MAX_PROOF_BYTES_V1 (1 MiB, the default proof bound of an SCCP light-client frame; crates/iroha_data_model/src/sccp/light_client.rs); and the twelve Soracloud FHE envelope ceilings of crates/iroha_data_model/src/soracloud.rs (8 MiB native envelope plus wrapper and OpenVerify overheads): SORACLOUD_FHE_INPUT_ADMISSION_MAX_NATIVE_ENVELOPE_BYTES, SORACLOUD_FHE_INPUT_ADMISSION_MAX_STARK_WRAPPER_BYTES, SORACLOUD_FHE_INPUT_ADMISSION_MAX_OPEN_VERIFY_BYTES, SORACLOUD_FHE_PUBLIC_KEY_PROOF_MAX_NATIVE_ENVELOPE_BYTES, SORACLOUD_FHE_PUBLIC_KEY_PROOF_MAX_STARK_WRAPPER_BYTES, SORACLOUD_FHE_PUBLIC_KEY_PROOF_MAX_OPEN_VERIFY_BYTES, SORACLOUD_FHE_BOOTSTRAP_KEY_PROOF_MAX_NATIVE_ENVELOPE_BYTES, SORACLOUD_FHE_BOOTSTRAP_KEY_PROOF_MAX_STARK_WRAPPER_BYTES, SORACLOUD_FHE_BOOTSTRAP_KEY_PROOF_MAX_OPEN_VERIFY_BYTES, SORACLOUD_FHE_FULL_BOOTSTRAP_EXECUTION_PROOF_MAX_NATIVE_ENVELOPE_BYTES, SORACLOUD_FHE_FULL_BOOTSTRAP_EXECUTION_PROOF_MAX_STARK_WRAPPER_BYTES, SORACLOUD_FHE_FULL_BOOTSTRAP_EXECUTION_PROOF_MAX_OPEN_VERIFY_BYTES. The generic ceilings beside them are listed bounds: proof.open_verify_default_max_proof_bytes with its identifier, public-input and auxiliary fields, proof.stark_fri_max_envelope_bytes, proof.private_settlement_max_proof_bytes, proof.sccp_source_proof_max_bytes and proof.axt_proof_blob_max_payload_bytes.",
+      "today": "Each is an excluded limit: its value is pinned, so a change fails the checker, but this contract records no comparison site, no relation to the transaction, STARK or native PIPA-R bounds and no boundary test for it. They are: CONFIDENTIAL_V2_MAX_PROOF_BYTES (192 KiB, a confidential-asset proof; crates/iroha_core_zk/src/confidential_v2.rs); EXECUTION_PROOF_MAX_ENVELOPE_BYTES_V1 (4 MiB, a native execution-proof envelope; crates/iroha_data_model/src/execution_proofs.rs); MAX_PRIVATE_DATASPACE_RECORD_PROOF_BYTES (128 KiB, a private-dataspace record proof; crates/iroha_data_model/src/private_dataspace/proof.rs); SCCP_LC_DEFAULT_MAX_PROOF_BYTES_V1 (1 MiB, the default proof bound of an SCCP light-client frame; crates/iroha_data_model/src/sccp/light_client.rs); and the twelve Soracloud FHE envelope ceilings of crates/iroha_data_model/src/soracloud.rs (8 MiB native envelope plus wrapper and OpenVerify overheads): SORACLOUD_FHE_INPUT_ADMISSION_MAX_NATIVE_ENVELOPE_BYTES, SORACLOUD_FHE_INPUT_ADMISSION_MAX_STARK_WRAPPER_BYTES, SORACLOUD_FHE_INPUT_ADMISSION_MAX_OPEN_VERIFY_BYTES, SORACLOUD_FHE_PUBLIC_KEY_PROOF_MAX_NATIVE_ENVELOPE_BYTES, SORACLOUD_FHE_PUBLIC_KEY_PROOF_MAX_STARK_WRAPPER_BYTES, SORACLOUD_FHE_PUBLIC_KEY_PROOF_MAX_OPEN_VERIFY_BYTES, SORACLOUD_FHE_BOOTSTRAP_KEY_PROOF_MAX_NATIVE_ENVELOPE_BYTES, SORACLOUD_FHE_BOOTSTRAP_KEY_PROOF_MAX_STARK_WRAPPER_BYTES, SORACLOUD_FHE_BOOTSTRAP_KEY_PROOF_MAX_OPEN_VERIFY_BYTES, SORACLOUD_FHE_FULL_BOOTSTRAP_EXECUTION_PROOF_MAX_NATIVE_ENVELOPE_BYTES, SORACLOUD_FHE_FULL_BOOTSTRAP_EXECUTION_PROOF_MAX_STARK_WRAPPER_BYTES, SORACLOUD_FHE_FULL_BOOTSTRAP_EXECUTION_PROOF_MAX_OPEN_VERIFY_BYTES. The generic ceilings beside them are listed bounds: proof.open_verify_default_max_proof_bytes with its identifier, public-input and auxiliary fields, proof.stark_fri_max_envelope_bytes, proof.private_settlement_max_proof_bytes, proof.sccp_source_proof_max_bytes and proof.axt_proof_blob_max_payload_bytes.",
       "requires": [
         "Each ceiling is a bound with the site where its instruction handler or decoder compares it.",
         "Each is related to transaction.max_tx_bytes and to the bound of the verifier that checks the proof; a ceiling above the verifier's bound is recorded as violated with its owner (the Soracloud FHE envelopes against proof.stark_fri_max_envelope_bytes today).",
@@ -11829,7 +12103,7 @@
     }
   ],
   "ram_lfe": {
-    "what": "Budgets of the full RAM-LFE workload, derived from the candidate shape recorded by the R.0 contract (specs/ram_lfe_execution_proof.md): 64 input slots, 64 outputs, four registers, 32 state lanes, 256 instructions, rank 16, 64 refreshes. Every part of the workload has a budget (`component`): the registered program, key registration, the request, evaluation, the receipt, verification, the single-opener opening, the threshold opening, the validator's decode and verification scratch, each of the three classes, leakage and the prover. A budget whose inputs are all known has a number the checker recomputes. A budget with an open input has no number: its formula and inputs are recorded and the owning task supplies the measurement. Every open input and every shape bound is used by a budget. The diagnostic Halo2 k <= 16 and 192 KiB ceilings (proof.config_halo2_max_k, proof.config_halo2_max_proof_bytes) are not requirements of the new proof. An open input may record under `candidates` what each unselected candidate profile of its owning task projects for it (`resource_contract_inputs` of the named summary file). The checker compares that record with the file. It is not the input's value: the input stays open until a profile is selected and qualified.",
+    "what": "Budgets of the full RAM-LFE workload, derived from the candidate shape recorded by the R.0 contract (specs/ram_lfe_execution_proof.md): 64 input slots, 64 outputs, four registers, 32 state lanes, 256 instructions, rank 16, 64 refreshes. Every part of the workload has a budget (`component`): the registered program, key registration, the request, evaluation, the receipt, verification, the single-opener opening, the threshold opening, the validator's decode and verification scratch, each of the three classes, leakage and the prover. A budget whose inputs are all known has a number the checker recomputes. A budget with an open input has no number: its formula and inputs are recorded and the owning task supplies the measurement. Every open input and every shape bound is used by a budget. The native PIPA-R operation-proof ceiling (proof.config_pipa_r_max_proof_bytes) is not a requirement of the RAM-LFE execution proof. An open input may record under `candidates` what each unselected candidate profile of its owning task projects for it (`resource_contract_inputs` of the named summary file). The checker compares that record with the file. It is not the input's value: the input stays open until a profile is selected and qualified.",
     "open_inputs": [
       {
         "id": "ram_lfe.ciphertext_bytes",
@@ -13040,7 +13314,7 @@
     }
   ],
   "completeness": {
-    "what": "The owner files, directories and committed-parameter modules the checker scans. In a `const` scope every constant, and every immutable `static`, whose name marks a limit (MAX, MAXIMUM, LIMIT, BUDGET, CEILING, OVERHEAD, RESERVE, CAP or CAPACITY) is in scope; in a `default_fn` scope every default of the module is. A `tree` scope scans every Rust source below a directory, test, bench, example and fixture files and the paths under `skip` excepted, so a new file there is scanned too. Each limit is the owner of a bound above or is excluded here with the reason it is not a resource bound of the transaction and proof path, and an excluded limit records its defining expression in `exprs`: the reason was written for that value, so a changed value fails the checker until the exclusion is reviewed and refreshed. A new limit in a scanned file fails the checker until it is classified, a second definition of a listed name fails it, and every file that owns a constant bound is scanned. The crates on the path are scanned whole: the data model (iroha_data_model), Torii (iroha_torii), the node (iroha_core) and the proof-verification crate (iroha_core_zk), with the consensus core, the IVM and its ABI and the P2P layer. In the four crates named first (`comparisons`) a limit is also found by what the code compares, whatever its name: an integer constant that takes part in a relational comparison (`<`, `<=`, `>`, `>=`, also written as the methods `.lt`, `.le`, `.gt`, `.ge`), in a capping call (`.min`, `.max`, `.clamp`, `.take`, `.truncate`), in either of the two called as a function, bare or behind any path (`cmp::max(a, b)`, `u32::clamp(n, 2, 64)`, `PartialOrd::lt(&a, &b)`), or in a range tested with `.contains`, the tested value included. A call compares its arguments and, for `.min`, `.max`, `.clamp` and the comparison methods, its receiver: the whole method chain in front of the call, on one line or broken across several (`ROWS.min(n)`, `n.saturating_mul(ROWS).saturating_add(1).min(cap)`). Also: an integer constant that the defining expression of a scanned limit names (a term of that limit, followed until no new constant appears); a limit-named function without parameters that returns an integer, an `Option` of one or a `Result` of one; and every literal comparison (`literals`), whether the literal is a whole operand or a part of one. An excluded term records under `term_of` the limits it is part of. A source whose name looks like a test or fixture file is scanned when its crate compiles it outside test builds; a source that every declaration gates by `cfg(test)` is read by name only. An inline module is test code when one of its `cfg` gates holds only in test builds, in whatever order the gate is written (`all(feature = \"..\", test)`), and its block is read on the code alone, so a brace in a character literal or a raw string of the tests hides nothing that follows the module. `python3 scripts/check_zk_resource_contract.py --mutate` changes every scanned limit and every literal of every recorded comparison in memory, one at a time, and fails when a change goes unnoticed. What no textual scan sees is stated in the checker's documentation and in specs/zk_first_release_goals.md: a limit that reaches its comparison only through a function argument, a struct field or a local variable and is neither limit-named nor compared by name; a limit a function returns when the function takes parameters, its name has no limit word or its return type is no integer, `Option` of one or `Result` of one; a limit computed at run time; a constant of a non-integer type (a `Duration`, a range) that its name does not mark; a literal below `literals.minimum` or that is no integer. Comparisons the scan does not read, for a constant that no name marks as for a literal: one with `==`, `!=`, `cmp` or `partial_cmp`; a `match` pattern; a relational operator written without whitespace around it; checked arithmetic that refuses by underflow (`limit.checked_sub(64)?`); the receiver of `.take` and `.truncate` (the collection that is cut, as in `(0..ROWS).take(n)`); what a block yields when the block is the receiver of a cap or an operand (`match kind { .. }.min(cap)`); the head of a receiver chain in front of a blank outside brackets (the first arguments of a turbofish, as in `rows::<A, B>().min(cap)`); a cap or comparison function called under another name (an alias of `use`); and a constant or literal further than 600 characters from the operator of its relational comparison (no comparison of the four crates is that long). An exclusion pins the text of its limit's expression. In the four crates a constant that the expression names is pinned too, as a term; an associated constant of a type (`Header::SIZE`), a constant of a crate outside the workspace and a value a function computes are not followed. A constant that another source of the workspace defines is scanned where it is defined when the code of the four crates names it: in a compared position, bare or behind a module path (also under the name a `use` of the file gives it), or in the defining expression of a scanned limit. The name stands for every integer constant of that name in a production source the naming crate can reach: any item of its own crate (a skipped directory) and a `pub` item of a workspace crate it depends on, directly or through other workspace crates. Each is a listed bound or excluded with a pinned expression, its terms are followed from its own source, and `--mutate` changes it. The resolution is by name, so each reachable crate that defines the name is scanned. Not seen there: an associated constant of a type of another crate (`Shape::SIZE`), a constant another crate re-exports under a new name, the root of a binary target and a source only test builds compile. The consensus core, the IVM and its ABI and the P2P layer are scanned by name and, like every other crate of the workspace, for the constants the four crates name.",
+    "what": "The owner files, directories and committed-parameter modules the checker scans. In a `const` scope every constant, and every immutable `static`, whose name marks a limit (MAX, MAXIMUM, LIMIT, BUDGET, CEILING, OVERHEAD, RESERVE, CAP or CAPACITY) is in scope; in a `default_fn` scope every default of the module is. A `tree` scope scans every Rust source below a directory, test, bench, example and fixture files and the paths under `skip` excepted, so a new file there is scanned too. Each limit is the owner of a bound above or is excluded here with the reason it is not a resource bound of the transaction and proof path, and an excluded limit records its defining expression in `exprs`: the reason was written for that value, so a changed value fails the checker until the exclusion is reviewed and refreshed. A new limit in a scanned file fails the checker until it is classified, a second definition of a listed name fails it, and every file that owns a constant bound is scanned. The crates on the path are scanned whole: the data model (iroha_data_model), Torii (iroha_torii), the node (iroha_core) and the proof-verification crate (iroha_core_zk), with the consensus core, the IVM and its ABI and the P2P layer. In the four crates named first (`comparisons`) a limit is also found by what the code compares, whatever its name: an integer constant that takes part in a relational comparison (`<`, `<=`, `>`, `>=`, also written as the methods `.lt`, `.le`, `.gt`, `.ge`), in a capping call (`.min`, `.max`, `.clamp`, `.take`, `.truncate`), in either of the two called as a function, bare or behind any path (`cmp::max(a, b)`, `u32::clamp(n, 2, 64)`, `PartialOrd::lt(&a, &b)`), or in a range tested with `.contains`, the tested value included. A call compares its arguments and, for `.min`, `.max`, `.clamp` and the comparison methods, its receiver: the whole method chain in front of the call, on one line or broken across several (`ROWS.min(n)`, `n.saturating_mul(ROWS).saturating_add(1).min(cap)`). Also: an integer constant that the defining expression of a scanned limit names (a term of that limit, followed until no new constant appears); a limit-named function without parameters that returns an integer, an `Option` of one or a `Result` of one; and every literal comparison (`literals`), whether the literal is a whole operand or a part of one. An excluded term records under `term_of` the limits it is part of. A source whose name looks like a test or fixture file is scanned when its crate compiles it outside test builds; a source that every declaration gates by `cfg(test)` is read by name only. An inline module is test code when one of its `cfg` gates holds only in test builds, in whatever order the gate is written (`all(feature = \"..\", test)`), and its block is read on the code alone, so a brace in a character literal or a raw string of the tests hides nothing that follows the module. `python3 scripts/check_zk_resource_contract.py --mutate` changes every scanned limit and every literal of every recorded comparison in memory, one at a time, and fails when a change goes unnoticed. What no textual scan sees is stated in the checker's documentation and in specs/zk_first_release_goals.md: a limit that reaches its comparison only through a function argument, a struct field or a local variable and is neither limit-named nor compared by name; a limit a function returns when the function takes parameters, its name has no limit word or its return type is no integer, `Option` of one or `Result` of one; a limit computed at run time; a constant of a non-integer type (a `Duration`, a range), or an integer typed through a type alias, that its name does not mark; a literal below `literals.minimum` or that is no integer. Comparisons the scan does not read, for a constant that no name marks as for a literal: one with `==`, `!=`, `cmp` or `partial_cmp`; a `match` pattern; a range test written as a function (`RangeInclusive::contains`); a relational operator written without whitespace around it; checked arithmetic that refuses by underflow (`limit.checked_sub(64)?`); the receiver of `.take` and `.truncate` (the collection that is cut, as in `(0..ROWS).take(n)`); what a block yields when the block is the receiver of a cap or an operand (`match kind { .. }.min(cap)`); the head of a receiver chain in front of a blank outside brackets (the first arguments of a turbofish, as in `rows::<A, B>().min(cap)`); a cap or comparison function called under another name (an alias of `use`); and a constant or literal further than 600 characters from the operator of its relational comparison (no comparison of the four crates is that long). An exclusion pins the text of its limit's expression. In the four crates a constant that the expression names is pinned too, as a term; an associated constant of a type (`Header::SIZE`), a constant of a crate outside the workspace and a value a function computes are not followed. A constant that another source of the workspace defines is scanned where it is defined when the code of the four crates names it: in a compared position, bare or behind a module path (also under the name a `use` of the file gives it), or in the defining expression of a scanned limit. The name stands for every integer constant of that name in a production source the naming crate can reach: any item of its own crate (a skipped directory) and a `pub` item of a workspace crate it depends on, directly or through other workspace crates. Each is a listed bound or excluded with a pinned expression, its terms are followed from its own source, and `--mutate` changes it. The resolution is by name, so each reachable crate that defines the name is scanned. Not seen there: an associated constant of a type of another crate (`Shape::SIZE`), a constant another crate re-exports under a new name, the root of a binary target and a source only test builds compile. The consensus core, the IVM and its ABI and the P2P layer are scanned by name and, like every other crate of the workspace, for the constants the four crates name.",
     "scopes": [
       {
         "path": "crates/iroha_data_model/src/transaction/executable.rs",
@@ -13550,7 +13824,7 @@
           "P2P_QUEUE_CAP_LOW": "nonzero!(32768_usize)",
           "P2P_POST_QUEUE_CAP": "nonzero!(2048_usize)",
           "P2P_OUTBOUND_FRAME_QUEUE_MAX_HIGH_BYTES": "nonzero!(128 * 1024 * 1024_usize)",
-          "P2P_OUTBOUND_FRAME_QUEUE_MAX_LOW_BYTES": "nonzero!(64 * 1024 * 1024_usize)",
+          "P2P_OUTBOUND_FRAME_QUEUE_MAX_LOW_BYTES": "nonzero!(72 * 1024 * 1024_usize)",
           "P2P_OUTBOUND_FRAME_QUEUE_MAX_HIGH_FRAMES": "nonzero!(8192_usize)",
           "P2P_OUTBOUND_FRAME_QUEUE_MAX_LOW_FRAMES": "nonzero!(4096_usize)",
           "P2P_SUBSCRIBER_QUEUE_CAP": "nonzero!(8192_usize)"
@@ -15215,7 +15489,7 @@
         ]
       },
       {
-        "reason": "Structure caps of the Halo2/IPA and STARK/FRI verifiers: instance columns and rows, the largest Halo2 circuit size, the STARK verifying-key encoding and its nesting depth, the trace-domain exponents, FRI layers and queries, Merkle depth, AIR width, auxiliary terms and the lengths of domain tags and transcript labels. Each bounds the shape of a statement, key or proof inside the listed byte bounds proof.zk1_max_section_bytes, proof.stark_fri_max_envelope_bytes and proof.verifying_key_box_max_payload_bytes. B.2 owns the security accounting of the STARK parameters.",
+        "reason": "Structure caps of the STARK/FRI verifier: the verifying-key encoding and its nesting depth, trace-domain exponents, FRI layers and queries, Merkle depth, AIR width, auxiliary terms, domain tags and transcript labels. These bound the shape inside proof.stark_fri_max_envelope_bytes and proof.verifying_key_box_max_payload_bytes. B.2 owns the security accounting of the STARK parameters.",
         "files": [
           {
             "path": "crates/iroha_core_zk/src/lib.rs",
@@ -17721,10 +17995,10 @@
           {
             "path": "crates/iroha_core/src/smartcontracts/isi/sccp/prune.rs",
             "symbols": [
-              "MAX_PRUNE_DELETIONS_PER_BLOCK"
+              "MAX_LIGHT_CLIENT_DELETIONS_PER_BLOCK"
             ],
             "exprs": {
-              "MAX_PRUNE_DELETIONS_PER_BLOCK": "1_024"
+              "MAX_LIGHT_CLIENT_DELETIONS_PER_BLOCK": "1_024"
             }
           }
         ]
@@ -20511,15 +20785,6 @@
         "reason": "Durations compared by name: lifetimes, TTLs, grace periods and a cache-prune interval, in milliseconds or seconds. A time window is not a byte, count or work bound.",
         "files": [
           {
-            "path": "crates/iroha_core/src/smartcontracts/isi/sccp/prune.rs",
-            "symbols": [
-              "ROTATION_RETENTION_GRACE_MS"
-            ],
-            "exprs": {
-              "ROTATION_RETENTION_GRACE_MS": "86_400_000"
-            }
-          },
-          {
             "path": "crates/iroha_data_model/src/sorafs/moderation_ledger.rs",
             "symbols": [
               "MODERATION_CHALLENGE_RESOLUTION_GRACE_MS_V1"
@@ -21706,17 +21971,13 @@
         ]
       },
       {
-        "reason": "The SCCP bridge, defined in its protocol crate and compared in the node's SCCP instructions: the attester roster size range (4 to 31), the length of a Taira account payload and the exclusive amount bound of a TON endpoint (2^96). They are parameter ranges and shape bounds of that product's instructions, like the SCCP limits the data model and the node define themselves (excluded above); its source proof is bounded by proof.sccp_source_proof_max_bytes.",
+        "reason": "SCCP product shape bounds: the length of a Taira account payload and the exclusive amount bound of a TON endpoint (2^96). These bound product values; the source-proof ceiling is separately listed as proof.sccp_source_proof_max_bytes. Retired attester roster bounds have been removed.",
         "path": "crates/iroha_sccp/src/v1/constants.rs",
         "symbols": [
-          "MIN_ROSTER_MEMBERS",
-          "MAX_ROSTER_MEMBERS",
           "MAX_TAIRA_ACCOUNT_BYTES",
           "TON_AMOUNT_BOUND"
         ],
         "exprs": {
-          "MIN_ROSTER_MEMBERS": "4",
-          "MAX_ROSTER_MEMBERS": "31",
           "MAX_TAIRA_ACCOUNT_BYTES": "1024",
           "TON_AMOUNT_BOUND": "1 << 96"
         }
@@ -22298,7 +22559,13 @@
           "QUEUE_CAP",
           "RETRY_RING_CAP",
           "RETRY_MAX_ATTEMPTS"
-        ]
+        ],
+        "exprs": {
+          "MAX_BATCH": "16",
+          "QUEUE_CAP": "0",
+          "RETRY_RING_CAP": "2048",
+          "RETRY_MAX_ATTEMPTS": "3"
+        }
       },
       {
         "path": "crates/iroha_config/src/parameters/defaults.rs",
@@ -22311,6 +22578,1161 @@
           "MAX_K",
           "MAX_TRANSCRIPT_LABEL_LEN",
           "MAX_ENVELOPE_BYTES"
+        ],
+        "exprs": {
+          "MAX_K": "16",
+          "MAX_TRANSCRIPT_LABEL_LEN": "64",
+          "MAX_ENVELOPE_BYTES": "256 * 1024"
+        }
+      },
+      {
+        "reason": "The ABI JSON diagnostic echo truncates error text to 48 characters; it does not admit or reject a transaction or allocate a proof carrier.",
+        "files": [
+          {
+            "path": "crates/ivm_abi/src/arguments.rs",
+            "symbols": [
+              "MAX_ECHO_CHARS"
+            ],
+            "exprs": {
+              "MAX_ECHO_CHARS": "48"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "The state-map key schema traversal aliases the existing ABI entrypoint node ceiling. This is a guest value-shape bound owned by M.1 and I.5, like the other aggregate-state codec limits in this file; generic guest-memory and work budgets remain listed.",
+        "files": [
+          {
+            "path": "crates/ivm_abi/src/state_value.rs",
+            "symbols": [
+              "MAX"
+            ],
+            "exprs": {
+              "MAX": "crate::entrypoint::MAX_ENTRYPOINT_ARGUMENT_TYPE_NODES"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "The 64 KiB schema input belongs to the aggregate-state value utility syscall and matches the ABI state-value schema ceiling. M.1 owns this per-syscall shape and deterministic charge; generic guest memory and decoded-scratch limits are listed separately.",
+        "files": [
+          {
+            "path": "crates/ivm/src/value_utilities.rs",
+            "symbols": [
+              "MAX_SCHEMA_BYTES"
+            ],
+            "exprs": {
+              "MAX_SCHEMA_BYTES": "64 * 1024"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "Asset registration value encoding: the maximum decimal scale aliases the Numeric specification, and MINTABLE_TAG_LIMITED is the variant tag 3. Neither is a carrier-size or work limit.",
+        "files": [
+          {
+            "path": "crates/iroha_data_model/src/asset/definition.rs",
+            "symbols": [
+              "MAX_SCALE",
+              "MINTABLE_TAG_LIMITED"
+            ],
+            "exprs": {
+              "MAX_SCALE": "iroha_primitives::numeric::MAX_DECIMAL_SCALE",
+              "MINTABLE_TAG_LIMITED": "3"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "KAGEMUSHA offline-wallet component shapes: current enrollment policy, original evidence, carrier, journal, state storage, artifact inventory and custody records, with their own byte/count/depth bounds. These are product-internal records and producer inputs; transaction.max_tx_bytes and the generic proof/frame bounds continue to limit submitted carriers. This classification does not certify these product-specific boundaries or change their enforcement.",
+        "files": [
+          {
+            "path": "crates/iroha_data_model/src/isi/kagemusha_wallet/load_finality.rs",
+            "symbols": [
+              "KAGEMUSHA_WALLET_LOAD_RECEIPT_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "KAGEMUSHA_WALLET_LOAD_RECEIPT_MAX_BYTES_V1": "512"
+            }
+          },
+          {
+            "path": "crates/iroha_data_model/src/isi/kagemusha_wallet/registration_finality.rs",
+            "symbols": [
+              "KAGEMUSHA_WALLET_REGISTRATION_ASSET_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "KAGEMUSHA_WALLET_REGISTRATION_ASSET_MAX_BYTES_V1": "4096"
+            }
+          },
+          {
+            "path": "crates/iroha_data_model/src/kagemusha/enrollment_eligibility_v1.rs",
+            "symbols": [
+              "KAGEMUSHA_ELIGIBILITY_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "KAGEMUSHA_ELIGIBILITY_MAX_BYTES_V1": "2048"
+            }
+          },
+          {
+            "path": "crates/iroha_data_model/src/kagemusha/kagemusha_enrollment_permit_v1.rs",
+            "symbols": [
+              "KAGEMUSHA_ENROLLMENT_PERMIT_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "KAGEMUSHA_ENROLLMENT_PERMIT_MAX_BYTES_V1": "2048"
+            }
+          },
+          {
+            "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/enrollment_policy.rs",
+            "symbols": [
+              "KAGEMUSHA_WALLET_ENROLLMENT_POLICY_MAX_BYTES_V1",
+              "KAGEMUSHA_WALLET_APP_IDENTIFIER_MAX_BYTES_V1",
+              "KAGEMUSHA_WALLET_ANDROID_SIGNERS_MAX_V1",
+              "KAGEMUSHA_WALLET_ANDROID_ROOTS_MAX_V1",
+              "KAGEMUSHA_WALLET_ANDROID_ADAPTER_ID_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "KAGEMUSHA_WALLET_ENROLLMENT_POLICY_MAX_BYTES_V1": "1024",
+              "KAGEMUSHA_WALLET_APP_IDENTIFIER_MAX_BYTES_V1": "255",
+              "KAGEMUSHA_WALLET_ANDROID_SIGNERS_MAX_V1": "4",
+              "KAGEMUSHA_WALLET_ANDROID_ROOTS_MAX_V1": "8",
+              "KAGEMUSHA_WALLET_ANDROID_ADAPTER_ID_MAX_BYTES_V1": "16"
+            }
+          },
+          {
+            "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/load_finality.rs",
+            "symbols": [
+              "KAGEMUSHA_WALLET_LOAD_FINALITY_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "KAGEMUSHA_WALLET_LOAD_FINALITY_MAX_BYTES_V1": "256 * 1024"
+            }
+          },
+          {
+            "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/state.rs",
+            "symbols": [
+              "KAGEMUSHA_WALLET_QUOTA_USAGE_SLOTS_V1"
+            ],
+            "exprs": {
+              "KAGEMUSHA_WALLET_QUOTA_USAGE_SLOTS_V1": "KAGEMUSHA_WALLET_QUOTA_WINDOWS_MAX_V1"
+            }
+          },
+          {
+            "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1.rs",
+            "symbols": [
+              "KAGEMUSHA_WALLET_CREDITED_RECEIVE_PROOF_BUDGET_V1",
+              "KAGEMUSHA_WALLET_LINEAGE_PROOF_CAP_V1",
+              "KAGEMUSHA_WALLET_QUOTA_REFRESH_WITNESS_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "KAGEMUSHA_WALLET_CREDITED_RECEIVE_PROOF_BUDGET_V1": "KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 - KAGEMUSHA_WALLET_CREDITED_RECEIVE_FIXED_BYTES_V1",
+              "KAGEMUSHA_WALLET_LINEAGE_PROOF_CAP_V1": "KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 - KAGEMUSHA_WALLET_CREDITED_STATUS_FIXED_BYTES_V1",
+              "KAGEMUSHA_WALLET_QUOTA_REFRESH_WITNESS_MAX_BYTES_V1": "8_192"
+            }
+          },
+          {
+            "path": "crates/iroha_torii/src/kagemusha_enrollment/observation.rs",
+            "symbols": [
+              "MAX_CREDENTIAL"
+            ],
+            "exprs": {
+              "MAX_CREDENTIAL": "4096"
+            }
+          },
+          {
+            "path": "crates/iroha_torii/src/kagemusha_enrollment/worker.rs",
+            "symbols": [
+              "MAX_EXECUTABLE",
+              "MAX_ARCHIVE",
+              "MAX_ROOT",
+              "MAX_FRAME"
+            ],
+            "exprs": {
+              "MAX_EXECUTABLE": "256 * 1024 * 1024",
+              "MAX_ARCHIVE": "8 * 1024 * 1024",
+              "MAX_ROOT": "16 * 1024",
+              "MAX_FRAME": "768 * 1024"
+            }
+          },
+          {
+            "path": "crates/iroha_core/src/kagemusha_wallet_v1/artifacts.rs",
+            "symbols": [
+              "CAP"
+            ],
+            "exprs": {
+              "CAP": "VERIFIER_PACK_MAX_BYTES_V1 + 1024"
+            }
+          },
+          {
+            "path": "crates/iroha_core/src/kagemusha_wallet_v1/enrollment_journal/eligibility.rs",
+            "symbols": [
+              "MAX_EXCHANGE"
+            ],
+            "exprs": {
+              "MAX_EXCHANGE": "8 * 1024"
+            }
+          },
+          {
+            "path": "crates/iroha_core/src/kagemusha_wallet_v1/enrollment_journal.rs",
+            "symbols": [
+              "SCOPE_MAX",
+              "SCOPE_FRAME_MAX",
+              "ORIGINAL_MAX",
+              "RECORD_MAX",
+              "PERMIT_RECORD_MAX",
+              "ADOPTED_MAX"
+            ],
+            "exprs": {
+              "SCOPE_MAX": "16 * 1024",
+              "SCOPE_FRAME_MAX": "SCOPE_MAX + 512",
+              "ORIGINAL_MAX": "768 * 1024",
+              "RECORD_MAX": "3 * 1024 * 1024",
+              "PERMIT_RECORD_MAX": "20 * 1024",
+              "ADOPTED_MAX": "4_096"
+            }
+          },
+          {
+            "path": "crates/iroha_core/src/kagemusha_wallet_v1/event_evidence.rs",
+            "symbols": [
+              "CAP",
+              "DEPTH"
+            ],
+            "exprs": {
+              "CAP": "4096",
+              "DEPTH": "32"
+            }
+          },
+          {
+            "path": "crates/iroha_core/src/kagemusha_wallet_v1/storage.rs",
+            "symbols": [
+              "WALLET_CAP",
+              "PAYOUT_CAP",
+              "CREDENTIAL_CAP"
+            ],
+            "exprs": {
+              "WALLET_CAP": "512",
+              "PAYOUT_CAP": "512",
+              "CREDENTIAL_CAP": "KAGEMUSHA_WALLET_CREDENTIAL_MAX_BYTES_V1 + KAGEMUSHA_WALLET_CERTIFICATE_MAX_BYTES_V1 + 1024"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/archive.rs",
+            "symbols": [
+              "KAGEMUSHA_WALLET_ARCHIVE_MANIFEST_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "KAGEMUSHA_WALLET_ARCHIVE_MANIFEST_MAX_BYTES_V1": "4_096"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/enrollment_phase.rs",
+            "symbols": [
+              "PHASE_MAX_BYTES",
+              "SLOT_SELECTION_MAX_BYTES"
+            ],
+            "exprs": {
+              "PHASE_MAX_BYTES": "2_048",
+              "SLOT_SELECTION_MAX_BYTES": "1_024"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/platform.rs",
+            "symbols": [
+              "KAGEMUSHA_WALLET_KEY_ENUMERATION_MAX_SLOTS_V1"
+            ],
+            "exprs": {
+              "KAGEMUSHA_WALLET_KEY_ENUMERATION_MAX_SLOTS_V1": "4096"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/prekey_custody.rs",
+            "symbols": [
+              "MAX"
+            ],
+            "exprs": {
+              "MAX": "16_384"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/terminal.rs",
+            "symbols": [
+              "ABANDONMENT_SELECTION_MAX"
+            ],
+            "exprs": {
+              "ABANDONMENT_SELECTION_MAX": "512"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/compiler/pack/transport.rs",
+            "symbols": [
+              "TRANSPORT_MAX_BYTES",
+              "FINANCIAL_MAX_BYTES",
+              "PACK_MAX_BYTES",
+              "CATALOG_MAX_BYTES",
+              "ORIGINAL_MAX_BYTES",
+              "WALLET_MAX_ROWS"
+            ],
+            "exprs": {
+              "TRANSPORT_MAX_BYTES": "32 * 1024 * 1024",
+              "FINANCIAL_MAX_BYTES": "2048",
+              "PACK_MAX_BYTES": "16 * 1024 * 1024 + 64 * 1024",
+              "CATALOG_MAX_BYTES": "16 * 1024 * 1024",
+              "ORIGINAL_MAX_BYTES": "1024 * 1024 * 1024",
+              "WALLET_MAX_ROWS": "3 * 4096"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory.rs",
+            "symbols": [
+              "CATALOG_MAX_BYTES_V1",
+              "ARTIFACT_MAX_COUNT_V1",
+              "PROVING_KEY_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "CATALOG_MAX_BYTES_V1": "16 << 20",
+              "ARTIFACT_MAX_COUNT_V1": "4_096",
+              "PROVING_KEY_MAX_BYTES_V1": "1 << 30"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1.rs",
+            "symbols": [
+              "DESCRIPTOR_MAX_BYTES_V1",
+              "VERIFYING_KEY_MAX_BYTES_V1",
+              "INVENTORY_MAX_BYTES_V1",
+              "VERIFIER_PACK_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "DESCRIPTOR_MAX_BYTES_V1": "1 << 20",
+              "VERIFYING_KEY_MAX_BYTES_V1": "1 << 18",
+              "INVENTORY_MAX_BYTES_V1": "16 << 20",
+              "VERIFIER_PACK_MAX_BYTES_V1": "INVENTORY_MAX_BYTES_V1 + (1 << 16)"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/carrier.rs",
+            "symbols": [
+              "REQUEST_MAX_BYTES",
+              "EVIDENCE_MAX_BYTES",
+              "ANDROID_CHAIN_MAX",
+              "ANDROID_CERTIFICATE_MAX_BYTES",
+              "ANDROID_CHAIN_MAX_BYTES",
+              "RESULT_MAX_BYTES",
+              "ANDROID_CHAIN_MIN"
+            ],
+            "exprs": {
+              "REQUEST_MAX_BYTES": "crate::kagemusha_wallet_advance_v1::KAGEMUSHA_WALLET_ENROLLMENT_REQUEST_MAX_BYTES_V1",
+              "EVIDENCE_MAX_BYTES": "118_784",
+              "ANDROID_CHAIN_MAX": "8",
+              "ANDROID_CERTIFICATE_MAX_BYTES": "16_384",
+              "ANDROID_CHAIN_MAX_BYTES": "65_536",
+              "RESULT_MAX_BYTES": "262_144",
+              "ANDROID_CHAIN_MIN": "2"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/issuer_worker.rs",
+            "symbols": [
+              "MAX_REQUEST",
+              "MAX_RESULT",
+              "MAX_PACKET"
+            ],
+            "exprs": {
+              "MAX_REQUEST": "320 * 1024",
+              "MAX_RESULT": "360 * 1024",
+              "MAX_PACKET": "768 * 1024"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/issuer_worker_configuration.rs",
+            "symbols": [
+              "MAX_CONFIG",
+              "MAX_ROOT"
+            ],
+            "exprs": {
+              "MAX_CONFIG": "128 * 1024",
+              "MAX_ROOT": "16 * 1024"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/issuer_worker_protocol.rs",
+            "symbols": [
+              "MAX_PREPARATION"
+            ],
+            "exprs": {
+              "MAX_PREPARATION": "16 * 1024"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/prekey.rs",
+            "symbols": [
+              "PREKEY_DISPATCH_MAX_BYTES"
+            ],
+            "exprs": {
+              "PREKEY_DISPATCH_MAX_BYTES": "16_384"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_intake_v1.rs",
+            "symbols": [
+              "ACCOUNT_ORIGINAL_MAX_BYTES_V1",
+              "ASSET_SCOPE_ORIGINAL_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "ACCOUNT_ORIGINAL_MAX_BYTES_V1": "4096",
+              "ASSET_SCOPE_ORIGINAL_MAX_BYTES_V1": "1024"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_preparation_v1/choices.rs",
+            "symbols": [
+              "MAX_BYTES"
+            ],
+            "exprs": {
+              "MAX_BYTES": "4096"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_proofs_v1.rs",
+            "symbols": [
+              "DESCRIPTOR_MAX",
+              "KEY_MAX",
+              "INVENTORY_MAX"
+            ],
+            "exprs": {
+              "DESCRIPTOR_MAX": "1 << 20",
+              "KEY_MAX": "1 << 18",
+              "INVENTORY_MAX": "16 << 20"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_registration_v1.rs",
+            "symbols": [
+              "REGISTRATION_SOURCE_MAX_BYTES_V1",
+              "REGISTRATION_PROOF_MAX_BYTES_V1",
+              "REGISTRATION_ENTRY_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "REGISTRATION_SOURCE_MAX_BYTES_V1": "8192",
+              "REGISTRATION_PROOF_MAX_BYTES_V1": "MAX_FINALITY_BLOCK_BYTES + 4 * 1024 * 1024",
+              "REGISTRATION_ENTRY_MAX_BYTES_V1": "1024"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/capacity.rs",
+            "symbols": [
+              "FROZEN_BOUND"
+            ],
+            "exprs": {
+              "FROZEN_BOUND": "KAGEMUSHA_WALLET_CAPSULE_MAX_BYTES_V1 + KAGEMUSHA_WALLET_CREDENTIAL_MAX_BYTES_V1 + 1024"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/fee_claims.rs",
+            "symbols": [
+              "FEE_CLAIM_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "FEE_CLAIM_MAX_BYTES_V1": "KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 + KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 + archive::METADATA_BOUND"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/index.rs",
+            "symbols": [
+              "INDEX_VALUE_LIMIT",
+              "NODE_LIMIT"
+            ],
+            "exprs": {
+              "INDEX_VALUE_LIMIT": "512",
+              "NODE_LIMIT": "INDEX_VALUE_LIMIT + archive::METADATA_BOUND"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/lifecycle/request.rs",
+            "symbols": [
+              "REQUEST_MAX_BYTES"
+            ],
+            "exprs": {
+              "REQUEST_MAX_BYTES": "{ let original = if KAGEMUSHA_WALLET_LOAD_FINALITY_MAX_BYTES_V1 > KAGEMUSHA_WALLET_BLACKLIST_MAX_BYTES_V1 { KAGEMUSHA_WALLET_LOAD_FINALITY_MAX_BYTES_V1 } else { KAGEMUSHA_WALLET_BLACKLIST_MAX_BYTES_V1 }; original + KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 + 1024 }"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/lifecycle.rs",
+            "symbols": [
+              "PREPARATION_MAX_BYTES"
+            ],
+            "exprs": {
+              "PREPARATION_MAX_BYTES": "REQUEST_MAX_BYTES + KAGEMUSHA_WALLET_CAPSULE_MAX_BYTES_V1"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/activation/confirmation/cursor.rs",
+            "symbols": [
+              "CURSOR_MAX"
+            ],
+            "exprs": {
+              "CURSOR_MAX": "TRANSACTION_MAX + MAX_FINALITY_CHECKPOINT_BYTES + 4096"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/activation/confirmation.rs",
+            "symbols": [
+              "TRANSACTION_MAX",
+              "CONFIRMATION_MAX"
+            ],
+            "exprs": {
+              "TRANSACTION_MAX": "64 * 1024",
+              "CONFIRMATION_MAX": "TRANSACTION_MAX + 1024"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/activation.rs",
+            "symbols": [
+              "PLAN_MAX"
+            ],
+            "exprs": {
+              "PLAN_MAX": "KAGEMUSHA_WALLET_ACTIVATION_MAX_BYTES_V1 + 4096"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/bootstrap.rs",
+            "symbols": [
+              "PLAN_MAX"
+            ],
+            "exprs": {
+              "PLAN_MAX": "4096"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/close_loads.rs",
+            "symbols": [
+              "PLAN_MAX"
+            ],
+            "exprs": {
+              "PLAN_MAX": "KAGEMUSHA_WALLET_CLOSE_LOADS_MAX_BYTES_V1 + 4096"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/ledger.rs",
+            "symbols": [
+              "LEDGER_PROOF_MAX_BYTES_V1",
+              "PAYOUT_RECORD_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "LEDGER_PROOF_MAX_BYTES_V1": "MAX_FINALITY_BLOCK_BYTES + 4 * 1024 * 1024",
+              "PAYOUT_RECORD_MAX_BYTES_V1": "1024"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/ledger_producer/unload_session.rs",
+            "symbols": [
+              "SESSION_MAX"
+            ],
+            "exprs": {
+              "SESSION_MAX": "MAX_FINALITY_CHECKPOINT_BYTES + 1024"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/ledger_producer.rs",
+            "symbols": [
+              "LEDGER_INSTRUCTION_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "LEDGER_INSTRUCTION_MAX_BYTES_V1": "64 * 1024"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/sessions.rs",
+            "symbols": [
+              "ACTION_MAX"
+            ],
+            "exprs": {
+              "ACTION_MAX": "KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 + 4096"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/policy_custody.rs",
+            "symbols": [
+              "REFERENCE_MAX_BYTES"
+            ],
+            "exprs": {
+              "REFERENCE_MAX_BYTES": "512"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/preparation_custody.rs",
+            "symbols": [
+              "SOURCE_CUSTODY_MAX_BYTES"
+            ],
+            "exprs": {
+              "SOURCE_CUSTODY_MAX_BYTES": "32 * 1024"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/session_custody.rs",
+            "symbols": [
+              "ANCHOR_CUSTODY_MAX_BYTES"
+            ],
+            "exprs": {
+              "ANCHOR_CUSTODY_MAX_BYTES": "KAGEMUSHA_WALLET_TIME_ANCHOR_MAX_BYTES_V1 + 1024"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "Nexus/AMX context projection: the 1 MiB cap bounds the canonical policy-context preimage, while the other limit-named constants are string field tags, not numeric limits. The committed policy fields have their own listed owners and this context does not enlarge any carrier allowance.",
+        "files": [
+          {
+            "path": "crates/iroha_data_model/src/nexus/amx_context.rs",
+            "symbols": [
+              "MAX_NEXUS_AMX_CONTEXT_BYTES_V1",
+              "STAKING_MAX_VALIDATORS",
+              "STAKING_MAX_STAKE_SHARES_PER_VALIDATOR",
+              "STAKING_MAX_PENDING_UNBONDS_PER_SHARE",
+              "STAKING_MAX_SLASH_BPS",
+              "AXT_MAX_CLOCK_SKEW_MS",
+              "FUSION_MAX_WINDOW_SLOTS",
+              "AUTOSCALE_MAX_LANE_ID_EXCLUSIVE",
+              "DA_SAMPLE_SIZE_MAX",
+              "DA_INGEST_QUOTA_MAX_COUNT_PER_ACCOUNT",
+              "DA_INGEST_QUOTA_MAX_BYTES_PER_ACCOUNT",
+              "DA_ROTATION_MAX_HITS_PER_WINDOW",
+              "PIPELINE_AMX_PER_DATASPACE_BUDGET_MS",
+              "PIPELINE_AMX_GROUP_BUDGET_MS"
+            ],
+            "exprs": {
+              "MAX_NEXUS_AMX_CONTEXT_BYTES_V1": "1 << 20",
+              "STAKING_MAX_VALIDATORS": "\"nexus.staking.max_validators\"",
+              "STAKING_MAX_STAKE_SHARES_PER_VALIDATOR": "\"nexus.staking.max_stake_shares_per_validator\"",
+              "STAKING_MAX_PENDING_UNBONDS_PER_SHARE": "\"nexus.staking.max_pending_unbonds_per_share\"",
+              "STAKING_MAX_SLASH_BPS": "\"nexus.staking.max_slash_bps\"",
+              "AXT_MAX_CLOCK_SKEW_MS": "\"nexus.axt.max_clock_skew_ms\"",
+              "FUSION_MAX_WINDOW_SLOTS": "\"nexus.fusion.max_window_slots\"",
+              "AUTOSCALE_MAX_LANE_ID_EXCLUSIVE": "\"nexus.autoscale.max_lane_id_exclusive\"",
+              "DA_SAMPLE_SIZE_MAX": "\"nexus.da.sample_size_max\"",
+              "DA_INGEST_QUOTA_MAX_COUNT_PER_ACCOUNT": "\"nexus.da.ingest_quota_max_count_per_account\"",
+              "DA_INGEST_QUOTA_MAX_BYTES_PER_ACCOUNT": "\"nexus.da.ingest_quota_max_bytes_per_account\"",
+              "DA_ROTATION_MAX_HITS_PER_WINDOW": "\"nexus.da.rotation.max_hits_per_window\"",
+              "PIPELINE_AMX_PER_DATASPACE_BUDGET_MS": "\"pipeline.amx_per_dataspace_budget_ms\"",
+              "PIPELINE_AMX_GROUP_BUDGET_MS": "\"pipeline.amx_group_budget_ms\""
+            }
+          }
+        ]
+      },
+      {
+        "reason": "The public-lane preparation response has at most the exact source and destination balances. This response shape does not enlarge or constrain generic signed transaction/proof admission.",
+        "files": [
+          {
+            "path": "crates/iroha_data_model/src/nexus/staking_preparation.rs",
+            "symbols": [
+              "PUBLIC_LANE_PREPARATION_BALANCE_LIMIT"
+            ],
+            "exprs": {
+              "PUBLIC_LANE_PREPARATION_BALANCE_LIMIT": "2"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "The 2^32 history size is the fixed SCCP accumulator geometry, not the number of entries encoded in a transaction or a local work allowance.",
+        "files": [
+          {
+            "path": "crates/iroha_data_model/src/sccp/commitment.rs",
+            "symbols": [
+              "SCCP_HISTORY_MAX_SIZE_V1"
+            ],
+            "exprs": {
+              "SCCP_HISTORY_MAX_SIZE_V1": "1 << 32"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "The genesis profile version is a format discriminator with value 1, not a resource limit.",
+        "files": [
+          {
+            "path": "crates/iroha_data_model/src/sccp/light_client.rs",
+            "symbols": [
+              "SCCP_LC_GENESIS_PROFILE_VERSION_V1"
+            ],
+            "exprs": {
+              "SCCP_LC_GENESIS_PROFILE_VERSION_V1": "1"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "SCCP protocol time windows and the fixed exempt-quota value: these constrain committed protocol policy values, not signed-carrier bytes or generic proof work. Per-transaction and per-block SCCP verifier work limits are separate listed bounds.",
+        "files": [
+          {
+            "path": "crates/iroha_data_model/src/sccp/params.rs",
+            "symbols": [
+              "SCCP_MAX_VALIDITY_MS_V1",
+              "SCCP_MAX_FAST_PAUSE_MS_V1",
+              "SCCP_MAX_FORGERY_EVIDENCE_GRACE_MS_V1",
+              "SCCP_MAX_DESTINATION_PROGRESS_CAP_MS_V1",
+              "SCCP_MAX_FAST_PAUSE_ENDORSE_WINDOW_MS_V1",
+              "SCCP_MIN_EPOCH_MS_V1",
+              "SCCP_MIN_HEARTBEAT_MS_V1",
+              "SCCP_MIN_FORGERY_EVIDENCE_GRACE_MS_V1",
+              "SCCP_FIXED_EXEMPT_QUOTAS_PER_BLOCK_V1",
+              "SCCP_MIN_FAST_PAUSE_SEAT_ACCEPT_WINDOW_MS_V1",
+              "SCCP_MIN_FAST_PAUSE_ENDORSE_WINDOW_MS_V1",
+              "SCCP_FAST_PAUSE_HOLD_MARGIN_MS_V1"
+            ],
+            "exprs": {
+              "SCCP_MAX_VALIDITY_MS_V1": "crate::sumeragi_finality::certified_result::MAX_VALIDITY_MS",
+              "SCCP_MAX_FAST_PAUSE_MS_V1": "2_592_000_000",
+              "SCCP_MAX_FORGERY_EVIDENCE_GRACE_MS_V1": "2_592_000_000",
+              "SCCP_MAX_DESTINATION_PROGRESS_CAP_MS_V1": "2_592_000_000",
+              "SCCP_MAX_FAST_PAUSE_ENDORSE_WINDOW_MS_V1": "21_600_000",
+              "SCCP_MIN_EPOCH_MS_V1": "3_600_000",
+              "SCCP_MIN_HEARTBEAT_MS_V1": "3_600_000",
+              "SCCP_MIN_FORGERY_EVIDENCE_GRACE_MS_V1": "86_400_000",
+              "SCCP_FIXED_EXEMPT_QUOTAS_PER_BLOCK_V1": "5",
+              "SCCP_MIN_FAST_PAUSE_SEAT_ACCEPT_WINDOW_MS_V1": "600_000",
+              "SCCP_MIN_FAST_PAUSE_ENDORSE_WINDOW_MS_V1": "300_000",
+              "SCCP_FAST_PAUSE_HOLD_MARGIN_MS_V1": "86_400_000"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "Contract artifact schema shapes: the admitted event-declaration table has finite entries and encoded bytes. M.1 and I.5 own schema/ABI semantics; these are inner artifact constraints under the listed code, transaction and guest-memory ceilings.",
+        "files": [
+          {
+            "path": "crates/iroha_data_model/src/smart_contract/event.rs",
+            "symbols": [
+              "MAX_CONTRACT_EVENT_DECLARATIONS_V1",
+              "MAX_CONTRACT_EVENT_DECLARATION_BYTES_V1"
+            ],
+            "exprs": {
+              "MAX_CONTRACT_EVENT_DECLARATIONS_V1": "256",
+              "MAX_CONTRACT_EVENT_DECLARATION_BYTES_V1": "64 * 1024"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "A contract-state map cursor contains at most one bounded binary key, rendered as hex. This is the state-query cursor shape, not an additional generic transaction or proof-size ceiling.",
+        "files": [
+          {
+            "path": "crates/iroha_data_model/src/smart_contract/state_cursor.rs",
+            "symbols": [
+              "MAX_STATE_MAP_KEY_BYTES_V1"
+            ],
+            "exprs": {
+              "MAX_STATE_MAP_KEY_BYTES_V1": "4096"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "The declared enum table of one contract artifact has finite types and encoded bytes. M.1 and I.5 own artifact schema semantics; code and transaction carriers retain their listed limits.",
+        "files": [
+          {
+            "path": "crates/iroha_data_model/src/smart_contract.rs",
+            "symbols": [
+              "MAX_CONTRACT_ENUM_TYPES_V1",
+              "MAX_CONTRACT_ENUM_TABLE_BYTES_V1"
+            ],
+            "exprs": {
+              "MAX_CONTRACT_ENUM_TYPES_V1": "256",
+              "MAX_CONTRACT_ENUM_TABLE_BYTES_V1": "64 * 1024"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "The reserved universal dataspace alias is the string identifier universal; its name contains a limit word but its value is not a resource ceiling.",
+        "files": [
+          {
+            "path": "crates/iroha_data_model/src/sns/mod.rs",
+            "symbols": [
+              "RESERVED_UNIVERSAL_DATASPACE_ALIAS"
+            ],
+            "exprs": {
+              "RESERVED_UNIVERSAL_DATASPACE_ALIAS": "\"universal\""
+            }
+          }
+        ]
+      },
+      {
+        "reason": "Native finality component shape: the result header width, result-body bytes, history-tree geometry and rotation-validity window are fixed components of the certificate. They are not proposal-payload allowances; transport.frame_overhead_bytes accounts for the certificate and the existing result-preimage exclusion pins its total width.",
+        "files": [
+          {
+            "path": "crates/iroha_data_model/src/sumeragi_finality/certified_result.rs",
+            "symbols": [
+              "MAX_VALIDITY_MS",
+              "MAX_HISTORY_SIZE",
+              "MAX_RESULT_BODY_BYTES",
+              "X_LEN"
+            ],
+            "exprs": {
+              "MAX_VALIDITY_MS": "2_592_000_000",
+              "MAX_HISTORY_SIZE": "1 << 32",
+              "MAX_RESULT_BODY_BYTES": "65_315",
+              "X_LEN": "221"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "A compact finality checkpoint consists of two bounded result preimages plus canonical framing. This is a bounded light-client response component, not an enlarged transaction or proposal-payload allowance.",
+        "files": [
+          {
+            "path": "crates/iroha_data_model/src/sumeragi_finality/compact/checkpoint.rs",
+            "symbols": [
+              "MAX_COMMIT_CHECKPOINT_BYTES"
+            ],
+            "exprs": {
+              "MAX_COMMIT_CHECKPOINT_BYTES": "2 * MAX_RESULT_PREIMAGE_BYTES + 4 * 1024"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "Native compact-finality response shapes: finite original header, QC and complete canonical certificate frames, checked before native authentication. Their component bounds do not enlarge the listed transport, transaction or proposal-payload limits.",
+        "files": [
+          {
+            "path": "crates/iroha_data_model/src/sumeragi_finality/compact.rs",
+            "symbols": [
+              "MAX_COMMIT_HEADER_BYTES",
+              "MAX_COMMIT_QC_BYTES",
+              "MAX_COMMIT_CERTIFICATE_BYTES_V1"
+            ],
+            "exprs": {
+              "MAX_COMMIT_HEADER_BYTES": "64 * 1024",
+              "MAX_COMMIT_QC_BYTES": "4 * 1024",
+              "MAX_COMMIT_CERTIFICATE_BYTES_V1": "256 * 1024"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "The selected original signed genesis for independent light-client verification is bounded to 8 MiB. This offline/bootstrap evidence input is not an ongoing transaction or block-payload allowance.",
+        "files": [
+          {
+            "path": "crates/iroha_data_model/src/sumeragi_finality/genesis.rs",
+            "symbols": [
+              "MAX_SIGNED_GENESIS_BYTES_V1"
+            ],
+            "exprs": {
+              "MAX_SIGNED_GENESIS_BYTES_V1": "8 * 1024 * 1024"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "The genesis dataspace selector bounds its account routing list to 64 entries, a light-client selector shape rather than generic transaction or proof work.",
+        "files": [
+          {
+            "path": "crates/iroha_data_model/src/sumeragi_finality/genesis_dataspace.rs",
+            "symbols": [
+              "MAX_ACCOUNT_ROUTES"
+            ],
+            "exprs": {
+              "MAX_ACCOUNT_ROUTES": "64"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "The protected validation-fee registry has its own 1 MiB state/evidence shape ceiling so governance appends preserve automatic-reward capacity. It is not an outer proof, transaction or transport limit.",
+        "files": [
+          {
+            "path": "crates/iroha_data_model/src/validation_fee.rs",
+            "symbols": [
+              "MAX_VALIDATION_FEE_REGISTRY_BYTES"
+            ],
+            "exprs": {
+              "MAX_VALIDATION_FEE_REGISTRY_BYTES": "1024 * 1024"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "Reward-history record shapes: bounded beneficiaries, historical validator identities, cohorts, stake entries, identities, exposure pages, archive references, allocations and oracle references. These are reward-product state/evidence components, not generic carrier ceilings; the reward validators enforce them independently.",
+        "files": [
+          {
+            "path": "crates/iroha_data_model/src/validation_fee_rewards.rs",
+            "symbols": [
+              "MAX_REWARD_RECIPIENTS",
+              "MAX_REWARD_VALIDATORS",
+              "MAX_REWARD_EXPOSURE_COHORTS",
+              "MAX_REWARD_EXPOSURE_ENTRIES",
+              "MAX_REWARD_IDENTITY_BYTES",
+              "MAX_REWARD_EXPOSURE_BYTES",
+              "MAX_REWARD_EXPOSURE_ARCHIVE_BYTES",
+              "MAX_REWARD_ALLOCATION_BYTES",
+              "MAX_REWARD_REFERENCE_BYTES"
+            ],
+            "exprs": {
+              "MAX_REWARD_RECIPIENTS": "256",
+              "MAX_REWARD_VALIDATORS": "4_096",
+              "MAX_REWARD_EXPOSURE_COHORTS": "1_024",
+              "MAX_REWARD_EXPOSURE_ENTRIES": "4_096",
+              "MAX_REWARD_IDENTITY_BYTES": "256",
+              "MAX_REWARD_EXPOSURE_BYTES": "128 * 1024",
+              "MAX_REWARD_EXPOSURE_ARCHIVE_BYTES": "MAX_REWARD_EXPOSURE_BYTES + 1024",
+              "MAX_REWARD_ALLOCATION_BYTES": "3 * 1024 * 1024",
+              "MAX_REWARD_REFERENCE_BYTES": "16 * 1024"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "Three blocks is the minimum native beacon/sortition epoch geometry; it is not a resource maximum.",
+        "files": [
+          {
+            "path": "crates/iroha_core/src/governance/parliament.rs",
+            "symbols": [
+              "MIN_PARLIAMENT_SORTITION_PULSE_EPOCH_LENGTH_BLOCKS_V1"
+            ],
+            "exprs": {
+              "MIN_PARLIAMENT_SORTITION_PULSE_EPOCH_LENGTH_BLOCKS_V1": "3"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "KAGEMUSHA storage-key discriminants 9, 10 and 11. These reserve tags identify record kinds; they are not resource reservations.",
+        "files": [
+          {
+            "path": "crates/iroha_core/src/kagemusha_wallet_v1/storage.rs",
+            "symbols": [
+              "RESERVE",
+              "RESERVE_ACCOUNT",
+              "RESERVE_ASSET"
+            ],
+            "exprs": {
+              "RESERVE": "9",
+              "RESERVE_ACCOUNT": "10",
+              "RESERVE_ASSET": "11"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "SCCP history read-cache geometry: cache subtrees from level 5 (32 leaves), hashing smaller intervals directly. This changes local read work granularity, not the authenticated root or generic admission.",
+        "files": [
+          {
+            "path": "crates/iroha_core/src/smartcontracts/isi/sccp/read/history.rs",
+            "symbols": [
+              "MIN_LEVEL",
+              "CHUNK"
+            ],
+            "exprs": {
+              "MIN_LEVEL": "5",
+              "CHUNK": "1 << MIN_LEVEL"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "SCCP read-only API scan windows cap recent-message and retained-checkpoint searches. They limit one served response and do not decide transaction or block validity.",
+        "files": [
+          {
+            "path": "crates/iroha_core/src/smartcontracts/isi/sccp/read/views.rs",
+            "symbols": [
+              "MAX_RECENT_SCAN",
+              "MAX_CHECKPOINT_SCAN"
+            ],
+            "exprs": {
+              "MAX_RECENT_SCAN": "4_096",
+              "MAX_CHECKPOINT_SCAN": "4_096"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "KAGEMUSHA test-chain/fixture artifact production: finite tool request, selected genesis, generated output and verifier-manifest files. These offline tool budgets do not decide live node admission.",
+        "files": [
+          {
+            "path": "crates/iroha_core/src/sumeragi/test_chain/kagemusha_setup/registration/export.rs",
+            "symbols": [
+              "MANIFEST_MAX"
+            ],
+            "exprs": {
+              "MANIFEST_MAX": "16 * 1024"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/bin/kagemusha_wallet_artifacts.rs",
+            "symbols": [
+              "REQUEST_MAX",
+              "GENESIS_MAX",
+              "OUTPUT_MAX"
+            ],
+            "exprs": {
+              "REQUEST_MAX": "65_536",
+              "GENESIS_MAX": "64 << 20",
+              "OUTPUT_MAX": "128 << 30"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "The offline KAGEMUSHA circuit has four fixed lanes; this is circuit geometry owned by that product, not generic transaction or proof-carrier work.",
+        "files": [
+          {
+            "path": "crates/iroha_kagemusha_proof/src/circuit.rs",
+            "symbols": [
+              "MAX_LANES"
+            ],
+            "exprs": {
+              "MAX_LANES": "4"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "SCCP read-only API page sizes for recent messages, outbound messages and controls; the page-response shape does not decide transaction or block validity.",
+        "files": [
+          {
+            "path": "crates/iroha_sccp/src/api/views.rs",
+            "symbols": [
+              "MAX_RECENT_MESSAGES",
+              "MAX_OUTBOUND_PAGE",
+              "MAX_CONTROLS_PAGE"
+            ],
+            "exprs": {
+              "MAX_RECENT_MESSAGES": "50",
+              "MAX_OUTBOUND_PAGE": "256",
+              "MAX_CONTROLS_PAGE": "64"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "The maximum SCCP committee is 31 (3f+1, f<=10), fixed quorum/signer geometry; generic verifier and carrier budgets are listed separately.",
+        "files": [
+          {
+            "path": "crates/iroha_sccp/src/v1/committee.rs",
+            "symbols": [
+              "MAX_COMMITTEE_SIZE"
+            ],
+            "exprs": {
+              "MAX_COMMITTEE_SIZE": "31"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "Terms of excluded limits: KAGEMUSHA offline-wallet component shapes: current enrollment policy, original evidence, carrier, journal, state storage, artifact inventory and custody records, with their own byte/count/depth bounds. These are product-internal records and producer inputs; transaction.max_tx_bytes and the generic proof/frame bounds continue to limit submitted carriers. This classification does not certify these product-specific boundaries or change their enforcement. Each term pins the exact limits listed in term_of; it is not an independent admission ceiling.",
+        "files": [
+          {
+            "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1.rs",
+            "symbols": [
+              "KAGEMUSHA_WALLET_CREDITED_RECEIVE_FIXED_BYTES_V1",
+              "KAGEMUSHA_WALLET_CREDITED_STATUS_FIXED_BYTES_V1"
+            ],
+            "exprs": {
+              "KAGEMUSHA_WALLET_CREDITED_RECEIVE_FIXED_BYTES_V1": "679",
+              "KAGEMUSHA_WALLET_CREDITED_STATUS_FIXED_BYTES_V1": "2_188"
+            },
+            "term_of": {
+              "KAGEMUSHA_WALLET_CREDITED_RECEIVE_FIXED_BYTES_V1": [
+                "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1.rs: KAGEMUSHA_WALLET_CREDITED_RECEIVE_PROOF_BUDGET_V1"
+              ],
+              "KAGEMUSHA_WALLET_CREDITED_STATUS_FIXED_BYTES_V1": [
+                "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1.rs: KAGEMUSHA_WALLET_LINEAGE_PROOF_CAP_V1"
+              ]
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/archive.rs",
+            "symbols": [
+              "METADATA_BOUND"
+            ],
+            "exprs": {
+              "METADATA_BOUND": "1024"
+            },
+            "term_of": {
+              "METADATA_BOUND": [
+                "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/fee_claims.rs: FEE_CLAIM_MAX_BYTES_V1",
+                "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/index.rs: NODE_LIMIT"
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "reason": "The canonical SubmitPrivacyProofV1 allocation preflight is derived from proof.privacy_max_action_bytes plus Norito canonical field-length framing. It cannot enlarge the consensus envelope charge, and exact-envelope/+1 JNI projection tests exercise the wrapper bound. No independently configurable admission limit is introduced.",
+        "files": [
+          {
+            "path": "crates/iroha_data_model/src/isi/privacy.rs",
+            "symbols": [
+              "canonical_frame_byte_limit_v1"
+            ],
+            "exprs": {
+              "canonical_frame_byte_limit_v1": "let envelope_limit = crate::privacy::TAIRA_PRIVACY_MAX_ACTION_BYTES_V1 as usize; envelope_limit + norito::core::len_prefix_len_with_flags( envelope_limit, norito::core::default_encode_flags(), )"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "Native SCCP fixed accumulator geometry: a completed anchor chunk contains exactly 4096 parent records and the history accumulator has at most 2^32 leaves. The open-chunk owner retains at most that one chunk in the original finite allocation pool; these are product geometry bounds, not a configurable transaction/proof ceiling or a substitute for allocation admission.",
+        "files": [
+          {
+            "path": "crates/iroha_core/src/smartcontracts/isi/sccp/anchor_owner.rs",
+            "symbols": [
+              "MAX_OPEN_ANCHORS"
+            ],
+            "exprs": {
+              "MAX_OPEN_ANCHORS": "4_096"
+            }
+          },
+          {
+            "path": "crates/iroha_sccp/src/v1/constants.rs",
+            "symbols": [
+              "MAX_HISTORY_SIZE"
+            ],
+            "exprs": {
+              "MAX_HISTORY_SIZE": "1 << 32"
+            }
+          },
+          {
+            "path": "crates/iroha_sccp/src/v1/evidence.rs",
+            "symbols": [
+              "SCCP_ANCHOR_CHUNK"
+            ],
+            "exprs": {
+              "SCCP_ANCHOR_CHUNK": "4096"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "Native SCCP post-execution maintenance work counts under specs/sccp.md sections 4.8 and 4.11: at most eight generation and completed-anchor deletions and the first 64 ended, uncleared generations visited by L5. They share the product-maintenance classification of the separately pinned light-client deletion budget. Generation/anchor deletion remains deferred until original forgery custody is implemented; the selectors alone grant no deletion authority.",
+        "files": [
+          {
+            "path": "crates/iroha_core/src/smartcontracts/isi/sccp/prune_plan.rs",
+            "symbols": [
+              "MAX_GENERATION_DELETIONS",
+              "MAX_ANCHOR_DELETIONS",
+              "MAX_CLEARANCE_VISITS"
+            ],
+            "exprs": {
+              "MAX_GENERATION_DELETIONS": "8",
+              "MAX_ANCHOR_DELETIONS": "8",
+              "MAX_CLEARANCE_VISITS": "64"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "Native SCCP rotation read page size: at most sixteen handoffs per API response. Larger requests are refused and can be paged; this bounds local serving work and does not decide block validity.",
+        "files": [
+          {
+            "path": "crates/iroha_sccp/src/api.rs",
+            "symbols": [
+              "MAX_ROTATION_STEPS"
+            ],
+            "exprs": {
+              "MAX_ROTATION_STEPS": "16"
+            }
+          }
         ]
       }
     ],
@@ -22392,7 +23814,8 @@
             {
               "path": "crates/iroha_core/src/sumeragi/finality/cursor.rs",
               "sites": {
-                "target < 2": 1
+                "target < 2": 1,
+                "height.get() < 2": 1
               }
             },
             {
@@ -22418,12 +23841,6 @@
               "sites": {
                 "height < 2": 1,
                 "tip.height() < 2": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_ordinary_current_control_v1.rs",
-              "sites": {
-                "self.authority_height < 2": 1
               }
             },
             {
@@ -22539,6 +23956,94 @@
               "sites": {
                 "height < 2": 1
               }
+            },
+            {
+              "path": "crates/iroha_core/src/state.rs",
+              "sites": {
+                "height.get() <= 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_data_model/src/isi/kagemusha_wallet/load_finality.rs",
+              "sites": {
+                "self.block_height < 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_data_model/src/sumeragi_finality/compact.rs",
+              "sites": {
+                "block.height() >= 2": 1,
+                "header.height >= 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_torii/src/kagemusha_wallet.rs",
+              "sites": {
+                "height < 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_torii/src/kagemusha_wallet_finality.rs",
+              "sites": {
+                "height < 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/kagemusha_wallet_v1/committed.rs",
+              "sites": {
+                "view.height() < 2": 1,
+                "height.get() < 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/kagemusha_wallet_v1/event_evidence.rs",
+              "sites": {
+                "self.height < 2": 1,
+                "height < 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/kagemusha_wallet_v1/ledger.rs",
+              "sites": {
+                "tx.block_height() < 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/query/native_receipts/amx_intents.rs",
+              "sites": {
+                "height >= 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/query/native_receipts/amx_read.rs",
+              "sites": {
+                "self.height < 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/query/native_receipts/reward_history.rs",
+              "sites": {
+                "height < 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/sumeragi/finality.rs",
+              "sites": {
+                "height > 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/activation/confirmation.rs",
+              "sites": {
+                "self.height < 2": 1,
+                "verified.height() < 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/ledger_producer.rs",
+              "sites": {
+                "self.height < 2": 1
+              }
             }
           ]
         },
@@ -22598,18 +24103,6 @@
               }
             },
             {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/authenticated_core_outgoing.rs",
-              "sites": {
-                "frames.len() < 3": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/one_use_key_ratchet.rs",
-              "sites": {
-                "self.certificate_chain_der.len() < 2": 1
-              }
-            },
-            {
               "path": "crates/iroha_data_model/src/block/mod.rs",
               "sites": {
                 "bytes.len() < 8": 1
@@ -22619,21 +24112,6 @@
               "path": "crates/iroha_data_model/src/ipfs.rs",
               "sites": {
                 "cid.len() < 2": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_ordinary_enrollment_http_v1.rs",
-              "sites": {
-                "raw.len() < 8": 1,
-                "(37..=KAGEMUSHA_APP_ENROLLMENT_POSSESSION_MAX_BYTES_V1) .contains(&raw_assertion.len())": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_v1/app_attest_extensions.rs",
-              "sites": {
-                "authenticator_data.len() < 37": 1,
-                "signature_der.len() < 8": 1,
-                "(38..=MAX_AUTHENTICATOR_DATA_BYTES).contains(&authenticator_data.len())": 1
               }
             },
             {
@@ -22787,18 +24265,6 @@
               }
             },
             {
-              "path": "crates/iroha_data_model/src/bin/kagemusha_app_certificate_encoder_v1.rs",
-              "sites": {
-                "input.len() < PREFIX + 8 + 97": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_platform_attestation_original_v1.rs",
-              "sites": {
-                "(2..=KAGEMUSHA_PLATFORM_ANDROID_CERTIFICATE_MAX_COUNT_V1) .contains(&certificate_chain_der.len())": 1
-              }
-            },
-            {
               "path": "crates/iroha_data_model/src/qr_stream.rs",
               "sites": {
                 "bytes.len() < header_len + 4": 1
@@ -22817,10 +24283,45 @@
               }
             },
             {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_outgoing_proof_operands.rs",
+              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/enrollment_policy.rs",
               "sites": {
-                "(31..=KAGEMUSHA_SEALED_TRANSITION_INPUTS_MAX_BYTES_V1 as usize).contains(&transition.len())": 1,
-                "(31..=KAGEMUSHA_RECOVERY_SEEDS_MAX_BYTES_V1 as usize).contains(&recovery.len())": 1
+                "value.split('.').count() >= 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_data_model/src/smart_contract/entrypoint/state_key.rs",
+              "sites": {
+                "*arity >= 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_torii/src/kagemusha_enrollment/worker/process.rs",
+              "sites": {
+                "packet.len() < 5": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/archive.rs",
+              "sites": {
+                "bytes.len() < 32": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/issuer_worker_protocol.rs",
+              "sites": {
+                "frame.len() < 4": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_registration_v1/builder.rs",
+              "sites": {
+                "count < 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_registration_v1.rs",
+              "sites": {
+                "self.inventory.proof_count < 2": 1
               }
             }
           ]
@@ -22968,6 +24469,12 @@
               "sites": {
                 "delta .saturating_mul(10_000) .saturating_div(current) .min(u64::from(u16::MAX))": 1
               }
+            },
+            {
+              "path": "crates/iroha_core/src/validation_fee_rewards/pending.rs",
+              "sites": {
+                "minor_units(&balance, 9)? < state.reserved_xor": 1
+              }
             }
           ]
         },
@@ -22981,45 +24488,6 @@
                 "now .checked_sub(quota.request_window_start_ms) .ok_or(TransitionError::CorruptHistory)? >= 60_000": 1,
                 ".max(expiry) .max( quota .request_window_start_ms .checked_add(60_000) .ok_or(TransitionError::Invalid)?, )": 1,
                 ".max( quota .byte_window_start_ms .checked_add(1_000) .ok_or(TransitionError::Invalid)?, )": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_native_clock.rs",
-              "sites": {
-                "self.maximum_node_skew_ms > 30_000": 1,
-                "self.maximum_projection_age_ms > 86_400_000": 1,
-                "self.maximum_reply_age_ms > 10_000": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_android_revocation_snapshot_original_v1.rs",
-              "sites": {
-                "age > 86400": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_governed_platform_originals_v1.rs",
-              "sites": {
-                "(1..=300_000).contains(&self.maximum_creation_age_ms)": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_ordinary_enrollment_issuer_policy_v1.rs",
-              "sites": {
-                "(1..=120_000).contains(&self.maximum_current_state_lifetime_ms)": 1,
-                "(1..=120_000).contains(&self.maximum_pending_lifetime_ms)": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_ordinary_retail_enrollment_v1.rs",
-              "sites": {
-                "self.expires_at_ms - self.issued_at_ms > 120_000": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_play_integrity_refresh_v1.rs",
-              "sites": {
-                "self.expires_at_ms - self.issued_at_ms > 120_000": 1
               }
             },
             {
@@ -23108,6 +24576,45 @@
               "sites": {
                 "self.expires_at_height > height.saturating_add(1_000_000)": 1
               }
+            },
+            {
+              "path": "crates/iroha_data_model/src/sccp/params.rs",
+              "sites": {
+                "self.fast_pause_seat_accept_window_ms > self.fast_pause_panel_term_ms / 2": 1,
+                "self.fast_pause_renew_lead_ms > self.fast_pause_hold_ms / 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_torii/src/identifier_resolution/owner_prf.rs",
+              "sites": {
+                "expires - opened_at_ms > 120_000": 1,
+                "(1..=120_000).contains(ttl)": 1,
+                "statement.expires_at_ms - statement.issued_at_ms > 120_000": 1
+              }
+            },
+            {
+              "path": "crates/iroha_torii/src/kagemusha_enrollment/observation.rs",
+              "sites": {
+                "timeout > Duration::from_secs(60)": 1
+              }
+            },
+            {
+              "path": "crates/iroha_torii/src/kagemusha_enrollment/worker/process.rs",
+              "sites": {
+                "timeout > Duration::from_secs(300)": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/smartcontracts/isi/identifier.rs",
+              "sites": {
+                "expires - original.opened_at_ms > 120_000": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs",
+              "sites": {
+                "expires - payload.executed_at_ms > 120_000": 1
+              }
             }
           ]
         },
@@ -23147,12 +24654,6 @@
               "sites": {
                 "month <= 2": 1,
                 "month_prime < 10": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core/src/smartcontracts/isi/sccp/read.rs",
-              "sites": {
-                "*index < 32": 1
               }
             },
             {
@@ -23203,34 +24704,6 @@
               }
             },
             {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/coordinator_operation_store.rs",
-              "sites": {
-                "(1..=22).contains(&operation)": 1,
-                "(1..=22).contains(&reservation.operation)": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_app_identity/http_proof.rs",
-              "sites": {
-                "(0x21..=0x7e).contains(byte)": 1,
-                "(high << 4 | low) < 0x80": 1,
-                "bytes.len() - index < 3": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_app_identity/journal.rs",
-              "sites": {
-                "self.stage < 2": 1,
-                "self.stage < 4": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/response_evidence_archive.rs",
-              "sites": {
-                "(1..=22).contains(&operation)": 1
-              }
-            },
-            {
               "path": "crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/store.rs",
               "sites": {
                 "bits <= 0x7fff_ffff": 1,
@@ -23257,78 +24730,9 @@
               }
             },
             {
-              "path": "crates/iroha_data_model/src/bin/kagemusha_app_certificate_encoder_v1.rs",
-              "sites": {
-                "descriptor < 3": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/bin/kagemusha_ordinary_preparation_encoder_v1.rs",
-              "sites": {
-                "descriptor < 3": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/bin/kagemusha_raw_app_attestation_encoder_v1.rs",
-              "sites": {
-                "descriptor < 3": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/bin/kagemusha_verified_receipt_v1.rs",
-              "sites": {
-                "byte < 0x20": 1
-              }
-            },
-            {
               "path": "crates/iroha_data_model/src/confidential.rs",
               "sites": {
                 "value < 0x80": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_android_revocation_snapshot_original_v1.rs",
-              "sites": {
-                "(0x20..=0x7e).contains(b)": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_device_response_v1.rs",
-              "sites": {
-                "(1..=22).contains(&operation)": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_ordinary_app_enrollment_v1.rs",
-              "sites": {
-                "index < 3": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_ordinary_enrollment_http_v1.rs",
-              "sites": {
-                "(0x21..=0x7e).contains(&b)": 1,
-                "value.len() > maximum.div_ceil(3) * 4": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_play_integrity_refresh_v1.rs",
-              "sites": {
-                "index < 10": 1,
-                "index < 7": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_v1.rs",
-              "sites": {
-                "N < 40": 1,
-                "length >= 128": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_v1/app_attest_extensions.rs",
-              "sites": {
-                "value < 24": 1
               }
             },
             {
@@ -23350,13 +24754,6 @@
               "sites": {
                 "second.trailing_zeros() >= 4": 1,
                 "third.trailing_zeros() >= 2": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/sccp/attestation.rs",
-              "sites": {
-                "index < 32": 1,
-                "index >= 32": 1
               }
             },
             {
@@ -23527,12 +24924,6 @@
               }
             },
             {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_release_v1.rs",
-              "sites": {
-                "depths[3].depth <= KAGEMUSHA_MIN_QUALIFIED_HANDOFFS_V1": 1
-              }
-            },
-            {
               "path": "crates/iroha_data_model/src/qr_stream.rs",
               "sites": {
                 "payload_end + 4 > bytes.len()": 1,
@@ -23553,27 +24944,55 @@
               }
             },
             {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/native_backend.rs",
-              "sites": {
-                "count > (self.bytes.len() - self.at) / 8": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_mint_funding.rs",
-              "sites": {
-                "fields[7].len() > KAGEMUSHA_ORDINARY_CURRENT_CONTROL_MAX_BYTES_V1": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_native_clock.rs",
-              "sites": {
-                "times[3] - times[0] > selected.policy.maximum_node_skew_ms": 1
-              }
-            },
-            {
               "path": "crates/iroha_torii/src/routing.rs",
               "sites": {
                 "(finite_top_sum(top_sums[2]) / total_f64).clamp(0.0, 1.0)": 1
+              }
+            },
+            {
+              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/enrollment_policy.rs",
+              "sites": {
+                "(1900..=9999).contains(&year)": 1,
+                "(1..=12).contains(&month)": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/smartcontracts/ivm/host/contract_calls.rs",
+              "sites": {
+                "vm.register(13) > ivm_abi::call::MAX_CALL_WORDS_V1 as u64": 1,
+                "vm.register(15) > ivm_abi::call::MAX_CALL_WORDS_V1 as u64": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/sumeragi/finality/compact_source.rs",
+              "sites": {
+                "index < 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/owner/apple_collection.rs",
+              "sites": {
+                "(1..=3).contains(&stage)": 1,
+                "index >= 3": 2
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/collection.rs",
+              "sites": {
+                "intent.phase > 4": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/index.rs",
+              "sites": {
+                "*bit >= 256": 1
+              }
+            },
+            {
+              "path": "crates/iroha_data_model/src/nexus/amx_context.rs",
+              "sites": {
+                "take(&mut rest, 4)": 1,
+                "take(&mut rest, 8)": 1
               }
             }
           ]
@@ -23695,79 +25114,9 @@
               }
             },
             {
-              "path": "crates/iroha_core_zk/src/kagemusha_p256_curve_gadget.rs",
-              "sites": {
-                "bits.truncate(256)": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/artifact_resource_preflight.rs",
-              "sites": {
-                ".min(domain_rows.div_ceil(8)) .min(4)": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/canonical_field_stream.rs",
-              "sites": {
-                "0..(32 - i * 7).min(7)": 1,
-                "7..(i * 7 + 7).min(32)": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/native_backend.rs",
-              "sites": {
-                "self.take(32)": 1,
-                "self.take(8)": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_poseidon_schedule.rs",
-              "sites": {
-                "((capacity - ordinary) / FOLD_PERMUTATIONS).min(2)": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/terminal_authorization.rs",
-              "sites": {
-                "terminal_column.iter().take(2)": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/pasta_sha256_table8/table8/message_schedule/subregion1.rs",
-              "sites": {
-                "std::iter::repeat(&false).take(6)": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/pasta_sha256_table8/table8/message_schedule/subregion2.rs",
-              "sites": {
-                "std::iter::repeat(&false).take(20)": 1,
-                "std::iter::repeat(&false).take(6)": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/pasta_sha256_table8/table8/message_schedule/subregion3.rs",
-              "sites": {
-                "std::iter::repeat(&false).take(20)": 1
-              }
-            },
-            {
               "path": "crates/iroha_core_zk/src/stark.rs",
               "sites": {
                 "limits.max_fold_arity.min(1 << 5)": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_v1.rs",
-              "sites": {
-                "bytes.iter().take(31)": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_v1/app_attest_extensions.rs",
-              "sites": {
-                "self .take(2)": 1,
-                "self .take(4)": 1
               }
             },
             {
@@ -23946,6 +25295,30 @@
                 ".unwrap_or(u64::MAX) .max(1_000)": 1,
                 "retry_count.saturating_sub(1).min(16)": 1
               }
+            },
+            {
+              "path": "crates/iroha_core/src/smartcontracts/isi/sccp/read/history.rs",
+              "sites": {
+                "((position + 2) << level).min(size)": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/smartcontracts/isi/sccp/voids.rs",
+              "sites": {
+                "(limits.max_transcripts.min(limits.max_deltas) / 2).max(1)": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/state/contract_event_journal.rs",
+              "sites": {
+                "len.checked_mul(2).unwrap_or(usize::MAX).max(1)": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/validation_fee_rewards/history.rs",
+              "sites": {
+                ".take(3)": 1
+              }
             }
           ]
         },
@@ -23978,15 +25351,46 @@
               }
             },
             {
-              "path": "crates/iroha_data_model/src/isi/kagemusha_v1.rs",
-              "sites": {
-                "(4..=KAGEMUSHA_MINT_FINALITY_MAX_VALIDATORS_V1).contains(&count)": 1
-              }
-            },
-            {
               "path": "crates/iroha_core/src/sumeragi/epoch_election/plan.rs",
               "sites": {
                 "transition.readiness.len() >= preparation.committee.len() - (preparation.committee.len() - 1) / 3": 1
+              }
+            },
+            {
+              "path": "crates/iroha_data_model/src/nexus/committee.rs",
+              "sites": {
+                "(4..=31).contains(&max_validators)": 1,
+                "epoch_length_blocks < 3": 1
+              }
+            },
+            {
+              "path": "crates/iroha_data_model/src/sumeragi/epoch/generation.rs",
+              "sites": {
+                "(4..=MAX_VALIDATORS).contains(&n)": 1
+              }
+            },
+            {
+              "path": "crates/iroha_data_model/src/sumeragi_finality/test_fixtures.rs",
+              "sites": {
+                "(4..=31).contains(&committee_seats)": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_registration_v1/builder.rs",
+              "sites": {
+                "proof.committee.len() > 31": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_registration_v1.rs",
+              "sites": {
+                "proof.committee.len() > 31": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/ledger.rs",
+              "sites": {
+                "proof.committee.len() > 31": 1
               }
             }
           ]
@@ -23994,15 +25398,6 @@
         {
           "reason": "Geometry of fixed circuits and gadgets in the proof crate: the arity of a confidential transfer (at most two inputs and two outputs), instance-column, carrier and row counts, limb byte and bit widths of field packings, the lengths of a DER signature (8 to 72 bytes) and of authenticator data that a gadget is built for, source and word indexes, const-generic size checks and compile-time assertions over unmeasured size estimates. The shape of a circuit is fixed with its verifying key; none is applied to a submitted transaction, block or proof as a byte, count or work limit. Literals that are part of such a comparison are of the same kind: the halves of the full rounds of a Poseidon permutation, the last compression round and the 8-byte length field of SHA-256 padding, the pair count of a FRI layer (half its domain), a 128-bit limb window, the 2^126 quotient radix and a 2^12 row estimate, the offsets of a DER signature inside a gadget, four reserved rows of an advice column, and a slot of a row counter that only test builds keep.",
           "files": [
-            {
-              "path": "crates/iroha_core_zk/src/app_attest_der_gadget.rs",
-              "sites": {
-                "(4..37).contains(&offset)": 1,
-                "first + output - 1 < 32": 1,
-                "first + output < 32": 1,
-                "(6 + r_len..39 + r_len).contains(&offset)": 1
-              }
-            },
             {
               "path": "crates/iroha_core_zk/src/confidential.rs",
               "sites": {
@@ -24020,234 +25415,10 @@
               }
             },
             {
-              "path": "crates/iroha_core_zk/src/kagemusha_p256_curve_gadget.rs",
-              "sites": {
-                "(37..=1_024).contains(&AUTH_LEN)": 1,
-                "N <= 256": 2,
-                "S_LEN <= 1_024": 1,
-                "chip.limb_bits * chip.num_limbs - 1 + F::NUM_BITS as usize - 2 >= 512": 1,
-                "S_LEN > signing_domain.len() + 8": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/base_packing.rs",
-              "sites": {
-                "*rows >= 4": 1,
-                "row > usable_rows - 4": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/bootstrap_statement_binding.rs",
-              "sites": {
-                "encoded.len() < 40": 1,
-                "position < 40": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/canonical_field_stream.rs",
-              "sites": {
-                "i < 4": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/canonical_selected_stream.rs",
-              "sites": {
-                "raw_length_bits > 32": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/carrier_rlc.rs",
-              "sites": {
-                "integer.bits() > 128": 1,
-                "quotient >= (1_u128 << 126)": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/composite.rs",
-              "sites": {
-                "bytes.len() > 16": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/deferred_parent.rs",
-              "sites": {
-                "integer.bits() > 128": 3
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/deferred_parent_proof_bytes.rs",
-              "sites": {
-                "(1..=2).contains(&expected_carrier_count)": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/generation.rs",
-              "sites": {
-                "(2..=3).contains(&instance_column_count)": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/guard_bundle.rs",
-              "sites": {
-                "bytes.len() > 16": 1,
-                "integer.bits() > 128": 1,
-                "output.batch.source_count() > 2016": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/mint_authority.rs",
-              "sites": {
-                "bytes.len() > 16": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/mint_hash_claim_fold.rs",
-              "sites": {
-                "bytes.len() > 16": 1,
-                "equation_count <= 7": 1,
-                "integer.bits() > 128": 1,
-                "quotient_bits <= 127": 1,
-                "(start + 128).min(bits.len())": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/native_backend.rs",
-              "sites": {
-                "(1..=2).contains(&carrier_commitment_limb_indices.len())": 1,
-                "(1..=2).contains(&carrier_count)": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_integrity_union.rs",
-              "sites": {
-                "(8..=72).contains(&der.len())": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_platform_equation.rs",
-              "sites": {
-                "(8..=72).contains(&raw_der.len())": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_receiver_request_opening.rs",
-              "sites": {
-                "bits > 128": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/terminal_authorization.rs",
-              "sites": {
-                "bytes.len() <= 16": 1,
-                "bytes.len() > 16": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/terminal_semantic_pipeline.rs",
-              "sites": {
-                "encoded.len() > 16": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/transport_decider.rs",
-              "sites": {
-                "integer.bits() > 128": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/pasta_cycle_loader.rs",
-              "sites": {
-                "bytes.len() <= 16": 1,
-                "low_bits < 8": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/pasta_dense_msm.rs",
-              "sites": {
-                "tag > 2": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/pasta_sha256_table8.rs",
-              "sites": {
-                "LEN <= 64": 1,
-                "TABLE8_FIVE_LANE_PROCESSED_PK_BYTES_K12_UNMEASURED < 64 * 1024 * 1024": 1,
-                "TABLE8_ONE_LANE_PROCESSED_PK_BYTES_K12_UNMEASURED < 64 * 1024 * 1024": 1,
-                "TABLE8_COMPRESSION_ROWS_ESTIMATE_UNMEASURED < (1 << 12)": 1,
-                "remainder < BLOCK_BYTE_SIZE - 8": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/pasta_sha256_table8/table8.rs",
-              "sites": {
-                "F::NUM_BITS >= 65": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/pasta_sha256_table8/table8/compression/compression_util.rs",
-              "sites": {
-                "idx < 64": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/pasta_sha256_table8/table8/gates.rs",
-              "sites": {
-                "n < 2": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/pasta_sha256_table8/table8/message_schedule/schedule_util.rs",
-              "sites": {
-                "(1..=13).contains(&word_idx)": 1,
-                "(14..=48).contains(&word_idx)": 1,
-                "(49..=61).contains(&word_idx)": 1,
-                "word_idx <= 63": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/pasta_sha256_table8/table8/spread_table.rs",
-              "sites": {
-                "DENSE <= 16": 2
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/pasta_sha256_table8/table8/util.rs",
-              "sites": {
-                "DENSE <= 16": 1,
-                "K <= 64": 1,
-                "NUM_BITS <= 64": 1
-              }
-            },
-            {
               "path": "crates/iroha_core_zk/src/stark.rs",
               "sites": {
                 "layer_domain < 2": 1,
                 "pair_index >= layer_domain / 2": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/carrier_rlc/streaming.rs",
-              "sites": {
-                "record[5].max(live.get())": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/pasta_native_poseidon.rs",
-              "sites": {
-                "round < FULL_ROUNDS / 2": 1,
-                "round >= FULL_ROUNDS / 2 + PARTIAL_ROUNDS": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/pasta_sha256.rs",
-              "sites": {
-                "block_offset >= BLOCK_BYTE_SIZE - 8": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/pasta_sha256_table8/table8/compression/subregion_main.rs",
-              "sites": {
-                "round_idx < 63.into()": 1
               }
             }
           ]
@@ -24298,7 +25469,9 @@
             {
               "path": "crates/iroha_data_model/src/smart_contract.rs",
               "sites": {
-                "messages.len() <= 256 * 256": 1
+                "messages.len() <= 256 * 256": 1,
+                "identity.len() > 1024": 1,
+                "(1..=256).contains(&variants.len())": 1
               }
             },
             {
@@ -24316,7 +25489,8 @@
             {
               "path": "crates/iroha_data_model/src/smart_contract/multisig_call.rs",
               "sites": {
-                "entrypoint.len() > 128": 1
+                "entrypoint.len() > 128": 1,
+                "invocation.entrypoint.len() > 128": 1
               }
             },
             {
@@ -24409,6 +25583,31 @@
               "sites": {
                 "self.maintenance_tiers.len() > 32": 1
               }
+            },
+            {
+              "path": "crates/iroha_data_model/src/identifier/hkdf_v1.rs",
+              "sites": {
+                "normalized_input.len() > 512": 1
+              }
+            },
+            {
+              "path": "crates/iroha_data_model/src/sumeragi_finality/compact/checkpoint.rs",
+              "sites": {
+                "native.chain_id().len() <= 1024": 1,
+                "self.chain.len() <= 1024": 1
+              }
+            },
+            {
+              "path": "crates/iroha_data_model/src/sumeragi_finality/genesis.rs",
+              "sites": {
+                "pins.chain_id.len() > 512": 1
+              }
+            },
+            {
+              "path": "crates/iroha_data_model/src/validation_fee_rewards.rs",
+              "sites": {
+                "allocation.reference_observations.len() > 5": 1
+              }
             }
           ]
         },
@@ -24416,420 +25615,188 @@
           "reason": "Field ceilings and exact ranges of the KAGEMUSHA offline-cash product (data model and proof crate): the length of one original document, certificate, attestation, signature, token, account, package or identifier; the count of one list; a journal sequence, a history size and a tree depth. Each is checked where that record is decoded or admitted. They are shape limits of one product's own records, like its named constants excluded above. None is a transaction, block, frame or generic proof ceiling. Some are written as a named ceiling of the product with a fixed allowance: 1,024 bytes above a possession record for its archive, 64 KiB kept free below a Node Mint submission, 87 bytes added to a proof input before it is compared with the proof ceiling, a quarter of a frame for one of four clock originals, and 65,536-byte chunks of a journal. The named ceiling is excluded above; the allowance is pinned here.",
           "files": [
             {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/bootstrap_statement_binding.rs",
-              "sites": {
-                "encoded.len() > 4096": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/native_backend.rs",
-              "sites": {
-                "maximum_bytes > 16 * 1024 * 1024": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_approval_proof_binding.rs",
-              "sites": {
-                "original.bytes().len() > 311": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_guard_data_binding.rs",
-              "sites": {
-                "raw.len() > 311": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_incoming_commit_admission.rs",
-              "sites": {
-                "r.len() > 4096": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_lineage_bundle_admission.rs",
-              "sites": {
-                "manifest_original.len() > 64 * 1024": 1,
-                "neutral_reservation_original.len() > 4096": 1,
-                "self.state_original.len() > 32 * 1024": 1,
-                "v.len() > 4096": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_lineage_commit_admission.rs",
-              "sites": {
-                "v.len() > 4096": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_lineage_service_carrier.rs",
-              "sites": {
-                "r.neutral_reservation_original.len() > 4096": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_lineage_state_original.rs",
-              "sites": {
-                "raw.len() > 32 * 1024": 2
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_mint_public.rs",
-              "sites": {
-                "canonical_account.len() > 4096": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_mint_request_budget.rs",
-              "sites": {
-                "norito::encode_canonical(&context.lineage.owner.account_id) .map_err(|e| e.to_string())? .len() > 4096": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_platform_union.rs",
-              "sites": {
-                "wrapper.len() > 1024": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_state_receive_consumer.rs",
-              "sites": {
-                "raw.len() > 311": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/production_ordinary_guard.rs",
-              "sites": {
-                "raw.len() > 4096": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/authenticated_core_incoming.rs",
-              "sites": {
-                "bytes.len() > 8192": 2,
-                "path.len() > 4096": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/authenticated_core_outgoing.rs",
-              "sites": {
-                "sequence > 2": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/authenticated_ordinary_cash_owner.rs",
-              "sites": {
-                "authority_original.len() > 128 * 1024 * 1024": 1,
-                "catalog.leases.len() >= 1024": 1,
-                "historical_leases.len() > 1024": 1,
-                "historical_receivers.len() > 1024": 1,
-                "signed_original.len() > 64 * 1024": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/authenticated_ordinary_logical_journal.rs",
-              "sites": {
-                "total > 8 * 1024 * 1024": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/hardware_evidence_bootstrap.rs",
-              "sites": {
-                "b.len() > 64 * 1024": 1,
-                "google_id_token_original.len() > 16 * 1024": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/one_use_key_ratchet.rs",
-              "sites": {
-                "certificate.len() > 16_384": 1,
-                "frame.len() > 1_024": 1,
-                "self.certificate_chain_der.len() > 8": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_app_identity.rs",
-              "sites": {
-                "alias.len() > 255": 1,
-                "original.len() > 16 * 1024": 1,
-                "raw_attestation.len() > 128 * 1024": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_app_identity/http_proof.rs",
-              "sites": {
-                "(8..=72).contains(&original.len())": 1,
-                "prefix.len() > 256": 1,
-                "self.authentication_namespace.len() > 128": 1,
-                "self.fi_id.len() > 128": 1,
-                "input.len().checked_add(87).ok_or(Rejected)? > MAX_PROOF_BYTES": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_app_identity/journal.rs",
-              "sites": {
-                "key.len() > 255": 1,
-                "start.saturating_add(65536).min(raw.len())": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_app_identity/possession_journal.rs",
-              "sites": {
-                "(8..=72).contains(&raw.len())": 1,
-                "raw.len() <= 4096": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_app_identity/preparation_reservation/current_control.rs",
-              "sites": {
-                "raw.len() > 64 * 1024": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_app_identity/preparation_reservation/integrity_refresh.rs",
-              "sites": {
-                "(8..=72).contains(&der.len())": 1,
-                "original.len() > 4096": 2,
-                "token.len() > 64 * 1024": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_app_identity/retail_enrollment_journal.rs",
-              "sites": {
-                "raw.len() > 16 * 1024": 1,
-                "raw.len() > 32 * 1024": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_bootstrap_platform_attempt.rs",
-              "sites": {
-                "(8..=72).contains(&raw.len())": 1,
-                "rows >= 4": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_cash_platform_preparation.rs",
-              "sites": {
-                "raw.len() > 4096": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_incoming_native_driver.rs",
-              "sites": {
-                "raw.len() > 4096": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_incoming_state_commit.rs",
-              "sites": {
-                "self.public_state_original.len() > 32 * 1024": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_logical_historical_custody.rs",
-              "sites": {
-                "self.wal.recovery_prefix().map_err(storage)?.sequence > 1_000_000": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_mint_funding.rs",
-              "sites": {
-                "data.len() > 128 * 1024": 2
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_native_clock.rs",
-              "sites": {
-                "chain_id.len() > 256": 1,
-                "original.len() > MAX_FRAME / 4": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_native_clock/service_received_commit_assertion.rs",
-              "sites": {
-                "raw.len() > 128 * 1024": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_outgoing_native_driver.rs",
-              "sites": {
-                "raw.len() > 4096": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/sparse_merkle_store.rs",
-              "sites": {
-                "depth >= 256": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/bin/kagemusha_app_certificate_encoder_v1.rs",
-              "sites": {
-                "(8..=72).contains(&der_len)": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/bin/kagemusha_verified_receipt_v1.rs",
-              "sites": {
-                "raw.len() > 512": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_android_revocation_snapshot_original_v1.rs",
-              "sites": {
-                "s.len() <= 40": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_app_operation_approval_v1.rs",
-              "sites": {
-                "(37..=206).contains(&auth.len())": 1,
-                "(37..=206).contains(&auth_data.len())": 1,
-                "(8..=72).contains(&signature_der.len())": 2,
-                "der.len() > 72": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_device_response_v1.rs",
-              "sites": {
-                "(1..=22).contains(&expected_operation)": 1,
-                "bytes.len() > 2 * 1024": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_governed_platform_originals_v1.rs",
-              "sites": {
-                "(1..=8).contains(&self.apple_receipt_roots_der.len())": 1,
-                "(1..=8).contains(&self.platform_roots_der.len())": 1,
-                "self.app_id_utf8.len() > 512": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_hardware_evidence_bootstrap_v1.rs",
-              "sites": {
-                "host.len() > 253": 1,
-                "part.len() <= 63": 1,
-                "self.allowed_android_security_levels.len() > 2": 1,
-                "self.app_package.len() > 128": 1,
-                "self.google_oauth_client_id.len() > 512": 1,
-                "self.jni_artifacts.len() > 4": 1,
-                "value.len() <= 2048": 1,
-                "value.len() > 512": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_ordinary_app_enrollment_v1.rs",
-              "sites": {
-                "raw_attestation.len() > 128 * 1024": 1,
-                "self.allowed_android_security_levels.len() > 2": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_ordinary_app_identity_policy_v1/proof_context.rs",
-              "sites": {
-                "raw.len() > 4096": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_ordinary_cash_v1.rs",
-              "sites": {
-                "(8..=72).contains(&signature_der.len())": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_ordinary_current_control_v1.rs",
-              "sites": {
-                "r.len() > 4096": 1,
-                "raw.len() > 8192": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_ordinary_enrollment_http_v1.rs",
-              "sites": {
-                "(8..=72).contains(&signature_der.len())": 1,
-                "self.wallet.len() > 4096": 1,
-                "v.account_id.len() > 4096": 1,
-                "token.len() > 64 * 1024": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_ordinary_enrollment_issuer_policy_v1.rs",
-              "sites": {
-                "norito::canonical_frame_len(account).map_err(|e| e.to_string())? > 16 * 1024": 1,
-                "norito::canonical_frame_len(fi_id).map_err(|e| e.to_string())? > 1024": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_ordinary_installed_context_v1.rs",
-              "sites": {
-                "runtime_original.len() > 32 * 1024 * 1024": 1,
-                "s.len() <= 128": 1,
-                "sdk_original.len() > 32 * 1024 * 1024": 1,
-                "self.libraries.len() > 4": 1,
-                "self.originals.len() > 130": 1,
-                "self.package_name.len() > 128": 1,
-                "self.recursive_profile_size > 16 * 1024 * 1024": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_ordinary_lineage_v1.rs",
-              "sites": {
-                "s.len() <= 128": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_ordinary_mint_v1.rs",
-              "sites": {
-                "(8..=72).contains(&signature_der.len())": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_ordinary_node_mint_v1.rs",
-              "sites": {
-                "parents.len() > 2": 1,
-                "raw.len() > 4 * 1024 * 1024": 1,
-                "self.lease_original.len() > 4096": 1,
-                "payload_bytes > KAGEMUSHA_ORDINARY_NODE_MINT_SUBMISSION_MAX_BYTES_V1 - 64 * 1024": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_play_integrity_provider_policy_v1.rs",
-              "sites": {
-                "(6..=30).contains(&principal.len())": 1,
-                "(6..=30).contains(&project.id.len())": 1,
-                "client.len() > 40": 1,
-                "package.len() <= 255": 1,
-                "raw.len() > 16 * 1024": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_play_integrity_refresh_v1.rs",
-              "sites": {
-                "(8..=72).contains(&signature_der.len())": 1
-              }
-            },
-            {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_v1/hardware_selection.rs",
-              "sites": {
-                "authenticator_data.len() > 37": 1
-              }
-            },
-            {
               "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/keys.rs",
               "sites": {
                 "(8..=72).contains(&bytes.len())": 1
               }
             },
             {
-              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_app_enrollment_possession_v1.rs",
+              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_enrollment_permit_v1.rs",
               "sites": {
-                "original.len() > KAGEMUSHA_APP_ENROLLMENT_POSSESSION_MAX_BYTES_V1 + 1024": 1,
-                "bytes.len() > KAGEMUSHA_APP_ENROLLMENT_POSSESSION_MAX_BYTES_V1 + 1024": 1
+                "original.len() > 16_384": 1
               }
             },
             {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_native_clock/signed_originals.rs",
+              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/load_finality.rs",
               "sites": {
-                "raw.len() > MAX_FRAME / 4": 1
+                "self.event_proof.audit_path().len() > 32": 1
+              }
+            },
+            {
+              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/policy.rs",
+              "sites": {
+                "same_kind > 2": 1,
+                "touched > 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_torii/src/kagemusha_enrollment/observation.rs",
+              "sites": {
+                "endpoint.as_str().len() > 2048": 1
+              }
+            },
+            {
+              "path": "crates/iroha_torii/src/kagemusha_enrollment/owner_thread.rs",
+              "sites": {
+                "(1..=1024).contains(&capacity)": 1
+              }
+            },
+            {
+              "path": "crates/iroha_torii/src/kagemusha_enrollment/worker/process.rs",
+              "sites": {
+                "packet.len() > MAX_FRAME + 4": 1
+              }
+            },
+            {
+              "path": "crates/iroha_torii/src/kagemusha_enrollment/worker.rs",
+              "sites": {
+                "exchange.frame().len() > MAX_FRAME + 4": 1
+              }
+            },
+            {
+              "path": "crates/iroha_torii/src/kagemusha_enrollment.rs",
+              "sites": {
+                "config.max_inflight > 1024": 1
+              }
+            },
+            {
+              "path": "crates/iroha_torii/src/kagemusha_wallet.rs",
+              "sites": {
+                "app.torii_proxy_max_response_bytes.min(bytes / 16)": 1,
+                "maximum.min(512)": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/kagemusha_wallet_v1/enrollment_issuer.rs",
+              "sites": {
+                "original.len() > 768 * 1024": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/kagemusha_wallet_v1/event_evidence.rs",
+              "sites": {
+                "self.count.get() > (1_u64 << 32)": 1,
+                "u64::try_from(events.len()).map_err(invalid)? > (1_u64 << 32)": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/enrollment.rs",
+              "sites": {
+                "(2..=8).contains(&chain.len())": 1,
+                "der.len() > 16_384": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/compiler.rs",
+              "sites": {
+                "terminals.len() > 32": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/omega.rs",
+              "sites": {
+                "terminals.len() > 32": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/q.rs",
+              "sites": {
+                "signatures.len() > 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/sigma.rs",
+              "sites": {
+                "(2..=11).contains(&selector)": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory.rs",
+              "sites": {
+                "values.len() > 16": 1,
+                "*i >= 16": 1,
+                "self.terminals.len() > 32": 1,
+                "operation.context.len() > 4_096": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_capacity_v1.rs",
+              "sites": {
+                "degree < 3": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/carrier.rs",
+              "sites": {
+                "attestation.len() <= 65_536": 1,
+                "key_binding_assertion.len() <= 4_096": 1,
+                "bytes.len() > REQUEST_MAX_BYTES - 128": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/issuer_worker.rs",
+              "sites": {
+                "value.len() > maximum.div_ceil(3) * 4": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/issuer_worker_protocol.rs",
+              "sites": {
+                "account.len() > 4096": 1,
+                "frame.len() > MAX_PACKET + 4": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/owner.rs",
+              "sites": {
+                "root.len() <= 16_384": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_preparation_v1/incoming_statement.rs",
+              "sites": {
+                "out.len() > 26": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_proofs_v1.rs",
+              "sites": {
+                "(12..=16).contains(&d.k)": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_registration_v1.rs",
+              "sites": {
+                "self.originals_root.len() > 4096": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/map_tree.rs",
+              "sites": {
+                "self.next_slot > (1u64 << 32)": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_worker/inputs.rs",
+              "sites": {
+                "2 + if controls <= 7": 1,
+                "controls <= 7": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1.rs",
+              "sites": {
+                "chain.len() > 1024": 1
               }
             }
           ]
@@ -24955,6 +25922,40 @@
                 "node.depth > 256": 3,
                 "node.depth >= 256": 1
               }
+            },
+            {
+              "path": "crates/iroha_core/src/smartcontracts/isi/asset.rs",
+              "sites": {
+                "entries.len() > 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/sumeragi/finality/interval.rs",
+              "sites": {
+                "count > 64": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/validation_fee_rewards/exposure.rs",
+              "sites": {
+                "count > 31": 1,
+                "total_bytes > 4 * 1024 * 1024": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/validation_fee_rewards/history.rs",
+              "sites": {
+                "keys.len() > 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/validation_fee_rewards/reconciliation.rs",
+              "sites": {
+                "checkpoint.funded.bit_len() > 192": 1,
+                "checkpoint.credited.bit_len() > 192": 1,
+                "checkpoint.paid.bit_len() > 192": 1,
+                "allocations.len() > 2": 1
+              }
             }
           ]
         },
@@ -24995,7 +25996,8 @@
                 "(32..=256).contains(&token.len())": 1,
                 "(8 * 1024..=1024 * 1024).contains(&max_header_bytes)": 1,
                 "config.max_headers.get() > 1024": 1,
-                "url.len() > 2 * 1024": 1
+                "url.len() > 2 * 1024": 1,
+                "body.len() > 16_384": 1
               }
             },
             {
@@ -25145,7 +26147,8 @@
             {
               "path": "crates/iroha_torii/src/sorafs/token/signer_finality.rs",
               "sites": {
-                "historical.len() > 3": 1
+                "historical.len() > 3": 1,
+                "targets.len() > 7": 1
               }
             },
             {
@@ -25168,6 +26171,18 @@
               "sites": {
                 "norito::json::to_vec(&response) .map_err(|e| inconsistent(e.to_string()))? .len() > 1024 * 1024": 1,
                 "norito::json::to_vec(&response) .map_err(|e| inconsistent(e.to_string()))? .len() > 8 * 1024 * 1024": 2
+              }
+            },
+            {
+              "path": "crates/iroha_torii/src/application_account_auth.rs",
+              "sites": {
+                "$max_body_bytes.min(16_384)": 1
+              }
+            },
+            {
+              "path": "crates/iroha_torii/src/identifier_resolution/owner_prf.rs",
+              "sites": {
+                "normalized_input.len() > 512": 1
               }
             }
           ]
@@ -25195,18 +26210,6 @@
               }
             },
             {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/real_handoff_qualification_tests.rs",
-              "sites": {
-                "generated.len() >= 1_024": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_v1_test_fixtures.rs",
-              "sites": {
-                "epoch < 1_024": 2
-              }
-            },
-            {
               "path": "crates/iroha_data_model/src/bin/privacy_exact12_fixtures.rs",
               "sites": {
                 "relative.components().count() < 2": 1
@@ -25219,12 +26222,6 @@
               }
             },
             {
-              "path": "crates/iroha_data_model/src/testing/ordinary_app_enrollment.rs",
-              "sites": {
-                "authority.maximum_lifetime_ms.min(120_000)": 1
-              }
-            },
-            {
               "path": "crates/iroha_core/src/state.rs",
               "sites": {
                 "block_height.saturating_mul(100).max(1)": 1
@@ -25234,6 +26231,19 @@
               "path": "crates/iroha_data_model/src/account/address/compliance_vectors.rs",
               "sites": {
                 "multisig_truncated.truncate(multisig_truncated.len().saturating_sub(4))": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/sumeragi/test_chain/retail_multisig.rs",
+              "sites": {
+                "chain.height() < 25": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/bin/kagemusha_wallet_artifacts.rs",
+              "sites": {
+                "request.chain_id.len() > 256": 1,
+                "request.output_name.len() > 128": 1
               }
             }
           ]
@@ -25318,6 +26328,18 @@
               "path": "crates/iroha_core/src/state/world_state_snapshot/authority_originals.rs",
               "sites": {
                 "count > 2 * iroha_data_model::nexus::MAX_NEXUS_RUNTIME_CATALOG_ENTRIES": 1
+              }
+            },
+            {
+              "path": "crates/iroha_data_model/src/smart_contract/state_cursor.rs",
+              "sites": {
+                "hex.len() <= MAX_STATE_MAP_KEY_BYTES_V1 * 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_torii/src/routing.rs",
+              "sites": {
+                "suffix.len() > ivm::syscalls::STATE_MAP_MAX_KEY_BYTES * 2": 1
               }
             }
           ]
@@ -25511,6 +26533,13 @@
               "path": "crates/iroha_core/src/state/authority_registry/leaf/paired/staging.rs",
               "sites": {
                 "self .rows .capacity() .checked_mul(2) .unwrap_or(self.maximum) .max(1)": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/state/authority_registry/leaf/paired/retained_semantic.rs",
+              "sites": {
+                ".min(u32::MAX as usize) .min(usize::try_from(limits.max_streamed_value_bytes / 2).unwrap_or(usize::MAX))": 1,
+                "root < end / 2": 1
               }
             }
           ]

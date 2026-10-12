@@ -248,7 +248,9 @@ fn sdk_authenticated_conflicting_decision_still_fails_trusted_prefix_placement()
     let mut commitment = result(&proof);
     commitment.execution.parent_state_root = Hash::new(b"conflicting certified execution");
     let mut qc = commit_qc(&proof);
-    qc.result = commitment.result().unwrap();
+    qc.result = unvalidated_replacement_result(&proof, &commitment)
+        .result()
+        .unwrap();
     sign_qc(&mut qc, &chain.epoch(3).keys, &[0, 1, 2]);
     replace_certificate(&mut proof, &header, &qc, &commitment);
     let mut conflict = chain.attest(member, 3);

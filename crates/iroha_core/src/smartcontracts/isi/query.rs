@@ -3074,7 +3074,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             block
                 .parameters
                 .get_mut()
-                .set_parameter(Parameter::Custom(policy.into_custom_parameter()));
+                .set_parameter(Parameter::Custom(policy.into_custom_parameter()))
+                .expect("valid fixture parameters");
             block.commit();
         }
         let mut state = crate::state::State::new_for_testing(

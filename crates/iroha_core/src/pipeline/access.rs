@@ -4200,11 +4200,13 @@ seiyaku DynamicAccessCounter { permission CanEnactGovernance;
         );
         {
             let mut parameters = state.world.parameters.block();
-            parameters.set_parameter(iroha_data_model::parameter::Parameter::SmartContract(
-                iroha_data_model::parameter::SmartContractParameter::Memory(
-                    core::num::NonZeroU64::new(64).expect("test heap limit is non-zero"),
-                ),
-            ));
+            parameters
+                .set_parameter(iroha_data_model::parameter::Parameter::SmartContract(
+                    iroha_data_model::parameter::SmartContractParameter::Memory(
+                        core::num::NonZeroU64::new(64).expect("test heap limit is non-zero"),
+                    ),
+                ))
+                .expect("valid fixture parameters");
             parameters.commit();
         }
         let view = state.block(prepass_test_header());

@@ -80,6 +80,43 @@ def test_done_entries_hold_evidence_and_f4_open_entries_say_why() -> None:
             assert item["owner"] is None and item.get("note"), item["id"]
 
 
+def test_backend_switch_census_tracks_canonical_pipa_r_readers(tree_scan) -> None:
+    """A backend rename cannot hide retained switches or revive retired readers."""
+    expected = {
+        key: count for key, count in tree_scan.rows.items()
+        if key[1:] == ("config_switch", "enabled")
+        and key[0] != "crates/irohad/src/main.rs"
+    }
+    recorded = {
+        tuple(row[:3]): row[3]
+        for identifier in ("cfg.zk.validity_policy", "switch.zk.backend_enabled")
+        for row in entry(CENSUS, identifier)["sites"]
+        if row[1] == "config_switch"
+    }
+    assert recorded == expected
+    backend = entry(CENSUS, "switch.zk.backend_enabled")
+    assert backend["status"] == "open"
+    assert "pipa_r.enabled" in backend["gates"]
+    assert any(anchor["path"] == "crates/iroha_core_zk/src/lib.rs"
+               for anchor in backend["anchors"])
+
+
+def test_pipeline_fee_census_tracks_retained_readers(tree_scan) -> None:
+    """Fee projection migration keeps every retained read visible in the census."""
+    expected = {key: count for key, count in tree_scan.rows.items()
+                if key[1] == "node_policy_read" and key[2].startswith("pipeline.gas")}
+    row = entry(CENSUS, "cfg.pipeline.gas_identity")
+    assert {tuple(site[:3]): site[3] for site in row["sites"]} == expected
+    assert row["status"] == "open"
+    assert "compile errors" in row["open_reason"]
+    # Same-named fields in the coupled parameter owner remain explicitly classified.
+    key = ("crates/iroha_core/src/pipeline_gas_policy.rs", "pipeline_settings_write", "<expression>")
+    writes = entry(CENSUS, "cfg.pipeline.settings_writes")
+    assert tree_scan.rows[key] == 2
+    assert [*key, 2] in writes["sites"]
+    assert "StateParameters.pipeline" in writes["decided_by"]
+
+
 def test_every_node_configuration_catalog_field_is_assigned_once() -> None:
     recorded = CHECKER["contract_catalog_fields"](CONTRACT)
     assert set(recorded) == set(CHECKER["CONFIG_CATALOGS"])
@@ -149,7 +186,7 @@ def test_the_pipeline_limits_are_recorded_as_committed(tree_scan) -> None:
         assert row["status"] == "done" and row["owner"] == "F.4", ident
         assert row["tests"], ident
         assert "pipeline_validity_policy_v1" in row["decided_by"], ident
-    # The fee policy of the same section is still open.
+    # Fee source migration is present; certified-history integration remains open.
     assert entry(census, "cfg.pipeline.gas_identity")["status"] == "open"
 
     # A `done` entry that loses its tests is refused.
@@ -287,6 +324,26 @@ def test_scan_finds_each_kind_of_gate_in_production_code(tmp_path: Path) -> None
     assert found[(path, "time_budget", "timeout")] == 1
     assert found[(path, "unavailable", "unavailable")] == 1
     assert Scan(tmp_path).feature_rows[(path, "zk-stark")] == 1
+
+
+def test_scan_tracks_pipa_r_switches_and_family_identifiers(tmp_path: Path) -> None:
+    path = "crates/iroha_core/src/native_pipa_r.rs"
+    write(tmp_path, path, """
+        pub fn verify(cfg: &Zk) -> bool {
+            let direct = cfg.pipa_r.enabled;
+            let nested = zk_config().pipa_r.enabled;
+            let active = privacy_activation();
+            direct && nested && active
+        }
+    """)
+    outside = "crates/iroha_core/src/executor.rs"
+    write(tmp_path, outside, """
+        pub fn execute() -> bool { pipa_r_activation() }
+    """)
+    found = rows(tmp_path)
+    assert found[(path, "config_switch", "enabled")] == 2
+    assert found[(path, "activation", "activation")] == 1
+    assert found[(outside, "activation", "activation")] == 1
 
 
 def test_scan_ignores_comments_strings_and_test_code(tmp_path: Path) -> None:
@@ -548,18 +605,18 @@ def test_installing_or_writing_pipeline_settings_in_production_is_detected(tmp_p
     assert found[(path, "pipeline_settings_write", "gas")] == 1
     assert_unlisted(tmp_path, path, "pipeline_settings_install", "set_pipeline")
     assert_unlisted(tmp_path, path, "pipeline_settings_write", "<expression>")
-    # The tracked tree has no production install of a complete settings value,
-    # the only whole-value write is the private installer behind
-    # State::install_node_pipeline, and no validity field is written.
+    # Whole-value writes belong to the private runtime installer and the
+    # validated committed-policy cache; the latter never reads node settings.
     assert not [row for row in CENSUS_SITES if row[1] == "pipeline_settings_install"]
     writes = {(row[0], row[2]) for row in CENSUS_SITES if row[1] == "pipeline_settings_write"}
     assert ("crates/iroha_core/src/state/runtime_configuration.rs", "<expression>") in writes
     assert {token for _, token in writes} <= {
         "<expression>", "gas", "parallel_apply", "parallel_overlay", "ready_queue_heap", "workers",
     }, writes
-    assert [path for path, token in writes if token == "<expression>"] == [
-        "crates/iroha_core/src/state/runtime_configuration.rs"
-    ]
+    assert {path for path, token in writes if token == "<expression>"} == {
+        "crates/iroha_core/src/state/runtime_configuration.rs",
+        "crates/iroha_core/src/pipeline_gas_policy.rs",
+    }
 
 
 def test_a_test_module_renamed_with_a_path_attribute_is_not_scanned(tmp_path: Path) -> None:
@@ -836,12 +893,45 @@ def test_every_gate_or_unfinished_entry_was_read_site_by_site() -> None:
     # SDK rows are split by what the file and the class name.
     for sdk in ("swift", "csharp", "javascript", "python", "kotlin"):
         assert by_id[f"sdk_{sdk}.exact12_capability"]["status"] == "open", sdk
-        assert by_id[f"sdk_{sdk}.kagemusha_release"]["status"] == "out_of_plan", sdk
+        # Retired release DTOs are not retained as fictitious SDK source owners.
+        assert f"sdk_{sdk}.kagemusha_release" not in by_id, sdk
         assert by_id[f"sdk_{sdk}.names"]["status"] == "not_a_gate", sdk
         assert f"sdk_{sdk}.sdk_availability" not in by_id
     # `fault_injection` compiles a test helper and is not a gate.
     assert "feature.fault_injection" not in by_id
     assert CENSUS["features"]["iroha_data_model"]["fault_injection"]["class"] == "development_or_test"
+
+
+def test_native_owner_reconciliation_preserves_unfinished_relations() -> None:
+    """New native source names must not turn unfinished functionality into completion."""
+    registration = entry(CENSUS, "sccp.qualification")
+    assert registration["status"] == "out_of_plan"
+    assert "unconditionally returns NativeAuthorityUnavailable" in registration["note"]
+    assert ["crates/iroha_core/src/smartcontracts/isi/sccp/governance.rs",
+            "qualification", "readiness", 9] in registration["sites"]
+    unavailable = entry(CENSUS, "sccp.unavailable")
+    assert "control_proof always refuses" in unavailable["note"]
+    assert "absent archive custody" in unavailable["note"]
+    features = entry(CENSUS, "feature.zk_halo2_family")
+    assert features["status"] == "open"
+    assert features["symbol"] == "zk-ipa-native = []"
+    assert "semantic parity" in features["open_reason"]
+    assert CENSUS["features"]["iroha_core"]["zk-preverify"]["class"] == "validity_gate"
+    assert "zk-halo2" not in CENSUS["features"]["iroha_core"]
+
+
+def test_source_lookup_and_phone_key_checks_have_distinct_authorities() -> None:
+    """Lookup hints and deterministic input rejection are not qualification gates."""
+    lookup = entry(CENSUS, "plonk.source_lookup")
+    assert lookup["status"] == "not_a_gate"
+    assert "from_artifact_v2_cancellable" in lookup["note"]
+    assert len(lookup["sites"]) == 5
+    key_check = entry(CENSUS, "ram_lfe.phone_key_algorithm")
+    assert key_check["status"] == "not_a_gate"
+    assert key_check["sites"] == [["crates/iroha_crypto/src/ram_lfe/phone_control.rs",
+                                     "unavailable", "unsupported", 3]]
+    assert ["crates/iroha_crypto/src/ram_lfe/phone_control.rs",
+            "unavailable", "local_resource", 2] in entry(CENSUS, "ram_lfe.local_resource")["sites"]
 
 
 def test_refresh_rewrites_counts_only(tmp_path: Path) -> None:

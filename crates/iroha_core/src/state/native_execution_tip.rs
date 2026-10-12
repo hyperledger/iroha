@@ -267,8 +267,9 @@ impl StateBlock<'_> {
         if next.height != iroha.header().height().get()
             || u128::from(next.creation_time_ms) != iroha.header().creation_time().as_millis()
             || next.iroha_hash != iroha.hash()
-            || next.result
-                != crate::sumeragi::commitment::result_of_preimage(certificate.result_preimage()).0
+            || Some(next.result)
+                != crate::sumeragi::commitment::result_of_preimage(certificate.result_preimage())
+                    .map(|result| result.0)
         {
             return Err("native execution owner differs from the original sealed carrier".into());
         }

@@ -671,15 +671,16 @@ fn review_changed_executed_result_must_not_publish_under_original_certificate() 
     );
     assert!(changed.has_results());
     assert!(publication::matches_payload(&changed, f.body.payload().as_slice()).unwrap());
-    let commitment = iroha_data_model::sumeragi_finality::ExecutionResultCommitment::decode(
+    let commitment = iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
         changed.commit_certificate().unwrap().result_preimage(),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     )
     .unwrap();
     let (len, hash) = changed.executed_block_wire_identity().unwrap();
     assert_ne!(
         (
-            commitment.execution.executed_block_wire_len,
-            commitment.execution.executed_block_wire_hash
+            commitment.commitment().execution.executed_block_wire_len,
+            commitment.commitment().execution.executed_block_wire_hash
         ),
         (len, hash)
     );
@@ -726,15 +727,16 @@ fn review_changed_executed_result_must_not_be_served_from_committed_storage() {
     );
     assert!(changed.has_results());
     assert!(publication::matches_payload(&changed, f.body.payload().as_slice()).unwrap());
-    let commitment = iroha_data_model::sumeragi_finality::ExecutionResultCommitment::decode(
+    let commitment = iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
         changed.commit_certificate().unwrap().result_preimage(),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     )
     .unwrap();
     let (len, hash) = changed.executed_block_wire_identity().unwrap();
     assert_ne!(
         (
-            commitment.execution.executed_block_wire_len,
-            commitment.execution.executed_block_wire_hash
+            commitment.commitment().execution.executed_block_wire_len,
+            commitment.commitment().execution.executed_block_wire_hash
         ),
         (len, hash)
     );
@@ -761,7 +763,6 @@ fn merged_execution_fixture() -> Fixture {
     use iroha_crypto::{Algorithm, KeyPair};
     use iroha_data_model::{
         block::{BlockExecutionContextBundle, ExternalExecutionContext, builder::BlockBuilder},
-        sumeragi_finality::ExecutionResultCommitment,
         sumeragi_lanes::{SumeragiLaneMerge, SumeragiLaneMergeSection},
         transaction::signed::TransactionEntrypoint,
     };
@@ -861,10 +862,13 @@ fn merged_execution_fixture() -> Fixture {
         .unwrap_or_else(|_| panic!("original signed availability authoring"));
     assert_eq!(authored.body.payload().as_slice(), original_wire);
 
-    let mut result = ExecutionResultCommitment::decode(
-        f.executed.commit_certificate().unwrap().result_preimage(),
-    )
-    .unwrap();
+    let (finality_header, mut result) =
+        iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+            f.executed.commit_certificate().unwrap().result_preimage(),
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        )
+        .unwrap()
+        .into_parts();
     let (len, hash) = executed.executed_block_wire_identity().unwrap();
     result.execution.executed_block_wire_len = len;
     result.execution.executed_block_wire_hash = hash;
@@ -873,7 +877,12 @@ fn merged_execution_fixture() -> Fixture {
     result.validate().unwrap();
     let mut qc = f.qc.clone();
     qc.block_hash = authored.body.header().hash(&*f.store.hasher);
-    qc.result = result.result().unwrap();
+    qc.result = iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
+        finality_header,
+        result.clone(),
+    )
+    .result()
+    .unwrap();
     qc.signers = Bitmap::from_indices(4, [0, 1, 2]).unwrap();
     let shares: Vec<_> = signers[..3]
         .iter()
@@ -883,7 +892,12 @@ fn merged_execution_fixture() -> Fixture {
     let certificate = commit_certificate(
         authored.body.header(),
         &qc,
-        result.preimage().unwrap(),
+        iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
+            finality_header,
+            result.clone(),
+        )
+        .preimage()
+        .unwrap(),
         norito::encode_canonical(authored.body.availability()).unwrap(),
     )
     .unwrap()
@@ -998,4 +1012,51 @@ fn changed_merged_execution_suffix_cannot_use_the_original_result_certificate() 
     assert_eq!(f.store.height(), 1);
     f.store.kura.store_block(changed).unwrap();
     assert!(f.store.committed_body(2).is_err());
+}
+
+/// Kura's structural execution check rejects retired bodies and X/carrier substitutions.
+#[test]
+fn stored_native_result_requires_fixed_x_and_exact_carrier_time() {
+    use iroha_data_model::sumeragi_finality::{
+        CertifiedResultScope, CertifiedResultV1, SccpFinalityHeaderV1,
+    };
+    let f = fixture();
+    execution::validate(&f.executed).unwrap();
+    let certificate = f.executed.commit_certificate().unwrap();
+    for mutation in 0..3 {
+        let (header, body) = CertifiedResultV1::decode(
+            certificate.result_preimage(),
+            CertifiedResultScope::TairaGlobal,
+        )
+        .unwrap()
+        .into_parts();
+        let preimage = if mutation == 0 {
+            body.preimage().unwrap()
+        } else {
+            let mut fields = header.fields();
+            if mutation == 1 {
+                fields.timestamp_ms += 1;
+            } else {
+                fields.network_id[0] ^= 1;
+            }
+            CertifiedResultV1::from_parts_unvalidated(
+                SccpFinalityHeaderV1::from_fields(&fields).unwrap(),
+                body,
+            )
+            .preimage()
+            .unwrap()
+        };
+        let changed = f.executed.as_ref().clone().with_commit_certificate(Some(
+            iroha_data_model::block::CommitCertificate::from_untrusted_parts(
+                certificate.consensus_header().to_vec(),
+                certificate.commit_qc().to_vec(),
+                preimage,
+                certificate.availability().to_vec(),
+            ),
+        ));
+        assert!(
+            matches!(execution::validate(&changed), Err(Attempt::Rejected(error)) if error.kind() == io::ErrorKind::InvalidData),
+            "mutation {mutation}"
+        );
+    }
 }

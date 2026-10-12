@@ -9469,6 +9469,34 @@ where
     core::classify_decode_attempt(|| decode_canonical_with_limits(bytes, limits))
 }
 
+/// Decode and validate one canonical frame, then transfer the decoded value to its consumer.
+///
+/// The exact implementation, limits and original error provenance are shared with
+/// [`decode_canonical_for_admission`]. The consumer runs once after all canonical checks and
+/// after the decoder's own resource/layout scopes retire. It never runs for a refused frame.
+/// Returning a small output avoids carrying a large decoded value through every framing and
+/// resource-scope return slot. This does not allocate a destination or grant source authority.
+/// A consumer's own result is returned unchanged, separately from the decoder's classification.
+///
+/// # Errors
+/// Returns the same original decoder failure as [`decode_canonical_for_admission`].
+pub fn decode_canonical_for_admission_into<T, Output>(
+    bytes: &[u8],
+    limits: DecodeLimits,
+    finish: impl FnOnce(T) -> Output,
+) -> Result<Output, core::DecodeAttemptError>
+where
+    T: NoritoSerialize,
+    for<'de> T: NoritoDeserialize<'de>,
+{
+    let mut slot = core::TypedFieldSlot::<T>::new();
+    core::classify_decode_attempt(|| {
+        decode_canonical_with_limits_into_slot(bytes, limits, &mut slot)?;
+        slot.take_value()
+    })
+    .map(finish)
+}
+
 fn checked_canonical_header(bytes: &[u8]) -> Result<core::Header, Error> {
     let header = core::Header::read(std::io::Cursor::new(bytes))?;
     if header.compression != Compression::None || core::validate_header_flags(header.flags).is_err()
@@ -9487,13 +9515,35 @@ where
     T: NoritoSerialize,
     for<'de> T: NoritoDeserialize<'de>,
 {
-    checked_canonical_header(bytes)?;
+    let mut slot = core::TypedFieldSlot::<T>::new();
+    decode_canonical_with_limits_into_slot(bytes, limits, &mut slot)?;
+    slot.into_value()
+}
+
+// One retained output slot prevents every header, limit and classification wrapper from owning
+// another T-sized Result temporary. The consumer runs only after canonical validation and after
+// the decoder's own scopes retire, just like consumption after the ordinary returning API.
+fn decode_canonical_with_limits_into_slot<T>(
+    bytes: &[u8],
+    limits: DecodeLimits,
+    slot: &mut core::TypedFieldSlot<T>,
+) -> Result<(), Error>
+where
+    T: NoritoSerialize,
+    for<'de> T: NoritoDeserialize<'de>,
+{
+    let header = checked_canonical_header(bytes)?;
     let defaults = canonical_decode_limits(bytes.len());
     with_decode_limits(defaults, || {
         let _canonical_flags = core::DecodeFlagsGuard::enter(core::default_encode_flags());
         let _payload_context = core::PayloadCtxGuard::enter(bytes);
-        let value = match decode_from_bytes_with_limits(bytes, limits) {
-            Ok(value) => value,
+        let decoded = with_decode_limits(limits, || {
+            let payload = checked_uncompressed_payload::<T>(bytes, &header)?;
+            let _flags = core::DecodeFlagsGuard::enter(header.flags);
+            core::decode_field_canonical_into_slot(payload, slot)
+        });
+        match decoded {
+            Ok(()) => {}
             Err(Error::DecodeFlagsMismatch { .. }) => {
                 return Err(Error::NonCanonicalEncoding);
             }
@@ -9503,19 +9553,11 @@ where
                 return Err(Error::NonCanonicalEncoding);
             }
             Err(error) => return Err(error),
-        };
-        let mut exact = core::ExactSliceWriter::new(bytes);
-        let canonical_result = core::write_canonical_to_writer(&value, &mut exact);
-        if exact.mismatched() {
-            return Err(Error::NonCanonicalEncoding);
         }
-        canonical_result?;
-        if !exact.is_complete() {
-            return Err(Error::NonCanonicalEncoding);
-        }
-        Ok(value)
+        verify_exact_canonical_frame(slot.value()?, bytes)
     })
 }
+
 include!("canonical_codec_tests.rs");
 /// Convenience helper identical to `decode_from_bytes`.
 /// Accepts either compressed or uncompressed Norito payloads and returns `T`.

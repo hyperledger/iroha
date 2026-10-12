@@ -243,6 +243,8 @@ impl PrefixVerifierContext {
         parent: &CommittedBlock,
         current: &CommittedBlock,
     ) -> Result<CertificateVerdict, VerificationReadError> {
+        check_result_scope(parent, self.root_scope)?;
+        check_result_scope(current, self.root_scope)?;
         let (authority, config) = executed_successor_authority(parent, current)?;
         let certificate = self.prepare_certificate_with_scratch_admission(
             current,
@@ -266,11 +268,11 @@ fn executed_successor_authority(
         return Err(ChainReadError::Discontinuous { height }.into());
     }
     parent
-        .commitment
+        .commitment()
         .schedule
-        .validate_successor(&current.commitment.schedule)
+        .validate_successor(&current.commitment().schedule)
         .map_err(|error| malformed(error.to_string()))?;
-    let schedule::ScheduledSlot::Ready(scheduled) = &parent.commitment.schedule.next else {
+    let schedule::ScheduledSlot::Ready(scheduled) = &parent.commitment().schedule.next else {
         return Err(malformed("parent has no authorized successor".into()).into());
     };
     let mut validation = EpochValidationScope::new();
@@ -280,7 +282,7 @@ fn executed_successor_authority(
     // Resource admission precedes the boolean signature relation and keeps
     // the original inherited cumulative allowance. No refusal is converted
     // to an invalid certificate or hidden in a new per-frame scope.
-    let scratch = iroha_crypto::BlsNormalAggregateScratch::new(|bytes| {
+    let scratch = iroha_crypto::bls::consensus::ConsensusAggregateScratch::new(|bytes| {
         #[cfg(all(test, sumeragi_core_mutation = "HC13"))]
         {
             let _ = bytes;
@@ -496,9 +498,7 @@ mod allocation_tests {
             .unwrap();
         let baseline = budget.reserved_bytes();
         let receipt_bytes = Layout::array::<CommittedBlock>(1).unwrap().size();
-        let result_bytes = Layout::array::<ExecutionResultCommitment>(1)
-            .unwrap()
-            .size();
+        let result_bytes = Layout::array::<CertifiedResultV1>(1).unwrap().size();
         let occupied_bytes = budget
             .limit_bytes()
             .checked_sub(baseline + receipt_bytes + result_bytes - 1)
@@ -1076,7 +1076,7 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
             .verify_commit_qc_original(current, &authority, &qc)
             .map_err(|error| ParentServiceError::Invalid(error.to_string()))?;
         verify_boundary_source(current, parent, &authority).map_err(parent_source_failure)?;
-        let committee = &current.commitment.schedule.current.committee;
+        let committee = &current.commitment().schedule.current.committee;
         let mut signers = Vec::new();
         let count = qc.signers.ones().count();
         let bytes = count

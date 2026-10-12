@@ -840,6 +840,7 @@ def test_contextual_cuda_pins_both_exact_dependency_members() -> None:
 @pytest.mark.parametrize(
     ("package", "aggregates"),
     [
+        ("norito", ("default", "node-codec", "base-codec")),
         ("irohad_lib", ("default", "daemon")),
         ("iroha", ("default",)),
         ("iroha_data_model", ("default", "application-model")),
@@ -873,7 +874,7 @@ def test_unit_mutation_testing_is_empty_explicit_and_excluded_from_defaults(
         ), aggregate
 
 
-@pytest.mark.parametrize("package", ["irohad_lib", "iroha", "iroha_data_model", "iroha_torii"])
+@pytest.mark.parametrize("package", ["norito", "irohad_lib", "iroha", "iroha_data_model", "iroha_torii"])
 def test_unit_mutation_dependency_is_nonshipping_even_through_an_alias(
     tmp_path: Path, package: str,
 ) -> None:

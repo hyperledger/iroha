@@ -319,7 +319,7 @@
    "what": "Every committed World map that holds pool, nullifier, commitment or root state, with the protocols that own it. A map that appears under these names without an entry fails the check, so another shielded pool cannot enter the tree unrecorded.",
    "path": "crates/iroha_core/src/state.rs",
    "struct": "WorldData",
-   "pattern": "^(privacy_(?!consensus_policy$|exact12_qualification$|activations$)\\w+|private_settlement_\\w+|zk_assets|\\w*nullifier\\w*)$",
+   "pattern": "^(privacy_(?!consensus_policy$|exact12_qualification$|activations$)\\w+|private_settlement_\\w+|zk_assets|kagemusha_wallet_ledger|\\w*nullifier\\w*)$",
    "fields": [
     {"field": "private_settlement_governance", "protocols": ["atomic_settlement"]},
     {"field": "private_settlement_pools", "protocols": ["atomic_settlement"]},
@@ -346,8 +346,8 @@
      "protocols": ["anonymous_pgc", "orchard", "fcmp", "ivm_private_note", "pq_masp", "zk_ams", "zk_x509", "bootle_lantern"]
     },
     {
-     "field": "kagemusha_terminal_nullifier_operations",
-     "out_of_scope": "An operation index of the KAGEMUSHA offline wallet, a product with its own monetary-authority policy. It is not a product of the ZK delivery plan and has no operation in the operation inventory, so it has no row here."
+     "field": "kagemusha_wallet_ledger",
+     "out_of_scope": "The canonical KAGEMUSHA reserve ledger, permanent replay indexes (including unload nullifiers) and historical objects, owned by crates/iroha_core/src/kagemusha_wallet_v1/wsv.rs and storage.rs. The offline wallet has its own monetary-authority policy, is not a product of the ZK delivery plan and has no operation in the operation inventory, so it has no effect row here."
     },
     {"field": "zk_assets", "protocols": ["confidential_assets"]}
    ]

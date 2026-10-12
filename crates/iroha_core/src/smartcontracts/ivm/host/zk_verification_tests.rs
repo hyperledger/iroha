@@ -765,7 +765,8 @@ fn committed_native_proof_limit_accepts_exact_bound_and_rejects_one_more() {
             block
                 .parameters
                 .get_mut()
-                .set_parameter(Parameter::Custom(policy.into_custom_parameter()));
+                .set_parameter(Parameter::Custom(policy.into_custom_parameter()))
+                .expect("valid fixture parameters");
             block.commit();
         }
         let mut state = crate::state::State::new_for_testing(

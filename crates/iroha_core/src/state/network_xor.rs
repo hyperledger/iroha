@@ -88,7 +88,8 @@ mod tests {
             let mut policy = world.parameters.block();
             policy
                 .get_mut()
-                .set_parameter(Parameter::Custom(parameters.into_custom_parameter()));
+                .set_parameter(Parameter::Custom(parameters.into_custom_parameter()))
+                .expect("valid fixture parameters");
             policy.commit();
         }
         for (spec, scope) in [

@@ -6,22 +6,26 @@
     {
       "type": "SignedBlock",
       "path": "crates/iroha_data_model/src/block/mod.rs",
-      "version": 1
+      "version": 1,
+      "kind": "canonical-frame"
     },
     {
       "type": "SignedTransaction",
       "path": "crates/iroha_data_model/src/transaction/signed.rs",
-      "version": 1
+      "version": 1,
+      "kind": "versioned-payload"
     },
     {
       "type": "TransactionEntrypoint",
       "path": "crates/iroha_data_model/src/transaction/signed.rs",
-      "version": 1
+      "version": 1,
+      "kind": "versioned-payload"
     },
     {
       "type": "SignedQuery",
       "path": "crates/iroha_data_model/src/query/mod.rs",
-      "version": 1
+      "version": 1,
+      "kind": "versioned-payload"
     }
   ],
   "test_only_version_impls": [
@@ -36,6 +40,14 @@
     {
       "type": "TextPayload",
       "path": "crates/iroha_version/src/lib.rs"
+    },
+    {
+      "type": "IntrinsicallyBoundedText",
+      "path": "crates/iroha_version/src/lib.rs"
+    },
+    {
+      "type": "TextPayload",
+      "path": "crates/iroha_torii/src/utils.rs"
     },
     {
       "type": "Dummy",
@@ -152,6 +164,12 @@
   ],
   "obsolete_layout_rejection_tests": [
     {
+      "path": "crates/norito/src/core/borrowed_field_framing_tests.rs",
+      "test": "generic_byte_arrays_reject_length_n_truncation_inside_and_outside_options",
+      "package": "norito",
+      "target": "lib"
+    },
+    {
       "path": "crates/iroha_data_model/src/block/header.rs",
       "test": "header_rejects_pre_release_payload_without_execution_context_hash_field",
       "package": "iroha_data_model",
@@ -210,7 +228,7 @@
   "pinned_history": {
     "manifest": "fixtures/core/first_release_history/manifest.json",
     "format": "iroha.first_release_history.pinned.v1",
-    "history_sha256": "fe6db5a27c5a98387f23cafa330051f2e97926e8e4e02373757102fd8013a9eb",
+    "history_sha256": "fef37b9704969ae7cc16e9208c553c6329d53d25fa9261b1a47033afd8f80d3e",
     "generator": {
       "path": "crates/iroha_core/src/sumeragi/node/tests/history_cutover_tests.rs",
       "test": "capture_pinned_first_release_history"
@@ -281,13 +299,7 @@
       "classification": "checks an append or prepend intent against the sidecar index it is about to replace; same current layout, no version dispatch"
     }
   ],
-  "test_only_references": [
-    {
-      "needle": "decode_exact_versioned::<SignedBlock>",
-      "finding": "T1-A16",
-      "reason": "the generic headerless decode of a block; block tests use it to show that a structurally altered payload is refused before framing, production reads only `decode_framed_signed_block`"
-    }
-  ],
+  "test_only_references": [],
   "retired_identifier_roots": [
     "crates",
     "integration_tests"
@@ -380,6 +392,14 @@
     {
       "identifier": "decode_bare_versioned_signed_block_inner",
       "retired": "headerless block decoder behind the retired `DecodeVersioned` implementation of `SignedBlock`"
+    },
+    {
+      "identifier": "deframe_versioned_signed_block_bytes",
+      "retired": "helper that copied a canonical frame into a second headerless versioned form; tests construct invalid fixtures directly"
+    },
+    {
+      "identifier": "DeframedSignedBlockBytes",
+      "retired": "parallel headerless block carrier; canonical SignedBlockWire is the only standalone wire representation"
     }
   ],
   "retired_impls": [
@@ -387,6 +407,16 @@
       "trait": "DecodeVersioned",
       "type": "SignedBlock",
       "retired": "headerless versioned decode of a block; storage, distribution, genesis loading and tests decode only the framed wire (`decode_framed_signed_block`)"
+    },
+    {
+      "trait": "EncodeVersioned",
+      "type": "SignedBlock",
+      "retired": "headerless versioned block emission; use canonical_wire or encode_wire"
+    },
+    {
+      "trait": "Version",
+      "type": "SignedBlock",
+      "retired": "generic inferred-type decode_exact_versioned must not accept a SignedBlock; WIRE_VERSION belongs to the canonical framed codec"
     }
   ],
   "retired_store_artifacts": [
@@ -825,7 +855,7 @@
           "mention": "capture_native_checkpoint_fixtures",
           "checked_by": "crates/iroha_data_model/src/sumeragi_finality/test_fixtures.rs",
           "check_mention": "tracked_native_checkpoint_fixtures_are_the_current_exporter_output",
-          "note": "The check compares the two tracked frames with the exporter's output of the current tree and with the sizes and digests `capture.json` lists for them. The `generator` block of `capture.json` describes the capture of 2026-10-02: its source digests are those of that day, not of the current sources, and nothing compares them."
+          "note": "The check compares the two tracked frames with the exporter's output of the current tree and with the sizes and digests `capture.json` lists for them. The `generator` block of `capture.json` describes the 2026-10-12 capture of the sole CertifiedResultV1 X || body envelope and SHA-256 allowlisted-preimage/DST_SIG consensus suite: its source and executable digests identify that capture, not subsequent source edits. Two explicit exporter invocations produced identical fixture bytes; this execution-root and consensus-suite change requires fresh genesis."
         },
         {
           "artifact": "specs/sumeragi.md",
@@ -1305,20 +1335,6 @@
       "path": "crates/iroha_data_model/src/query/tx_predicate.rs",
       "anchor": "Convert the legacy flat filter representation into the lossless predicate tree.",
       "summary": "transaction query predicates keep a flat representation convertible to and from the typed tree"
-    },
-    {
-      "id": "T1-A16",
-      "owner": "outside-zk-plan:block-wire",
-      "path": "crates/iroha_data_model/src/block/mod.rs",
-      "anchor": "impl iroha_version::codec::EncodeVersioned for SignedBlock {",
-      "summary": "`SignedBlock` keeps a headerless versioned form: `EncodeVersioned` emits the version byte and bare payload, and the generic `iroha_version::codec::decode_exact_versioned` decodes it because the type implements `Version` and `DecodeFromSlice`; storage, distribution and genesis loading use neither, and the guard sees only the explicit `decode_exact_versioned::<SignedBlock>` call, not one whose type is inferred"
-    },
-    {
-      "id": "T1-A17",
-      "owner": "outside-zk-plan:norito",
-      "path": "crates/norito/src/core.rs",
-      "anchor": "record_slice_access(bytes, N);",
-      "summary": "the `[u8; N]` leaf decoder accepts exactly N packed bytes besides the emitted array of N length-prefixed elements, so a headerless or inline decode reads two byte strings as one value; complete-frame decoders refuse the packed one by comparing with the canonical encoding"
     }
   ]
 }

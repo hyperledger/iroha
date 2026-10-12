@@ -280,11 +280,47 @@ fn global_source_graph_error(
             ivm::error::ExecutionDeferral::AllocationUnavailable.into(),
         ),
         GraphError::Codec(resource) => {
-            crate::execution_attempt::norito_decode_attempt_error(resource.into(), |error| {
-                invalid(error.to_string())
-            })
+            // Graph admission already validated the original opaque attempt. These exact
+            // fields retain that classification after its scope retires; a new active
+            // scope must never decide whether the original refusal was local.
+            let reason = match resource {
+                norito::core::DecodeResourceError::AllocationFailed { .. } => {
+                    ivm::error::ExecutionDeferral::AllocationUnavailable
+                }
+                _ => ivm::error::ExecutionDeferral::ActiveMemoryCapacity,
+            };
+            ExecutionAttemptError::Deferred(reason.into())
         }
         invalid_graph => invalid(invalid_graph.to_string()).into(),
+    }
+}
+
+#[cfg(test)]
+mod graph_refusal_tests {
+    use super::*;
+
+    #[test]
+    fn global_source_refusal_keeps_classification_after_original_scope_retires() {
+        use crate::execution_attempt::ExecutionAttemptError;
+        let original = norito::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+            || norito::core::classify_decode_attempt(|| norito::core::reserve_decode_allocation(1)),
+        )
+        .unwrap_err();
+        let graph = GraphError::from(AmxError::Resource(original));
+        let mapped = global_source_graph_error(graph);
+        let ExecutionAttemptError::Deferred(local) = mapped else {
+            panic!("captured graph refusal lost its origin: {mapped:?}");
+        };
+        assert_eq!(
+            local.reason(),
+            ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+        );
+        assert!(local.allocation_refusal().is_none());
+        assert!(matches!(
+            global_source_graph_error(GraphError::Invalid("completed".into())),
+            ExecutionAttemptError::Rejected(_)
+        ));
     }
 }
 

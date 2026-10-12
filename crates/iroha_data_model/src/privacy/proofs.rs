@@ -1132,9 +1132,9 @@ impl PrivacyProofEnvelopeV1 {
         &self,
         limits: &PrivacyConsensusLimitsV1,
     ) -> Result<(), PrivacyProofEnvelopeValidationError> {
-        let encoded = norito::to_bytes(self)
+        let encoded_len = norito::canonical_frame_len(self)
             .map_err(|_| PrivacyProofEnvelopeValidationError::EncodingFailure)?;
-        let encoded_len = u64::try_from(encoded.len())
+        let encoded_len = u64::try_from(encoded_len)
             .map_err(|_| PrivacyProofEnvelopeValidationError::EncodedLengthOverflow)?;
         if encoded_len > u64::from(limits.max_action_bytes) {
             return Err(PrivacyProofEnvelopeValidationError::ActionTooLarge {

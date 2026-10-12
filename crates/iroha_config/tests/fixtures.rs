@@ -1986,7 +1986,7 @@ fn taira_config_enables_untrusted_cid_hosting() {
         .collect();
     assert_eq!(
         dataspace_aliases,
-        ["universal", "dpn", "is", "is2", "cbsi"],
+        ["universal", "dpn", "is2", "bpng", "cbsi", "is"],
         "only physically distinct validator/storage topologies belong in the dataspace catalog"
     );
     let external_dataspace = dataspaces
@@ -1999,9 +1999,11 @@ fn taira_config_enables_untrusted_cid_hosting() {
         })
         .expect("Taira profile should include the external `is` dataspace");
     assert_eq!(
-        external_dataspace.get("id").and_then(TomlValue::as_integer),
-        Some(6_647_857_470_246_403_404),
-        "external dataspace id should match its manifest hash"
+        external_dataspace
+            .get("manifest_hash")
+            .and_then(TomlValue::as_str),
+        Some("4cbd76b725ef415ca759b86cc07bfb7e5e383309ab8394a3f77307fd057ff1e7"),
+        "external dataspace identity should use its canonical SNS dataspace-alias hash"
     );
     let mobile_dataspace = dataspaces
         .iter()
@@ -2013,9 +2015,11 @@ fn taira_config_enables_untrusted_cid_hosting() {
         })
         .expect("Taira profile should include the mobile `is2` dataspace");
     assert_eq!(
-        mobile_dataspace.get("id").and_then(TomlValue::as_integer),
-        Some(8_477_022_798_449_861_195),
-        "mobile dataspace id should match its manifest hash"
+        mobile_dataspace
+            .get("manifest_hash")
+            .and_then(TomlValue::as_str),
+        Some("9cb8505d4d519e868cf4be6116f1669bda3008c2a044f2b2fcf08a3000dc3670"),
+        "mobile dataspace identity should use its canonical SNS dataspace-alias hash"
     );
     let nexus = doc
         .get("nexus")
@@ -2023,7 +2027,7 @@ fn taira_config_enables_untrusted_cid_hosting() {
         .expect("nexus should be configured");
     assert_eq!(
         nexus.get("lane_count").and_then(TomlValue::as_integer),
-        Some(7),
+        Some(8),
         "Taira profile should reserve one logical lane for every configured workload"
     );
     let lanes = nexus
@@ -2050,9 +2054,10 @@ fn taira_config_enables_untrusted_cid_hosting() {
             ("governance", "universal"),
             ("zk", "universal"),
             ("dpn", "dpn"),
-            ("external-poc", "is"),
-            ("boi-mobile", "is2"),
+            ("is2", "is2"),
+            ("bpng", "bpng"),
             ("cbsi", "cbsi"),
+            ("is", "is"),
         ],
         "logical lanes must bind to physical dataspaces without conflating the two catalogs"
     );

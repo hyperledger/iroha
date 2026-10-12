@@ -1048,8 +1048,8 @@ impl Default for SccpEventFilter {
 }
 /// Return the external network an SCCP event names, if any.
 ///
-/// The block commitment event concerns Taira itself and names no external network; the
-/// governance event names the subjects it changed instead.
+/// Block commitments and native finality/generation events concern Taira itself and name no
+/// external network; the governance event names the subjects it changed instead.
 #[cfg(feature = "transparent_api")]
 fn sccp_event_network(
     event: &crate::sccp::events::SccpEvent,
@@ -1072,7 +1072,13 @@ fn sccp_event_network(
         SccpEvent::TrustedCheckpointInstalled(ev) => Some(ev.network),
         SccpEvent::RevisionActivationChanged(ev) => Some(ev.network),
         SccpEvent::ControlRecorded(ev) => Some(ev.network),
-        SccpEvent::BlockCommitted(_) | SccpEvent::GovernanceEnacted(_) => None,
+        SccpEvent::BlockCommitted(_)
+        | SccpEvent::GovernanceEnacted(_)
+        | SccpEvent::FinalityDegraded(_)
+        | SccpEvent::CommitteeGenerationCreated(_)
+        | SccpEvent::CommitteeResync(_)
+        | SccpEvent::GenerationMemberUnslashable(_)
+        | SccpEvent::GenerationDestinationCleared(_) => None,
     }
 }
 #[cfg(feature = "transparent_api")]
@@ -2855,6 +2861,51 @@ mod sccp_filter_tests {
         let blocks = SccpEventFilter::new().for_events(SccpEventSet::BlockCommitted);
         assert!(blocks.matches(&committed()));
         assert!(!blocks.matches(&recorded(SccpNetworkV1::TonMainnet)));
+    }
+
+    #[test]
+    fn native_generation_events_are_global_and_keep_exact_event_filters() {
+        use crate::sccp::{committee::SccpGenerationCauseV1, events::*};
+
+        let events = [
+            SccpEvent::FinalityDegraded(SccpFinalityDegradedV1 {
+                height: 9,
+                reason: SccpFinalityDegradedReasonV1::MissingHeightInputs,
+            }),
+            SccpEvent::CommitteeGenerationCreated(SccpCommitteeGenerationCreatedV1 {
+                generation: 2,
+                cause: SccpGenerationCauseV1::Heartbeat,
+                committee_root: [3; 32],
+                start_height: 10,
+                deadline_ms: 1_758_604_800_000,
+            }),
+            SccpEvent::CommitteeResync(SccpCommitteeResyncV1 {
+                generation: 3,
+                committee_root: [4; 32],
+                start_height: 11,
+            }),
+            SccpEvent::GenerationMemberUnslashable(SccpGenerationMemberUnslashableV1 {
+                generation: 3,
+                index: 30,
+            }),
+            SccpEvent::GenerationDestinationCleared(SccpGenerationDestinationClearedV1 {
+                generation: 2,
+                lc: 1_758_604_800_001,
+            }),
+        ];
+        let selected = SccpEventFilter::new().for_events(SccpEventSet::CommitteeResync);
+        for (index, event) in events.into_iter().enumerate() {
+            assert!(SccpEventFilter::new().matches(&event));
+            assert_eq!(selected.matches(&event), index == 2);
+            for network in [
+                SccpNetworkV1::EthereumMainnet,
+                SccpNetworkV1::BscMainnet,
+                SccpNetworkV1::TonMainnet,
+            ] {
+                assert!(!SccpEventFilter::new().for_network(network).matches(&event));
+            }
+            assert!(DataEventFilter::Sccp(SccpEventFilter::new()).matches(&DataEvent::Sccp(event)));
+        }
     }
 
     #[test]

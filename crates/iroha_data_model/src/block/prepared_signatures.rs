@@ -19,7 +19,6 @@ use crate::da::commitment::{
 use crate::inline_fields::DecodedField;
 use iroha_allocation::{AllocationBudget, ChargedBuffer, ChargedBufferError};
 use iroha_crypto::Hash;
-use iroha_version::Version;
 use norito::core::DecodeRecordFields;
 use norito::{
     SerializePayload,
@@ -306,7 +305,7 @@ impl PreparedSignedBlockSignaturesDecode {
             .map_err(|_| PreparedSignatureBlockError::Source)?;
         let framed = norito::core::classify_decode_attempt(|| {
             let (version, framed) = borrow_framed_signed_block_payload(bytes)?;
-            if !SignedBlock::supported_versions().contains(&version) {
+            if version != SignedBlock::WIRE_VERSION {
                 return Err(norito::Error::UnsupportedVersion {
                     found: version,
                     expected: 1,

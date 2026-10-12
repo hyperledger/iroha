@@ -183,21 +183,25 @@ mod tests {
             dataspace_id: ds,
         };
         let mut parameters = world.parameters.block();
-        parameters.set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
-            scope,
-        ));
+        parameters
+            .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+                scope,
+            ))
+            .expect("valid fixture parameters");
         if with_policy {
-            parameters.set_parameter(Parameter::Custom(
-                PrivateRootFeePolicy {
-                    asset_definition_id: asset.clone(),
-                    base_fee: 2_u32.into(),
-                    per_byte_fee: Quantity::zero(),
-                    per_instruction_fee: 3_u32.into(),
-                    per_gas_unit_fee: 4_u32.into(),
-                }
-                .into_custom_parameter()
-                .unwrap(),
-            ));
+            parameters
+                .set_parameter(Parameter::Custom(
+                    PrivateRootFeePolicy {
+                        asset_definition_id: asset.clone(),
+                        base_fee: 2_u32.into(),
+                        per_byte_fee: Quantity::zero(),
+                        per_instruction_fee: 3_u32.into(),
+                        per_gas_unit_fee: 4_u32.into(),
+                    }
+                    .into_custom_parameter()
+                    .unwrap(),
+                ))
+                .expect("valid fixture parameters");
         }
         parameters.commit();
         let mut nexus = iroha_config::parameters::actual::Nexus::default();
@@ -228,6 +232,32 @@ mod tests {
             ds,
             asset,
         )
+    }
+
+    #[test]
+    fn private_fee_refresh_preserves_signed_schedule_and_frozen_pipeline_gas() {
+        let (state, _, asset) = fixture(true, true);
+        let mut block = state.block(BlockHeader::new(2.try_into().unwrap(), None, None, 1000, 0));
+        let mut tx = block.transaction();
+        tx.nexus.fees.base_fee = Quantity::zero();
+        tx.nexus.fees.per_gas_unit_fee = Quantity::zero();
+        let frozen_gas = tx.pipeline.gas.clone();
+        Executor::refresh_private_fee_policy(&mut tx).unwrap();
+        assert_eq!(tx.nexus.fees.fee_asset_id, asset.canonical_address());
+        assert_eq!(tx.nexus.fees.base_fee, Quantity::from(2_u32));
+        assert_eq!(tx.nexus.fees.per_gas_unit_fee, Quantity::from(4_u32));
+        assert_eq!(tx.pipeline.gas, frozen_gas);
+        // A private-root fee error must still fail rather than select local fees.
+        tx.world
+            .parameters
+            .get_mut()
+            .set_parameter(Parameter::Custom(CustomParameter::new(
+                PrivateRootFeePolicy::parameter_id(),
+                iroha_primitives::json::Json::new("malformed private policy"),
+            )))
+            .expect("valid fixture parameters");
+        assert!(Executor::refresh_private_fee_policy(&mut tx).is_err());
+        assert_eq!(tx.pipeline.gas, frozen_gas);
     }
 
     #[test]
@@ -476,7 +506,8 @@ mod tests {
             .set_parameter(Parameter::Custom(CustomParameter::new(
                 PrivateRootFeePolicy::parameter_id(),
                 iroha_primitives::json::Json::new(false),
-            )));
+            )))
+            .expect("valid fixture parameters");
         assert!(policy(&tx.world).is_err());
     }
 }

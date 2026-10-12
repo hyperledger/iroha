@@ -895,9 +895,9 @@ mod tests {
     fn protocol_default_is_valid_and_round_trips_through_the_parameter() {
         let policy = ZkValidityPolicyV1::protocol_default();
         policy.validate().expect("the protocol default is valid");
-        let encoded = norito::encode_canonical(&policy).expect("encode native policy");
+        let encoded = policy.encode();
         assert_eq!(
-            norito::decode_canonical::<ZkValidityPolicyV1>(&encoded).expect("decode native policy"),
+            ZkValidityPolicyV1::decode(&mut encoded.as_slice()).expect("decode native policy"),
             policy,
         );
         let custom = policy.clone().into_custom_parameter();

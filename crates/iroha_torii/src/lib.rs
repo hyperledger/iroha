@@ -32447,24 +32447,17 @@ pub(crate) fn quote_internal_fee_payment_from_parts(
     }
     let route = fee_quote_routing_decision_from_parts(queue, state, payload)
         .map_err(|code| rejected(code, "payload routing could not be resolved"))?;
-    let latest_header = state.latest_block_header_fast();
-    let ledger_time_ms = latest_header
-        .as_ref()
-        .map_or(0, |header| header.creation_time_ms);
-    let next_block_height = latest_header
-        .as_ref()
-        .map_or(1, |header| header.height().get().saturating_add(1));
-    let nexus = state.nexus_snapshot();
-    let pipeline = state.pipeline_snapshot();
-    let world = state.world_view();
+    let view = state.view();
     iroha_core::executor::quote_nexus_fee_admission_draft(
-        &world,
-        &nexus,
-        &pipeline,
-        &state.zk_snapshot().gas,
+        view.world(),
+        view.nexus(),
+        view.pipeline(),
+        &view.zk().gas,
         payload,
-        ledger_time_ms,
-        next_block_height,
+        view.query_ledger_time_ms(),
+        u64::try_from(view.height())
+            .unwrap_or(u64::MAX)
+            .saturating_add(1),
         Some(route.dataspace_id),
     )
     .map(|quote| quote.recommended_intent)
@@ -32510,9 +32503,6 @@ async fn handler_fee_quote(
         ));
     };
     let latest_header = app.state.latest_block_header_fast();
-    let ledger_time_ms = latest_header
-        .as_ref()
-        .map_or(0, |header| header.creation_time_ms);
     let next_block_height = latest_header
         .as_ref()
         .map_or(1, |header| header.height().get().saturating_add(1));
@@ -32563,20 +32553,23 @@ async fn handler_fee_quote(
             ));
         }
     };
-    let nexus = app.state.nexus_snapshot();
-    let pipeline = app.state.pipeline_snapshot();
-    let quote = {
-        let world = app.state.world_view();
-        iroha_core::executor::quote_nexus_fee_admission_draft(
-            &world,
-            &nexus,
-            &pipeline,
-            &app.state.zk_snapshot().gas,
+    let (quote, ledger_time_ms, next_block_height) = {
+        let view = app.state.view();
+        let ledger_time_ms = view.query_ledger_time_ms();
+        let next_block_height = u64::try_from(view.height())
+            .unwrap_or(u64::MAX)
+            .saturating_add(1);
+        let quote = iroha_core::executor::quote_nexus_fee_admission_draft(
+            view.world(),
+            view.nexus(),
+            view.pipeline(),
+            &view.zk().gas,
             &request.payload,
             ledger_time_ms,
             next_block_height,
             Some(route.dataspace_id),
-        )
+        );
+        (quote, ledger_time_ms, next_block_height)
     };
     let draft_quote = match quote {
         Ok(quote) => quote,
@@ -37567,9 +37560,11 @@ impl Torii {
             OUTBOUND_BY_NONCE => public_get(sccp::handler_outbound);
             CONTROLS => public_get(sccp::handler_controls);
             CONTROL_PROOF => public_get(sccp::handler_control_proof);
-            ROSTER_CURRENT => public_get(sccp::handler_roster_current);
-            ROSTER_ROTATIONS => public_get(sccp::handler_rotations);
-            ROSTER => public_get(sccp::handler_roster);
+            COMMITTEE_CURRENT => public_get(sccp::handler_committee_current);
+            COMMITTEE_ROTATIONS => public_get(sccp::handler_rotations);
+            COMMITTEE => public_get(sccp::handler_committee);
+            FINALITY_LATEST => public_get(sccp::handler_finality_latest);
+            FINALITY => public_get(sccp::handler_finality);
         );
     }
     /// Musubi Kotodama package-registry routes.

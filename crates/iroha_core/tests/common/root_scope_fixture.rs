@@ -64,7 +64,8 @@ pub(crate) fn commit_global_root_scope(state: &State) {
         .world
         .parameters_mut_for_testing()
         .get_mut()
-        .set_parameter(global_root_scope_parameter());
+        .set_parameter(global_root_scope_parameter())
+        .expect("valid fixture parameters");
     transaction.apply();
     block
         .commit_world_overlay_for_testing()

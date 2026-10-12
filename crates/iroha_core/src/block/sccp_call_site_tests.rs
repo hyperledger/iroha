@@ -74,19 +74,15 @@ fn sccp_exempt_cap_counts_eligible_entry_points_of_the_block() {
         .with_instructions([instruction])
         .sign(key_pair.private_key())
     };
-    // Fault evidence is eligible whenever SCCP exists.
-    let fault = |height| {
-        let mut submit = SampleInstructions::fault();
-        submit.statement.height = height;
-        signed(submit.into())
-    };
+    // Canonical keeper advances are eligible independently of the authority. Distinct
+    // networks isolate the global exempt cap from the per-network advance cap.
+    let advance = |network| signed(SampleInstructions::eligible_advance(network).into());
     let block = SignedBlock::genesis(
         vec![
-            fault(9),
-            fault(10),
-            // An attestation shape from an ordinary account is not eligible: it pays the
-            // ordinary fee and is not counted.
-            signed(SampleInstructions::attestations().into()),
+            advance(iroha_data_model::bridge::SccpNetworkV1::EthereumMainnet),
+            advance(iroha_data_model::bridge::SccpNetworkV1::BscMainnet),
+            // A malformed advance is not eligible: it pays the ordinary fee.
+            signed(SampleInstructions::advance().into()),
             crate::smartcontracts::isi::sccp::test_support::sample_signed_transaction(),
         ],
         key_pair.private_key(),
@@ -139,33 +135,13 @@ fn sccp_hook_receives_scheduled_height_inputs_on_the_sumeragi_core_path() {
     let state = chain.state();
     let expected = |height: u64| {
         let view = state.view();
-        let schedule = view.world().consensus_schedule();
-        let scheduled = schedule.ready(height).expect("a scheduled height");
-        let epoch = scheduled.epoch.authorization.epoch;
-        let epoch_end_height = scheduled.epoch.authorization.last_height;
-        let next_roster = (height == epoch_end_height).then(|| {
-            schedule
-                .ready(height + 1)
-                .expect("the next scheduled height")
-                .epoch
-                .committee
-                .iter()
-                .map(|member| member.validator.clone())
-                .collect()
-        });
-        SccpHeightInputsV1 {
-            mode: ConsensusMode::Permissioned,
+        SccpHeightInputsV1::from_sumeragi_schedule(
+            view.world(),
             height,
-            epoch,
-            epoch_end_height,
-            roster: scheduled
-                .epoch
-                .committee
-                .iter()
-                .map(|member| member.validator.clone())
-                .collect(),
-            next_roster,
-        }
+            GENESIS_HEIGHT,
+            ConsensusMode::Permissioned,
+        )
+        .expect("original current scheduled context")
     };
     let genesis_inputs = expected(GENESIS_HEIGHT);
     assert!(
@@ -179,12 +155,19 @@ fn sccp_hook_receives_scheduled_height_inputs_on_the_sumeragi_core_path() {
         vec![(GENESIS_HEIGHT, Some(genesis_inputs.clone()))],
         "genesis applied by the Sumeragi core feeds its schedule to the hook"
     );
-    let validators = chain
-        .validators()
+    let (current_epoch, successor_epoch) = genesis_inputs
+        .epochs()
+        .expect("both contexts retain the original signed genesis authority");
+    let credentials = current_epoch
+        .committee
         .iter()
-        .map(|(peer, _)| peer.clone())
+        .map(|member| (member.validator.clone(), member.proof_of_possession.clone()))
         .collect::<Vec<_>>();
-    assert_eq!(genesis_inputs.roster, validators);
+    assert_eq!(credentials, chain.validators());
+    assert!(
+        std::ptr::eq(current_epoch, successor_epoch),
+        "a non-boundary reuses the exact original epoch rather than rebuilding credentials"
+    );
     // Block 2 executes exactly as `StateExecutor::run_execution` does.
     let view = state.view();
     let parent = view
@@ -212,11 +195,22 @@ fn sccp_hook_receives_scheduled_height_inputs_on_the_sumeragi_core_path() {
     let proposal = chain.proposal(None, vec![transaction]);
     let worker_inputs = observed::for_header(&proposal.header());
     chain.commit_proposal(proposal, Signers::Quorum, Default::default());
-    assert_eq!(
-        worker_inputs.take(),
-        vec![(GENESIS_HEIGHT + 1, Some(expected_next))],
-        "a Sumeragi-core block never reaches the hook without height inputs"
-    );
+    let calls = worker_inputs.take();
+    let [(height, Some(actual))] = calls.as_slice() else {
+        panic!("the original proposal must reach the SCCP hook exactly once with height inputs");
+    };
+    assert_eq!(*height, GENESIS_HEIGHT + 1);
+    assert_eq!(actual.height(), expected_next.height());
+    assert_eq!(actual.epoch(), expected_next.epoch());
+    assert_eq!(actual.epoch_end_height(), expected_next.epoch_end_height());
+    assert_eq!(actual.mode(), expected_next.mode());
+    assert_eq!(actual.is_boundary(), expected_next.is_boundary());
+    // The worker captures the schedule at the executing source cut, which may
+    // trim unrelated ready slots. Compare both complete original epoch contexts,
+    // including their ordered keys and PoPs, rather than unrelated retained slots.
+    assert_eq!(actual.epochs().unwrap(), expected_next.epochs().unwrap());
+    let (current, successor) = actual.epochs().unwrap();
+    assert!(std::ptr::eq(current, successor));
 }
 
 #[test]

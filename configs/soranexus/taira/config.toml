@@ -281,19 +281,7 @@ enabled = true
 # 16 MiB per block; every other value is the protocol default). A node
 # configuration cannot set them.
 
-[pipeline.gas]
-tech_account_id = "testuﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"
-# Fee quoting selects this canonical Base58 asset for the signature-bound
-# pipeline-gas component. The live `xor#universal` alias resolves to this id.
-accepted_assets = ["6TEAJqbb8oEPmLncoNiMRbLEK6tw"]
-[[pipeline.gas.units_per_gas]]
-asset = "6TEAJqbb8oEPmLncoNiMRbLEK6tw"
-# Nexus fees already charge gas via [nexus.fees].per_gas_unit_fee; this admits
-# signature-bound gas in `FeePaymentIntent` without a second pipeline transfer.
-units_per_gas = 0
-twap_local_per_xor = "1"
-liquidity_profile = "tier1"
-volatility_class = "stable"
+# Pipeline gas assets, rates and fee receiver are committed in genesis.template.json.
 
 [genesis]
 public_key = "ed0120403BA31890B09C40B7108A0AC1319D27C10FE5442027CF8333C5C3A09CBB0343"

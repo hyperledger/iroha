@@ -68,9 +68,11 @@ async fn governance_manifest_allows_multisig_propose_envelope_from_live_signer()
     // Explicit Global metadata belongs to this admission component fixture;
     // it does not authenticate signed genesis, native history or publication.
     let mut parameters = world.parameters.block();
-    parameters.set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
-        iroha_data_model::block::consensus::SumeragiRootScope::Global,
-    ));
+    parameters
+        .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        ))
+        .expect("valid fixture parameters");
     parameters.commit();
     let mut state = State::new(world, kura, query_handle);
     {

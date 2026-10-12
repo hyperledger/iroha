@@ -2239,7 +2239,8 @@ mod tests {
             .get_mut()
             .set_parameter(Parameter::Custom(
                 SumeragiNposParameters::default().into_custom_parameter(),
-            ));
+            ))
+            .expect("valid fixture parameters");
         initial.commit();
         config.genesis_instructions.push(
             RegisterPublicLaneValidator {

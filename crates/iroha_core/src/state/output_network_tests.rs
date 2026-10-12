@@ -792,7 +792,8 @@ fn intrinsic_source_rejection_rolls_back_movements_and_witness_but_keeps_e_and_f
     .unwrap();
     parameters
         .get_mut()
-        .set_parameter(Parameter::Block(BlockParameter::FastpqSource(profile)));
+        .set_parameter(Parameter::Block(BlockParameter::FastpqSource(profile)))
+        .expect("valid fixture parameters");
     parameters.commit();
     let alice = AssetId::of(asset.clone(), ALICE_ID.clone());
     let bob = AssetId::of(asset.clone(), iroha_test_samples::BOB_ID.clone());

@@ -97,7 +97,7 @@ impl StoredBodyRead {
             || qc.epoch != header.epoch
             || qc.height != header.height
             || qc.block_hash != self.source.block_hash()
-            || qc.result != result
+            || Some(qc.result) != result
         {
             return Err(BodyReadError::Io(io::Error::new(
                 io::ErrorKind::InvalidData,

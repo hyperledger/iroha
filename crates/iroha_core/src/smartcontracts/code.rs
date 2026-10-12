@@ -1339,9 +1339,11 @@ mod tests {
         let account = Account::new(auth.clone()).build(&auth);
         let mut world = World::with([domain], [account], std::iter::empty::<AssetDefinition>());
         let mut parameters = world.parameters.block();
-        parameters.set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
-            iroha_data_model::block::consensus::SumeragiRootScope::Global,
-        ));
+        parameters
+            .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+                iroha_data_model::block::consensus::SumeragiRootScope::Global,
+            ))
+            .expect("valid fixture parameters");
         parameters.commit();
         let mut permissions = permission::Permissions::new();
         assert!(
@@ -1371,14 +1373,16 @@ mod tests {
         let mut block = state.block(default_header(1));
         let mut transaction = block.transaction();
         let dataspace_id = iroha_model_base::topology::DataSpaceId::new(u64::MAX);
-        transaction.world.parameters.set_parameter(
-            crate::sumeragi::lanes::routing::test_support::metadata(
+        transaction
+            .world
+            .parameters
+            .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
                 iroha_data_model::block::consensus::SumeragiRootScope::Dataspace {
                     parent_network_id: state.network_id,
                     dataspace_id,
                 },
-            ),
-        );
+            ))
+            .expect("valid fixture parameters");
         let (bytes, manifest) = minimal_contract_artifact(1);
         let hash = ivm::contract_code_hash(&bytes);
         let owned = ContractArtifactId::new(dataspace_id, hash);

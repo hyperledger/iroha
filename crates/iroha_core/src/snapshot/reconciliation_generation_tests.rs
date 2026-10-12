@@ -669,7 +669,8 @@ fn commit_custom_parameter_for_snapshot(
         .world
         .parameters
         .get_mut()
-        .set_parameter(iroha_data_model::parameter::Parameter::Custom(parameter));
+        .set_parameter(iroha_data_model::parameter::Parameter::Custom(parameter))
+        .expect("valid fixture parameters");
     transaction.apply();
     block
         .commit_world_overlay_for_testing()
@@ -700,7 +701,6 @@ fn read_snapshot_with_node_zk(
         #[cfg(feature = "telemetry")]
         StateTelemetry::new(<_>::default(), true),
         &snapshot_read_budget_for_testing(),
-        &crate::state::kagemusha_operation_indexes::default_budget(),
     )
 }
 #[tokio::test]

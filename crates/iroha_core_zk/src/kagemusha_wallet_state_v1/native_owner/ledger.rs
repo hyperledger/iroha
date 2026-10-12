@@ -28,8 +28,10 @@ pub(super) fn proof_original(bytes: &[u8]) -> Result<SumeragiFinalityProof, Erro
     if bytes.is_empty() || bytes.len() > LEDGER_PROOF_MAX_BYTES_V1 {
         return Err(Error::Invalid("ledger proof original bound"));
     }
-    let proof: SumeragiFinalityProof =
-        archive::decode(bytes).map_err(|_| Error::Invalid("ledger proof canonical original"))?;
+    let proof: SumeragiFinalityProof = archive::decode(bytes).map_err(|error| match error {
+        Error::WitnessLost(_) => Error::Invalid("ledger proof canonical original"),
+        original => original,
+    })?;
     if proof.committee.len() > 31 || proof.block_wire.len() > MAX_FINALITY_BLOCK_BYTES {
         return Err(Error::Invalid("ledger proof decoded bound"));
     }
@@ -39,7 +41,10 @@ fn payout_original(bytes: &[u8]) -> Result<KagemushaWalletPayoutRecordV1, Error>
     if bytes.is_empty() || bytes.len() > PAYOUT_RECORD_MAX_BYTES_V1 {
         return Err(Error::Invalid("payout original bound"));
     }
-    archive::decode(bytes).map_err(|_| Error::Invalid("payout canonical original"))
+    archive::decode(bytes).map_err(|error| match error {
+        Error::WitnessLost(_) => Error::Invalid("payout canonical original"),
+        original => original,
+    })
 }
 impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
     pub(super) fn selected_ledger(
@@ -61,8 +66,12 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         let bytes = self
             .archive
             .read_object(&address, MAX_FINALITY_CHECKPOINT_BYTES)?;
-        let checkpoint = SumeragiFinalityCheckpoint::decode_canonical(&bytes)
-            .map_err(|_| Error::WitnessLost("selected ledger checkpoint original"))?;
+        let checkpoint = SumeragiFinalityCheckpoint::decode_canonical(&bytes).map_err(|error| {
+            crate::kagemusha_wallet_state_v1::finality_read_error(
+                error,
+                Error::WitnessLost("selected ledger checkpoint original"),
+            )
+        })?;
         if checkpoint.network_id().as_bytes() != &scheme.network_id
             || checkpoint.chain_id() != chain
             || manifest.ledger_retired == Some(address)
@@ -76,7 +85,12 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             &genesis.initial_epoch().network_id,
             &chain,
         )
-        .map_err(|_| Error::WitnessLost("selected ledger checkpoint verification"))?;
+        .map_err(|error| {
+            crate::kagemusha_wallet_state_v1::finality_read_error(
+                error,
+                Error::WitnessLost("selected ledger checkpoint verification"),
+            )
+        })?;
         if verifier.initial_epoch() != genesis.initial_epoch()
             || verifier.instance() != genesis.instance()
         {
@@ -116,7 +130,12 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             if candidate.height() == previous.height() {
                 verifier
                     .verify_retained_decision(&candidate)
-                    .map_err(|_| Error::Proof("ledger retry decision"))?;
+                    .map_err(|error| {
+                        crate::kagemusha_wallet_state_v1::finality_read_error(
+                            error,
+                            Error::Proof("ledger retry decision"),
+                        )
+                    })?;
                 return Ok(progress(previous));
             }
             if candidate.height() < previous.height() {
@@ -125,14 +144,34 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         }
         // The local verifier is discarded on every error. A successful but uncertain manifest
         // write is reconciled from actual custody on retry, never from this ephemeral value.
-        if previous.is_some() || verifier.verify_retained_decision(&candidate).is_err() {
-            verifier
-                .verify(&candidate)
-                .map_err(|_| Error::Proof("ledger prefix continuity"))?;
+        let needs_contiguous_verification = if previous.is_some() {
+            true
+        } else {
+            match verifier.verify_retained_decision(&candidate) {
+                Ok(_) => false,
+                Err(iroha_data_model::sumeragi_finality::FinalityReadError::Invalid(_)) => true,
+                Err(original) => {
+                    return Err(crate::kagemusha_wallet_state_v1::finality_read_error(
+                        original,
+                        Error::Proof("ledger initial decision"),
+                    ));
+                }
+            }
+        };
+        if needs_contiguous_verification {
+            verifier.verify(&candidate).map_err(|error| {
+                crate::kagemusha_wallet_state_v1::finality_read_error(
+                    error,
+                    Error::Proof("ledger prefix continuity"),
+                )
+            })?;
         }
-        let checkpoint = verifier
-            .export_checkpoint(&candidate)
-            .map_err(|_| Error::Proof("ledger verified checkpoint"))?;
+        let checkpoint = verifier.export_checkpoint(&candidate).map_err(|error| {
+            crate::kagemusha_wallet_state_v1::finality_read_error(
+                error,
+                Error::Proof("ledger verified checkpoint"),
+            )
+        })?;
         let bytes = checkpoint
             .encode_canonical()
             .map_err(|_| Error::Proof("ledger checkpoint encoding"))?;
@@ -161,14 +200,23 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         payout: &[u8],
     ) -> Result<(), Error> {
         let payout = payout_original(payout)?;
-        let world = WorldStateSnapshotV1::decode_bounded_canonical(world)
-            .map_err(|_| Error::Invalid("payout World original"))?;
+        let world = WorldStateSnapshotV1::decode_bounded_canonical(world).map_err(|error| {
+            crate::kagemusha_wallet_state_v1::finality_read_error(
+                error,
+                Error::Invalid("payout World original"),
+            )
+        })?;
         let (selected, manifest) = self.sync_manifest()?;
         let (verifier, checkpoint) = self.selected_ledger(&manifest, genesis)?;
         let checkpoint = checkpoint.ok_or(Error::Invalid("no selected ledger tip"))?;
         let block = verifier
             .verify_retained_decision(checkpoint.tip())
-            .map_err(|_| Error::Proof("payout selected decision"))?;
+            .map_err(|error| {
+                crate::kagemusha_wallet_state_v1::finality_read_error(
+                    error,
+                    Error::Proof("payout selected decision"),
+                )
+            })?;
         let world = world
             .authenticate(&block)
             .map_err(|_| Error::Proof("payout World root"))?;

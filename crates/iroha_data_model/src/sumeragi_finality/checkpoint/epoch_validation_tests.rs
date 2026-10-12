@@ -133,6 +133,7 @@ fn warmed_import_epoch_work_never_replaces_fresh_roster_or_quorum_authentication
         let bytes = changed.encode_canonical().unwrap();
         let expected = verifier
             .verify_retained_decision(changed.tip())
+            .map_err(invalid_read_error)
             .unwrap_err();
         let before = validation_counts::calls();
         let refusal = SumeragiFinalityVerifier::from_trusted_checkpoint_with_consumer(
@@ -759,6 +760,7 @@ fn operation_epoch_workspace_never_accepts_context_substitution_or_fresh_quorum_
     for changed in [&wrong_roster, &wrong_quorum] {
         let expected = verifier
             .verify_retained_decision(changed.tip())
+            .map_err(invalid_read_error)
             .unwrap_err();
         let before = validation_counts::calls();
         let error = SumeragiFinalityVerifier::from_trusted_checkpoint_with_validation_consumer(

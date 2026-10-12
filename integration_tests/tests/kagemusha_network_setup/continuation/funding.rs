@@ -339,7 +339,7 @@ pub(super) fn run(
     object.insert("native_target_sha256".into(), hash(&bytes).into());
     object.insert("originals".into(), norito::json::to_value(&originals)?);
     object.insert("load".into(), norito::json!({
-        "result_preimage_hex": (hex::encode(block.commitment().preimage()?)),
+        "result_preimage_hex": (hex::encode(block.block().commit_certificate().ok_or_else(|| eyre!("certificate missing"))?.result_preimage())),
         "receipt_frame_hex": (hex::encode(&receipt_frame)), "receipt_transcript_hex": (hex::encode(receipt.transcript()?)), "receipt_digest_hex": (hex::encode(receipt.receipt_digest()?)),
         "event_commitment_root_hex": (hex::encode(commitment.root().as_ref())), "event_commitment_count": (commitment.leaf_count().get()), "event_index": (path.leaf_index()), "event_siblings_hex": (siblings.iter().map(hex::encode).collect::<Vec<_>>())
     }));
@@ -375,6 +375,38 @@ fn block_capture(block: &VerifiedSumeragiBlock) -> Result<norito::json::Value> {
         pops.push(hex::encode(&member.proof_of_possession));
     }
     Ok(
-        norito::json!({"height":(block.height()), "result_preimage_hex":(hex::encode(block.commitment().preimage()?)), "result_hash_hex":(hex::encode(block.result().0)), "commit_vote_preimage_hex":(hex::encode(qc.preimage())), "qc_bitmap_hex":(hex::encode(qc.signers.as_bytes())), "qc_aggregate_signature_hex":(hex::encode(qc.agg_sig.0)), "committee_public_keys_hex":keys, "committee_proofs_of_possession_hex":pops, "authenticated_schedule":{"current":{"context_id_hex":(hex::encode(schedule.current.context_id().map_err(|e| eyre!(e))?))}, "boundary":(norito::json::Value::Null)}}),
+        norito::json!({"height":(block.height()), "result_preimage_hex":(hex::encode(cert.result_preimage())), "result_hash_hex":(hex::encode(block.result().0)), "commit_vote_preimage_hex":(hex::encode(qc.preimage())), "qc_bitmap_hex":(hex::encode(qc.signers.as_bytes())), "qc_aggregate_signature_hex":(hex::encode(qc.agg_sig.0)), "committee_public_keys_hex":keys, "committee_proofs_of_possession_hex":pops, "authenticated_schedule":{"current":{"context_id_hex":(hex::encode(schedule.current.context_id().map_err(|e| eyre!(e))?))}, "boundary":(norito::json::Value::Null)}}),
     )
+}
+
+#[test]
+fn block_capture_preserves_original_certified_result_envelope() {
+    use iroha_data_model::sumeragi_finality::{
+        result_of_preimage, test_fixtures::NativeFinalityFixture,
+    };
+
+    let fixture = NativeFinalityFixture::new();
+    let block = fixture
+        .verifier()
+        .verify_retained_decision(fixture.latest())
+        .unwrap();
+    let row = block_capture(&block).unwrap();
+    let preimage = hex::decode(row["result_preimage_hex"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        preimage,
+        block
+            .block()
+            .commit_certificate()
+            .unwrap()
+            .result_preimage()
+    );
+    assert_eq!(result_of_preimage(&preimage), Some(block.result()));
+    assert_eq!(
+        row["result_hash_hex"].as_str().unwrap(),
+        hex::encode(block.result().0)
+    );
+    assert_eq!(
+        result_of_preimage(&block.commitment().preimage().unwrap()),
+        None
+    );
 }

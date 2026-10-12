@@ -3780,9 +3780,11 @@ pub(crate) mod test_support {
     /// Component fixture with explicit committed global-root metadata.
     pub(crate) fn with_global_root(world: crate::state::World) -> crate::state::World {
         let mut parameters = world.parameters.block();
-        parameters.set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
-            iroha_data_model::block::consensus::SumeragiRootScope::Global,
-        ));
+        parameters
+            .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+                iroha_data_model::block::consensus::SumeragiRootScope::Global,
+            ))
+            .expect("valid fixture parameters");
         parameters.commit();
         world
     }

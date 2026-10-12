@@ -166,16 +166,28 @@ pub const PRIVACY_ZK_ACE_POLICY_INITIAL_EPOCH_V1: u64 = 1;
 pub const PRIVACY_ZK_ACE_MAX_SOURCE_ACCOUNTS_V1: usize = 256;
 /// Maximum number of authoritative ZK-ACE policy lineages in world state.
 pub const PRIVACY_ZK_ACE_MAX_POLICIES_V1: usize = 4_096;
+/// Fixed identifier and canonical framing allowance beyond a proof and its whole statement.
+///
+/// Current closed protocol layouts, including the additional ZK-AMS discriminant, are
+/// measured against this allowance. It never increases the native proof payload ceiling.
+pub const TAIRA_PRIVACY_PROOF_ENVELOPE_METADATA_ALLOWANCE_BYTES_V1: u32 = 512;
 /// Maximum encoded bytes admitted for one Taira privacy action.
-// TODO(X.2): this equals the proof ceiling, so an action carrying a 9,437,184-byte proof is
-// rejected as too large, and two maximum actions per block exceed every payload limit. Set
-// the action, transaction and block bounds from the measured maximum envelope
-// (`specs/zk_resource_contract.json`, `action_envelope_holds_a_ceiling_proof`).
-pub const TAIRA_PRIVACY_MAX_ACTION_BYTES_V1: u32 = 9 * 1024 * 1024;
+///
+/// The complete canonical envelope carries one ceiling proof, the bounded whole statement
+/// (including encrypted outputs), and 512 bytes for fixed identifiers and Norito framing.
+/// The signed transaction independently remains bounded by its 10 MiB aggregate cap.
+pub const TAIRA_PRIVACY_MAX_ACTION_BYTES_V1: u32 = TAIRA_PRIVACY_MAX_PROOF_BYTES_PER_ACTION_V1
+    + TAIRA_PRIVACY_MAX_STATEMENT_AND_ENCRYPTED_OUTPUT_BYTES_PER_TRANSACTION_V1
+    + TAIRA_PRIVACY_PROOF_ENVELOPE_METADATA_ALLOWANCE_BYTES_V1;
 /// Maximum privacy bytes admitted in one Taira transaction.
-pub const TAIRA_PRIVACY_MAX_BYTES_PER_TRANSACTION_V1: u32 = 9 * 1024 * 1024;
+pub const TAIRA_PRIVACY_MAX_BYTES_PER_TRANSACTION_V1: u32 = TAIRA_PRIVACY_MAX_ACTION_BYTES_V1;
 /// Maximum privacy bytes admitted in one Taira block.
-pub const TAIRA_PRIVACY_MAX_BYTES_PER_BLOCK_V1: u32 = 18 * 1024 * 1024;
+///
+/// Action count and actual aggregate bytes are independent bounds: two smaller actions
+/// can fit, while two ceiling-sized envelopes cannot. Complete block framing has its own
+/// payload limit and retains the non-transaction reserve.
+pub const TAIRA_PRIVACY_MAX_BYTES_PER_BLOCK_V1: u32 =
+    16 * 1024 * 1024 - crate::parameter::system::BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES;
 /// Maximum public-statement and encrypted-output payload bytes in one Taira transaction.
 pub const TAIRA_PRIVACY_MAX_STATEMENT_AND_ENCRYPTED_OUTPUT_BYTES_PER_TRANSACTION_V1: u32 =
     256 * 1024;

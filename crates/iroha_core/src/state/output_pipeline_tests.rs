@@ -41,7 +41,8 @@ fn pipeline_fixture(bytes: u64, triggers: Vec<Trigger>) -> (Box<State>, SignedBl
         policy.max_pipeline_triggers = u32::try_from(triggers.len()).unwrap();
         parameters
             .get_mut()
-            .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)));
+            .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
     {

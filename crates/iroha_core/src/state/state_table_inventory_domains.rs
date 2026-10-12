@@ -56,6 +56,29 @@ pub(super) struct OtherDomains {
 pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     OtherDomains {
         usage: Use::Record,
+        reason: "Provider-backed phone-control policy and challenge identities, plus the provider credential signing preimage; each binds one supplied canonical record and does not hash State tables or establish the unfinished private relation or claim lifecycle",
+        literals: &[
+            r"iroha.ram_lfe.v1.phone_control.challenge",
+            r"iroha.ram_lfe.v1.phone_control.credential",
+            r"iroha.ram_lfe.v1.phone_control.provider_policy",
+        ],
+    },
+    OtherDomains {
+        usage: Use::Name,
+        reason: "Release-identity name of the explicit native CertifiedResultV1 raw-X plus canonical-Norito-body codec descriptor; the format name labels the wire layout and is not an additional State root",
+        literals: &[r"iroha.sumeragi.certified_result.v1"],
+    },
+    OtherDomains {
+        usage: Use::BlockContent,
+        reason: "BLAKE3 bindings of a transaction's proof-free ordered intent, each action statement and each proof carrier's proof-free public inputs; these hash the supplied canonical transaction records with a domain and length, not State tables or cells",
+        literals: &[
+            r"iroha.transaction.action-statement-digest.v1",
+            r"iroha.transaction.ordered-intent-digest.v1",
+            r"iroha.transaction.proof-carrier-public-inputs-digest.v1",
+        ],
+    },
+    OtherDomains {
+        usage: Use::Record,
         reason: "Hashes of the finite variant names and codes of one ordinary enum or application-error schema, excluding nominal identity. Each binds one supplied descriptor's content and commits no State tables or cells",
         literals: &[
             r"iroha:kotodama:enum-schema:v1\0",
@@ -481,8 +504,6 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
             r"iroha.private_settlement.finalize_atomic_bundle.v1",
             r"iroha.private_settlement.register_atomic_prepare.v1",
             r"iroha.private_settlement.rotate_pool_policy.v1",
-            r"iroha.sccp.bridge_key.v1",
-            r"iroha.sccp.other.v1",
             r"iroha.streaming.snapshot.v1",
             r"iroha.sumeragi.amx.begin.v1",
             r"iroha.sumeragi.amx.prepare.v1",
@@ -691,9 +712,8 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     },
     OtherDomains {
         usage: Use::Record,
-        reason: "Identifiers, content hashes, intent digests and signing preimages of one application record, transaction plan or message (settlement and repo intents, NFT and game custody, Hijiri risk records, staking records, retail fee receipts, alias attestations, jurisdiction attestations, contract artifacts, the source inventory of a native contract compilation record, RAM-LFE receipts, IVM statements)",
+        reason: "Identifiers, content hashes, intent digests and signing preimages of one application record, transaction plan or message (settlement and repo intents, NFT and game custody, Hijiri risk records, staking records, retail fee receipts, alias attestations, jurisdiction attestations, contract artifacts, RAM-LFE receipts, IVM statements)",
         literals: &[
-            r"iroha.contract.native-source-inventory.v1\0",
             r"iroha.ivm-proved.transaction-intent-digest.v1",
             r"iroha.ivm.execution-statement.v1",
             r"iroha.ram_lfe.v1.opening",
@@ -741,11 +761,8 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     },
     OtherDomains {
         usage: Use::Record,
-        reason: "Content commitments of one complete supplied Kotodama source inventory and its exact admitted contract manifest, recorded in the native compilation receipt draft: hashes of these immutable input records, not digests computed from State tables",
-        literals: &[
-            r"iroha.contract.native-source-inventory.v1\0",
-            r"iroha.contract.native-source-manifest.v1\0",
-        ],
+        reason: "Content commitment of one complete supplied Kotodama source inventory, recorded in the native compilation receipt draft: a hash of this immutable input record, not a digest computed from State tables; the separate admitted-manifest expected-value hash is classified as a precondition",
+        literals: &[r"iroha.contract.native-source-inventory.v1\0"],
     },
     OtherDomains {
         usage: Use::Record,

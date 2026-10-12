@@ -53,7 +53,7 @@ pub mod certified_result;
 pub use certified_result::{
     CertifiedResultError, CertifiedResultScope, CertifiedResultV1, FinalityHeaderError,
     MAX_RESULT_BODY_BYTES, RESULT_BODY_TAG, SccpFinalityHeaderFieldsV1, SccpFinalityHeaderV1,
-    committee_root, context_committee_root,
+    committee_root, context_committee_root, result_of_preimage,
 };
 mod checkpoint;
 pub use checkpoint::{MAX_FINALITY_CHECKPOINT_BYTES, SumeragiFinalityCheckpoint};
@@ -75,8 +75,7 @@ pub use world_state::{
 use std::collections::BTreeMap;
 
 use iroha_crypto::{
-    Algorithm, BlsNormalPopVerifiedKey, Hash, HashOf, PublicKey, SignatureOf,
-    bls_normal_aggregate_signatures, bls_normal_verify_preaggregated_multi_message,
+    Algorithm, BlsNormalPopVerifiedKey, Hash, HashOf, PublicKey, SignatureOf, bls::consensus,
 };
 use iroha_model_base::peer::PeerId;
 use iroha_sumeragi::{
@@ -120,7 +119,7 @@ pub const FINALITY_ATTESTATION_DOMAIN: &[u8] = b"iroha:sumeragi-finality-attesta
 #[error("current finality: {0}")]
 pub struct FinalityError(pub String);
 
-/// A portable trust-root read that preserves original JSON and binary decoder failures.
+/// A portable original-data read that preserves original JSON and binary decoder failures.
 ///
 /// Completed proof checks retain their existing verdict. Decoder errors remain typed so
 /// callers can distinguish surviving local limits from intrinsic format ceilings before
@@ -133,10 +132,78 @@ pub enum FinalityReadError {
     /// The original signed genesis could not be read or authenticated.
     #[error(transparent)]
     Genesis(#[from] GenesisReadError),
-    /// Exact original canonical block decoder fields, before any caller locality classification.
-    /// Intrinsic format ceilings are not automatically a retryable caller refusal.
-    #[error("canonical block decoder resource: {0}")]
+    /// Original unfinished binary decoder attempt, including its enforcing scope identity.
+    /// Only a surviving enclosing limit or local allocator refusal reaches this variant.
+    #[error("canonical finality decoder resource: {0}")]
     DecodeResource(#[source] norito::core::DecodeAttemptError),
+}
+
+impl From<norito::core::DecodeAttemptError> for FinalityReadError {
+    fn from(error: norito::core::DecodeAttemptError) -> Self {
+        match error.kind() {
+            norito::core::DecodeAttemptErrorKind::Allocator
+            | norito::core::DecodeAttemptErrorKind::EnclosingLimit => Self::DecodeResource(error),
+            norito::core::DecodeAttemptErrorKind::Invalid => Self::Invalid(malformed(error)),
+        }
+    }
+}
+
+impl From<CommitmentError> for FinalityReadError {
+    fn from(error: CommitmentError) -> Self {
+        match error {
+            CommitmentError::Resource(error) => Self::from(error),
+            invalid => Self::Invalid(malformed(invalid)),
+        }
+    }
+}
+
+impl From<CertifiedResultError> for FinalityReadError {
+    fn from(error: CertifiedResultError) -> Self {
+        match error {
+            CertifiedResultError::Body(CommitmentError::Resource(error)) => Self::from(error),
+            invalid => Self::Invalid(malformed(invalid)),
+        }
+    }
+}
+
+// Deterministic fixture comparisons must fail if a decoder refusal replaces the verdict.
+#[cfg(test)]
+fn invalid_read_error(error: impl Into<FinalityReadError>) -> FinalityError {
+    match error.into() {
+        FinalityReadError::Invalid(error) => error,
+        other => panic!("expected a completed invalid verdict, got {other:?}"),
+    }
+}
+
+// Independent test recipes own different decoder scopes; observe the classified cause and
+// exact fields, never equate their opaque original identities or synthesize a resource error.
+#[cfg(test)]
+#[derive(Debug, PartialEq, Eq)]
+enum ReadErrorObservation {
+    Invalid(FinalityError),
+    Resource(
+        norito::core::DecodeAttemptErrorKind,
+        norito::core::DecodeResourceError,
+    ),
+}
+#[cfg(test)]
+fn observe_read_error(error: impl Into<FinalityReadError>) -> ReadErrorObservation {
+    match error.into() {
+        FinalityReadError::Invalid(error) => ReadErrorObservation::Invalid(error),
+        FinalityReadError::DecodeResource(error) => {
+            let kind = error.kind();
+            assert!(matches!(
+                kind,
+                norito::core::DecodeAttemptErrorKind::Allocator
+                    | norito::core::DecodeAttemptErrorKind::EnclosingLimit
+            ));
+            ReadErrorObservation::Resource(
+                kind,
+                error.into_error().decode_resource_error().unwrap(),
+            )
+        }
+        other => panic!("unexpected signed-genesis read in binary fixture: {other:?}"),
+    }
 }
 
 /// Authenticate signed genesis and fingerprint its exact native consensus configuration.
@@ -462,6 +529,7 @@ pub struct DecodedSumeragiBlock {
     availability: Option<AvailabilityFrame>,
     core_hash: Hash32,
     result: Hash32,
+    finality_header: SccpFinalityHeaderV1,
     commitment: ExecutionResultCommitment,
     committee_digest: [u8; 32],
 }
@@ -508,7 +576,7 @@ impl SumeragiFinalityProof {
     ///
     /// # Errors
     /// Malformed, empty, inconsistent, oversized or cryptographically invalid material.
-    pub fn decode_checked(&self) -> Result<DecodedSumeragiBlock, FinalityError> {
+    pub fn decode_checked(&self) -> Result<DecodedSumeragiBlock, FinalityReadError> {
         self.decode_parts().map(|(decoded, _, _)| decoded)
     }
 
@@ -517,7 +585,7 @@ impl SumeragiFinalityProof {
     // discards these; neither path manufactures native available-body custody.
     fn decode_parts(
         &self,
-    ) -> Result<(DecodedSumeragiBlock, Option<Vec<u8>>, ProofCrypto), FinalityError> {
+    ) -> Result<(DecodedSumeragiBlock, Option<Vec<u8>>, ProofCrypto), FinalityReadError> {
         self.decode_parts_with_validation(None)
     }
 
@@ -526,16 +594,21 @@ impl SumeragiFinalityProof {
     fn decode_parts_with_validation(
         &self,
         mut validation: Option<&mut EpochValidationScope>,
-    ) -> Result<(DecodedSumeragiBlock, Option<Vec<u8>>, ProofCrypto), FinalityError> {
+    ) -> Result<(DecodedSumeragiBlock, Option<Vec<u8>>, ProofCrypto), FinalityReadError> {
         need(
             !self.block_wire.is_empty() && self.block_wire.len() <= MAX_FINALITY_BLOCK_BYTES,
             "block frame exceeds its finite bound",
         )?;
-        let block = norito::core::with_decode_limits_scope(
-            norito::canonical_decode_limits(self.block_wire.len()),
-            || decode_framed_signed_block(&self.block_wire),
-        )
-        .map_err(malformed)?;
+        let block = norito::core::classify_decode_attempt(|| {
+            norito::core::with_decode_limits_scope(
+                norito::canonical_decode_limits(self.block_wire.len()),
+                || {
+                    decode_framed_signed_block(&self.block_wire)
+                        .map_err(norito::core::DecodeAttemptError::into_error)
+                },
+            )
+        })
+        .map_err(FinalityReadError::from)?;
         // The framed decoder already streams exact canonical equality under the original
         // limits. Retire payload/layout state before the independent certificate decoders,
         // without materializing another complete block frame.
@@ -551,18 +624,30 @@ impl SumeragiFinalityProof {
         let certificate = block
             .commit_certificate()
             .ok_or_else(|| FinalityError("embedded commit certificate missing".into()))?;
-        let commitment = validation
+        // A structural reader does not select a root scope. It checks C1–C5 here;
+        // the contiguous verifier rejects ACTIVE on a non-global authenticated root.
+        let certified = validation
             .as_deref_mut()
             .map_or_else(
-                || ExecutionResultCommitment::decode(certificate.result_preimage()),
-                |validation| {
-                    ExecutionResultCommitment::decode_with_validation(
+                || {
+                    CertifiedResultV1::decode(
                         certificate.result_preimage(),
+                        CertifiedResultScope::TairaGlobal,
+                    )
+                },
+                |validation| {
+                    CertifiedResultV1::decode_with_validation(
+                        certificate.result_preimage(),
+                        CertifiedResultScope::TairaGlobal,
                         validation,
                     )
                 },
             )
+            .map_err(FinalityReadError::from)?;
+        certified
+            .check_block(self.height(), block.header().creation_time_ms)
             .map_err(malformed)?;
+        let (finality_header, commitment) = certified.into_parts();
         need(
             commitment.height == self.height(),
             "result height differs from its block",
@@ -591,7 +676,8 @@ impl SumeragiFinalityProof {
                 |validation| validation.core_epoch(&commitment.schedule.current),
             )
             .map_err(malformed)?;
-        let result = result_of_preimage(certificate.result_preimage());
+        let result = result_of_preimage(certificate.result_preimage())
+            .ok_or_else(|| FinalityError("malformed certified result preimage".into()))?;
         let (len, hash) = block.executed_block_wire_identity().map_err(malformed)?;
         need(
             commitment.execution.executed_block_wire_len == len
@@ -612,11 +698,21 @@ impl SumeragiFinalityProof {
             (None, Hash32(Hash::from(block.hash()).into()), None, None)
         } else {
             need(block.has_consensus_work(), "empty blocks are invalid")?;
-            let header: CoreHeader =
-                norito::decode_canonical(certificate.consensus_header()).map_err(malformed)?;
-            let qc: Qc = norito::decode_canonical(certificate.commit_qc()).map_err(malformed)?;
-            let availability: AvailabilityFrame =
-                norito::decode_canonical(certificate.availability()).map_err(malformed)?;
+            let header: CoreHeader = norito::decode_canonical_for_admission(
+                certificate.consensus_header(),
+                norito::canonical_decode_limits(certificate.consensus_header().len()),
+            )
+            .map_err(FinalityReadError::from)?;
+            let qc: Qc = norito::decode_canonical_for_admission(
+                certificate.commit_qc(),
+                norito::canonical_decode_limits(certificate.commit_qc().len()),
+            )
+            .map_err(FinalityReadError::from)?;
+            let availability: AvailabilityFrame = norito::decode_canonical_for_admission(
+                certificate.availability(),
+                norito::canonical_decode_limits(certificate.availability().len()),
+            )
+            .map_err(FinalityReadError::from)?;
             need(
                 availability.has_valid_structure(),
                 "availability table structure is invalid",
@@ -659,6 +755,7 @@ impl SumeragiFinalityProof {
                 availability,
                 core_hash,
                 result,
+                finality_header,
                 commitment,
                 committee_digest,
             },
@@ -992,7 +1089,7 @@ impl SumeragiFinalityVerifier {
     pub fn verify(
         &mut self,
         proof: &SumeragiFinalityProof,
-    ) -> Result<VerifiedSumeragiBlock, FinalityError> {
+    ) -> Result<VerifiedSumeragiBlock, FinalityReadError> {
         let next = match self.decisions.last_key_value() {
             None => 1,
             Some((height, _)) => height
@@ -1016,7 +1113,7 @@ impl SumeragiFinalityVerifier {
         &self,
         retained: &SumeragiFinalityProof,
         candidate: &SumeragiFinalityProof,
-    ) -> Result<VerifiedSumeragiBlock, FinalityError> {
+    ) -> Result<VerifiedSumeragiBlock, FinalityReadError> {
         need(
             retained.height() == candidate.height(),
             "alternate proof height differs",
@@ -1033,7 +1130,7 @@ impl SumeragiFinalityVerifier {
     pub fn verify_retained_decision(
         &self,
         candidate: &SumeragiFinalityProof,
-    ) -> Result<VerifiedSumeragiBlock, FinalityError> {
+    ) -> Result<VerifiedSumeragiBlock, FinalityReadError> {
         self.verify_retained_decision_with_validation(candidate, None)
     }
 
@@ -1043,7 +1140,7 @@ impl SumeragiFinalityVerifier {
         &self,
         candidate: &SumeragiFinalityProof,
         mut validation: Option<&mut EpochValidationScope>,
-    ) -> Result<VerifiedSumeragiBlock, FinalityError> {
+    ) -> Result<VerifiedSumeragiBlock, FinalityReadError> {
         let expected = self
             .decisions
             .get(&candidate.height())
@@ -1088,7 +1185,10 @@ impl SumeragiFinalityVerifier {
             executed_len: value.commitment.execution.executed_block_wire_len,
         }
     }
-    fn check(&self, proof: &SumeragiFinalityProof) -> Result<DecodedSumeragiBlock, FinalityError> {
+    fn check(
+        &self,
+        proof: &SumeragiFinalityProof,
+    ) -> Result<DecodedSumeragiBlock, FinalityReadError> {
         let (decoded, proposal, crypto) = proof.decode_parts()?;
         self.check_trusted(proof, &decoded, proposal.as_deref(), &crypto, None)?;
         Ok(decoded)
@@ -1111,6 +1211,11 @@ impl SumeragiFinalityVerifier {
         mut validation: Option<&mut EpochValidationScope>,
     ) -> Result<(), FinalityError> {
         let height = proof.height();
+        need(
+            self.root_scope() == crate::block::consensus::SumeragiRootScope::Global
+                || !decoded.finality_header.is_active(),
+            "a non-global root carries an active finality header",
+        )?;
         if height == 1 {
             need(
                 proof.block_header.hash() == self.genesis.hash()
@@ -1291,7 +1396,7 @@ impl SumeragiFinalityAttestationBody {
     ///
     /// # Errors
     /// Wrong challenge, runtime identity, status, genesis, height or certificate binding.
-    pub fn validate_consistency(&self) -> Result<(), FinalityError> {
+    pub fn validate_consistency(&self) -> Result<(), FinalityReadError> {
         need(
             self.challenge != [0; 32]
                 && self.observed_at_unix_ms != 0
@@ -1373,11 +1478,12 @@ impl SumeragiFinalityAttestation {
     ///
     /// # Errors
     /// Malformed body or invalid BLS signature.
-    pub fn verify(&self) -> Result<(), FinalityError> {
+    pub fn verify(&self) -> Result<(), FinalityReadError> {
         self.body.validate_consistency()?;
-        self.signature
+        Ok(self
+            .signature
             .verify_hash(self.body.node_id.public_key(), self.body.signing_hash())
-            .map_err(malformed)
+            .map_err(malformed)?)
     }
 }
 
@@ -1428,21 +1534,19 @@ impl Crypto for ProofCrypto {
         Hash32(Hash::new_from_chunks(chunks).into())
     }
     fn verify(&self, pk: &CoreKey, msg: &[u8], signature: &Signature) -> bool {
-        PublicKey::from_bytes(Algorithm::BlsNormal, pk.as_bytes()).is_ok_and(|key| {
-            iroha_crypto::Signature::from_bytes(&signature.0)
-                .verify(&key, msg)
-                .is_ok()
-        })
+        let (Ok(key), Some(digest)) = (
+            <[u8; 48]>::try_from(pk.as_bytes()),
+            consensus::ConsensusDigest::from_preimage(msg),
+        ) else {
+            return false;
+        };
+        // This primitive authenticates the signature only. The caller selects authority;
+        // aggregate verification below additionally requires the original PoP-admitted keys.
+        consensus::verify_fast_aggregate_committed(&[key], &digest, &signature.0)
     }
     fn aggregate(&self, signatures: &[Signature]) -> AggregateSignature {
-        let slices: Vec<&[u8]> = signatures
-            .iter()
-            .map(|signature| signature.0.as_slice())
-            .collect();
         AggregateSignature(
-            bls_normal_aggregate_signatures(&slices)
-                .ok()
-                .and_then(|bytes| bytes.try_into().ok())
+            consensus::aggregate(signatures.iter().map(|signature| &signature.0))
                 .unwrap_or([0; 96]),
         )
     }
@@ -1452,7 +1556,17 @@ impl Crypto for ProofCrypto {
         message: &[u8],
         signature: &AggregateSignature,
     ) -> bool {
-        self.verify_aggregate_multi(&[(keys.to_vec(), message.to_vec())], signature)
+        let Some(digest) = consensus::ConsensusDigest::from_preimage(message) else {
+            return false;
+        };
+        let Some(keys) = keys
+            .iter()
+            .map(|key| self.keys.get(*key))
+            .collect::<Option<Vec<_>>>()
+        else {
+            return false;
+        };
+        consensus::verify_fast_aggregate(&keys, &digest, &signature.0)
     }
     fn verify_aggregate_multi(
         &self,
@@ -1470,12 +1584,18 @@ impl Crypto for ProofCrypto {
         else {
             return false;
         };
-        let groups: Vec<(&[&BlsNormalPopVerifiedKey], &[u8])> = keys
+        let Some(groups) = keys
             .iter()
             .zip(groups)
-            .map(|(keys, (_, message))| (keys.as_slice(), message.as_slice()))
-            .collect();
-        bls_normal_verify_preaggregated_multi_message(&groups, &signature.0).is_ok()
+            .map(|(keys, (_, message))| {
+                consensus::ConsensusDigest::from_preimage(message)
+                    .map(|digest| (keys.as_slice(), digest))
+            })
+            .collect::<Option<Vec<_>>>()
+        else {
+            return false;
+        };
+        consensus::verify_aggregate_multi(&groups, &signature.0)
     }
 }
 
@@ -1483,7 +1603,13 @@ impl Crypto for ProofCrypto {
 pub(crate) mod tests;
 
 #[cfg(test)]
+mod consensus_suite_tests;
+
+#[cfg(test)]
 mod attestation_validation_tests;
+
+#[cfg(test)]
+mod portable_certified_result_tests;
 
 #[cfg(test)]
 mod immediate_successor_tests;
@@ -1801,12 +1927,12 @@ mod block_bound_tests {
         let at_bound = proof(MAX_FINALITY_BLOCK_BYTES)
             .decode_checked()
             .expect_err("the filler bytes are no canonical block");
-        assert_ne!(at_bound.0, REFUSAL);
+        assert_ne!(invalid_read_error(at_bound).0, REFUSAL);
         let over = proof(MAX_FINALITY_BLOCK_BYTES + 1)
             .decode_checked()
             .expect_err("one byte over the bound");
-        assert_eq!(over.0, REFUSAL);
+        assert_eq!(invalid_read_error(over).0, REFUSAL);
         let empty = proof(0).decode_checked().expect_err("an empty frame");
-        assert_eq!(empty.0, REFUSAL);
+        assert_eq!(invalid_read_error(empty).0, REFUSAL);
     }
 }

@@ -1,20 +1,12 @@
 //! SCCP v1 public read API (`specs/sccp.md` §6).
 //!
-//! Every honest peer serves identical bytes derived only from committed state; wallets and
-//! destinations never trust them and verify every bundle themselves. Responses are Norito or
-//! JSON by `Accept`. Proof routes answer `409 sccp_attestation_pending` until the chosen
-//! subject is attested and `410 sccp_pruned` once its signatures were pruned by retention; the
-//! checkpoint cover answers `410` when the head covers the height but no checkpoint at or above
-//! it is retained. Immutable responses (proof bundles, history paths of an explicit size and
-//! final message states) carry a strong `ETag` over the selected representation and answer a
-//! matching `If-None-Match` with `304`.
+//! Native certificates are verified against the committed State cut and canonical Kura
+//! carriers. Local source unavailability is a typed 503 response. Immutable explicit-height
+//! proofs and final message states carry representation-specific validators; `latest` stays
+//! mutable. Retired attestation, bridge-key and roster routes do not exist.
 //!
-//! Each handler is a thin extractor over a `*_response` function of a state view, so the
-//! seeded-state tests exercise exactly what the routes serve.
-//!
-//! TODO(ws35): attestation and bridge-key views (being redesigned), the remaining §6 governance
-//! targets (`/proposals?status&after` filters, diffs, readiness), and the Kura fallback for
-//! pruned signatures.
+//! TODO: complete native control storage and the retained rotation archive; missing custody
+//! never produces an invented certificate. Governance readiness remains a separate deliverable.
 
 use axum::{
     extract::{Path, State},
@@ -25,7 +17,7 @@ use iroha_core::{
     smartcontracts::isi::sccp::{
         read::{
             self, MAX_CONTROLS_PAGE, MAX_OUTBOUND_PAGE, MAX_RECENT_MESSAGES,
-            SccpAttestationChoiceV1, SccpDirectionV1, SccpReadError,
+            SccpCertificateChoiceV1, SccpDirectionV1, SccpReadError,
         },
         store,
     },
@@ -39,12 +31,13 @@ use norito::json::{Map, Value};
 // turn `?from_nonce=1` into a JSON number that an `Option<String>` field refuses.
 use crate::{JsonBody, NoritoStringQuery, SharedAppState, utils::extractors::ExtractAccept};
 
-/// `?attestation=own|latest|<height>` of the proof routes (default `own`).
+/// `?at=record|latest|<height>` of the native proof routes (default `record`).
 #[derive(Debug, Default, Clone, crate::json_macros::JsonDeserialize)]
-pub(crate) struct AttestationQuery {
-    /// Which subject attests the leaf.
+#[norito(deny_unknown_fields)]
+pub(crate) struct CertificateQuery {
+    /// Which committed native certificate covers the leaf.
     #[norito(default)]
-    pub attestation: Option<String>,
+    pub at: Option<String>,
 }
 
 /// `?after_generation=G&limit=N` of the rotation-chain route (decimal strings).
@@ -137,12 +130,15 @@ fn read_error(read: &SccpReadError) -> Response {
         SccpReadError::NotFound(_) => {
             error(StatusCode::NOT_FOUND, "sccp_not_found", read.to_string())
         }
-        SccpReadError::Pending(_) => error(
-            StatusCode::CONFLICT,
-            "sccp_attestation_pending",
+        SccpReadError::Unavailable(_) => error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "sccp_unavailable",
             read.to_string(),
         ),
         SccpReadError::Pruned(_) => error(StatusCode::GONE, "sccp_pruned", read.to_string()),
+        SccpReadError::RotationPruned(_) => {
+            error(StatusCode::GONE, "sccp_rotation_pruned", read.to_string())
+        }
         SccpReadError::Invalid(_) => error(
             StatusCode::BAD_REQUEST,
             "sccp_invalid_query",
@@ -253,16 +249,16 @@ fn parse_network(text: &str) -> Result<SccpNetworkV1, Response> {
         })
 }
 
-fn parse_choice(query: &AttestationQuery) -> Result<SccpAttestationChoiceV1, Response> {
+fn parse_choice(query: &CertificateQuery) -> Result<SccpCertificateChoiceV1, Response> {
     query
-        .attestation
+        .at
         .as_deref()
-        .map_or(Ok(SccpAttestationChoiceV1::Own), |text| {
-            SccpAttestationChoiceV1::parse(text).ok_or_else(|| {
+        .map_or(Ok(SccpCertificateChoiceV1::Record), |text| {
+            SccpCertificateChoiceV1::parse(text).ok_or_else(|| {
                 error(
                     StatusCode::BAD_REQUEST,
                     "sccp_invalid_query",
-                    "attestation must be `own`, `latest` or a height",
+                    "at must be `record`, `latest` or a positive height",
                 )
             })
         })
@@ -289,7 +285,10 @@ pub(crate) fn capabilities_response(
     view: &(impl StateReadOnly + ?Sized),
     accept: Option<&ExtractAccept>,
 ) -> Response {
-    let mut capabilities = read::capabilities(view);
+    let mut capabilities = match read::capabilities(view) {
+        Ok(value) => value,
+        Err(error) => return read_error(&error),
+    };
     capabilities.path_templates = iroha_torii_shared::route_catalog::sccp::ROUTES
         .iter()
         .map(|route| route.path().to_owned())
@@ -308,7 +307,7 @@ pub(crate) fn message_response(
         Ok(id) => id,
         Err(response) => return response,
     };
-    let status = read::message_status(view.world(), &message_id);
+    let status = read::message_status(view.world(), view.height() as u64, &message_id);
     if status.is_final() {
         respond_immutable(accept, headers, status)
     } else {
@@ -338,6 +337,7 @@ pub(crate) fn recent_response(
         accept,
         read::recent_messages(
             view.world(),
+            view.height() as u64,
             direction,
             network,
             query.before.as_deref(),
@@ -364,7 +364,14 @@ pub(crate) fn outbound_response(
     };
     respond_result(
         accept,
-        read::outbound_page(view.world(), network, revision, from_nonce, limit),
+        read::outbound_page(
+            view.world(),
+            view.height() as u64,
+            network,
+            revision,
+            from_nonce,
+            limit,
+        ),
     )
 }
 
@@ -394,7 +401,7 @@ pub(crate) fn controls_response(
 pub(crate) fn message_proof_response(
     view: &(impl StateReadOnly + ?Sized),
     message_id: &str,
-    query: &AttestationQuery,
+    query: &CertificateQuery,
     accept: Option<&ExtractAccept>,
     headers: &HeaderMap,
 ) -> Response {
@@ -403,6 +410,7 @@ pub(crate) fn message_proof_response(
         (Err(response), _) | (_, Err(response)) => return response,
     };
     match read::message_proof(view, &message_id, choice) {
+        Ok(bundle) if choice == SccpCertificateChoiceV1::Latest => respond(accept, bundle),
         Ok(bundle) => respond_immutable(accept, headers, bundle),
         Err(failure) => read_error(&failure),
     }
@@ -413,7 +421,7 @@ pub(crate) fn message_proof_response(
 pub(crate) fn control_proof_response(
     view: &(impl StateReadOnly + ?Sized),
     (network, revision, control_nonce): (&str, u32, u64),
-    query: &AttestationQuery,
+    query: &CertificateQuery,
     accept: Option<&ExtractAccept>,
     headers: &HeaderMap,
 ) -> Response {
@@ -422,6 +430,7 @@ pub(crate) fn control_proof_response(
         (Err(response), _) | (_, Err(response)) => return response,
     };
     match read::control_proof(view, network, revision, control_nonce, choice) {
+        Ok(bundle) if choice == SccpCertificateChoiceV1::Latest => respond(accept, bundle),
         Ok(bundle) => respond_immutable(accept, headers, bundle),
         Err(failure) => read_error(&failure),
     }
@@ -500,14 +509,13 @@ pub(crate) fn governance_proposal_response(
     }
 }
 
-fn roster_response(
+fn generation_response(
     world: &(impl WorldReadOnly + ?Sized),
-    network_id: &[u8; 32],
     generation: u64,
     accept: Option<&ExtractAccept>,
 ) -> Response {
-    match read::roster_view(world, network_id, generation) {
-        Some(roster) => respond(accept, roster),
+    match read::generation_view(world, generation) {
+        Some(generation) => respond(accept, generation),
         None => read_error(&SccpReadError::NotFound(format!("generation {generation}"))),
     }
 }
@@ -589,11 +597,11 @@ pub(crate) async fn handler_controls(
     )
 }
 
-/// `GET /v1/sccp/messages/{message_id}/proof?attestation=`.
+/// `GET /v1/sccp/messages/{message_id}/proof?at=`.
 pub(crate) async fn handler_message_proof(
     State(app): State<SharedAppState>,
     Path(message_id): Path<String>,
-    NoritoStringQuery(query): NoritoStringQuery<AttestationQuery>,
+    NoritoStringQuery(query): NoritoStringQuery<CertificateQuery>,
     headers: HeaderMap,
     accept: Option<ExtractAccept>,
 ) -> Response {
@@ -606,11 +614,11 @@ pub(crate) async fn handler_message_proof(
     )
 }
 
-/// `GET /v1/sccp/controls/{network}/{revision}/{control_nonce}/proof?attestation=`.
+/// `GET /v1/sccp/controls/{network}/{revision}/{control_nonce}/proof?at=`.
 pub(crate) async fn handler_control_proof(
     State(app): State<SharedAppState>,
     Path((network, revision, control_nonce)): Path<(String, u32, u64)>,
-    NoritoStringQuery(query): NoritoStringQuery<AttestationQuery>,
+    NoritoStringQuery(query): NoritoStringQuery<CertificateQuery>,
     headers: HeaderMap,
     accept: Option<ExtractAccept>,
 ) -> Response {
@@ -705,35 +713,30 @@ pub(crate) async fn handler_governance_proposal(
     governance_proposal_response(&app.state.view(), &proposal_id, accept.as_ref())
 }
 
-/// `GET /v1/sccp/rosters/current`.
-pub(crate) async fn handler_roster_current(
+/// `GET /v1/sccp/committees/current`.
+pub(crate) async fn handler_committee_current(
     State(app): State<SharedAppState>,
     accept: Option<ExtractAccept>,
 ) -> Response {
     let view = app.state.view();
-    let generation = *store::roster_current::get(view.world());
-    match read::roster_view(view.world(), view.network_id().as_bytes(), generation) {
-        Some(roster) => respond(accept.as_ref(), roster),
-        None => read_error(&SccpReadError::NotFound("no roster generation yet".into())),
-    }
+    generation_response(
+        view.world(),
+        view.world().sccp_committee_current(),
+        accept.as_ref(),
+    )
 }
 
-/// `GET /v1/sccp/rosters/{generation}`.
-pub(crate) async fn handler_roster(
+/// `GET /v1/sccp/committees/{generation}`.
+pub(crate) async fn handler_committee(
     State(app): State<SharedAppState>,
     Path(generation): Path<u64>,
     accept: Option<ExtractAccept>,
 ) -> Response {
     let view = app.state.view();
-    roster_response(
-        view.world(),
-        view.network_id().as_bytes(),
-        generation,
-        accept.as_ref(),
-    )
+    generation_response(view.world(), generation, accept.as_ref())
 }
 
-/// `GET /v1/sccp/rosters/rotations?after_generation=&limit=`.
+/// `GET /v1/sccp/committees/rotations?after_generation=&limit=`.
 pub(crate) async fn handler_rotations(
     State(app): State<SharedAppState>,
     NoritoStringQuery(query): NoritoStringQuery<RotationQuery>,
@@ -747,7 +750,32 @@ pub(crate) async fn handler_rotations(
         (Err(response), _) | (_, Err(response)) => return response,
     };
     let chain = read::rotation_chain(&app.state.view(), after_generation, limit);
-    respond(accept.as_ref(), chain)
+    respond_result(accept.as_ref(), chain)
+}
+
+/// `GET /v1/sccp/finality/{height}`; the explicit height has an immutable representation.
+pub(crate) async fn handler_finality(
+    State(app): State<SharedAppState>,
+    Path(height): Path<u64>,
+    accept: Option<ExtractAccept>,
+    headers: HeaderMap,
+) -> Response {
+    match read::finality_certificate(&app.state.view(), height) {
+        Ok(certificate) => respond_immutable(accept.as_ref(), &headers, certificate),
+        Err(error) => read_error(&error),
+    }
+}
+
+/// `GET /v1/sccp/finality/latest` over one committed view.
+pub(crate) async fn handler_finality_latest(
+    State(app): State<SharedAppState>,
+    accept: Option<ExtractAccept>,
+) -> Response {
+    let view = app.state.view();
+    respond_result(
+        accept.as_ref(),
+        read::finality_certificate(&view, view.height() as u64),
+    )
 }
 
 #[cfg(test)]

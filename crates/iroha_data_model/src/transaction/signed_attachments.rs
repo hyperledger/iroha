@@ -1718,14 +1718,14 @@ impl SignedAttachmentsV1 {
     }
 }
 
-/// Read one compact-length-prefixed struct field without allocating.
+/// Borrow one length-prefixed struct field without charging an owned allocation.
 fn take_field<'a>(
     bytes: &'a [u8],
     offset: &mut usize,
     max_len: usize,
 ) -> Result<&'a [u8], ncore::Error> {
     let tail = bytes.get(*offset..).ok_or(ncore::Error::LengthMismatch)?;
-    let (len, header) = ncore::read_len_dyn_slice(tail)?;
+    let (len, header) = ncore::inspect_len_from_slice(tail)?;
     if len > max_len {
         return Err(ncore::Error::LengthMismatch);
     }
@@ -1763,7 +1763,7 @@ fn preflight_action_fields(
     let (operation_tag, mut operation_offset) = u32::decode_from_slice(operation)?;
     if operation_tag == 0 {
         let wire_id = take_field(operation, &mut operation_offset, operation.len())?;
-        let (length, _) = ncore::read_len_dyn_slice(wire_id)?;
+        let (length, _) = ncore::inspect_len_from_slice(wire_id)?;
         if length > ACTION_OPERATION_MAX_WIRE_ID_BYTES_V1 {
             return Err(schema_error(&SignedAttachmentErrorV1::MalformedOperation {
                 action_index,

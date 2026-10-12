@@ -299,7 +299,8 @@ fn state_with(node: Option<Zk>, policy: Option<&ZkValidityPolicyV1>) -> State {
         block
             .parameters
             .get_mut()
-            .set_parameter(Parameter::Custom(policy.clone().into_custom_parameter()));
+            .set_parameter(Parameter::Custom(policy.clone().into_custom_parameter()))
+            .expect("valid fixture parameters");
         block.commit();
     }
     let mut state = State::new_for_testing(

@@ -1,104 +1,154 @@
-//! SCCP block hooks (`specs/sccp.md` §4.3.2, §4.5). Owner: ws30.
+//! SCCP native generation and monetary-history hooks (`specs/sccp.md` §4.2, §4.5, §4.8).
 //!
-//! * [`finalize_block`] runs in `ValidBlock::finalize_owned_execution_metadata` after every
-//!   transaction of block `h` and before the output seal, with the consensus inputs of `h`
-//!   ([`SccpHeightInputsV1`]): it commits the block's leaves, appends the history leaf, applies
-//!   bridge-key promotion and the roster rule at rotation heights, writes the attestation
-//!   subject and prunes.
-//! * [`heartbeat_start_work_pending`] tells `State::deterministic_start_work_pending` that the
-//!   candidate block must be produced even with an empty queue because its creation time
-//!   crosses the current generation's heartbeat.
-//! * [`apply_block_start`] runs at block start, next to the due Parliament certificates and
-//!   before the block's transactions, and writes the heartbeat marker.
-//!
-//! With SCCP absent every hook is a no-op.
+//! S0 fixes the liability clock before governance or transactions. The post-execution pass
+//! preserves leaf/history commitments, prepares original native G2/G7 owners, applies them
+//! atomically, then runs available pruning and L5. Missing deterministic inputs degrade SCCP;
+//! local custody failures defer the local attempt and never become peer-invalid verdicts.
+//! A1 and fixed X remain bound to the same original execution cut; destination launch also
+//! requires the independently tracked evidence, reconciliation and admission owners.
 
-use super::{commitment, height::SccpHeightInputsV1, params, prune, roster, store, subjects};
+use super::{
+    anchor, commitment, finality, generation, height::SccpHeightInputsV1, params, prune, store,
+};
 use crate::{
     block::BlockValidationError,
     state::{StateBlock, StateReadOnly, StateStorageAdmissionError, WorldReadOnly},
 };
-use iroha_data_model::{block::BlockHeader, sccp::attestation::SccpAttestationSubjectV1};
+use iroha_data_model::block::BlockHeader;
+use iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1;
+use mv::storage::StorageReadOnly;
 
-/// Run the SCCP post-execution step of block `header` (§4.5).
-///
-/// `height_inputs` are the authenticated consensus inputs of the block's height: from the
-/// Sumeragi core's authenticated schedule on the production and signed-genesis paths. They
-/// are `None` only for component fixtures that execute without consensus and for a height
-/// whose inputs could not be derived; SCCP then commits leaves and history but derives no
-/// roster and writes no subject (fail closed).
-///
-/// The steps run in one transaction, in §4.5 order: (a) commit the block's leaves and append
-/// the history leaf; (b) at rotation heights apply key promotion and the roster rule; (c)
-/// write the subject when the block has messages, is a boundary, or created a generation;
-/// (d) record stalled handoffs; (e) prune within the per-block budget.
-///
-/// # Errors
-///
-/// Fails the block on an execution invariant violation (for example non-dense leaf indices)
-/// or when local storage refuses the hook's transaction.
+/// Update the liability clock before the governance block-start pass and all transactions.
+/// Deterministic inconsistency is retained for G4; only a local transaction refusal escapes.
+pub fn begin_block(
+    state: &mut StateBlock<'_>,
+    header: &BlockHeader,
+) -> Result<(), StateStorageAdmissionError> {
+    let Some(parameters) = params::parameters(&state.world) else {
+        return Ok(());
+    };
+    let parent = state
+        .native_execution_tip()
+        .map(|tip| (tip.height(), tip.creation_time_ms()));
+    let next = super::generation_plan::liability_clock(
+        header.height().get(),
+        header.creation_time_ms,
+        parent,
+        state.world.sccp_liability_clock(),
+        parameters.committee_heartbeat_ms,
+        super::generation_plan::SCCP_LC_SLACK_MS,
+    );
+    match next {
+        Ok(lc) => {
+            let mut transaction = state.try_transaction()?;
+            *transaction.world.sccp_liability_clock.get_mut() = lc;
+            transaction.apply();
+            state.sccp_begin_failure = None;
+        }
+        Err(reason) => {
+            state.sccp_begin_failure = Some(reason);
+        }
+    }
+    state.require_storage_admission()?;
+    Ok(())
+}
+
+/// Finalize SCCP World writes using original native height-input custody.
+/// Local refusals leave the whole enclosing execution attempt unapplied.
 pub fn finalize_block(
-    state_block: &mut StateBlock<'_>,
+    state: &mut StateBlock<'_>,
     header: &BlockHeader,
     height_inputs: Option<&SccpHeightInputsV1>,
-) -> Result<(), BlockValidationError> {
-    if !params::exists(&state_block.world) {
-        return Ok(());
+) -> Result<SccpFinalityHeaderV1, BlockValidationError> {
+    let inactive = finality::inactive(
+        *state.network_id(),
+        header.height(),
+        header.creation_time_ms,
+    );
+    if !params::exists(&state.world) {
+        return Ok(inactive);
     }
     #[cfg(test)]
     observed::record(header, height_inputs);
-    let Some(parameters) = store::parameters::get(&state_block.world).clone() else {
-        return Ok(());
+    let Some(parameters) = params::parameters(&state.world) else {
+        return Ok(inactive);
     };
-    let network_id = *state_block.network_id().as_bytes();
-    let height = header.height().get();
-    let now_ms = header.creation_time_ms;
-    let mut stx = state_block
+    let global = matches!(
+        crate::sumeragi::lanes::routing::read_routing_root_scope(&state.world)
+            .map_err(BlockValidationError::ExecutionDeferred)?,
+        Some(iroha_data_model::block::consensus::SumeragiRootScope::Global)
+    );
+    let original_degraded_run = state.world.sccp_degraded_run();
+    let budget = state.execution_budget();
+    let prepared_anchor =
+        anchor::prepare(&state.world, header, state.native_execution_tip(), &budget).map_err(
+            |original| {
+                let original = StateStorageAdmissionError::SccpAnchor(original);
+                state.arm_local_storage_refusal(original.clone());
+                BlockValidationError::StateStorageAdmission(original)
+            },
+        )?;
+    let prepared = generation::prepare(
+        &state.world,
+        &parameters,
+        *state.network_id(),
+        header.height().get(),
+        header.creation_time_ms,
+        state.native_execution_tip(),
+        height_inputs,
+        state.sccp_begin_failure.or_else(|| {
+            (!global).then_some(
+                iroha_data_model::sccp::events::SccpFinalityDegradedReasonV1::InvalidHeightInputs,
+            )
+        }),
+        &budget,
+    )
+    .map_err(generation::GenerationWriteError::into_block_error)?;
+    let mut transaction = state
         .try_transaction()
         .map_err(BlockValidationError::StateStorageAdmission)?;
-
-    let committed = commitment::commit_block(&mut stx, height)?;
-    let step = match height_inputs {
-        Some(inputs) => Some(roster::apply_roster_rule(
-            &mut stx,
-            &network_id,
-            &parameters,
-            height,
-            now_ms,
-            inputs,
-        )?),
-        None => None,
-    };
-
-    if let (Some(inputs), Some(step)) = (height_inputs, step) {
-        let required = committed.is_some() || step.boundary || step.created_digest.is_some();
-        let signer = roster::generation_for_height(&*stx.world, height).and_then(|generation| {
-            store::rosters::get(&*stx.world, &generation).map(|roster| (generation, roster.digest))
-        });
-        if let (true, Some((generation, roster_digest))) = (required, signer) {
-            let (history_root, history_size) = commitment::history_root_and_size(&*stx.world);
-            subjects::write_subject(
-                &mut stx,
-                SccpAttestationSubjectV1 {
-                    height,
-                    epoch: inputs.epoch,
-                    timestamp_ms: now_ms,
-                    sccp_root: committed.map_or([0; 32], |commitment| commitment.root),
-                    message_count: committed.map_or(0, |commitment| commitment.message_count),
-                    history_root,
-                    history_size,
-                    generation,
-                    roster_digest,
-                    next_roster_digest: step.created_digest.unwrap_or([0; 32]),
-                },
-            )?;
+    commitment::commit_block(&mut transaction, header.height().get())?;
+    let signing_generation = prepared
+        .apply(&mut transaction, &budget)
+        .map_err(generation::GenerationWriteError::into_block_error)?;
+    prepared_anchor
+        .apply(&mut transaction, &budget)
+        .map_err(BlockValidationError::StateStorageAdmission)?;
+    prune::post_generation_work(&mut transaction)?;
+    let signing = signing_generation.and_then(|generation| {
+        transaction
+            .world
+            .sccp_committee_generations
+            .get(&generation)
+    });
+    let produced = finality::produce(
+        *transaction.network_id(),
+        header.height(),
+        header.creation_time_ms,
+        signing.map(|owner| owner.record()),
+        transaction
+            .world
+            .sccp_block_commitments
+            .get(&header.height().get()),
+        transaction.world.sccp_history.get(),
+    );
+    let header = match produced {
+        Ok(header) => header,
+        Err(reason) => {
+            use iroha_data_model::sccp::events::{SccpEvent, SccpFinalityDegradedV1};
+            *transaction.world.sccp_degraded_run.get_mut() =
+                original_degraded_run.saturating_add(1);
+            transaction
+                .world
+                .emit_events(Some(SccpEvent::FinalityDegraded(SccpFinalityDegradedV1 {
+                    height: header.height().get(),
+                    reason,
+                })));
+            inactive
         }
-    }
-
-    subjects::record_stalled_handoffs(&mut stx, parameters.attestation_stall_ms, now_ms)?;
-    prune::prune(&mut stx, now_ms, prune::MAX_PRUNE_DELETIONS_PER_BLOCK);
-    stx.apply();
-    Ok(())
+    };
+    transaction.apply();
+    Ok(header)
 }
 
 /// Test observation of the inputs [`finalize_block`] received on this thread or for one
@@ -171,59 +221,17 @@ pub(crate) mod observed {
     }
 }
 
-/// Return whether block start of `candidate_header` has SCCP work: its creation time reaches
-/// the heartbeat of the current generation and the heartbeat marker has not fired for it
-/// (§4.3.2). `world` is the committed parent state.
-#[must_use]
-pub fn heartbeat_start_work_pending(
-    world: &(impl WorldReadOnly + ?Sized),
-    candidate_header: &BlockHeader,
-) -> bool {
-    if !params::exists(world) {
-        return false;
-    }
-    roster::heartbeat_due(world, candidate_header.creation_time_ms)
-        .is_some_and(|generation| *store::heartbeat_marker::get(world) != Some(generation))
-}
-
-/// Apply SCCP block-start work of `header` (the heartbeat marker, §4.3.2).
-///
-/// The marker fires at most once per generation, which makes the heartbeat block
-/// deterministic start-of-block work even on an idle Taira.
-///
-/// # Errors
-///
-/// Propagates local storage admission failures of the block-start transaction.
-pub fn apply_block_start(
-    state_block: &mut StateBlock<'_>,
-    header: &BlockHeader,
-) -> Result<(), StateStorageAdmissionError> {
-    if !heartbeat_start_work_pending(&state_block.world, header) {
-        return Ok(());
-    }
-    let Some(generation) = roster::heartbeat_due(&state_block.world, header.creation_time_ms)
-    else {
-        return Ok(());
-    };
-    let mut stx = state_block.try_transaction()?;
-    store::heartbeat_marker::set(&mut stx, Some(generation));
-    stx.apply();
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::smartcontracts::isi::sccp::{
-        store,
-        test_support::{blank_state, header},
-    };
+    use crate::smartcontracts::isi::sccp::test_support::{blank_state, header};
     use iroha_data_model::sccp::params::SccpParametersV1;
+    use mv::storage::StorageReadOnly;
 
     #[test]
     fn proposal_observer_is_scoped_across_threads_and_releases_on_unwind() {
-        let original = header(9_031);
-        let foreign = header(9_032);
+        let original = header(9031);
+        let foreign = header(9032);
         let calls = observed::for_header(&original);
         std::thread::scope(|scope| {
             scope.spawn(|| {
@@ -231,12 +239,12 @@ mod tests {
                 observed::record(&original, None);
             });
         });
-        assert_eq!(calls.take(), vec![(9_031, None)]);
+        assert_eq!(calls.take(), vec![(9031, None)]);
         assert!(calls.take().is_empty());
         assert!(
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
                 let _calls = calls;
-                panic!("exercise scoped observer retirement");
+                panic!("scoped observer retirement");
             }))
             .is_err()
         );
@@ -246,123 +254,55 @@ mod tests {
     }
 
     #[test]
-    fn hooks_are_no_ops_without_sccp() {
+    fn native_hooks_are_no_ops_without_sccp() {
         let state = blank_state();
         let candidate = header(2);
-        assert!(!heartbeat_start_work_pending(
-            &state.world_view(),
-            &candidate
-        ));
         let mut block = state.block(candidate);
-        apply_block_start(&mut block, &candidate).expect("no-op block start");
+        begin_block(&mut block, &candidate).unwrap();
         let _ = observed::take();
-        finalize_block(&mut block, &candidate, None).expect("no-op finalizer");
-        assert!(
-            observed::take().is_empty(),
-            "the finalizer returns before reading inputs without SCCP"
-        );
+        finalize_block(&mut block, &candidate, None).unwrap();
+        assert!(observed::take().is_empty());
         assert!(store::block_commitments::is_empty(&block.world));
-        assert_eq!(*store::heartbeat_marker::get(&block.world), None);
+        assert_eq!(block.world.sccp_liability_clock(), 0);
+        assert_eq!(block.world.sccp_degraded_run(), 0);
     }
 
     #[test]
-    fn keyless_or_empty_rosters_fail_closed_without_failing_the_block() {
+    fn missing_original_parent_is_sticky_local_refusal_without_fabricated_anchor_or_generation() {
         let state = blank_state();
         let candidate = header(2);
         let mut block = state.block(candidate);
         {
-            let mut stx = block.transaction();
-            store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
-            stx.apply();
+            let mut transaction = block.transaction();
+            store::parameters::set(&mut transaction, Some(SccpParametersV1::taira_default()));
+            transaction.apply();
         }
-        assert!(!heartbeat_start_work_pending(&block.world, &candidate));
-        apply_block_start(&mut block, &candidate).expect("no-op block start");
-        let _ = observed::take();
-        let inputs = SccpHeightInputsV1 {
-            mode: iroha_data_model::parameter::system::ConsensusMode::Npos,
-            height: 2,
-            epoch: 0,
-            epoch_end_height: 2,
-            roster: Vec::new(),
-            next_roster: Some(Vec::new()),
-        };
-        finalize_block(&mut block, &candidate, Some(&inputs)).expect("empty roster fails closed");
-        finalize_block(&mut block, &candidate, None).expect("no inputs: no roster work");
-        assert!(store::rosters::is_empty(&block.world));
-        assert_eq!(observed::take(), vec![(2, Some(inputs)), (2, None)]);
-    }
-
-    #[test]
-    fn genesis_creates_generation_one_and_the_heartbeat_fires_once() {
-        use crate::smartcontracts::isi::sccp::test_support::peer;
-        use iroha_data_model::sccp::keys::{SccpBridgeKeyStateV1, SccpBridgeKeyV1};
-        use std::num::NonZeroU64;
-
-        let state = blank_state();
-        let genesis = header(1);
-        let mut block = state.block(genesis);
-        {
-            let mut stx = block.transaction();
-            store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
-            for seed in 1..=4_u8 {
-                let key = SccpBridgeKeyV1 {
-                    public_key: [2; 33],
-                    address: [seed * 16; 20],
-                    activation_epoch: 0,
-                    registered_at_height: 1,
-                    faulted: false,
-                };
-                store::bridge_keys::insert(
-                    &mut stx,
-                    peer(seed),
-                    SccpBridgeKeyStateV1 {
-                        active: Some(key),
-                        ..SccpBridgeKeyStateV1::default()
-                    },
-                )
-                .expect("key");
-            }
-            stx.apply();
-        }
-        let inputs = SccpHeightInputsV1 {
-            mode: iroha_data_model::parameter::system::ConsensusMode::Npos,
-            height: 1,
-            epoch: 0,
-            epoch_end_height: 1_000_000,
-            roster: (1..=4).map(peer).collect(),
-            next_roster: None,
-        };
-        finalize_block(&mut block, &genesis, Some(&inputs)).expect("genesis hook");
-        let (generation, first) = roster::current(&block.world).expect("generation 1");
-        assert_eq!(generation, 1);
-        assert!(!first.is_inert());
+        begin_block(&mut block, &candidate).unwrap();
+        assert_eq!(
+            block.sccp_begin_failure,
+            Some(iroha_data_model::sccp::events::SccpFinalityDegradedReasonV1::MissingParentTip)
+        );
+        assert!(matches!(
+            finalize_block(&mut block, &candidate, None),
+            Err(BlockValidationError::StateStorageAdmission(
+                StateStorageAdmissionError::SccpAnchor(anchor::SccpAnchorLocalError::Invariant(
+                    "missing original parent native tip"
+                ))
+            ))
+        ));
+        assert!(block.require_storage_admission().is_err());
+        assert!(block.world.sccp_anchor_open().anchors().is_empty());
+        assert!(block.world.sccp_anchor_chunks().iter().next().is_none());
         assert!(
-            !subjects::exists(&block.world, 1),
-            "no messages, no boundary"
+            block
+                .world
+                .sccp_committee_generations()
+                .iter()
+                .next()
+                .is_none()
         );
-
-        let max_age = SccpParametersV1::taira_default().roster_max_age_ms;
-        let early = BlockHeader::new(
-            NonZeroU64::new(2).expect("nonzero"),
-            None,
-            None,
-            first.valid_from_ms + max_age - 1,
-            0,
-        );
-        assert!(!heartbeat_start_work_pending(&block.world, &early));
-        let due = BlockHeader::new(
-            NonZeroU64::new(2).expect("nonzero"),
-            None,
-            None,
-            first.valid_from_ms + max_age,
-            0,
-        );
-        assert!(heartbeat_start_work_pending(&block.world, &due));
-        apply_block_start(&mut block, &due).expect("marker");
-        assert_eq!(*store::heartbeat_marker::get(&block.world), Some(1));
-        assert!(
-            !heartbeat_start_work_pending(&block.world, &due),
-            "the marker fires once per generation"
-        );
+        assert_eq!(block.world.sccp_committee_current(), 0);
+        assert_eq!(block.world.sccp_degraded_run(), 0);
+        assert_eq!(block.world.sccp_liability_clock(), 0);
     }
 }

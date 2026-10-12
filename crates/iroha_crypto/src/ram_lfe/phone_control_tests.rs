@@ -464,16 +464,38 @@ fn commitment_words_decode_strictly() {
     }
 
     // The decoder rejects the same words inside a canonical frame.
-    let frame = norito::encode_canonical(&committed).unwrap();
-    let offset = frame
+    let canonical_frame = norito::encode_canonical(&committed).unwrap();
+    let flags = norito::core::from_bytes_view(&canonical_frame)
+        .unwrap()
+        .flags();
+    let payload = committed.encode();
+    let offset = payload
         .windows(48)
         .position(|window| window == canonical)
-        .expect("the frame holds the 48 commitment bytes verbatim");
+        .expect("the payload holds the 48 commitment bytes verbatim");
     for lane in 0..6 {
-        let mut forged = frame.clone();
-        forged[offset + lane * 8..offset + lane * 8 + 8]
-            .copy_from_slice(&field_modulus().to_le_bytes());
-        assert!(norito::decode_canonical::<PhoneNumberCommitmentV1>(&forged).is_err());
+        for word in [field_modulus(), field_modulus() + 1, u64::MAX] {
+            let mut forged = payload.clone();
+            forged[offset + lane * 8..offset + lane * 8 + 8].copy_from_slice(&word.to_le_bytes());
+            // Rebuild the header/checksum so the field decoder must reject it.
+            let frame = norito::core::frame_bare_with_header_flags::<PhoneNumberCommitmentV1>(
+                &forged, flags,
+            )
+            .unwrap();
+            assert!(norito::decode_canonical::<PhoneNumberCommitmentV1>(&frame).is_err());
+
+            let frame = norito::core::frame_bare_with_header_flags::<PhoneNumberCommitmentValueV1>(
+                &forged[offset..offset + 48],
+                flags,
+            )
+            .unwrap();
+            assert!(matches!(
+                norito::decode_canonical::<PhoneNumberCommitmentValueV1>(&frame),
+                Err(norito::core::Error::InvalidValue {
+                    context: "phone-number commitment word"
+                })
+            ));
+        }
     }
     let value = PhoneNumberCommitmentValueV1::from_le_bytes(canonical).unwrap();
     roundtrip(&value);
@@ -484,6 +506,53 @@ fn commitment_words_decode_strictly() {
     let offset = forged.len() - 48;
     forged[offset..offset + 8].copy_from_slice(&u64::MAX.to_le_bytes());
     assert!(norito::decode_canonical::<PhoneNumberCommitmentValueV1>(&forged).is_err());
+}
+
+#[test]
+fn commitment_value_payload_is_raw_and_bounded() {
+    let bytes = commitment(NUMBER, 0x42).to_le_bytes();
+    let value = PhoneNumberCommitmentValueV1::from_le_bytes(bytes).unwrap();
+    assert_eq!(value.encode(), bytes);
+    roundtrip(&value);
+    roundtrip(&vec![value, value]);
+    let canonical = norito::encode_canonical(&value).unwrap();
+    let flags = norito::core::from_bytes_view(&canonical).unwrap().flags();
+    let frame = |payload: &[u8]| {
+        norito::core::frame_bare_with_header_flags::<PhoneNumberCommitmentValueV1>(payload, flags)
+            .unwrap()
+    };
+    assert_eq!(frame(&bytes), canonical);
+    for length in [0, 1, PhoneNumberCommitmentValueV1::BYTES - 1] {
+        assert!(
+            norito::decode_canonical::<PhoneNumberCommitmentValueV1>(&frame(&bytes[..length]))
+                .is_err(),
+            "short payload of {length} bytes"
+        );
+        assert!(
+            <PhoneNumberCommitmentValueV1 as norito::core::DecodeFromSlice>::decode_from_slice(
+                &bytes[..length]
+            )
+            .is_err()
+        );
+    }
+    let mut trailing = bytes.to_vec();
+    trailing.push(0);
+    assert!(norito::decode_canonical::<PhoneNumberCommitmentValueV1>(&frame(&trailing)).is_err());
+    // The compositional slice decoder reports its prefix; a complete archive
+    // must consume all of its bounded payload.
+    assert_eq!(
+        <PhoneNumberCommitmentValueV1 as norito::core::DecodeFromSlice>::decode_from_slice(
+            &trailing
+        )
+        .unwrap(),
+        (value, PhoneNumberCommitmentValueV1::BYTES)
+    );
+    let array_payload = bytes.encode();
+    assert_ne!(array_payload, bytes);
+    assert!(
+        norito::decode_canonical::<PhoneNumberCommitmentValueV1>(&frame(&array_payload)).is_err(),
+        "the generic array encoding is not a second commitment layout"
+    );
 }
 
 #[test]

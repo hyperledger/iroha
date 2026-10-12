@@ -1,197 +1,173 @@
-//! Bounded post-execution pruning (`specs/sccp.md` §4.10). Owner: ws30.
+//! Native SCCP post-execution retention and destination clearance (§4.8, §4.11).
 //!
-//! Attestation signatures are pruned by block time after `attestation_retention_ms`, rotation
-//! subjects are kept until the outgoing roster expires plus one day, and light-client
-//! checkpoints follow §4.13.1. At most [`MAX_PRUNE_DELETIONS_PER_BLOCK`] records are deleted
-//! per block; `sccp_prune_cursor` resumes the scan. Subjects, statuses, commitments and history
-//! are permanent; only signatures (and light-client checkpoints) are pruned.
+//! Light-client retention preserves its existing deletion budget. Generation and anchor deletion
+//! requires their complete native forgery/anchor custody; until supplied it is explicitly
+//! deferred without deleting records or changing consensus validity. L5 runs afterward and
+//! retains every lifecycle copy in the original execution pool before editing the table.
 
-use super::{light_clients, store};
-use crate::state::StateTransaction;
+use super::{
+    committee_owner::{CommitteeOwnerError, RetainedSccpCommitteeGeneration as Retained},
+    generation_error::SccpGenerationLocalError,
+    light_clients, store,
+};
+use crate::{
+    block::BlockValidationError,
+    state::{StateReadOnly, StateStorageAdmissionError, StateTransaction, WorldReadOnly},
+};
+use iroha_data_model::sccp::{
+    events::{SccpEvent, SccpGenerationDestinationClearedV1},
+    registry::{SCCP_ROUTE_NETWORKS_V1, SccpRouteActivationV1},
+};
+use mv::storage::StorageReadOnly;
 
-/// Per-block work bound of the pruning step (§4.10).
-pub const MAX_PRUNE_DELETIONS_PER_BLOCK: usize = 1_024;
+#[path = "prune_plan.rs"]
+pub mod plan;
 
-/// Rotation-subject signatures outlive the outgoing generation by one day (§4.10).
-pub const ROTATION_RETENTION_GRACE_MS: u64 = 86_400_000;
+/// Existing per-pass deletion budget of light-client sets/checkpoints (§4.13.1).
+pub const MAX_LIGHT_CLIENT_DELETIONS_PER_BLOCK: usize = 1_024;
 
-/// Delete the stored signatures of subject `height`, at most `budget`; return
-/// `(deleted, complete)`.
-fn delete_signatures(
-    state_transaction: &mut StateTransaction<'_, '_>,
-    height: u64,
-    budget: usize,
-) -> (usize, bool) {
-    let keys: Vec<(u64, u8)> = store::attestation_signatures::range(
-        &*state_transaction.world,
-        (height, 0)..=(height, u8::MAX),
-    )
-    .map(|(key, _)| *key)
-    .take(budget.saturating_add(1))
-    .collect();
-    let complete = keys.len() <= budget;
-    let mut deleted = 0;
-    for key in keys.into_iter().take(budget) {
-        store::attestation_signatures::remove(state_transaction, key);
-        deleted += 1;
-    }
-    (deleted, complete)
+/// Native state custody still required before any generation or anchor can be deleted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativePruningPrerequisite {
+    /// Original pending forgery records and completed/open anchor owners are not integrated.
+    ForgeryRecordsAndAnchors,
 }
 
-/// Prune expired SCCP records at block time `now_ms`, deleting at most `budget` records, and
-/// return the number deleted.
+/// Local implementation progress, never a block-validity or finality verdict.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativePruningStatus {
+    /// Every native generation and anchor stays retained pending the named state owner.
+    Deferred(NativePruningPrerequisite),
+}
+
+/// Report why native deletion is deferred rather than pretending pending penalties are absent.
+#[must_use]
+pub const fn native_pruning_status() -> NativePruningStatus {
+    // TODO: connect the real permanent forgery records/offences and admitted anchor stores;
+    // then apply plan::generations/anchors against those original sources, at most 8 each.
+    NativePruningStatus::Deferred(NativePruningPrerequisite::ForgeryRecordsAndAnchors)
+}
+
+fn local_owner_error(
+    state: &mut StateTransaction<'_, '_>,
+    error: CommitteeOwnerError,
+) -> BlockValidationError {
+    let local = SccpGenerationLocalError::from_owner(&error).unwrap_or(
+        SccpGenerationLocalError::Invariant("invalid retained generation during L5 lifecycle copy"),
+    );
+    let original = StateStorageAdmissionError::SccpGeneration(local);
+    state.arm_local_storage_refusal(original.clone());
+    BlockValidationError::StateStorageAdmission(original)
+}
+
+fn invariant(state: &mut StateTransaction<'_, '_>, reason: &'static str) -> BlockValidationError {
+    let original =
+        StateStorageAdmissionError::SccpGeneration(SccpGenerationLocalError::Invariant(reason));
+    state.arm_local_storage_refusal(original.clone());
+    BlockValidationError::StateStorageAdmission(original)
+}
+
+fn destination_progress(world: &(impl WorldReadOnly + ?Sized)) -> [plan::DestinationProgress; 3] {
+    SCCP_ROUTE_NETWORKS_V1.map(|network| {
+        let relevant = store::routes::get(world, &network).is_some_and(|route| {
+            route
+                .revisions
+                .values()
+                .any(|revision| revision.activation != SccpRouteActivationV1::Retired)
+        });
+        if !relevant {
+            return plan::DestinationProgress::Irrelevant;
+        }
+        // The active installed head is the authenticated finalized-time owner, including
+        // TON (whose ordinary checkpoints need not be retained). Frozen/missing clients
+        // block clearance. Wall-clock age and unfinalized headers are not L5 progress.
+        store::light_clients::get(world, &network)
+            .filter(|client| !client.is_frozen())
+            .map_or(plan::DestinationProgress::Unavailable, |client| {
+                plan::DestinationProgress::Finalized(client.head.latest_finalized.source_time_ms)
+            })
+    })
+}
+
+/// Apply L5 to at most 64 ended, uncleared generations in ascending order.
 ///
-/// Ordinary subjects are visited in height order from the cursor and stop at the first one
-/// still inside `attestation_retention_ms`; rotation subjects are skipped there and pruned in
-/// generation order once the outgoing generation's `valid_until_ms` plus one day has passed.
-/// The remaining budget goes to light-client checkpoints.
-pub fn prune(
-    state_transaction: &mut StateTransaction<'_, '_>,
-    now_ms: u64,
-    budget: usize,
-) -> usize {
-    let Some(retention_ms) = store::parameters::get(&*state_transaction.world)
-        .as_ref()
-        .map(|params| params.attestation_retention_ms)
-    else {
-        return 0;
-    };
-    let mut cursor = *store::prune_cursor::get(&*state_transaction.world);
-    let mut remaining = budget;
-
-    // Ordinary subjects, in height order.
-    let ordinary: Vec<(u64, bool, u64)> =
-        store::attestation_subjects::range(&*state_transaction.world, cursor.signatures_height..)
-            .map(|(height, subject)| (*height, subject.is_rotation(), subject.timestamp_ms))
-            .collect();
-    let mut next_signatures_height = cursor.signatures_height;
-    for (height, rotation, timestamp_ms) in ordinary {
-        if timestamp_ms.saturating_add(retention_ms) >= now_ms {
-            break;
-        }
-        if !rotation {
-            let (deleted, complete) = delete_signatures(state_transaction, height, remaining);
-            remaining -= deleted;
-            if !complete {
-                break;
-            }
-        }
-        next_signatures_height = height.saturating_add(1);
-        if remaining == 0 {
-            break;
+/// Every selected immutable owner is funded before the first map edit. Any local refusal
+/// sticks to the enclosing transaction; its caller must abandon that whole transaction.
+/// Events are emitted only after all selected admitted map writes succeed.
+///
+/// # Errors
+/// Preserves original local owner/map refusal and refuses inconsistent retained source state.
+pub(crate) fn clear_destinations(
+    state: &mut StateTransaction<'_, '_>,
+) -> Result<usize, BlockValidationError> {
+    state
+        .require_storage_admission()
+        .map_err(BlockValidationError::StateStorageAdmission)?;
+    let selected = plan::clearances(
+        state
+            .world
+            .sccp_committee_generations
+            .iter()
+            .map(|(_, owner)| owner.record()),
+        &destination_progress(&*state.world),
+    )
+    .map_err(|_| invariant(state, "non-ascending L5 generation source"))?;
+    let lc = *state.world.sccp_liability_clock.get();
+    let budget = state.execution_budget();
+    let mut owners: [Option<Retained>; plan::MAX_CLEARANCE_VISITS] = std::array::from_fn(|_| None);
+    for (slot, generation) in owners.iter_mut().zip(selected.as_slice()) {
+        let Some(source) = state.world.sccp_committee_generations.get(generation) else {
+            return Err(invariant(state, "selected L5 generation disappeared"));
+        };
+        *slot = Some(
+            source
+                .with_lifecycle(source.end, Some(lc), &budget)
+                .map_err(|error| local_owner_error(state, error))?,
+        );
+    }
+    for owner in owners.iter().flatten() {
+        if let Err((_, original)) = state
+            .world
+            .sccp_committee_generations
+            .try_insert_admitted(owner.generation, owner.clone())
+        {
+            let original = StateStorageAdmissionError::World(original);
+            state.arm_local_storage_refusal(original.clone());
+            return Err(BlockValidationError::StateStorageAdmission(original));
         }
     }
-
-    // Rotation subjects, by generation handoff.
-    let rotations: Vec<(u64, u64)> = store::rosters::iter(&*state_transaction.world)
-        .filter_map(|(_, roster)| Some((roster.handoff_height?, roster.valid_until_ms)))
-        .filter(|(height, _)| *height >= cursor.rotation_height)
-        .collect();
-    let mut next_rotation_height = cursor.rotation_height;
-    for (height, valid_until_ms) in rotations {
-        if remaining == 0 || valid_until_ms.saturating_add(ROTATION_RETENTION_GRACE_MS) >= now_ms {
-            break;
-        }
-        let (deleted, complete) = delete_signatures(state_transaction, height, remaining);
-        remaining -= deleted;
-        if !complete {
-            break;
-        }
-        next_rotation_height = height.saturating_add(1);
+    for generation in selected.as_slice() {
+        state
+            .world
+            .emit_events(Some(SccpEvent::GenerationDestinationCleared(
+                SccpGenerationDestinationClearedV1 {
+                    generation: *generation,
+                    lc,
+                },
+            )));
     }
+    Ok(selected.as_slice().len())
+}
 
-    cursor = cursor.advanced_to(next_signatures_height, next_rotation_height);
-    store::prune_cursor::set(state_transaction, cursor);
-    let light_client = light_clients::prune(state_transaction, remaining);
-    budget - remaining + light_client
+/// Run available pruning, then L5 after the generation/anchor post-execution step.
+/// Missing native pruning custody is harmless retention, never `Invalid` or degradation.
+///
+/// # Errors
+/// Returns an original sticky local storage/resource refusal; discard the enclosing transaction.
+pub(crate) fn post_generation_work(
+    state: &mut StateTransaction<'_, '_>,
+) -> Result<(), BlockValidationError> {
+    if store::parameters::get(&*state.world).is_none() {
+        return Ok(());
+    }
+    match native_pruning_status() {
+        NativePruningStatus::Deferred(_) => {}
+    }
+    light_clients::prune(state, MAX_LIGHT_CLIENT_DELETIONS_PER_BLOCK);
+    clear_destinations(state)?;
+    Ok(())
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::smartcontracts::isi::sccp::test_support::{blank_state, header, sample_roster};
-    use iroha_data_model::sccp::{attestation::SccpAttestationSubjectV1, params::SccpParametersV1};
-
-    fn subject(height: u64, timestamp_ms: u64, rotation: bool) -> SccpAttestationSubjectV1 {
-        SccpAttestationSubjectV1 {
-            height,
-            epoch: 0,
-            timestamp_ms,
-            sccp_root: [0; 32],
-            message_count: 0,
-            history_root: [0; 32],
-            history_size: 0,
-            generation: 1,
-            roster_digest: [5; 32],
-            next_roster_digest: if rotation { [6; 32] } else { [0; 32] },
-        }
-    }
-
-    fn seed(stx: &mut StateTransaction<'_, '_>, height: u64, timestamp_ms: u64, rotation: bool) {
-        store::attestation_subjects::insert(stx, height, subject(height, timestamp_ms, rotation))
-            .expect("subject");
-        for index in 0..3 {
-            store::attestation_signatures::insert(stx, (height, index), [1; 65]).expect("sig");
-        }
-    }
-
-    #[test]
-    fn nothing_is_pruned_without_sccp() {
-        let state = blank_state();
-        let mut block = state.block(header(2));
-        let mut stx = block.transaction();
-        assert_eq!(prune(&mut stx, u64::MAX, MAX_PRUNE_DELETIONS_PER_BLOCK), 0);
-    }
-
-    #[test]
-    fn expired_ordinary_signatures_are_pruned_within_budget_and_resume() {
-        let state = blank_state();
-        let mut block = state.block(header(2));
-        let mut stx = block.transaction();
-        let mut params = SccpParametersV1::taira_default();
-        params.attestation_retention_ms = 1_000;
-        store::parameters::set(&mut stx, Some(params));
-        seed(&mut stx, 1, 100, false);
-        seed(&mut stx, 2, 200, false);
-        seed(&mut stx, 3, 10_000, false);
-        // Budget 4: all of height 1 and one signature of height 2.
-        assert_eq!(prune(&mut stx, 5_000, 4), 4);
-        assert_eq!(store::attestation_signatures::len(&*stx.world), 5);
-        assert_eq!(store::prune_cursor::get(&*stx.world).signatures_height, 2);
-        assert_eq!(
-            prune(&mut stx, 5_000, 100),
-            2,
-            "height 2 finishes; height 3 is recent"
-        );
-        assert_eq!(store::attestation_signatures::len(&*stx.world), 3);
-        assert_eq!(store::prune_cursor::get(&*stx.world).signatures_height, 3);
-        assert!(
-            store::attestation_subjects::contains(&*stx.world, &1),
-            "subjects are permanent"
-        );
-    }
-
-    #[test]
-    fn rotation_signatures_outlive_the_outgoing_generation_by_a_day() {
-        let state = blank_state();
-        let mut block = state.block(header(2));
-        let mut stx = block.transaction();
-        let mut params = SccpParametersV1::taira_default();
-        params.attestation_retention_ms = 1_000;
-        store::parameters::set(&mut stx, Some(params));
-        let mut roster = sample_roster(1, 1);
-        roster.handoff_height = Some(4);
-        let valid_until = roster.valid_until_ms;
-        store::rosters::insert(&mut stx, 1, roster).expect("roster");
-        seed(&mut stx, 4, 100, true);
-        assert_eq!(
-            prune(&mut stx, 50_000, 100),
-            0,
-            "rotation kept past ordinary retention"
-        );
-        assert_eq!(store::attestation_signatures::len(&*stx.world), 3);
-        let after = valid_until + ROTATION_RETENTION_GRACE_MS + 1;
-        assert_eq!(prune(&mut stx, after, 100), 3);
-        assert_eq!(store::prune_cursor::get(&*stx.world).rotation_height, 5);
-    }
-}
+#[path = "prune_tests.rs"]
+mod tests;

@@ -9,7 +9,7 @@ fake clock. Nothing here needs a network.
 |---|---|---|
 | `manifest.json` | The file list. | Written with the scenarios. |
 | `state_machine.json` | Vocabularies, transition tables, limits and rules. | Rendered from `crates/iroha/src/workflow/contract.rs`. |
-| `vectors.json` | Canonical journal records, digests and progress reports. | Rendered from `crates/iroha/src/workflow/journal_tests.rs`. |
+| `vectors.json` | Complete semantic plans, identities and journals; canonical digest inputs, records and progress reports. | Rendered from `crates/iroha/src/workflow/journal_tests.rs`. |
 | `scenarios/*.json` | One scenario per file. | Written by hand from the contract. |
 
 The Rust runner is `crates/iroha/src/workflow/scenario_tests.rs`. Check the set
@@ -20,6 +20,12 @@ Regenerate the two rendered files after changing the Rust tables:
 ```sh
 cargo test -p iroha --lib workflow:: -- --ignored
 ```
+
+The vector objects are complete serialization inputs: byte arrays use lowercase
+hexadecimal, absent options use `null`, and enum names follow
+`state_machine.json`. `plan_hex`, `identity_hex` and `journal_hex` include
+the canonical Norito headers. The field order and digest domains are listed in
+section 7 of the contract; the Python guard independently checks the digests.
 
 ## Digests in fixtures
 
@@ -64,7 +70,8 @@ the scenario.
 ```
 
 A step is `{"label", "kind": "transaction", "max_transaction_identities"?}` or
-`{"label", "kind": "offchain_round", "irreversible", "participants_required", "custody_handles_required"}`.
+`{"label", "kind": "offchain_round", "irreversible", "participants_required", "custody_handles_required", "max_transcript_bytes"?}`.
+The transcript bound defaults to 1,048,576 bytes and is checked before retaining a round result.
 
 Categories: `happy_path`, `interruption_before_submission`,
 `interruption_after_ambiguous_submission`,

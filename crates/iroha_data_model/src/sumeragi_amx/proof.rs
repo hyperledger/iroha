@@ -13,8 +13,9 @@ use norito::codec::{Decode, Encode};
 
 use super::{AmxError, AmxRecordV1};
 use crate::{
-    DeriveJsonDeserialize, DeriveJsonSerialize, block::CommitCertificate,
-    sumeragi_finality::ExecutionResultCommitment,
+    DeriveJsonDeserialize, DeriveJsonSerialize,
+    block::CommitCertificate,
+    sumeragi_finality::{CertifiedResultScope, CertifiedResultV1},
 };
 
 /// Depth of the write-set tree.
@@ -246,7 +247,8 @@ pub struct AmxCertifiedBlockV1 {
         bounded_with = "crate::json_helpers::base64_vec::serialize_bounded"
     )]
     pub commit_qc: Vec<u8>,
-    /// Canonical preimage of `R` (`ExecutionResultCommitment`).
+    /// Canonical preimage of `R`: the fixed native header `X` followed by the
+    /// canonical `ExecutionResultCommitment` body (`CertifiedResultV1`).
     #[norito(
         with = "crate::json_helpers::base64_vec",
         bounded_with = "crate::json_helpers::base64_vec::serialize_bounded"
@@ -309,8 +311,11 @@ impl AmxRecordProofV1 {
         writes: impl IntoIterator<Item = (&'a [u8], &'a [u8])>,
         record: AmxRecordV1,
     ) -> Result<Self, AmxError> {
-        let commitment = ExecutionResultCommitment::decode(&block.result_preimage)
-            .map_err(|error| super::commitment_error(&error))?;
+        let commitment =
+            CertifiedResultV1::decode(&block.result_preimage, CertifiedResultScope::TairaGlobal)
+                .map_err(super::certified_result_error)?
+                .into_parts()
+                .1;
         let key = record.witness_key();
         let (write, value) = AmxWriteProofV1::from_writes(writes, &key)?;
         if value != record.witness_value()? {

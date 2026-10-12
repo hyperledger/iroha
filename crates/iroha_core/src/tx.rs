@@ -3258,6 +3258,15 @@ impl StateBlock<'_> {
             trigger_sequence
         };
         crate::retail_fee::finalize(state_transaction)?;
+        if genesis.is_none() {
+            // All instructions and callbacks have completed in this disposable overlay.
+            // Authenticated genesis is checked once after its complete signed batch.
+            crate::resource_coherence::validate_final_policy(
+                &state_transaction.world,
+                state_transaction.block_height(),
+            )
+            .map_err(crate::resource_coherence::PolicyCoherenceError::into_transaction_rejection)?;
+        }
         if let Some(seq) = admission.sequence_to_commit {
             state_transaction
                 .world
@@ -9360,18 +9369,20 @@ pub mod tests {
         let kura = crate::kura::Kura::blank_kura_for_testing();
         let query_handle = crate::query::store::LiveQueryStore::start_test();
         let chain: ChainId = "chain".parse().unwrap();
-        let mut state = State::new_with_chain(world, kura, query_handle, chain.clone());
-        // Configure pipeline gas allowlist
-        let mut pipeline = state.installed_pipeline().clone();
-        pipeline.gas.accepted_assets = vec![
+        let state = State::new_with_chain(world, kura, query_handle, chain.clone());
+        // Commit the pipeline gas allowlist in the original signed genesis.
+        let mut gas = iroha_config::parameters::actual::Gas::default();
+        gas.accepted_assets = vec![
             AssetDefinitionId::derive_from_components(
                 DomainId::try_new("domain", "universal").unwrap(),
                 "xor".parse().unwrap(),
             )
             .canonical_address(),
         ];
-        state.set_pipeline(pipeline);
-        let chain = crate::block::tests::component_chain(state);
+        let chain = crate::block::tests::component_chain_with_genesis_parameters(
+            state,
+            crate::pipeline_gas_policy::parameters_for_testing(gas).into(),
+        );
         let state = chain.state();
         // Bind an executable gas limit but omit the required PipelineGas charge limit.
         let program = minimal_ivm_program_with_max_cycles(1, 1_000);
@@ -9621,9 +9632,11 @@ pub mod tests {
         fn new() -> Self {
             let (world, authority_id, keypair) = world_with_authority("wonderland");
             let mut parameters = world.parameters.block();
-            parameters.set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
-                iroha_data_model::block::consensus::SumeragiRootScope::Global,
-            ));
+            parameters
+                .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+                    iroha_data_model::block::consensus::SumeragiRootScope::Global,
+                ))
+                .expect("valid fixture parameters");
             parameters.commit();
             let state = State::new_with_chain(
                 world,
@@ -9764,11 +9777,13 @@ pub mod tests {
         let mut tx1 = block1.transaction();
         // Seed synthetic Global scope in this component World/height overlay;
         // the fixture does not authenticate committed genesis or Network finality.
-        tx1.world.parameters.get_mut().set_parameter(
-            crate::sumeragi::lanes::routing::test_support::metadata(
+        tx1.world
+            .parameters
+            .get_mut()
+            .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
                 iroha_data_model::block::consensus::SumeragiRootScope::Global,
-            ),
-        );
+            ))
+            .expect("valid fixture parameters");
         let prog = minimal_ivm_contract_program();
         let code_hash = ivm::contract_code_hash(&prog);
         let abi_hash = ivm::syscalls::compute_abi_hash(ivm::SyscallPolicy::AbiV1);
@@ -10034,11 +10049,13 @@ pub mod tests {
         let mut tx1 = block1.transaction();
         // Seed synthetic Global scope in this component World/height overlay;
         // the fixture does not authenticate committed genesis or Network finality.
-        tx1.world.parameters.get_mut().set_parameter(
-            crate::sumeragi::lanes::routing::test_support::metadata(
+        tx1.world
+            .parameters
+            .get_mut()
+            .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
                 iroha_data_model::block::consensus::SumeragiRootScope::Global,
-            ),
-        );
+            ))
+            .expect("valid fixture parameters");
         let prog = minimal_ivm_contract_program();
         let code_hash = ivm::contract_code_hash(&prog);
         let abi_hash = ivm::syscalls::compute_abi_hash(ivm::SyscallPolicy::AbiV1);
@@ -10279,11 +10296,13 @@ pub mod tests {
         let mut tx1 = block1.transaction();
         // Seed synthetic Global scope in this component World/height overlay;
         // the fixture does not authenticate committed genesis or Network finality.
-        tx1.world.parameters.get_mut().set_parameter(
-            crate::sumeragi::lanes::routing::test_support::metadata(
+        tx1.world
+            .parameters
+            .get_mut()
+            .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
                 iroha_data_model::block::consensus::SumeragiRootScope::Global,
-            ),
-        );
+            ))
+            .expect("valid fixture parameters");
         // Build a minimal program to compute its code_hash/abi_hash
         let prog = minimal_ivm_contract_program();
         let code_hash = ivm::contract_code_hash(&prog);
@@ -11830,7 +11849,8 @@ pub mod tests {
                     .world
                     .parameters
                     .get_mut()
-                    .set_parameter(Parameter::Custom(custom));
+                    .set_parameter(Parameter::Custom(custom))
+                    .expect("valid fixture parameters");
             },
         );
         match result {
@@ -11873,7 +11893,8 @@ pub mod tests {
             .world
             .parameters
             .get_mut()
-            .set_parameter(Parameter::Custom(custom));
+            .set_parameter(Parameter::Custom(custom))
+            .expect("valid fixture parameters");
         // Build program with max_cycles = 2000, below the bound
         let prog = minimal_ivm_program_with_max_cycles(1, 2_000);
         let tx = TransactionBuilder::new(

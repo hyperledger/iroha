@@ -1296,7 +1296,8 @@ pub mod isi {
                 .set_parameter(Parameter::Custom(CustomParameter::new(
                     name,
                     Json::new(64_u64),
-                )));
+                )))
+                .expect("valid fixture parameters");
             enforce_payload_limit(&mut transaction, &payload(64))
                 .expect("a payload of exactly the committed bound is admitted");
             refused(
@@ -3592,7 +3593,11 @@ mod tests {
             .unwrap();
         let id = CustomParameterId::from_str("max_metadata_value_bytes").unwrap();
         let param = Parameter::Custom(CustomParameter::new(id, Json::new(4u32)));
-        stx.world.parameters.get_mut().set_parameter(param);
+        stx.world
+            .parameters
+            .get_mut()
+            .set_parameter(param)
+            .expect("valid fixture parameters");
         let mut metadata = Metadata::default();
         metadata.insert("oversized".parse().unwrap(), Json::new("0123456789"));
         let trigger = Trigger::new(

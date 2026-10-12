@@ -134,6 +134,12 @@ impl DecodeAttemptError {
         self.kind
     }
 
+    /// Borrow the original decoder error without replacing its opaque scope provenance.
+    #[must_use]
+    pub const fn error(&self) -> &Error {
+        &self.error
+    }
+
     /// Return the original error, retaining any opaque scope provenance for an outer attempt.
     #[must_use]
     pub fn into_error(self) -> Error {

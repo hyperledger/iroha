@@ -2,6 +2,7 @@
 
 use super::{BlockValidationError, PublicationDeferral, PublicationError};
 use crate::execution_attempt::ExecutionDeferred;
+use crate::smartcontracts::isi::sccp::anchor::SccpAnchorLocalError;
 use iroha_allocation::{ChargedBufferError, PrepaidSharedError};
 use iroha_data_model::block::{CertificateAdmissionError, SharedBlockAdmissionError};
 use ivm::error::ExecutionDeferral;
@@ -20,7 +21,7 @@ pub(super) fn block_failure(error: &SharedBlockAdmissionError) -> PublicationErr
             ExecutionDeferral::AllocationUnavailable.into()
         }
         SharedBlockAdmissionError::Allocation(PrepaidSharedError::Reservation(_)) => {
-            ExecutionDeferral::ActiveMemoryCapacity.into()
+            return PublicationError::RecoveryRequired(error.to_string());
         }
     };
     PublicationError::Deferred(original.into())
@@ -33,7 +34,13 @@ pub(super) fn encoding_failure(
         super::super::commitment::ResultPreimageError::Allocation(error) => {
             PublicationError::Deferred(buffer_refusal(error).into())
         }
-        other => PublicationError::Retryable(other.to_string()),
+        super::super::commitment::ResultPreimageError::ForeignBudget
+        | super::super::commitment::ResultPreimageError::PreimageLength(_)
+        | super::super::commitment::ResultPreimageError::Encoding(_) => {
+            // Repeating this unchanged immutable source cannot repair its custody,
+            // protocol extent or canonical serializer. Never blame the peer.
+            PublicationError::RecoveryRequired(error.to_string())
+        }
     }
 }
 
@@ -50,13 +57,13 @@ pub(super) fn certificate_failure(error: &CertificateAdmissionError) -> Publicat
                 ExecutionDeferred::from(ExecutionDeferral::AllocationUnavailable).into(),
             )
         }
-        // A short prepaid parent has no observed pool release that could repair it.
+        // No pool release can enlarge this unchanged prepaid parent.
         CertificateAdmissionError::ControlAllocation(PrepaidSharedError::Reservation(_)) => {
-            PublicationError::Deferred(
-                ExecutionDeferred::from(ExecutionDeferral::ActiveMemoryCapacity).into(),
-            )
+            PublicationError::RecoveryRequired(error.to_string())
         }
-        CertificateAdmissionError::ForeignBudget => PublicationError::Retryable(error.to_string()),
+        CertificateAdmissionError::ForeignBudget => {
+            PublicationError::RecoveryRequired(error.to_string())
+        }
     }
 }
 
@@ -76,7 +83,7 @@ pub(super) fn witness_failure(
             ExecutionDeferral::AllocationUnavailable.into()
         }
         ByteAdmissionError::ControlAllocation(PrepaidSharedError::Reservation(_)) => {
-            ExecutionDeferral::ActiveMemoryCapacity.into()
+            return PublicationError::RecoveryRequired(error.to_string());
         }
         ByteAdmissionError::Length { .. } | ByteAdmissionError::ForeignBudget => {
             return PublicationError::RecoveryRequired(error.to_string());
@@ -90,6 +97,7 @@ pub(super) fn witness_failure(
 /// never authorizes reuse. An impossible pool demand has no release source and may
 /// require local policy changes. Malformed custody and poisoned owners require recovery.
 pub(super) fn validation_failure(error: &BlockValidationError) -> Option<PublicationError> {
+    use crate::smartcontracts::isi::sccp::generation_error::SccpGenerationLocalError;
     use crate::state::{
         BlockHashAdmissionError, EvidencePreparationError, MembershipAdmissionError,
         StateStorageAdmissionError, StateViewError,
@@ -135,7 +143,11 @@ pub(super) fn validation_failure(error: &BlockValidationError) -> Option<Publica
             )
             | StateStorageAdmissionError::NativeAmx(
                 super::super::amx::NativeAmxAdmissionError::Invalid(_),
-            ) => return Some(PublicationError::RecoveryRequired(original.to_string())),
+            )
+            | StateStorageAdmissionError::SccpGeneration(SccpGenerationLocalError::Invariant(_))
+            | StateStorageAdmissionError::SccpAnchor(SccpAnchorLocalError::Invariant(_)) => {
+                return Some(PublicationError::RecoveryRequired(original.to_string()));
+            }
             StateStorageAdmissionError::World(
                 AdmittedStorageError::Busy { .. }
                 | AdmittedStorageError::Changed
@@ -148,6 +160,14 @@ pub(super) fn validation_failure(error: &BlockValidationError) -> Option<Publica
                 | super::super::amx::NativeAmxAdmissionError::Codec(_),
             )
             | StateStorageAdmissionError::AmxDecode(_)
+            | StateStorageAdmissionError::SccpGeneration(
+                SccpGenerationLocalError::Admission(_)
+                | SccpGenerationLocalError::Allocator { .. }
+                | SccpGenerationLocalError::DecodeResource(_),
+            )
+            | StateStorageAdmissionError::SccpAnchor(
+                SccpAnchorLocalError::Admission(_) | SccpAnchorLocalError::Allocator { .. },
+            )
             | StateStorageAdmissionError::RootScopeDecode(_) => {
                 PublicationDeferral::StateStorage(original.clone())
             }

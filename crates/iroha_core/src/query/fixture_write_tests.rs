@@ -1,6 +1,6 @@
 //! Query fixture writes publish World records without inventing finalized history.
 
-use iroha_crypto::{Algorithm, Hash, KeyPair, Signature};
+use iroha_crypto::{Algorithm, Hash, KeyPair};
 use iroha_data_model::{
     block::consensus::{
         Evidence, EvidenceAttribution, EvidenceOffender, EvidencePenaltyStatus, EvidenceRecord,
@@ -303,10 +303,8 @@ fn phase_vote_evidence() -> Evidence {
             sig: NativeSignature([0; SIGNATURE_LEN]),
         };
         vote.sig = NativeSignature(
-            Signature::new(key.private_key(), &vote.preimage())
-                .payload()
-                .try_into()
-                .expect("signature width"),
+            iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &vote.preimage())
+                .expect("canonical native vote signature"),
         );
         vote
     };

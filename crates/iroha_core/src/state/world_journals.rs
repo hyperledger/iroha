@@ -109,6 +109,8 @@ pub(in crate::state) struct DetachedWorld<Admission> {
     external_event_buf: Vec<EventBox>,
     shells: WorldJournalShellReservation,
     admission: Admission,
+    // Original prepaid control can activate on a new thread after capture cleanup.
+    refund_control: iroha_allocation::AllocationScopeControl,
 }
 
 impl<Admission> DetachedWorld<Admission> {
@@ -168,6 +170,7 @@ trait RetainedWorldField: Send + Sync {
     fn publication_slot<'target>(
         self: Box<Self>,
         target: &'target World,
+        scope: &iroha_allocation::OwnedAllocationScope,
     ) -> Box<dyn publication::PreparedWorldField + 'target>;
 }
 
@@ -252,8 +255,9 @@ where
     fn publication_slot<'target>(
         self: Box<Self>,
         target: &'target World,
+        scope: &iroha_allocation::OwnedAllocationScope,
     ) -> Box<dyn publication::PreparedWorldField + 'target> {
-        publication::storage_slot(self, target)
+        publication::storage_slot(self, target, scope)
     }
 }
 
@@ -326,6 +330,7 @@ impl<V: Value, C: Send + Sync + 'static> RetainedWorldField for RetainedCell<V, 
     fn publication_slot<'target>(
         self: Box<Self>,
         target: &'target World,
+        _scope: &iroha_allocation::OwnedAllocationScope,
     ) -> Box<dyn publication::PreparedWorldField + 'target> {
         publication::cell_slot(self, target)
     }
@@ -407,6 +412,7 @@ impl RetainedWorldField for RetainedTriggers {
     fn publication_slot<'target>(
         self: Box<Self>,
         target: &'target World,
+        _scope: &iroha_allocation::OwnedAllocationScope,
     ) -> Box<dyn publication::PreparedWorldField + 'target> {
         publication::triggers_slot(self, target)
     }
@@ -472,6 +478,8 @@ macro_rules! declare_world_capture {
             refusal: Option<CaptureError<Infallible>>,
             started: bool,
             complete: bool,
+            // Every field and original shell retires before the aggregate refund scope.
+            _refund_scope: iroha_allocation::OwnedAllocationScope,
         }
         #[allow(non_camel_case_types)]
         impl<OriginalShell, $($prefix: WorldCaptureSlot,)* $($privacy: WorldCaptureSlot,)* $($suffix: WorldCaptureSlot,)*>
@@ -516,7 +524,7 @@ macro_rules! declare_world_capture {
                 // Materialization requires every enclosing writer free. Only
                 // now retire the same emptied shell and its retained control credit.
                 drop(pending.original_shell.take());
-                DetachedWorld { mode: pending.mode, fields, dataspace_catalog, external_event_buf, shells: pending.shells.take().expect("original shell reservation"), admission }
+                DetachedWorld { mode: pending.mode, fields, dataspace_catalog, external_event_buf, shells: pending.shells.take().expect("original shell reservation"), admission, refund_control: pending._refund_scope.control() }
             }
         }
         #[allow(non_camel_case_types)]
@@ -588,6 +596,7 @@ macro_rules! capture_world_fields {
         let mut pending = WorldCapture {
             $($prefix: None,)* $($privacy: None,)* $($suffix: None,)*
             extras: None, original_shell: None, shells: Some($shells), mode, refusal, started: false, complete: false,
+            _refund_scope: $original._refund_scope.clone(),
         };
         fill_world_capture(|| {
             let WorldBlockFields {

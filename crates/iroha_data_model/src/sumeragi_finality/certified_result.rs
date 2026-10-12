@@ -20,12 +20,9 @@
 //! never passes through `Hash::prehashed`, `HashOf` or any type that checks or sets the marker
 //! bit.
 //!
-//! TODO(WP-C2): this module is additive. The node still certifies the body-only
-//! `H(RESULT_TAG ‖ body)` of [`super::result_of_preimage`]. WP-C2 moves producers and readers
-//! to this module, deletes that function and `ExecutionResultCommitment::result`, and
-//! re-exports [`result_of_preimage`] at `sumeragi_finality`.
-
-use iroha_crypto::{Algorithm, Hash, keccak256};
+#[cfg(test)]
+use iroha_crypto::keccak256;
+use iroha_crypto::{Algorithm, Hash, keccak256_from_chunks};
 use iroha_sumeragi::types::Hash32;
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
@@ -37,6 +34,8 @@ use super::{
 use crate::{
     sccp::params::SCCP_MESSAGES_MAX_PER_BLOCK_V1, sumeragi::epoch::ValidatorEpochContextV1,
 };
+
+pub mod wire_identity;
 
 /// Exact byte length of the finality header `X`.
 pub const X_LEN: usize = 221;
@@ -485,12 +484,11 @@ fn split_preimage(preimage: &[u8]) -> Result<(SccpFinalityHeaderV1, &[u8]), Cert
 #[must_use]
 pub fn committee_root(keys: &[[u8; 48]]) -> Option<[u8; 32]> {
     let count = u8::try_from(keys.len()).ok().filter(|count| *count != 0)?;
-    let keys = keys.as_flattened();
-    let mut preimage = Vec::with_capacity(COMMITTEE_TAG.len() + 1 + keys.len());
-    preimage.extend_from_slice(COMMITTEE_TAG);
-    preimage.push(count);
-    preimage.extend_from_slice(keys);
-    Some(keccak256(preimage))
+    Some(keccak256_from_chunks(&[
+        COMMITTEE_TAG,
+        &[count],
+        keys.as_flattened(),
+    ]))
 }
 
 /// [`committee_root`] of an epoch context's committee, in the context's own (canonical) order.
@@ -500,19 +498,40 @@ pub fn committee_root(keys: &[[u8; 48]]) -> Option<[u8; 32]> {
 /// no root (no member, or more than 255); a validated context is never either.
 #[must_use]
 pub fn context_committee_root(context: &ValidatorEpochContextV1) -> Option<[u8; 32]> {
-    let mut keys = Vec::with_capacity(context.committee.len());
-    for member in &context.committee {
+    let count = u8::try_from(context.committee.len())
+        .ok()
+        .filter(|count| *count != 0)?;
+    let count_bytes = [count];
+    // Fixed protocol-wide maximum, including the tag and count; no key bytes are copied.
+    let mut chunks: [&[u8]; 257] = [&[]; 257];
+    chunks[0] = COMMITTEE_TAG;
+    chunks[1] = &count_bytes;
+    for (index, member) in context.committee.iter().enumerate() {
         let (algorithm, key) = member.validator.public_key().try_to_bytes().ok()?;
-        if algorithm != Algorithm::BlsNormal {
+        if algorithm != Algorithm::BlsNormal || key.len() != 48 {
             return None;
         }
-        keys.push(<[u8; 48]>::try_from(key).ok()?);
+        chunks[index + 2] = key;
     }
-    committee_root(&keys)
+    Some(keccak256_from_chunks(&chunks[..usize::from(count) + 2]))
 }
 
 /// Which root a stored result preimage belongs to.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    norito::Encode,
+    norito::Decode,
+    norito::derive::JsonSerialize,
+    norito::derive::JsonDeserialize,
+    norito::NoritoSchema,
+    iroha_schema::IntoSchema,
+)]
+#[norito(tag = "kind", content = "value", deny_unknown_fields)]
+#[norito_schema(name = "iroha_data_model::sumeragi_finality::CertifiedResultScope")]
 pub enum CertifiedResultScope {
     /// The global chain (Taira; instance kind 0, index 0). Its `X` may be active.
     TairaGlobal,
@@ -525,7 +544,7 @@ pub enum CertifiedResultScope {
 ///
 /// Every variant is a deterministic verdict about the input except a
 /// [`CommitmentError::Resource`] inside [`Self::Body`], which is a local decoder refusal.
-#[derive(Clone, Debug, PartialEq, Eq, Error)]
+#[derive(Debug, Error)]
 pub enum CertifiedResultError {
     /// The preimage is shorter than `X` plus one body byte, or above
     /// [`MAX_RESULT_PREIMAGE_BYTES`].

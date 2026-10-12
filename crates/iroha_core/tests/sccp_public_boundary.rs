@@ -9,7 +9,7 @@ use iroha_core::{
     smartcontracts::isi::sccp::{self, admission, fees, hook, leaves, params, store},
     state::{State, World},
 };
-use iroha_crypto::{Algorithm, Hash, HashOf, KeyPair, SignatureOf};
+use iroha_crypto::{Algorithm, Hash, HashOf, KeyPair};
 use iroha_data_model::{
     NetworkId,
     account::AccountId,
@@ -17,16 +17,20 @@ use iroha_data_model::{
     bridge::SccpNetworkV1,
     isi::{
         InstructionBox,
-        sccp::{RecordSccpMessage, SetSccpBridgeKeyV1, SettleSccpV1, SubmitSccpAttestationsV1},
+        sccp::{
+            AdvanceSccpLightClientV1, InitializeSccpV1, RecordSccpMessage,
+            ReportSccpLightClientEquivocationV1, SettleSccpV1, SubmitSccpInboundMessageV1,
+            SubmitSccpOutboundVoidV1,
+        },
     },
     nexus::{DataSpaceCatalog, DataSpaceMetadata, LaneCatalog, LaneConfig},
-    sccp::{control::SccpLeafRefV1, keys::SccpBridgeKeyBindingV1},
+    sccp::{
+        control::SccpLeafRefV1, inbound::SccpSourceProofBytesV1,
+        light_client::SccpLcEvidenceBytesV1, params::SccpParametersV1,
+    },
     transaction::{FeePaymentIntent, SignedTransaction, TransactionBuilder},
 };
-use iroha_model_base::{
-    peer::PeerId,
-    topology::{DataSpaceId, LaneId},
-};
+use iroha_model_base::topology::{DataSpaceId, LaneId};
 use iroha_primitives::numeric::Numeric;
 use std::num::{NonZeroU32, NonZeroU64};
 
@@ -61,17 +65,16 @@ fn network_id() -> NetworkId {
     )))
 }
 
-fn set_bridge_key() -> SetSccpBridgeKeyV1 {
-    let peer_keys = key_pair(0x31);
-    let peer = PeerId::new(peer_keys.public_key().clone());
-    let binding = SccpBridgeKeyBindingV1::new(network_id(), peer.clone(), Some([2; 33]), 3, 0);
-    SetSccpBridgeKeyV1 {
-        peer,
-        public_key: Some([2; 33]),
-        activation_epoch: 3,
-        binding_nonce: 0,
-        peer_signature: SignatureOf::new(peer_keys.private_key(), &binding),
-        key_pop: Some([0x1b; 65]),
+fn keeper_advance() -> AdvanceSccpLightClientV1 {
+    use iroha_sccp::light_client::{ethereum::EthereumLcAdvanceV1, proof::SccpLcAdvanceV1};
+    AdvanceSccpLightClientV1 {
+        network: SccpNetworkV1::EthereumMainnet,
+        expected_state_hash: None,
+        advance: SccpLcAdvanceV1::Ethereum(EthereumLcAdvanceV1 {
+            updates: Vec::new(),
+        })
+        .to_bytes()
+        .expect("canonical advance"),
     }
 }
 
@@ -176,8 +179,31 @@ fn every_sccp_instruction_routes_to_the_universal_dataspace() {
             recipient: vec![0x22; 20],
         }
         .into(),
-        SubmitSccpAttestationsV1 { entries: vec![] }.into(),
-        set_bridge_key().into(),
+        InitializeSccpV1 {
+            parameters: SccpParametersV1::taira_default(),
+            reset_nonce: [1; 32],
+        }
+        .into(),
+        SubmitSccpInboundMessageV1 {
+            network: SccpNetworkV1::EthereumMainnet,
+            revision: 1,
+            payload: vec![1],
+            proof: SccpSourceProofBytesV1::new(vec![1]).expect("bounded proof"),
+        }
+        .into(),
+        SubmitSccpOutboundVoidV1 {
+            network: SccpNetworkV1::EthereumMainnet,
+            revision: 1,
+            proof: SccpSourceProofBytesV1::new(vec![1]).expect("bounded proof"),
+        }
+        .into(),
+        keeper_advance().into(),
+        ReportSccpLightClientEquivocationV1 {
+            network: SccpNetworkV1::EthereumMainnet,
+            a: SccpLcEvidenceBytesV1::new(vec![1]).expect("bounded evidence"),
+            b: SccpLcEvidenceBytesV1::new(vec![2]).expect("bounded evidence"),
+        }
+        .into(),
     ];
     for instruction in samples {
         assert!(sccp::is_sccp_instruction(&*instruction));
@@ -205,8 +231,7 @@ fn a_network_without_sccp_is_unchanged() {
     ]);
     assert_eq!(admission::classify(world, &view, 2, &transaction), Ok(None));
     assert!(!admission::allows_unregistered_authority(
-        transaction.instructions(),
-        transaction.authority()
+        transaction.instructions()
     ));
     assert!(admission::block_exempt_cap_ok(world, &[]));
     assert!(!fees::exempt_on_success(world, transaction.payload()));

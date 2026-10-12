@@ -4629,7 +4629,7 @@ pub mod sccp {
         .with_projections(RouteProjections::OPENAPI)
         .with_cors_options(true)
     }
-    /// Read the Taira identity, parameters and attestation health.
+    /// Read the Taira identity, parameters and native committee state.
     pub const CAPABILITIES: RouteDescriptor =
         public_get("sccp.capabilities.read", "/v1/sccp/capabilities");
     /// Read every route with its escrow, stranded balance and revisions.
@@ -4650,23 +4650,29 @@ pub mod sccp {
         "sccp.controls.list",
         "/v1/sccp/controls/{network}/{revision}",
     );
-    /// Assemble the attestation proof bundle of one outbound message.
+    /// Assemble the native certificate proof bundle of one outbound message.
     pub const MESSAGE_PROOF: RouteDescriptor =
         public_get("sccp.message.proof", "/v1/sccp/messages/{message_id}/proof");
-    /// Assemble the attestation proof bundle of one destination control.
+    /// Assemble the native certificate proof bundle of one destination control.
     pub const CONTROL_PROOF: RouteDescriptor = public_get(
         "sccp.control.proof",
         "/v1/sccp/controls/{network}/{revision}/{control_nonce}/proof",
     );
-    /// Read the current roster generation.
-    pub const ROSTER_CURRENT: RouteDescriptor =
-        public_get("sccp.roster.current", "/v1/sccp/rosters/current");
+    /// Read the current committee generation.
+    pub const COMMITTEE_CURRENT: RouteDescriptor =
+        public_get("sccp.committee.current", "/v1/sccp/committees/current");
     /// Assemble the catch-up rotation chain from a generation.
-    pub const ROSTER_ROTATIONS: RouteDescriptor =
-        public_get("sccp.roster.rotations", "/v1/sccp/rosters/rotations");
-    /// Read one roster generation.
-    pub const ROSTER: RouteDescriptor =
-        public_get("sccp.roster.read", "/v1/sccp/rosters/{generation}");
+    pub const COMMITTEE_ROTATIONS: RouteDescriptor =
+        public_get("sccp.committee.rotations", "/v1/sccp/committees/rotations");
+    /// Read one committee generation.
+    pub const COMMITTEE: RouteDescriptor =
+        public_get("sccp.committee.read", "/v1/sccp/committees/{generation}");
+    /// Read a native finality certificate of an explicit committed height.
+    pub const FINALITY: RouteDescriptor =
+        public_get("sccp.finality.read", "/v1/sccp/finality/{height}");
+    /// Read a native finality certificate of the current committed tip.
+    pub const FINALITY_LATEST: RouteDescriptor =
+        public_get("sccp.finality.latest", "/v1/sccp/finality/latest");
     /// Read every installed inbound light client.
     pub const LIGHT_CLIENTS: RouteDescriptor =
         public_get("sccp.light_client.list", "/v1/sccp/light-clients");
@@ -4715,9 +4721,11 @@ pub mod sccp {
         OUTBOUND_BY_NONCE,
         CONTROLS,
         CONTROL_PROOF,
-        ROSTER_CURRENT,
-        ROSTER_ROTATIONS,
-        ROSTER,
+        FINALITY_LATEST,
+        FINALITY,
+        COMMITTEE_CURRENT,
+        COMMITTEE_ROTATIONS,
+        COMMITTEE,
     ];
 }
 /// Canonical descriptors enforced by Torii's mounted-route registry. Router assembly fails when any

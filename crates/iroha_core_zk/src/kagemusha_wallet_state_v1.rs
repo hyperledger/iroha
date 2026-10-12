@@ -108,6 +108,14 @@ pub enum Error {
     /// An I/O failure gives no evidence of absence or failure to commit.
     #[error("wallet archive unavailable: {0}")]
     Storage(#[from] std::io::Error),
+    /// The original canonical read stopped at an enclosing budget or allocator refusal.
+    /// This is an unfinished local attempt, not invalid evidence or lost custody.
+    #[error("wallet canonical read resource: {0}")]
+    DecodeResource(#[source] norito::core::DecodeAttemptError),
+    /// A typed trust-root read failure outside the compact binary reader's contract.
+    /// Retain its original cause; callers must not infer invalidity from an unfinished read.
+    #[error("wallet finality source read: {0}")]
+    FinalityRead(#[source] iroha_data_model::sumeragi_finality::FinalityReadError),
     /// Required source-bound input is absent or corrupt; never wait silently for it.
     #[error("wallet fold witness custody lost: {0}")]
     WitnessLost(&'static str),
@@ -148,6 +156,48 @@ pub enum Error {
     /// freeing memory. Never a device verdict.
     #[error("not enough memory for this operation")]
     NotEnoughMemory,
+}
+
+/// Preserve the original attempt classification before projecting completed invalid input.
+pub(crate) fn decode_attempt_error(
+    error: norito::core::DecodeAttemptError,
+    invalid: Error,
+) -> Error {
+    use norito::core::DecodeAttemptErrorKind;
+    match error.kind() {
+        DecodeAttemptErrorKind::Allocator | DecodeAttemptErrorKind::EnclosingLimit => {
+            Error::DecodeResource(error)
+        }
+        DecodeAttemptErrorKind::Invalid => invalid,
+    }
+}
+
+/// Observe an actual model original decoder before projecting its completed shape errors.
+pub(crate) fn read_model_original<T>(
+    read: impl FnOnce() -> Result<T, KagemushaWalletValidationErrorV1>,
+    invalid: Error,
+) -> Result<T, Error> {
+    let completed = norito::core::classify_decode_attempt(|| match read() {
+        Err(KagemushaWalletValidationErrorV1::Codec(error)) => Err(error),
+        result => Ok(result),
+    });
+    match completed {
+        Err(error) => Err(decode_attempt_error(error, invalid)),
+        Ok(result) => result.map_err(|_| invalid),
+    }
+}
+
+/// Keep typed unfinished reads out of proof and authenticated-witness verdicts.
+pub(crate) fn finality_read_error(
+    error: iroha_data_model::sumeragi_finality::FinalityReadError,
+    invalid: Error,
+) -> Error {
+    use iroha_data_model::sumeragi_finality::FinalityReadError;
+    match error {
+        FinalityReadError::Invalid(_) => invalid,
+        FinalityReadError::DecodeResource(error) => decode_attempt_error(error, invalid),
+        original @ FinalityReadError::Genesis(_) => Error::FinalityRead(original),
+    }
 }
 
 fn valid<T>(result: Result<T, KagemushaWalletValidationErrorV1>) -> Result<T, Error> {

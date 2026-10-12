@@ -384,7 +384,8 @@ fn runtime_nexus_setter_requires_exact_protected_dataspace_projection() {
                 runtime
                     .into_custom_parameter()
                     .expect("bounded cumulative DS fixture"),
-            ));
+            ))
+            .expect("valid fixture parameters");
         world.commit();
         assert!(matches!(
             state.try_nexus_snapshot_once(),

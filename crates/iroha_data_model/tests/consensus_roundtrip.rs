@@ -247,9 +247,7 @@ fn rng_evidence(rng: &mut DeterministicRng) -> Evidence {
             sig: NativeSignature([0; SIGNATURE_LEN]),
         };
         vote.sig = NativeSignature(
-            iroha_crypto::Signature::new(key.private_key(), &vote.preimage())
-                .payload()
-                .try_into()
+            iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &vote.preimage())
                 .unwrap(),
         );
         vote

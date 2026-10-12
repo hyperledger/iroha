@@ -3124,7 +3124,8 @@ pub(super) fn app_with_root_scope_for_handler_test(world: World, private: bool) 
         .set_parameter(Parameter::Custom(CustomParameter::new(
             consensus_metadata::handshake_meta_id(),
             Json::new(metadata),
-        )));
+        )))
+        .expect("valid fixture parameters");
     transaction.apply();
     block.commit_world_overlay_for_testing().unwrap();
     app

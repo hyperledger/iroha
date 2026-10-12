@@ -65,7 +65,8 @@ fn malformed_registry(stx: &mut StateTransaction<'_, '_>) -> CustomParameter {
     stx.world
         .parameters
         .get_mut()
-        .set_parameter(Parameter::Custom(original.clone()));
+        .set_parameter(Parameter::Custom(original.clone()))
+        .expect("valid fixture parameters");
     original
 }
 

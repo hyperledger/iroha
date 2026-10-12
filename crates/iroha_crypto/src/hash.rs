@@ -121,6 +121,16 @@ pub fn sha256_reader_bounded(
 pub fn keccak256(bytes: impl AsRef<[u8]>) -> [u8; Hash::LENGTH] {
     Keccak256::digest(bytes.as_ref()).into()
 }
+/// Compute raw Keccak-256 over borrowed chunks without allocating a concatenation buffer.
+/// Chunk boundaries have no encoding and do not affect the resulting digest.
+#[must_use]
+pub fn keccak256_from_chunks(chunks: &[&[u8]]) -> [u8; Hash::LENGTH] {
+    let mut hasher = Keccak256::new();
+    for chunk in chunks {
+        Digest::update(&mut hasher, chunk);
+    }
+    hasher.finalize().into()
+}
 impl Hash {
     /// Hash the given bytes.
     #[must_use]
@@ -637,6 +647,18 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(reader.0, 2);
     }
+    #[test]
+    fn keccak256_chunks_match_concatenation_across_rate_boundaries() {
+        let bytes = [0x9a; 300];
+        for boundary in [0, 1, 135, 136, 137, 272, 300] {
+            assert_eq!(
+                keccak256_from_chunks(&[&bytes[..boundary], &[], &bytes[boundary..]]),
+                keccak256(bytes)
+            );
+        }
+        assert_eq!(keccak256_from_chunks(&[]), keccak256(b""));
+    }
+
     #[test]
     fn keccak256_returns_raw_digest_bytes() {
         assert_eq!(

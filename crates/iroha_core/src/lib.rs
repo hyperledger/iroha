@@ -107,9 +107,11 @@ pub mod oracle;
 pub mod peers_gossiper;
 /// Pipeline helpers (access-set derivation, scheduler glue)
 pub mod pipeline;
+mod pipeline_gas_policy;
 /// Committed execution-limit policy: the chain parameter that decides overlay, IVM,
 /// quarantine, query and AMX limits of the transaction pipeline.
 pub mod pipeline_validity_policy;
+mod resource_coherence;
 /// Internal privacy owner paths used by Core and Sumeragi-owned tests.
 pub(crate) use iroha_core_privacy::{
     execution_proofs, privacy_engines, privacy_profiles, privacy_state, privacy_verifier,

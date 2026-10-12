@@ -219,6 +219,7 @@ fn archived_exposure_survives_hot_rollover_replay_and_signed_claims() {
         view.world(),
         view.nexus(),
         view.pipeline(),
+        &view.zk().gas,
         draft.payload(),
         timestamp,
         chain.height() + 1,

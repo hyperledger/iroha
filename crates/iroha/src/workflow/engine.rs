@@ -651,6 +651,9 @@ impl WorkflowEngine {
                 continue;
             };
             let recomputed = self.account.identify(bytes).map_err(|failure| {
+                if failure.code == WorkflowErrorCode::LocalResourceUnavailable {
+                    return failure.into_error(WorkflowStage::Load, index);
+                }
                 WorkflowError::new(
                     WorkflowErrorCode::StorageCorrupted,
                     WorkflowStage::Load,

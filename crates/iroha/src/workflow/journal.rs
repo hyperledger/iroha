@@ -82,13 +82,32 @@ fn canonical<T: norito::NoritoSerialize>(
     value: &T,
     stage: WorkflowStage,
 ) -> Result<Vec<u8>, WorkflowError> {
-    norito::encode_canonical(value).map_err(|error| {
-        WorkflowError::new(
-            WorkflowErrorCode::InvalidInput,
-            stage,
-            format!("canonical encoding failed: {error}"),
-        )
-    })
+    norito::encode_canonical(value).map_err(|error| canonical_error(error, stage))
+}
+
+fn canonical_error(error: norito::Error, stage: WorkflowStage) -> WorkflowError {
+    // A writer has no decoder scope. Preserve its actual allocator error without
+    // manufacturing a decode attempt or inferring refusal from diagnostic text.
+    let code = if matches!(error, norito::Error::AllocationFailed { .. }) {
+        WorkflowErrorCode::LocalResourceUnavailable
+    } else {
+        WorkflowErrorCode::InvalidInput
+    };
+    WorkflowError::new(code, stage, format!("canonical encoding failed: {error}"))
+}
+
+fn journal_record_error(
+    mut error: WorkflowError,
+    stage: WorkflowStage,
+    invalid_code: WorkflowErrorCode,
+    context: &str,
+) -> WorkflowError {
+    if error.code != WorkflowErrorCode::LocalResourceUnavailable {
+        error.code = invalid_code;
+    }
+    error.stage = stage;
+    error.detail = format!("{context}: {}", error.detail);
+    error
 }
 
 fn bounded_detail(detail: &str) -> String {
@@ -1640,37 +1659,58 @@ impl WorkflowJournalV1 {
     /// Check every invariant of the journal.
     ///
     /// # Errors
-    /// Returns the first violated invariant.
-    pub fn validate(&self) -> Result<(), String> {
+    /// Returns the first violated invariant, preserving local encoding refusal.
+    pub fn validate(&self) -> Result<(), WorkflowError> {
+        let invalid = |detail: String| {
+            WorkflowError::new(
+                WorkflowErrorCode::InvalidInput,
+                WorkflowStage::Store,
+                detail,
+            )
+        };
         if self.version != WORKFLOW_JOURNAL_VERSION_V1 {
-            return Err(format!("unsupported journal version {}", self.version));
+            return Err(invalid(format!(
+                "unsupported journal version {}",
+                self.version
+            )));
         }
         let plan = self.plan();
-        plan.validate().map_err(|error| error.detail)?;
+        plan.validate()?;
         if !valid_binding(&self.identity.network) || !valid_binding(&self.identity.authority) {
-            return Err("account binding is malformed".to_owned());
+            return Err(invalid("account binding is malformed".to_owned()));
         }
-        if plan.digest().map_err(|error| error.detail)? != self.identity.plan_digest {
-            return Err("plan digest does not match the step descriptors".to_owned());
+        if plan.digest()? != self.identity.plan_digest {
+            return Err(invalid(
+                "plan digest does not match the step descriptors".to_owned(),
+            ));
         }
-        let id = self.identity.workflow_id().map_err(|error| error.detail)?;
+        let id = self.identity.workflow_id()?;
         if id.as_bytes() != &self.workflow_id {
-            return Err("workflow identifier does not match its identity".to_owned());
+            return Err(invalid(
+                "workflow identifier does not match its identity".to_owned(),
+            ));
         }
         let current = self.current_step();
         for (index, step) in self.steps.iter().enumerate() {
-            let step_index = u32::try_from(index).map_err(|_| "step index overflow".to_owned())?;
+            let step_index =
+                u32::try_from(index).map_err(|_| invalid("step index overflow".to_owned()))?;
             match (step.descriptor.kind, &step.transaction, &step.round) {
                 (StepKindV1::Transaction, Some(operation), None) => operation
                     .validate(step.descriptor.max_transaction_identities)
-                    .map_err(|detail| format!("step {index}: {detail}"))?,
+                    .map_err(|detail| invalid(format!("step {index}: {detail}")))?,
                 (StepKindV1::OffchainRound, None, Some(round)) => round
                     .validate(&step.descriptor, &round_identity(&id, step_index))
-                    .map_err(|detail| format!("step {index}: {detail}"))?,
-                _ => return Err(format!("step {index}: record does not match its kind")),
+                    .map_err(|detail| invalid(format!("step {index}: {detail}")))?,
+                _ => {
+                    return Err(invalid(format!(
+                        "step {index}: record does not match its kind"
+                    )));
+                }
             }
             if current.is_some_and(|current| index > current) && !step.is_untouched() {
-                return Err(format!("step {index} progressed before step {current:?}"));
+                return Err(invalid(format!(
+                    "step {index} progressed before step {current:?}"
+                )));
             }
         }
         let cancelled_step = self.steps.iter().any(|step| {
@@ -1679,7 +1719,9 @@ impl WorkflowJournalV1 {
             })
         });
         if cancelled_step && self.status != WorkflowStatusV1::Cancelled {
-            return Err("a step is cancelled while the workflow is not".to_owned());
+            return Err(invalid(
+                "a step is cancelled while the workflow is not".to_owned(),
+            ));
         }
         // Bytes are kept only while they may still be signed or dispatched.
         let holds_bytes = self.steps.iter().any(|step| {
@@ -1688,7 +1730,9 @@ impl WorkflowJournalV1 {
             })
         });
         if self.status.is_terminal() && holds_bytes {
-            return Err("a terminal workflow holds transaction bytes".to_owned());
+            return Err(invalid(
+                "a terminal workflow holds transaction bytes".to_owned(),
+            ));
         }
         let unresolved = current.is_some_and(|index| self.steps[index].is_unresolved());
         let failure = current.and_then(|index| self.step_failure(index));
@@ -1722,15 +1766,17 @@ impl WorkflowJournalV1 {
             }
         };
         if !consistent {
-            return Err(format!(
+            return Err(invalid(format!(
                 "workflow status `{}` disagrees with its steps",
                 self.status
-            ));
+            )));
         }
         if (self.status == WorkflowStatusV1::Failed) != self.failure_code.is_some()
             || self.failure_code.is_some() != self.failure_step.is_some()
         {
-            return Err("failure fields disagree with the workflow status".to_owned());
+            return Err(invalid(
+                "failure fields disagree with the workflow status".to_owned(),
+            ));
         }
         Ok(())
     }
@@ -1759,11 +1805,12 @@ impl WorkflowJournalV1 {
                 "a stored journal has a nonzero sequence",
             ));
         }
-        self.validate().map_err(|detail| {
-            WorkflowError::new(
-                WorkflowErrorCode::InvalidInput,
+        self.validate().map_err(|error| {
+            journal_record_error(
+                error,
                 WorkflowStage::Store,
-                format!("refusing to store an invalid journal: {detail}"),
+                WorkflowErrorCode::InvalidInput,
+                "journal validation before storage",
             )
         })?;
         let record = WorkflowJournalRecordV1 {
@@ -1789,7 +1836,8 @@ impl WorkflowJournalV1 {
     /// checked. Nothing is repaired.
     ///
     /// # Errors
-    /// `StorageCorrupted` for every failure.
+    /// `StorageCorrupted` for completed invalidity, or resumable
+    /// `LocalResourceUnavailable` when the original decoder cannot finish.
     pub fn decode_record(bytes: &[u8]) -> Result<Self, WorkflowError> {
         if bytes.len() > MAX_WORKFLOW_JOURNAL_BYTES_V1 {
             return Err(corrupted(format!(
@@ -1797,19 +1845,43 @@ impl WorkflowJournalV1 {
                 bytes.len()
             )));
         }
-        let record: WorkflowJournalRecordV1 = norito::decode_canonical(bytes)
-            .map_err(|error| corrupted(format!("journal record is not canonical: {error}")))?;
+        let record: WorkflowJournalRecordV1 =
+            norito::core::classify_decode_attempt(|| norito::decode_canonical(bytes)).map_err(
+                |error| match error.kind() {
+                    norito::core::DecodeAttemptErrorKind::Allocator
+                    | norito::core::DecodeAttemptErrorKind::EnclosingLimit => WorkflowError::new(
+                        WorkflowErrorCode::LocalResourceUnavailable,
+                        WorkflowStage::Load,
+                        "the original journal decoder could not finish within local resources",
+                    ),
+                    norito::core::DecodeAttemptErrorKind::Invalid => {
+                        corrupted(format!("journal record is not canonical: {error}"))
+                    }
+                },
+            )?;
         let journal = record.journal;
         if journal.sequence == 0 {
             return Err(corrupted("journal sequence is zero"));
         }
-        let digest = journal.digest().map_err(|error| corrupted(error.detail))?;
+        let digest = journal.digest().map_err(|error| {
+            journal_record_error(
+                error,
+                WorkflowStage::Load,
+                WorkflowErrorCode::StorageCorrupted,
+                "journal digest verification",
+            )
+        })?;
         if digest != record.digest {
             return Err(corrupted("journal digest does not match its contents"));
         }
-        journal
-            .validate()
-            .map_err(|detail| corrupted(format!("journal invariant violated: {detail}")))?;
+        journal.validate().map_err(|error| {
+            journal_record_error(
+                error,
+                WorkflowStage::Load,
+                WorkflowErrorCode::StorageCorrupted,
+                "journal invariant verification",
+            )
+        })?;
         Ok(journal)
     }
 
@@ -2092,5 +2164,45 @@ impl WorkflowProgressV1 {
                 ]),
             ),
         ])
+    }
+}
+
+#[cfg(test)]
+mod original_writer_error_tests {
+    //! Writer failures retain their category at journal validation boundaries.
+    use super::*;
+
+    #[derive(norito::NoritoSchema)]
+    #[norito_schema(name = "iroha::workflow::tests::RefusingWriter")]
+    struct RefusingWriter(bool);
+    impl norito::SerializePayload for RefusingWriter {
+        fn serialize(&self, _: &mut norito::core::Encoder<'_>) -> Result<(), norito::Error> {
+            Err(if self.0 {
+                norito::Error::AllocationFailed { bytes: 17 }
+            } else {
+                norito::Error::Message("allocation failed; bytes 17".into())
+            })
+        }
+    }
+
+    #[test]
+    fn original_writer_allocation_failure_stays_retryable_through_store_and_read() {
+        for stage in [WorkflowStage::Store, WorkflowStage::Load] {
+            let code = if stage == WorkflowStage::Store {
+                WorkflowErrorCode::InvalidInput
+            } else {
+                WorkflowErrorCode::StorageCorrupted
+            };
+            let error = canonical(&RefusingWriter(true), stage).unwrap_err();
+            let error = journal_record_error(error, stage, code, "original writer");
+            assert_eq!(error.code, WorkflowErrorCode::LocalResourceUnavailable);
+            assert_eq!(error.stage, stage);
+            assert!(error.is_resumable());
+            assert!(error.progress.is_none());
+            // Similar diagnostic words do not confer allocator provenance.
+            let invalid = canonical(&RefusingWriter(false), stage).unwrap_err();
+            let invalid = journal_record_error(invalid, stage, code, "completed invalidity");
+            assert_eq!(invalid.code, code);
+        }
     }
 }

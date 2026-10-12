@@ -438,7 +438,7 @@ class ClosedLists(Base):
     def test_pool_map_names_its_protocols_or_why_it_is_left_out(self) -> None:
         def field(matrix: dict, name: str) -> dict:
             return next(item for item in matrix["closed_lists"]["pool_state"]["fields"] if item["field"] == name)
-        matrix = edited(lambda m: field(m, "kagemusha_terminal_nullifier_operations").pop("out_of_scope"))
+        matrix = edited(lambda m: field(m, "kagemusha_wallet_ledger").pop("out_of_scope"))
         self.assert_fails(run("check_closed_lists", matrix), "names its `protocols`, or says why it is `out_of_scope`")
         matrix = edited(lambda m: field(m, "zk_assets").update(protocols=["nowhere"]))
         self.assert_fails(run("check_closed_lists", matrix), "closed_lists.pool_state.zk_assets: protocol `nowhere` is not recorded")

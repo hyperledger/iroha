@@ -110,11 +110,13 @@ variable and is neither a limit-named constant nor a constant compared
 somewhere by name; a limit a function returns when the function takes
 parameters, its name has no limit word or its return type is no integer,
 `Option` of one or `Result` of one; a limit computed at run time; a
-constant of a non-integer type (a `Duration`, a range) that its name does
-not mark; a literal below `literals.minimum` or that is no integer (`0.5`).
+constant of a non-integer type (a `Duration`, a range), or an integer typed
+through a type alias, that its name does not mark; a literal below
+`literals.minimum` or that is no integer (`0.5`).
 Comparisons the scan does not read, for a constant that no name marks as
 for a literal: one with `==`, `!=`, `cmp` or `partial_cmp`; a `match`
-pattern; a relational operator written without whitespace around it;
+pattern; a range test written as a function (`RangeInclusive::contains`);
+a relational operator written without whitespace around it;
 checked arithmetic that refuses by underflow (`limit.checked_sub(64)?`);
 the receiver of `.take` and `.truncate` (the collection that is cut, as in
 `(0..ROWS).take(n)`); what a block yields when the block is the receiver of
@@ -2300,10 +2302,13 @@ COMPARED_RECEIVER = frozenset(("min", "max", "clamp", "lt", "le", "gt", "ge"))
 # The same cap or comparison written as a function, bare or behind any path:
 # `min(a, b)`, `cmp::min(a, b)`, `u64::max(a, b)`, `core::cmp::Ord::max(a, b)`,
 # `NonZeroU32::min(a, b)`, `<u64 as Ord>::max(a, b)`, `u32::clamp(n, 2, 64)`,
-# `PartialOrd::lt(&a, &b)`. The definition of such a function (`fn max(..)`) is none.
+# `PartialOrd::lt(&a, &b)`, `Iterator::take(it, n)`, `Vec::truncate(v, n)`.
+# Explicit type arguments such as `max::<u64>` are allowed. The definition of
+# such a function (`fn max(..)`) is none.
 CAP_FUNCTION = re.compile(
     r"(?<![A-Za-z0-9_.:>])(?<!\bfn )(?:(?:[A-Za-z_][A-Za-z_0-9]*|<[^<>()]*>)::)*"
-    r"(?:min|max|clamp|lt|le|gt|ge)\s*\("
+    r"(?:min|max|clamp|take|truncate|lt|le|gt|ge)"
+    r"(?:\s*::\s*<[^;{}()]*>)?\s*\("
 )
 RANGE_TEST = re.compile(r"\)\s*\.\s*contains\s*\(")
 # One integer literal inside a larger expression: no part of a name, of a float
@@ -3586,7 +3591,10 @@ def _scope_region(source: str, scope: dict, where: str) -> tuple:
 
 def _symbol_spans(source: str, scope: dict, symbol: str, where: str) -> list:
     """Spans, in `source`, of the defining expressions of one limit inside its scope."""
-    key = ("symbol_spans", scope.get("kind"), tuple(scope.get("module") or ()), symbol)
+    key = (
+        "symbol_spans", scope.get("kind"), tuple(scope.get("module") or ()),
+        bool(scope.get("imported")), symbol,
+    )
     return _TEXTS.get(source, key, lambda: _find_symbol_spans(source, scope, symbol, where))
 
 
@@ -3599,6 +3607,18 @@ def _find_symbol_spans(source: str, scope: dict, symbol: str, where: str) -> lis
         spans = function_body_spans(source, symbol)
     else:
         spans = definition_spans(source, symbol)
+        if scope.get("imported"):
+            # The dependency resolver imports integer constants only. A same-name
+            # product setting of another type in a sibling module is not that
+            # imported limit. Keep every integer definition, so shadowing by a
+            # second integer still requires its own classification.
+            starts = {
+                source.find("=", match.end()) + 1
+                for match in INTEGER_ITEM.finditer(source)
+                if match.group(1) == symbol
+                and source[match.end():].lstrip().startswith("=")
+            }
+            spans = [span for span in spans if span[0] in starts]
     return [span for span in spans if start <= span[0] and span[1] <= end]
 
 
@@ -4006,24 +4026,13 @@ def literal_scopes(scopes: list) -> list:
 def _held_whole(contains: str, text: str) -> int:
     """How often the enforcement text `contains` holds the comparison `text` whole.
 
-    An occurrence counts when no name, number or method chain runs on at either end:
-    `len > 128` is not held by `len > 1280`, and `o.len() > 128` is not held by
-    `foo.len() > 128`. So a site of a bound owns the comparison it quotes and no
-    shorter one that happens to be a part of its text.
+    Use the same whole-clause scan that found the source site. Identifier
+    boundaries alone are insufficient: `len > 128` is a substring of
+    `len > 128 * 1024`, but the two comparisons enforce different bounds.
+    Arithmetic on either operand and complete method receivers stay part of
+    the comparison owned by an enforcement record.
     """
-    count = 0
-    start = contains.find(text)
-    while start >= 0:
-        end = start + len(text)
-        before, after = contains[start - 1 : start] if start else "", contains[end : end + 1]
-        head_joined = (text[0].isalnum() or text[0] == "_") and (
-            before.isalnum() or before in ("_", ".")
-        )
-        tail_joined = (text[-1].isalnum() or text[-1] == "_") and (after.isalnum() or after == "_")
-        if not head_joined and not tail_joined:
-            count += 1
-        start = contains.find(text, start + 1)
-    return count
+    return literal_occurrences(contains, 2).get(text, 0)
 
 
 def check_literals(
@@ -4599,10 +4608,11 @@ def check_relations(contract: dict, values: dict, tasks: dict, problems: list) -
 
 
 def check_declared(contract: dict, tasks: dict, problems: list) -> None:
+    relation_ids = {relation.get("id") for relation in contract.get("relations", [])}
     for declared in contract.get("declared", []):
         where = f"declared {declared.get('id', '<without id>')}"
         try:
-            _require(declared, ("id", "group", "what", "status", "requires"), where)
+            _require(declared, ("id", "group", "what", "status", "requires", "relations"), where)
             if declared["group"] not in GROUPS:
                 raise ContractError(f"{where}: unknown group {declared['group']!r}")
             if declared["status"] != "not_implemented":
@@ -4611,6 +4621,12 @@ def check_declared(contract: dict, tasks: dict, problems: list) -> None:
                 )
             if not declared["requires"]:
                 raise ContractError(f"{where}: a declared item lists what it must satisfy")
+            relations = declared["relations"]
+            if not isinstance(relations, list) or any(not isinstance(item, str) for item in relations):
+                raise ContractError(f"{where}: relations must be a list of relation identifiers")
+            for identifier in relations:
+                if identifier not in relation_ids:
+                    raise ContractError(f"{where}: unknown relation `{identifier}`")
             _check_open_owner(declared.get("open", {}), tasks, where, problems)
         except ContractError as error:
             problems.append(str(error))

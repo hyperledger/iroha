@@ -16,7 +16,7 @@ fn decode_verified_proxy_signed_query(
         <SignedQuery as iroha_version::codec::DecodeVersioned>::decode_all_versioned(query_bytes)
     };
     let query = norito::with_decode_limits_scope(limits, decode).map_err(|error| {
-        let resource_limit = matches!(error, iroha_version::error::Error::NoritoResourceLimit(_));
+        let resource_limit = error.is_decode_resource_limit();
         torii_proxy_error_response(
             if resource_limit {
                 StatusCode::PAYLOAD_TOO_LARGE

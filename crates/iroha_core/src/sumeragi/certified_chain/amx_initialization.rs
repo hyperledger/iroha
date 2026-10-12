@@ -122,7 +122,7 @@ impl<'v, V: StateReadOnly> AmxChainInitialization<'v, V> {
             .as_mut()
             .expect("original genesis policy owner");
         let genesis = self.body.as_ref().expect("original native body").clone();
-        let (epoch, instance) = authenticate_genesis_with(
+        let (epoch, instance, root_scope) = authenticate_genesis_with(
             &genesis,
             self.view.network_id(),
             self.view.chain_id(),
@@ -139,6 +139,7 @@ impl<'v, V: StateReadOnly> AmxChainInitialization<'v, V> {
             genesis,
             epoch,
             instance,
+            root_scope,
         );
         chain._amx_genesis_authentication = self.authentication.take();
         // Retain the very same bytes/descriptor after body delivery. Prefix retries lend

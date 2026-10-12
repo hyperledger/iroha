@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -49,6 +50,125 @@ CHECKED_FILES = (
 
 def tracked_summary() -> dict:
     return json.loads(SUMMARY.read_text())
+
+
+class PinnedRunTest(unittest.TestCase):
+    """Cost ingestion consumes one verified snapshot and mandatory external pins."""
+
+    PIN = "ab" * 32
+
+    def verified(self) -> dict:
+        """Synthetic reader return for testing the consumer, not harness acceptance."""
+        labels = ["root", "profile"] + [path for _, path in MODEL.PHASES]
+        labels += [f"operation_profile/{name}" for name in MODEL.OPERATIONS]
+        labels = list(dict.fromkeys(labels))
+        record = {
+            "outcome": "succeeded", "identity": {"workload": "bgv.synthetic"},
+            "phase_tree": {"nodes": [
+                {"label": label, "parent": None if index == 0 else 0, "calls": 1,
+                 "wall_inclusive_ns": 100, "wall_exclusive_ns": 1}
+                for index, label in enumerate(labels)]},
+            "work_counters": {"entries": [{"phase": 1, "label": "degree", "max_units": 8,
+                                           "total_units": 8}]},
+            "byte_counters": {"entries": []}, "declared": [],
+            "process": {"thermal_begin": None, "thermal_finish": None,
+                        "load_milli_begin": 0, "load_milli_finish": 0},
+            "scheduling": {"workers": 1},
+        }
+        return {
+            "manifest_sha256": self.PIN, "documents": {"child/bgv-synthetic.json": record},
+            "report": {
+                "verdict": "accepted", "records": [{"json": {"path": "child/bgv-synthetic.json"}}],
+                "host": {"model": "verified-host"},
+                "context": {"config": MODEL.SPARSE_CONFIG, "artifact": "sha256:" + "cd" * 32,
+                            "source_commit": "12" * 20, "source_dirty": False,
+                            "source_dirty_digest": "34" * 32, "hardware": "verified-hardware",
+                            "profile": "verified-profile", "cache_policy": "warm"},
+                "process": {"peak_rss_bytes": 1, "cpu_user_ns": 2, "cpu_system_ns": 3},
+            },
+        }
+
+    def test_read_run_consumes_only_verified_documents_and_host(self) -> None:
+        verified = self.verified()
+        with patch.object(MODEL.HARNESS, "read_pinned_run", return_value=verified) as reader, \
+             patch.object(Path, "read_text", side_effect=AssertionError("evidence reopened")), \
+             patch.object(Path, "read_bytes", side_effect=AssertionError("evidence reopened")), \
+             patch.object(Path, "glob", side_effect=AssertionError("unsealed directory scan")):
+            block, host = MODEL.read_run(Path("run-original"), self.PIN)
+        reader.assert_called_once_with(Path("run-original"), self.PIN)
+        self.assertIs(host, verified["report"]["host"])
+        self.assertEqual(block["run"]["manifest_sha256"], self.PIN)
+        self.assertEqual(block["workload"], "bgv.synthetic")
+        self.assertEqual(block["run"]["artifact"], "sha256:" + "cd" * 32)
+
+    def test_original_reader_refusal_is_not_reclassified_or_retried(self) -> None:
+        original = MODEL.HARNESS.HarnessRefusal("pinned run refused: manifest_digest_differs")
+        with patch.object(MODEL.HARNESS, "read_pinned_run", side_effect=original) as reader:
+            with self.assertRaises(MODEL.HARNESS.HarnessRefusal) as refused:
+                MODEL.read_run(Path("run-original"), self.PIN)
+        self.assertIs(refused.exception, original)
+        reader.assert_called_once()
+
+    def test_exactly_one_successful_sealed_bgv_record_is_required(self) -> None:
+        for count in (0, 2):
+            verified = self.verified()
+            verified["report"]["records"] *= count
+            with self.subTest(count=count), patch.object(MODEL.HARNESS, "read_pinned_run", return_value=verified):
+                with self.assertRaisesRegex(SystemExit, "exactly one workload record"):
+                    MODEL.read_run(Path("run-original"), self.PIN)
+        verified = self.verified()
+        verified["documents"]["child/bgv-synthetic.json"]["outcome"] = "failed"
+        with patch.object(MODEL.HARNESS, "read_pinned_run", return_value=verified):
+            with self.assertRaisesRegex(SystemExit, "workload did not succeed"):
+                MODEL.read_run(Path("run-original"), self.PIN)
+
+    def test_missing_invalid_and_duplicate_pins_refuse_before_reading(self) -> None:
+        with patch.object(MODEL, "read_run") as reader:
+            with self.assertRaises(TypeError):
+                MODEL.build_summary([Path("run")])
+            for paths, pins in (([], []), ([Path("run")], []),
+                                ([Path("run")], ["invalid"]),
+                                ([Path("a"), Path("b")], [self.PIN, self.PIN])):
+                with self.subTest(pins=pins), self.assertRaises(ValueError):
+                    MODEL.build_summary(paths, manifest_sha256=pins)
+        reader.assert_not_called()
+
+    def test_builder_uses_returned_host_and_pin_without_reopening_report(self) -> None:
+        summary = tracked_summary()
+        expected = MODEL.rederive(summary)
+        host = {key: value["value"] if isinstance(value, dict) else value
+                for key, value in summary["host"].items() if key != "hardware_record"}
+        by_name = {run["run"]["run_directory"]: run for run in summary["runs"]}
+        paths = [Path(name) for name in by_name]
+        pins = [by_name[path.name]["run"]["manifest_sha256"] for path in paths]
+        original_read = Path.read_text
+
+        def read(path, pin):
+            block = copy.deepcopy(by_name[path.name])
+            self.assertEqual(pin, block["run"]["manifest_sha256"])
+            return block, host
+
+        def read_text(path, *args, **kwargs):
+            self.assertNotEqual(path.name, "report.json", "verified host must not be reopened")
+            return original_read(path, *args, **kwargs)
+
+        with patch.object(MODEL, "read_run", side_effect=read) as reader, \
+             patch.object(Path, "read_text", read_text), \
+             patch.object(MODEL, "sha256_of", side_effect=AssertionError("post-hoc pin")):
+            rebuilt = MODEL.build_summary(paths, manifest_sha256=pins)
+        self.assertEqual(rebuilt, expected)
+        self.assertEqual(reader.call_count, len(paths))
+
+    def test_cli_requires_build_pins_and_preserves_refusal_before_write(self) -> None:
+        for args in (["--build", "run"], ["--manifest-sha256", self.PIN]):
+            with self.subTest(args=args), redirect_stderr(StringIO()), self.assertRaises(SystemExit) as refusal:
+                MODEL.main(args)
+            self.assertEqual(refusal.exception.code, 2)
+        with patch.object(MODEL, "build_summary", side_effect=MODEL.HARNESS.HarnessRefusal("bad pin")), \
+             patch.object(MODEL, "write_outputs") as write, redirect_stderr(StringIO()) as stderr:
+            self.assertEqual(MODEL.main(["--build", "run", "--manifest-sha256", self.PIN, "--write"]), 1)
+        write.assert_not_called()
+        self.assertIn("bad pin", stderr.getvalue())
 
 
 class ScratchRoot:

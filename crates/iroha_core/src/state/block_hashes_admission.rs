@@ -100,6 +100,12 @@ pub enum StateStorageAdmissionError {
     /// The original native participant graph or allocator refused before monetary execution.
     #[error("local native AMX graph refusal: {0}")]
     NativeAmx(crate::sumeragi::amx::NativeAmxAdmissionError),
+    /// Native SCCP preparation no longer matches its original execution custody.
+    #[error(transparent)]
+    SccpGeneration(crate::smartcontracts::isi::sccp::generation_error::SccpGenerationLocalError),
+    /// Original native anchor source or allocator refused before A1 publication.
+    #[error(transparent)]
+    SccpAnchor(crate::smartcontracts::isi::sccp::anchor::SccpAnchorLocalError),
     /// The original execution-root metadata decoder refused before instruction authority existed.
     #[error(transparent)]
     RootScopeDecode(RootScopeDecodeRefusal),
@@ -114,6 +120,8 @@ impl StateStorageAdmissionError {
                 iroha_allocation::AllocationRefusal::Capacity { release, .. },
             )) => Some(release),
             Self::NativeAmx(_) => None,
+            Self::SccpGeneration(error) => error.release_wait(),
+            Self::SccpAnchor(error) => error.release_wait(),
             Self::AmxDecode(_) | Self::RootScopeDecode(_) => None,
         }
     }

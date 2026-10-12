@@ -39,7 +39,7 @@ guard for that file. It fails when:
   effect is consumed or matched at an unrecorded site, an action-driver
   operation names no role, or a retired duplicate is back;
 * a closed enum the inventory mirrors gains or loses a variant: the generic
-  proof relations, the Halo2 production circuits, the RAM-LFE classes,
+  proof relations, the native PIPA-R circuits, the RAM-LFE classes,
   backends, verification modes and opening variants, the SoraCloud FHE job
   kinds, decryption modes and typed native roles, and the transaction
   executables;
@@ -104,7 +104,10 @@ Limits, stated once:
   is one of its tokens. Macro-generated handlers are read per file.
 * Entry points. The census counts calls of the listed entry points. A new
   verifier function that is no token, and a restore validator whose name has
-  no family word, are not seen.
+  no family word, are not seen, except for the explicitly counted restore
+  methods `validate_for_key` and `validate_at_committed_height`. Named AXT
+  validators are included. Individually listed AXT consistency guards remain
+  source anchors; this does not infer arbitrary new validation expressions.
 * SDK and bridge scans find a type name, a quoted wire id or a route path
   literal. A name built from parts at run time is not found.
 * Digests. The census counts primitive names from a closed list in each
@@ -2459,11 +2462,67 @@ class Checker:
         adapters = section.get("execution_adapters", {})
         self.check_enum("generic_relations.execution_adapters", adapters.get("source", {"path": "", "enum": ""}),
                         [row.get("variant") for row in adapters.get("list", [])])
-        circuits = section.get("halo2_circuits", {})
-        listed = string_list(self.tree.read(circuits.get("path", "")) or "", circuits.get("constant", ""))
-        recorded = sorted(circuit for row in section.get("relations", []) for circuit in row.get("circuits", []))
-        if listed is None or sorted(listed) != recorded:
-            self.error(f"generic_relations: {circuits.get('constant')} is {listed}, recorded {recorded}")
+        self.check_native_circuits(section)
+
+    def check_native_circuits(self, section: dict) -> None:
+        """Pin the native enum, admission list, relation mapping and circuit constants."""
+        label = "generic_relations.native_circuits"
+        circuits = section.get("native_circuits", {})
+        source = circuits.get("source", {})
+        rows = [row for row in section.get("relations", []) if row.get("circuits")]
+        recorded = sorted(row.get("variant", "") for row in rows)
+        variants = circuits.get("variants", [])
+        self.check_enum(label, source, variants)
+        if sorted(variants) != recorded:
+            self.error(f"{label}: native variants {variants} differ from typed circuit relations {recorded}")
+        text = self.production(source.get("path", ""))
+        constant = circuits.get("constant", "")
+        declaration = re.search(r"\bconst\s+" + re.escape(constant) + r"\b[^=]*=\s*\[", text)
+        end = balanced(text, declaration.end() - 1, "[", "]") if declaration else None
+        body = code_only(text[declaration.end():end - 1]) if end and declaration else ""
+        listed = re.findall(r"Self::(\w+)", body) if re.fullmatch(r"\s*(?:Self::\w+\s*,?\s*)+", body) else None
+        if listed != variants:
+            self.error(f"{label}: {constant} lists {listed}, recorded {variants}")
+        selector = section.get("selector", {})
+        mapping = match_arms(fn_body(self.production(selector.get("path", "")), "compiled_relation") or "",
+                             "super::native_pipa_r::" + source.get("enum", ""))
+        expected = {row["variant"]: "ProofRelation::" + row["variant"] for row in rows}
+        if mapping != expected:
+            self.error(f"{label}: compiled_relation maps {mapping}, recorded {expected}")
+        dispatches = circuits.get("kind_dispatch", {})
+        for function, dispatch in dispatches.items():
+            selected = [row for row in rows if row.get("circuit_source", {}).get("selector") == function]
+            body = code_only(fn_body(text, function) or "")
+            actual = dict(re.findall(r"Self::(\w+)\s*=>\s*Some\(\s*([\w:]+)\s*\)", body))
+            expected = {row["variant"]: dispatch.get("owner", "") + "::" + row["circuit_source"]["kind"]
+                        for row in selected}
+            if not selected or actual != expected:
+                self.error(f"{label}: {function} selects {actual}, recorded {expected}")
+            actual = match_arms(fn_body(self.production(dispatch.get("path", "")), "circuit_id") or "")
+            expected = {row["circuit_source"]["kind"]: dispatch.get("constant_prefix", "") + row["circuit_source"]["constant"]
+                        for row in selected}
+            if actual != expected:
+                self.error(f"{label}: {function} circuit_id maps {actual}, recorded {expected}")
+        delegate = code_only(fn_body(text, "circuit_id") or "")
+        expected_delegate = ("if let Some(kind) = self.kaigi() { kind.circuit_id() } else { "
+                             "self.confidential().expect().circuit_id() }")
+        if re.sub(r"\s+", "", delegate) != re.sub(r"\s+", "", expected_delegate):
+            self.error(f"{label}: circuit_id must delegate to its selected native kind")
+        identifiers = []
+        for row in rows:
+            anchor = row.get("circuit_source", {})
+            if anchor.get("selector") not in dispatches:
+                self.error(f"{label}[{row.get('variant')}]: circuit_source requires its native kind selector")
+            path, name = anchor.get("path", ""), anchor.get("constant", "")
+            # First-release circuit identities are literal constants, never inferred aliases.
+            match = re.search(r"\bconst\s+" + re.escape(name) + r'\s*:\s*&str\s*=\s*"([^"\\]*)"\s*;',
+                              strip_comments(self.production(path))) if name else None
+            value = match.group(1) if match else None
+            if value is None or row["circuits"] != [value]:
+                self.error(f"{label}[{row.get('variant')}]: {path}::{name} is {value!r}, recorded {row['circuits']}")
+            identifiers.extend(row["circuits"])
+        if len(set(identifiers)) != len(identifiers):
+            self.error(f"{label}: each native relation requires a distinct circuit identity")
 
     def check_ram_lfe(self) -> None:
         section = self.inv.get("ram_lfe", {})
@@ -2696,6 +2755,19 @@ class Checker:
                 self.error(f"admission_routes.{name}: at least one site is required")
             if not record.get("what"):
                 self.error(f"admission_routes.{name}: `what` is required")
+            if name == "restore":
+                for site in record.get("sites", []):
+                    field = site.get("state_field")
+                    if field is None:
+                        continue
+                    if not isinstance(field, str) or not field.startswith("world."):
+                        self.error("admission_routes.restore: state_field must name an original World field")
+                        continue
+                    if not site.get("what"):
+                        self.error(f"admission_routes.restore: the guard for {field} needs `what`")
+                    if not any(ref.get("inventory") == "state" and ref.get("key") == f"fields/{field}"
+                               for ref in record.get("references", [])):
+                        self.error(f"admission_routes.restore: the guard for {field} needs its State inventory reference")
             targets = [target for site in record.get("sites", []) for target in anchor_names(self.tree, site)]
             if record.get("tests"):
                 self.check_evidence(f"admission_routes.{name}", record, "implemented", targets, required=False)

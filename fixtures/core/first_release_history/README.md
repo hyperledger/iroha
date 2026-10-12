@@ -1,26 +1,25 @@
 # Pinned first-release history
 
 These canonical frames contain the node-test genesis and two certified `Log`
-blocks from four validators. The manifest pins their bytes, block hashes,
-complete World root and execution tip. Strict replay must reproduce every
-stored certificate and the pinned State.
+blocks committed by four validators. The manifest pins their exact bytes, block
+hashes, complete World root and execution tip. Strict replay must reproduce the
+stored certificates and pinned State.
 
-The genesis uses the compiled SCCP profiles and confidential-policy digest,
-and omits the retired `kagemusha_mint_finality` parameter. Its certified World schema
-includes the canonical `world.asset_definition_direct_homes` table. Adding that
-table changes the schema commitment even when it has no rows and requires a fresh
-genesis cutover. This history was generated through
-`capture_pinned_first_release_history` with the current strict genesis model and
-four real validators. Its digest is recorded in
-`specs/first_release_history_cutover.json`. Strict replay rejects certificates made
-under the previous World schema; no compatibility decoder or root translation is
-kept. This local fixture cutover does not reset or change a live network.
+The 2026-10-12 capture comes from the actual
+`capture_pinned_first_release_history` exporter. Its current World schema includes
+native SCCP committee-generation, liability-clock, degraded-state and anchor
+custody. Certified results carry the sole `CertifiedResultV1` fixed `X || body`
+preimage with raw SHA-256 result identity. Native consensus signatures use the
+allowlisted-preimage SHA-256 / `DST_SIG` suite.
 
-Declared cutover: by that effect on the stored history this is the surface
-`execution_root` of the contract table (certified execution result), whose
-cutover is `fresh_genesis`. The regenerated manifest pins new frames, block
-hashes and certified result; the frame sizes and the complete World root are
-those of the previous pin.
+This replaces the previous pin with an explicitly incompatible first-release
+history. The declared surfaces are `state_layout` and `execution_root`, both
+requiring `fresh_genesis`. No previous-history replay, root translation, alternate
+decoder or dual signature verifier is provided. The new manifest records the
+actual regenerated frame sizes and World root; they are not inherited from the
+previous pin. This fixture change does not reset a live network or qualify SCCP
+destination launch.
 
-The producer, replay check and regeneration procedure are defined in
+The digest is recorded in `specs/first_release_history_cutover.json`. The
+producer, replay check and regeneration procedure are defined in
 [`specs/first_release_history_cutover.md`](../../../specs/first_release_history_cutover.md).

@@ -12,7 +12,6 @@ use crate::da::pin_intent::DaPinIntentBundle;
 use iroha_crypto::{Hash, HashOf, MerkleTree, SignatureOf};
 use iroha_data_model_derive::model;
 use iroha_schema::IntoSchema;
-use iroha_version::Version;
 use norito::{
     codec::{Decode, Encode},
     core::{
@@ -22,7 +21,7 @@ use norito::{
 };
 #[cfg(any(test, feature = "transparent_api"))]
 use std::collections::{BTreeMap, BTreeSet};
-use std::{borrow::Cow, convert::TryInto, fmt, format, string::String, time::Duration, vec::Vec};
+use std::{convert::TryInto, fmt, format, string::String, time::Duration, vec::Vec};
 pub mod proofs;
 /// Finality-verified historical retail activation; not a current-state proof.
 pub mod retail_activation_proof;
@@ -88,6 +87,14 @@ pub use signatures::{BlockSignatureCustodyError, BlockSignatures, PreparedBlockS
 mod model {
     use super::*;
     /// Block collecting signatures from validators.
+    ///
+    /// Stored and distributed blocks use [`SignedBlock::canonical_wire`]. A block
+    /// cannot use the generic headerless versioned codec, even with inferred types.
+    ///
+    /// ```compile_fail
+    /// use iroha_data_model::block::SignedBlock;
+    /// let _: SignedBlock = iroha_version::codec::decode_exact_versioned(&[]).unwrap();
+    /// ```
     #[derive(
         Debug,
         Clone,
@@ -191,6 +198,9 @@ pub type MergeEntrypointsRejection = (
 );
 
 impl SignedBlock {
+    /// Version of the single canonical block wire: a version byte, Norito header and payload.
+    pub const WIRE_VERSION: u8 = 1;
+
     /// Create new block with a given signature
     ///
     /// # Warning
@@ -631,7 +641,7 @@ impl SignedBlock {
     ) -> Result<(), NoritoFrameError> {
         let proposal = proposal::Proposal::new(self)?;
         proposal.checked_payload_len()?;
-        writer.write_all(&[self.version()])?;
+        writer.write_all(&[Self::WIRE_VERSION])?;
         norito::core::write_canonical_to_writer(&proposal, writer)
     }
 
@@ -662,7 +672,7 @@ impl SignedBlock {
                 Ok(())
             }
         }
-        if !self.is_resultless_proposal() || wire.first() != Some(&self.version()) {
+        if !self.is_resultless_proposal() || wire.first() != Some(&Self::WIRE_VERSION) {
             return Ok(false);
         }
         self.checked_raw_resultless_payload_len()?;
@@ -790,7 +800,7 @@ impl SignedBlock {
             .ok_or(NoritoFrameError::LengthMismatch)?;
         let mut codec_error = None;
         let hash = Hash::new_from_writer(|writer| {
-            writer.write_all(&[self.version()])?;
+            writer.write_all(&[Self::WIRE_VERSION])?;
             norito::core::write_canonical_to_writer(&candidate, writer).map_err(|error| {
                 codec_error = Some(error);
                 std::io::Error::other("canonical executed block encoding failed")
@@ -1093,7 +1103,7 @@ impl SignedBlock {
             .ok_or(NoritoFrameError::LengthMismatch)?;
         let mut codec_error = None;
         let hash = Hash::new_from_writer(|writer| {
-            writer.write_all(&[self.version()])?;
+            writer.write_all(&[Self::WIRE_VERSION])?;
             norito::core::write_canonical_to_writer(self, writer).map_err(|error| {
                 codec_error = Some(error);
                 std::io::Error::other("canonical stored block encoding failed")
@@ -1112,7 +1122,7 @@ impl SignedBlock {
     /// flags.
     pub fn canonical_wire(&self) -> Result<SignedBlockWire, NoritoFrameError> {
         let payload = encode_signed_block_payload(self);
-        let version = self.version();
+        let version = Self::WIRE_VERSION;
         let mut frame = Vec::with_capacity(1 + norito::core::Header::SIZE + payload.len());
         frame.push(version);
         write_signed_block_header(&payload, &mut frame)?;
@@ -1135,23 +1145,6 @@ impl SignedBlock {
 impl fmt::Display for SignedBlock {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.header())
-    }
-}
-impl iroha_version::Version for SignedBlock {
-    fn version(&self) -> u8 {
-        1
-    }
-    fn supported_versions() -> std::ops::Range<u8> {
-        1..2
-    }
-}
-impl iroha_version::codec::EncodeVersioned for SignedBlock {
-    fn encode_versioned(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(1);
-        bytes.push(self.version());
-        let payload = norito::codec::encode_adaptive(self);
-        bytes.extend(payload);
-        bytes
     }
 }
 #[cfg(feature = "http")]
@@ -1497,52 +1490,6 @@ impl SignedBlockWire {
         &self.frame[1 + header_size..]
     }
 }
-/// Ensure versioned [`SignedBlock`] bytes carry a Norito header. When the
-/// payload is already framed, the returned `bytes` borrow the input slice.
-/// Headerless payloads are rejected.
-///
-/// # Errors
-///
-/// Returns [`NoritoFrameError::LengthMismatch`] when `bytes` is empty. Propagates
-/// header validation failures from `validate_signed_block_header` and issues
-/// encountered while synthesizing the framed payload.
-#[derive(Debug)]
-pub struct DeframedSignedBlockBytes<'a> {
-    /// Versioned bytes with a Norito header prefixing the payload.
-    pub bytes: Cow<'a, [u8]>,
-    /// Versioned bytes without the Norito header (version discriminator + bare payload).
-    pub bare_versioned: Cow<'a, [u8]>,
-}
-/// Deframe versioned [`SignedBlock`] bytes, requiring a Norito header.
-///
-/// # Errors
-///
-/// Returns [`NoritoFrameError::LengthMismatch`] when `bytes` is empty and
-/// propagates header validation or synthesis failures.
-pub fn deframe_versioned_signed_block_bytes(
-    bytes: &[u8],
-) -> Result<DeframedSignedBlockBytes<'_>, NoritoFrameError> {
-    if bytes.is_empty() {
-        return Err(NoritoFrameError::LengthMismatch);
-    }
-    let version = bytes[0];
-    let payload = &bytes[1..];
-    if payload.starts_with(MAGIC.as_slice()) {
-        validate_signed_block_header(payload)?;
-        let header_size = norito::core::Header::SIZE;
-        let bare_payload = &payload[header_size..];
-        let mut bare_versioned = Vec::with_capacity(1 + bare_payload.len());
-        bare_versioned.push(version);
-        bare_versioned.extend_from_slice(bare_payload);
-        enforce_payload_len_limit(bare_payload.len())?;
-        Ok(DeframedSignedBlockBytes {
-            bytes: Cow::Borrowed(bytes),
-            bare_versioned: Cow::Owned(bare_versioned),
-        })
-    } else {
-        Err(NoritoFrameError::InvalidMagic)
-    }
-}
 fn write_signed_block_header(payload: &[u8], out: &mut Vec<u8>) -> Result<(), NoritoFrameError> {
     enforce_payload_len_limit(payload.len())?;
     out.extend_from_slice(MAGIC.as_slice());
@@ -1703,7 +1650,7 @@ fn decode_framed_versioned_signed_block_inner(
             Ok(())
         }
     }
-    if !SignedBlock::supported_versions().contains(&version) {
+    if version != SignedBlock::WIRE_VERSION {
         return Err(NoritoFrameError::UnsupportedVersion {
             found: version,
             expected: 1,

@@ -9,7 +9,7 @@
 use super::{leaves, store};
 use crate::{block::BlockValidationError, state::StateTransaction};
 use iroha_data_model::sccp::{
-    attestation::{SccpBlockCommitmentV1, SccpHistoryStateV1},
+    commitment::{SccpBlockCommitmentV1, SccpHistoryStateV1},
     control::SccpLeafRefV1,
     events::{SccpBlockCommittedV1, SccpEvent},
 };

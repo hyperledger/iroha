@@ -119,14 +119,25 @@ fn ascending_native_continuation_refuses_same_proposal_changed_result_before_fir
     let (chain, _) = chain();
     let original = frame(&chain, 4);
     let changed = with_parts(&original, |_, qc, preimage| {
-        let mut result = ExecutionResultCommitment::decode(preimage).unwrap();
+        let (finality_header, mut result) =
+            iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+                preimage,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            )
+            .unwrap()
+            .into_parts();
         result.execution.world_state_root =
             Hash::new(b"different quorum-certified execution result");
-        *preimage = result.preimage().unwrap();
+        *preimage = iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
+            finality_header,
+            result.clone(),
+        )
+        .preimage()
+        .unwrap();
         *qc = chain.commit_qc(
             4,
             qc.block_hash,
-            result_of_preimage(preimage),
+            result_of_preimage(preimage).unwrap(),
             Signers::Quorum,
         );
     });
@@ -742,7 +753,7 @@ fn state_certificate_signed_availability_scratch_uses_original_query_allowance()
     let source = frame(&chain, 3);
     let current = read_frame(Clone::clone(&source), 3).unwrap();
     let parent = chain.committed(2);
-    let schedule::ScheduledSlot::Ready(scheduled) = &parent.commitment.schedule.next else {
+    let schedule::ScheduledSlot::Ready(scheduled) = &parent.commitment().schedule.next else {
         panic!("original executed parent authorizes height 3");
     };
     let mut validation = EpochValidationScope::new();
@@ -818,7 +829,7 @@ fn state_certificate_native_qc_decode_refusal_is_capacity_and_retries_original_s
     let reader = CertifiedChain::new(&view).unwrap();
     let current = chain.committed(3);
     let parent = chain.committed(2);
-    let schedule::ScheduledSlot::Ready(scheduled) = &parent.commitment.schedule.next else {
+    let schedule::ScheduledSlot::Ready(scheduled) = &parent.commitment().schedule.next else {
         panic!("original parent authorizes the source");
     };
     let mut validation = EpochValidationScope::new();
@@ -862,7 +873,7 @@ fn state_certificate_pairing_constructor_refusal_preserves_original_source_for_r
     let reader = CertifiedChain::new(&view).unwrap();
     let parent = chain.committed(2);
     let current = chain.committed(3);
-    let backing = iroha_crypto::BlsNormalAggregateScratch::<()>::backing_bytes();
+    let backing = iroha_crypto::bls::consensus::ConsensusAggregateScratch::<()>::backing_bytes();
     let check = |limit| {
         norito::core::with_decode_limits_measured(
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, limit, 128),

@@ -124,6 +124,7 @@ fn persisted_amx_records_survive_deadline_pruning_and_certified_replay() {
         authenticated_genesis(chain.genesis())
             .map(|genesis| genesis.into_parts().0)
             .unwrap(),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     )
     .unwrap();
     let begin = read_proof(&chain, 2, AmxRecordKind::Begin, tx)
@@ -343,6 +344,7 @@ fn persisted_amx_original_read_retains_acquired_inode_and_exact_pool_through_dec
         authenticated_genesis(chain.genesis())
             .map(|genesis| genesis.into_parts().0)
             .unwrap(),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     )
     .unwrap();
     assert_eq!(tracker.verify_record(proof.canonical()).unwrap().height, 2);
@@ -531,6 +533,7 @@ fn persisted_amx_completed_proof_retains_exact_graph_through_final_namespace_ref
         authenticated_genesis(chain.genesis())
             .map(|genesis| genesis.into_parts().0)
             .unwrap(),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     )
     .unwrap();
     assert_eq!(tracker.verify_record(proof.canonical()).unwrap().height, 2);
@@ -683,6 +686,7 @@ fn persisted_amx_detached_source_keeps_original_frame_pool_and_retry_after_view_
         authenticated_genesis(chain.genesis())
             .map(|genesis| genesis.into_parts().0)
             .unwrap(),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     )
     .unwrap();
     assert_eq!(tracker.verify_record(proof.canonical()).unwrap().height, 2);
@@ -737,6 +741,7 @@ fn persisted_amx_detach_pins_partial_inode_and_continues_without_original_view()
         authenticated_genesis(chain.genesis())
             .map(|genesis| genesis.into_parts().0)
             .unwrap(),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     )
     .unwrap();
     tracker.verify_record(proof.canonical()).unwrap();

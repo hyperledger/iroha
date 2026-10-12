@@ -136,7 +136,7 @@ pub enum Worker {
 pub struct FrameLimitExceeded {
     /// Height the configuration applies from.
     pub height: u64,
-    /// `max_block_bytes + FRAME_OVERHEAD`.
+    /// Required budget (`max_block_bytes + 2 * FRAME_OVERHEAD`) for feasible sync settings.
     pub needed: u64,
     /// The transport's frame limit.
     pub limit: u64,
@@ -272,7 +272,8 @@ pub fn frame_limit_exceeded(
     height: u64,
     config: &HeightConfig,
 ) -> Option<FrameLimitExceeded> {
-    let needed = u64::from(config.params.max_block_bytes) + u64::from(FRAME_OVERHEAD);
+    let needed =
+        iroha_sumeragi::pacemaker::minimum_transport_frame_bytes(config.params.max_block_bytes);
     (needed > frame_limit).then_some(FrameLimitExceeded {
         height,
         needed,

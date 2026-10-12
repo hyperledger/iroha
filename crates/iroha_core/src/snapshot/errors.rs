@@ -28,6 +28,10 @@ pub enum TryReadError {
     StateBeaconSession(#[source] crate::beacon::GlobalThresholdBeaconSessionError),
     /// Local original-pool admission of the restored native participant failed: {0}
     StateNativeAmx(#[source] crate::sumeragi::amx::NativeAmxAdmissionError),
+    /// Local original-pool admission of restored SCCP committee custody failed: {0}
+    StateSccpCommittee(
+        #[source] crate::smartcontracts::isi::sccp::committee_owner::CommitteeOwnerError,
+    ),
     /// Signed snapshot payload is not the single canonical first-release JSON encoding
     NonCanonicalSnapshotPayload,
     /// Snapshot exceeds a configured typed decode or transient resource boundary: {0}
@@ -180,6 +184,9 @@ impl From<crate::state::deserialize::StateRestoreError> for TryReadError {
             }
             crate::state::deserialize::StateRestoreError::NativeAmx(error) => {
                 Self::StateNativeAmx(error)
+            }
+            crate::state::deserialize::StateRestoreError::SccpCommittee(error) => {
+                Self::StateSccpCommittee(error)
             }
             crate::state::deserialize::StateRestoreError::Evidence(error) => {
                 Self::StateEvidence(error)
@@ -343,5 +350,29 @@ mod evidence_restore_tests {
         assert_eq!(budget.reserved_bytes(), 64);
         drop(original);
         assert_eq!(budget.reserved_bytes(), 0);
+    }
+}
+
+#[cfg(test)]
+mod sccp_committee_restore_tests {
+    use super::TryReadError;
+    use crate::{
+        smartcontracts::isi::sccp::committee_owner::CommitteeOwnerError,
+        state::deserialize::StateRestoreError,
+    };
+
+    #[test]
+    fn committee_restore_refusal_keeps_original_pool_evidence() {
+        let pool = iroha_allocation::AllocationBudget::new(64);
+        let occupied = pool.try_reserve_bytes(64).unwrap();
+        let expected = pool.try_reserve_bytes(1).unwrap_err();
+        let error = TryReadError::from(StateRestoreError::SccpCommittee(
+            CommitteeOwnerError::Admission(expected.clone()),
+        ));
+        assert!(matches!(error, TryReadError::StateSccpCommittee(
+            CommitteeOwnerError::Admission(actual)) if actual == expected));
+        assert_eq!(pool.reserved_bytes(), 64);
+        drop(occupied);
+        assert_eq!(pool.reserved_bytes(), 0);
     }
 }

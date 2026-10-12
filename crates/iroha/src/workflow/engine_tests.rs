@@ -71,6 +71,52 @@ fn world() -> Arc<FakeWorkflowWorld> {
     Arc::new(FakeWorkflowWorld::new(binding()))
 }
 
+#[test]
+fn journal_read_refusal_preserves_stored_custody_and_cancellation_retries() {
+    let world = world();
+    let storage = Arc::new(MemoryWorkflowStorage::new());
+    let mut journal = WorkflowJournalV1::new(&single_transaction(), &binding(), 7).unwrap();
+    journal.sequence = 1;
+    let id = journal.id();
+    let original = journal.encode_record().unwrap();
+    storage.compare_and_store(&id, None, &original).unwrap();
+    let storage_owner: Arc<dyn WorkflowStorage> = storage.clone();
+    let engine = engine(&world, storage_owner);
+    let limits =
+        |allocation| norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, allocation, 64);
+    let (progress, usage) =
+        norito::core::with_decode_limits_measured(limits(usize::MAX), || engine.progress_by_id(id));
+    assert_eq!(progress.unwrap(), Some(journal.progress()));
+    assert!(usage.total_allocated_bytes() > 0);
+    for allocation in [0, usage.total_allocated_bytes() - 1] {
+        let read_error = norito::with_decode_limits_scope(limits(allocation), || {
+            engine
+                .progress_by_id(id)
+                .expect_err("original journal refusal")
+        });
+        let cancel_error = norito::with_decode_limits_scope(limits(allocation), || {
+            engine
+                .cancel_by_id(id)
+                .expect_err("cancellation must first read its exact journal")
+        });
+        for error in [read_error, cancel_error] {
+            assert_eq!(error.code, WorkflowErrorCode::LocalResourceUnavailable);
+            assert!(error.is_resumable());
+            assert!(error.progress.is_none());
+            norito::with_decode_limits_scope(limits(allocation), || {
+                assert!(error.is_resumable());
+            });
+        }
+        assert_eq!(storage.load(&id).unwrap(), Some(original.clone()));
+        assert_eq!(engine.progress_by_id(id).unwrap(), Some(journal.progress()));
+    }
+    let cancelled = engine
+        .cancel_by_id(id)
+        .expect("same journal retries cancellation");
+    assert!(cancelled.cancel_requested);
+    assert_eq!(cancelled.sequence, 2);
+}
+
 fn options() -> WorkflowRunOptions {
     WorkflowRunOptions {
         observation_timeout: Duration::ZERO,
@@ -186,23 +232,27 @@ fn a_secret_held_by_the_driver_never_reaches_the_durable_journal() {
     assert_eq!(driver.custody.lock().expect("custody").len(), 1);
 
     let mut files = 0;
-    for entry in std::fs::read_dir(&directory).expect("directory") {
-        let path = entry.expect("entry").path();
-        let bytes = std::fs::read(&path).expect("file");
-        assert!(
-            !contains(&bytes, &secret_share),
-            "{} must not contain the secret share",
-            path.display()
-        );
-        if path
-            .extension()
-            .is_some_and(|extension| extension == "journal")
-        {
-            files += 1;
-            // What is persisted: the custody reference, the public transcript, signed bytes.
-            assert!(contains(&bytes, b"keystore://dkg/share/1"));
-            assert!(contains(&bytes, b"public commitments of the dealing round"));
-            assert!(contains(&bytes, b"signed:1#1+1"));
+    let mut directories = vec![directory];
+    while let Some(directory) = directories.pop() {
+        for entry in std::fs::read_dir(&directory).expect("directory") {
+            let path = entry.expect("entry").path();
+            if path.is_dir() {
+                directories.push(path);
+                continue;
+            }
+            let bytes = std::fs::read(&path).expect("file");
+            assert!(
+                !contains(&bytes, &secret_share),
+                "{} must not contain the secret share",
+                path.display()
+            );
+            if path.file_name().is_some_and(|name| name == "journal") {
+                files += 1;
+                // What is persisted: the custody reference, the public transcript, signed bytes.
+                assert!(contains(&bytes, b"keystore://dkg/share/1"));
+                assert!(contains(&bytes, b"public commitments of the dealing round"));
+                assert!(contains(&bytes, b"signed:1#1+1"));
+            }
         }
     }
     assert_eq!(files, 1);

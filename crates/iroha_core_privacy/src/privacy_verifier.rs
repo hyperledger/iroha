@@ -669,9 +669,9 @@ fn verify_privacy_envelope_after_compiled_activation_v1(
     }
     // Canonical encoding is repeated here deliberately: the validated exact
     // bytes become the rollback-safe budget charge returned with the effects.
-    let encoded_action_bytes = norito::to_bytes(envelope)
+    let encoded_action_bytes = norito::canonical_frame_len(envelope)
         .ok()
-        .and_then(|bytes| u64::try_from(bytes.len()).ok())
+        .and_then(|length| u64::try_from(length).ok())
         .ok_or_else(|| {
             PrivacyVerificationErrorV1::CanonicalEncoding(Box::new(
                 PrivacyCanonicalEncodingFailureV1,
@@ -3534,6 +3534,24 @@ mod tests {
     #[test]
     fn verified_verange_effects_are_exact_and_non_mutating() {
         let (envelope, activation, network_id) = valid_envelope();
+        let canonical_bytes = u64::try_from(
+            norito::encode_canonical(&envelope)
+                .expect("canonical envelope")
+                .len(),
+        )
+        .expect("length");
+        let alternate_flags =
+            norito::core::default_encode_flags() ^ norito::core::header_flags::COMPACT_LEN;
+        let _layout = norito::core::DecodeFlagsGuard::enter(alternate_flags);
+        assert_ne!(
+            u64::try_from(
+                norito::to_bytes(&envelope)
+                    .expect("alternate envelope")
+                    .len()
+            )
+            .expect("length"),
+            canonical_bytes
+        );
         let effects =
             verify_privacy_envelope_v1(&envelope, verification_context(&activation, &network_id))
                 .expect("valid proof");
@@ -3544,10 +3562,7 @@ mod tests {
         assert_eq!(effects.statement_digest(), envelope.statement_digest);
         assert_eq!(effects.action_index(), 0);
         assert_eq!(effects.ledger(), &VerifiedPrivacyLedgerEffectsV1::None);
-        assert_eq!(
-            effects.encoded_action_bytes(),
-            u64::try_from(norito::to_bytes(&envelope).expect("encode").len()).expect("length")
-        );
+        assert_eq!(effects.encoded_action_bytes(), canonical_bytes);
     }
     #[test]
     fn verified_pgc_effect_is_complete_exact_and_replay_becomes_stale() {

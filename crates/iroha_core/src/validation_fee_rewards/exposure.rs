@@ -876,7 +876,9 @@ mod tests {
         let asset = AssetId::new(npos.xor_asset_definition_id.clone(), ALICE_ID.clone());
         {
             let mut parameters = world.parameters.block();
-            parameters.set_parameter(Parameter::Custom(npos.into_custom_parameter()));
+            parameters
+                .set_parameter(Parameter::Custom(npos.into_custom_parameter()))
+                .expect("valid fixture parameters");
             parameters.commit();
         }
         let self_key = (lane, ALICE_ID.clone(), ALICE_ID.clone());

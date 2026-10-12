@@ -58,8 +58,9 @@ The check fails when
   entry, a named test, a golden pin, an engine or its known answers, or its
   security statement stops recording the classical claim as conditional and
   the quantum claim as open;
-* a workload does not name the profiles of its roles, or a recorded
-  measurement names a profile identity other than the current one: such a
+* a workload does not name the profiles of its roles, or a workload measurement
+  omits any profile identity, changes its section's measurement scope, or names
+  a profile identity other than the current one: such a
   measurement is inapplicable and the check fails until it is re-measured or
   moved to the inapplicable list. No approval or runtime switch is involved.
 
@@ -1156,6 +1157,11 @@ def check_roles(root: Path, spec: dict[str, Any], derived: dict[str, Any], repor
             report.error(f"{owner}: canonical_native.decision is invalid")
         elif family in ROLE_FAMILIES and family not in NATIVE_DECISIONS[decision]:
             report.error(f"{owner}: decision {decision} does not apply to a role of family {family}")
+        if decision == "already-blake3":
+            report.require(
+                role.get("primitive") == "blake3",
+                f"{owner}: decision already-blake3 requires the blake3 primitive",
+            )
         report.require(bool(native.get("note")), f"{owner}: canonical_native.note is missing")
         check_seed(root, report, owner, native)
         pinned = role.get("pinned_value")
@@ -1719,15 +1725,18 @@ def workload_profile_set(spec: dict[str, Any], names: Sequence[str]) -> Optional
         return None
 
 
-def recorded_measurements(spec: dict[str, Any]) -> Iterator[tuple[str, list[str] | None, dict[str, Any]]]:
-    """Every recorded measurement with its owner and the profiles its workload names."""
-    workloads = {workload.get("id"): workload for workload in spec["workloads"].get("definitions", [])}
+def recorded_measurements(spec: dict[str, Any]) -> Iterator[tuple[str, str, list[str], dict[str, Any]]]:
+    """Each measurement's scope and complete profile set, derived from its owning section.
+
+    The native candidate comparison measures bare primitives, not frozen frame
+    profiles. Runs recorded inside workloads measure those workloads' profiles.
+    A measurement cannot choose a weaker scope by changing its own metadata.
+    """
     for measurement in spec["canonical_native_commitment"].get("exploratory_measurements", []):
-        workload = workloads.get(measurement.get("workload"))
-        yield f"measurement {measurement.get('id')}", None if workload is None else workload.get("profiles", []), measurement
-    for workload in workloads.values():
+        yield f"measurement {measurement.get('id')}", "bare-primitives", [], measurement
+    for workload in spec["workloads"].get("definitions", []):
         for measurement in workload.get("exploratory_measurements", []):
-            yield f"measurement {measurement.get('id')}", workload.get("profiles", []), measurement
+            yield f"measurement {measurement.get('id')}", "workload-profiles", workload.get("profiles", []), measurement
 
 
 def check_semantic_profiles(root: Path, spec: dict[str, Any], report: Report) -> None:
@@ -2105,29 +2114,39 @@ def check_measurement_binding(spec: dict[str, Any], profiles: dict[str, dict[str
             workload.get("profile_set_identity") == workload_profile_set(spec, names),
             f"{owner}: `profile_set_identity` differs from the identity of its ordered profiles",
         )
-    for owner, allowed, measurement in recorded_measurements(spec):
+    for owner, scope, expected, measurement in recorded_measurements(spec):
+        report.require(
+            measurement.get("measurement_scope") == scope,
+            f"{owner}: `measurement_scope` must be {scope!r} in its owning section",
+        )
+        report.require("profile_binding" not in measurement, f"{owner}: retired `profile_binding` cannot select measurement scope")
         identities = measurement.get("profile_identities")
         if not isinstance(identities, dict):
             report.error(f"{owner}: `profile_identities` is missing; a measurement names the identity of every profile it measured")
             continue
-        if not identities:
+        report.require(
+            set(identities) == set(expected),
+            f"{owner}: `profile_identities` must name the complete profile set of its scope: {expected}",
+        )
+        if scope == "bare-primitives":
             report.require(
-                str(measurement.get("profile_binding", "")).startswith("none:"),
-                f"{owner}: names no profile identity and does not say why in `profile_binding`",
+                bool(measurement.get("scope_note")),
+                f"{owner}: a bare-primitive comparison explains its scope in `scope_note`",
             )
             continue
+        report.require(bool(expected), f"{owner}: a workload-profile run requires at least one selected profile")
         for name, recorded in identities.items():
             profile = profiles.get(name)
             if profile is None:
                 report.error(f"{owner}: names the unknown profile {name!r}")
                 continue
-            report.require(allowed is None or name in allowed, f"{owner}: names profile {name} that its workload does not depend on")
+            report.require(name in expected, f"{owner}: names profile {name} that its workload does not depend on")
             report.require(
                 recorded == profile.get("identity"),
                 f"{owner}: inapplicable: it names identity {recorded} of profile {name}, whose identity is now {profile.get('identity')}; "
                 "re-measure it or move it to measurement_binding.inapplicable_measurements",
             )
-    recorded_ids = {measurement.get("id") for _, _, measurement in recorded_measurements(spec)}
+    recorded_ids = {measurement.get("id") for _, _, _, measurement in recorded_measurements(spec)}
     basis = section.get("exploratory_basis", [])
     report.require(bool(basis), "semantic profiles: the exploratory basis of the selections is missing")
     for entry in basis:

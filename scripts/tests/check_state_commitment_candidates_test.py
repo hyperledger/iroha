@@ -11,6 +11,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
+from unittest import mock
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 SCRIPT = REPOSITORY / "scripts" / "check_state_commitment_candidates.py"
@@ -643,7 +644,7 @@ class RecordSummaries(unittest.TestCase):
         self.assertEqual(row["prototype_witness_bytes_mean"], 12_500.0)
         self.assertEqual(row["shared_witness_bytes_mean"], 12_500 - 36 * 340 + 32 * 64 + 5 * 80)
 
-    def test_load_run_reads_only_candidate_records_and_hashes_the_manifest(self) -> None:
+    def test_load_run_consumes_only_verified_records_without_reopening_paths(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run = Path(directory) / "run-test"
             (run / "child").mkdir(parents=True)
@@ -660,7 +661,14 @@ class RecordSummaries(unittest.TestCase):
             }
             (run / "report.json").write_text(json.dumps(report))
             (run / "manifest.json").write_text("{}")
-            loaded = CHECKER.load_run(run)
+            pin = hashlib.sha256(b"{}").hexdigest()
+            verified = {"report": report, "documents": {"child/a.json": NATIVE, "child/b.json": other},
+                        "manifest_sha256": pin}
+            with mock.patch.object(CHECKER.HARNESS, "read_pinned_run", return_value=verified) as reader:
+                with mock.patch.object(Path, "read_text", side_effect=AssertionError("reopened verified evidence")), \
+                     mock.patch.object(Path, "read_bytes", side_effect=AssertionError("reopened verified evidence")):
+                    loaded = CHECKER.load_run(run, pin)
+            reader.assert_called_once_with(run, pin)
         summary = loaded["summary"]
         self.assertEqual(len(loaded["records"]), 1)
         self.assertEqual(summary["test"], "native_blake2b")
@@ -672,6 +680,34 @@ class RecordSummaries(unittest.TestCase):
         self.assertEqual(summary["records"], 1)
         self.assertEqual(summary["config"], "k")
         self.assertEqual(summary["unattributed_ppm_max"], 500)
+
+    def test_reader_refusals_propagate_without_reopening_or_rehashing(self) -> None:
+        refusal = CHECKER.HARNESS.HarnessRefusal("manifest_digest_differs")
+        with mock.patch.object(CHECKER.HARNESS, "read_pinned_run", side_effect=refusal) as reader:
+            with self.assertRaises(CHECKER.HARNESS.HarnessRefusal) as caught:
+                CHECKER.load_run(Path("untrusted-run"), "a" * 64)
+        self.assertIs(caught.exception, refusal)
+        reader.assert_called_once_with(Path("untrusted-run"), "a" * 64)
+
+    def test_summary_requires_one_external_pin_per_run_before_reading(self) -> None:
+        with mock.patch.object(CHECKER.HARNESS, "read_pinned_run") as reader:
+            for runs, pins in [([], []), ([Path("run")], []), ([Path("run")], ["a" * 64, "b" * 64])]:
+                with self.assertRaisesRegex(ValueError, "exactly one external manifest"):
+                    CHECKER.build_summary(runs, REPOSITORY, manifest_sha256=pins)
+            reader.assert_not_called()
+            for pins, message in [([None], "every external manifest"),
+                                  (["a" * 64, "a" * 64], "multiple measurements")]:
+                with self.assertRaisesRegex(ValueError, message):
+                    CHECKER.build_summary([Path(str(index)) for index in range(len(pins))],
+                                          REPOSITORY, manifest_sha256=pins)
+            reader.assert_not_called()
+        tracked = (REPOSITORY / CHECKER.SUMMARY).read_bytes()
+        output = StringIO()
+        with redirect_stdout(output), redirect_stderr(output):
+            self.assertEqual(CHECKER.main(["--refresh", "untrusted-run"]), 1)
+            self.assertEqual(CHECKER.main(["--manifest-sha256", "a" * 64]), 1)
+        self.assertIn("not written", output.getvalue())
+        self.assertEqual((REPOSITORY / CHECKER.SUMMARY).read_bytes(), tracked)
 
 
 def timed(low: float, high: float) -> dict:
@@ -1162,6 +1198,8 @@ class TrackedSummary(unittest.TestCase):
             ("as_built_alternatives", "class"),
             ("benchmark_identity", "load_note"),
             ("benchmark_identity", "allocator_note"),
+            ("benchmark_identity", "config_note"),
+            ("benchmark_identity", "source_dirty_note"),
             ("workloads", "class"),
         ):
             # A class that is valid somewhere and right in none of these places.
@@ -1758,6 +1796,25 @@ class TrackedSummary(unittest.TestCase):
 class Refresh(unittest.TestCase):
     """A summary is built from run directories, and refused when its inputs disagree."""
 
+    def setUp(self) -> None:
+        # These deliberately abbreviated records exercise summary arithmetic only.
+        # The real harness reader has its own adversarial suite; production never
+        # accepts this unit fixture as an evidence directory.
+        patch = mock.patch.object(CHECKER.HARNESS, "read_pinned_run", side_effect=self.synthetic_reader)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    @staticmethod
+    def synthetic_reader(run: Path, pin: str) -> dict:
+        report = json.loads((run / "report.json").read_text())
+        return {"report": report, "manifest_sha256": pin,
+                "documents": {entry["json"]["path"]: json.loads((run / entry["json"]["path"]).read_text())
+                              for entry in report["records"]}}
+
+    @staticmethod
+    def pins(runs: list[Path]) -> list[str]:
+        return [hashlib.sha256((run / "manifest.json").read_bytes()).hexdigest() for run in runs]
+
     def run_directory(
         self, root: Path, test: str, documents: list[dict], config: str, name: str | None = None
     ) -> Path:
@@ -1786,7 +1843,7 @@ class Refresh(unittest.TestCase):
             "verdict": "accepted",
         }
         (run / "report.json").write_text(json.dumps(report))
-        (run / "manifest.json").write_text("{}")
+        (run / "manifest.json").write_text(json.dumps({"synthetic_run": run.name}))
         return run
 
     def test_a_summary_is_assembled_from_every_flow(self) -> None:
@@ -1798,9 +1855,9 @@ class Refresh(unittest.TestCase):
                 self.run_directory(root, "circuit", [CIRCUIT], config),
                 self.run_directory(root, "latency", [LATENCY, GADGET], config),
             ]
-            summary = CHECKER.build_summary(runs, REPOSITORY)
+            summary = CHECKER.build_summary(runs, REPOSITORY, manifest_sha256=self.pins(runs))
             again = self.run_directory(root, "native", [NATIVE, SHARED], config, name="run-again")
-            twice = CHECKER.build_summary([*runs, again], REPOSITORY)
+            twice = CHECKER.build_summary([*runs, again], REPOSITORY, manifest_sha256=self.pins([*runs, again]))
         # A second run of a test adds no row: its repetitions join the first run's.
         self.assertEqual(len(twice["native"]["rows"]), 2)
         self.assertEqual(twice["native"]["rows"][0]["cold_build"]["ns_per_entry"]["repetitions"], 10)
@@ -1861,7 +1918,7 @@ class Refresh(unittest.TestCase):
                 self.run_directory(raw, "native", [NATIVE, SHARED], config),
                 self.run_directory(raw, "latency", [LATENCY, GADGET], config),
             ]
-            summary = CHECKER.build_summary(runs, root)
+            summary = CHECKER.build_summary(runs, root, manifest_sha256=self.pins(runs))
             text = CHECKER.render(summary)
             self.assertEqual(CHECKER.reproduction_errors(summary, text, root), [])
             # An edited measured number is found, and so is another rendering.
@@ -1891,7 +1948,7 @@ class Refresh(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             stale = self.run_directory(root, "native", [NATIVE], CHECKER.CONFIG_PREFIX + "0" * 16)
-            summary = CHECKER.build_summary([stale], REPOSITORY)
+            summary = CHECKER.build_summary([stale], REPOSITORY, manifest_sha256=self.pins([stale]))
             self.assertTrue(
                 any("are not the ones that were measured" in error for error in CHECKER.check_summary(summary, REPOSITORY))
             )
@@ -1902,7 +1959,7 @@ class Refresh(unittest.TestCase):
             unequal = self.run_directory(root, "unequal", [broken], CHECKER.expected_config(REPOSITORY))
             output = StringIO()
             with redirect_stdout(output), redirect_stderr(output):
-                self.assertEqual(CHECKER.main(["--refresh", str(unequal)]), 1)
+                self.assertEqual(CHECKER.main(["--refresh", str(unequal), "--manifest-sha256", *self.pins([unequal])]), 1)
             self.assertIn("differs between repetitions", output.getvalue())
             self.assertIn("not written", output.getvalue())
             # A directory that is not a harness run, or a report of another
@@ -1914,7 +1971,7 @@ class Refresh(unittest.TestCase):
             for directory, fragment in ((root / "empty", "FileNotFoundError"), (root / "odd", "KeyError")):
                 output = StringIO()
                 with redirect_stdout(output), redirect_stderr(output):
-                    self.assertEqual(CHECKER.main(["--refresh", str(directory)]), 1)
+                    self.assertEqual(CHECKER.main(["--refresh", str(directory), "--manifest-sha256", "a" * 64]), 1)
                 self.assertIn(fragment, output.getvalue())
                 self.assertIn("not written", output.getvalue())
             self.assertEqual((REPOSITORY / CHECKER.SUMMARY).read_text(), tracked)

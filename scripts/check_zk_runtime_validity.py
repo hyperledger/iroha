@@ -160,7 +160,7 @@ SDK_SUFFIXES = (".swift", ".kt", ".java", ".js", ".ts", ".mjs", ".py", ".cs")
 FAMILY_PATH = re.compile(
     r"(privacy|zk|confidential|ram_?lfe|fhe|bfv|bgv|mkhe|soracloud|kaigi|proof|"
     r"verifying_?key|x509|masp|orchard|fcmp|vega|jindo|pgc|verange|lantern|bootle|"
-    r"ballot|timed_?ovn|axt|fastpq|kagemusha|stark|halo2|plonk|sccp|preverify|exact_?12)",
+    r"ballot|timed_?ovn|axt|fastpq|kagemusha|stark|pipa_?r|halo2|plonk|sccp|preverify|exact_?12)",
     re.IGNORECASE,
 )
 
@@ -335,7 +335,7 @@ RUST_DETECTORS = (
     ),
     Detector(
         "config_switch", "node_local_config",
-        r"\b(?:halo2|stark|confidential|zk|zk_cfg|zk_config)\w*(?:\(\))?\s*\.\s*(?:(?:halo2|stark)\s*\.\s*)?"
+        r"\b(?:pipa_r|halo2|stark|confidential|zk|zk_cfg|zk_config)\w*(?:\(\))?\s*\.\s*(?:(?:pipa_r|halo2|stark)\s*\.\s*)?"
         r"(enabled|assume_valid)\b",
         what="An enable or assume-valid switch of the [zk] or [confidential] node configuration is read.",
         token="group", needles=("enabled", "assume_valid"),

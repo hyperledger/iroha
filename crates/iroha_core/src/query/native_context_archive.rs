@@ -22,7 +22,7 @@ use iroha_data_model::{
         BlockHeader, SignedBlock,
         consensus::{ExecKv, ExecWitness},
     },
-    sumeragi_finality::ExecutionResultCommitment,
+    sumeragi_finality::CertifiedResultV1,
     sumeragi_lanes::SumeragiLaneState,
 };
 use std::{
@@ -262,24 +262,24 @@ impl NativeContextArchive {
         &self,
         overlay: &StateBlock<'_>,
         executed: &SignedBlock,
-        result: &RetainedPayload<ExecutionResultCommitment>,
+        result: &RetainedPayload<CertifiedResultV1>,
         witness: &ExecWitness,
     ) -> Result<PreparedNativeContext, NativeContextArchiveError> {
         self.recheck_namespace()?;
         if !self.writable
             || !result.belongs_to(&self.budget)
             || executed.header() != overlay._curr_block
-            || result.get().height != executed.header().height().get()
-            || result.get().schedule.current.network_id != *overlay.network_id()
+            || result.get().commitment().height != executed.header().height().get()
+            || result.get().commitment().schedule.current.network_id != *overlay.network_id()
         {
             return Err(NativeContextArchiveError::Source(
                 "foreign original execution or pool",
             ));
         }
-        if !result.get().native_lanes.verify(
+        if !result.get().commitment().native_lanes.verify(
             *overlay.network_id(),
-            result.get().height,
-            result.get().execution.ordinary_writes_root,
+            result.get().commitment().height,
+            result.get().commitment().execution.ordinary_writes_root,
         ) {
             return Err(NativeContextArchiveError::Source(
                 "lane-state path differs from original execution root",
@@ -293,7 +293,7 @@ impl NativeContextArchive {
                 &self.budget,
             )
             .map_err(NativeContextArchiveError::Proof)?;
-        if original_path != result.get().native_lanes {
+        if original_path != result.get().commitment().native_lanes {
             return Err(NativeContextArchiveError::Source(
                 "original ordinary writes differ from native result",
             ));
@@ -301,8 +301,13 @@ impl NativeContextArchive {
         let lanes = overlay.world().sumeragi_lanes();
         if !result
             .get()
+            .commitment()
             .native_lanes
-            .matches_state_encoding(*overlay.network_id(), result.get().height, lanes)
+            .matches_state_encoding(
+                *overlay.network_id(),
+                result.get().commitment().height,
+                lanes,
+            )
             .map_err(|_| NativeContextArchiveError::Source("invalid complete native lane state"))?
         {
             return Err(NativeContextArchiveError::Source(
@@ -310,7 +315,7 @@ impl NativeContextArchive {
             ));
         }
         let projection = Projection {
-            carrier_height: result.get().height,
+            carrier_height: result.get().commitment().height,
             carrier_hash: executed.hash(),
             lanes: LaneStateRef(lanes),
             ordinary_writes: OrdinaryWritesRef(&witness.writes),

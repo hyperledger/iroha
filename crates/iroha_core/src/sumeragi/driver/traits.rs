@@ -282,6 +282,12 @@ impl PublicationDeferral {
             | Self::StateStorage(crate::state::StateStorageAdmissionError::NativeAmx(
                 crate::sumeragi::amx::NativeAmxAdmissionError::Admission(original),
             ))
+            | Self::StateStorage(crate::state::StateStorageAdmissionError::SccpGeneration(
+                crate::smartcontracts::isi::sccp::generation_error::SccpGenerationLocalError::Admission(original),
+            ))
+            | Self::StateStorage(crate::state::StateStorageAdmissionError::SccpAnchor(
+                crate::smartcontracts::isi::sccp::anchor::SccpAnchorLocalError::Admission(original),
+            ))
             | Self::EvidencePreparation(crate::state::EvidencePreparationError::Admission(
                 original,
             ))

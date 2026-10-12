@@ -66,6 +66,7 @@ fn terminal_certifier_refusal_retains_original_target_gap_decoder_and_public_res
     // tighter inherited decoder layer specifically on the sole certificate verifier.
     let verifier = PrefixVerifierContext {
         instance: reader.instance,
+        root_scope: reader.root_scope,
     };
     let mut cursor = reader.prefix.lock();
     let prefix = cursor.as_mut().unwrap();
@@ -232,6 +233,7 @@ fn terminal_schedule_failure_after_valid_qc_cannot_deliver_original_target() {
         .with(|| {
             PrefixVerifierContext {
                 instance: reader.instance,
+                root_scope: reader.root_scope,
             }
             .prepare_advance(prefix, gap.borrowed(), None)
         })
@@ -243,19 +245,21 @@ fn terminal_schedule_failure_after_valid_qc_cannot_deliver_original_target() {
     pending.gap = None;
     // Adversarial private-path corruption after frame validation leaves the genuine header/R
     // and QC untouched, so only the required later schedule advancement can reject this graph.
-    let original_height = pending.target.borrowed().commitment.schedule.height;
-    pending.target.committed.as_mut().unwrap().as_mut_slice()[0]
-        .commitment
-        .schedule
-        .height += 1;
+    let original_height = pending.target.borrowed().commitment().schedule.height;
+    let target = &mut pending.target.committed.as_mut().unwrap().as_mut_slice()[0];
+    let mut body = target.commitment().clone();
+    body.schedule.height += 1;
+    target.certified_result =
+        CertifiedResultV1::from_parts_unvalidated(*target.finality_header(), body);
     drop(cursor);
     let (refused, counts) =
         relation_counts::measure(|| context.with(|| reader.certified_terminal_amx(3)));
     let pending = reader.terminal.as_mut().unwrap();
-    pending.target.committed.as_mut().unwrap().as_mut_slice()[0]
-        .commitment
-        .schedule
-        .height = original_height;
+    let target = &mut pending.target.committed.as_mut().unwrap().as_mut_slice()[0];
+    let mut body = target.commitment().clone();
+    body.schedule.height = original_height;
+    target.certified_result =
+        CertifiedResultV1::from_parts_unvalidated(*target.finality_header(), body);
     assert!(matches!(
         refused,
         Err(ExecutionAttemptError::Rejected(ChainReadError::Committee {
@@ -304,6 +308,7 @@ fn terminal_amx_original_scratch_admission(rs16_only: bool) {
 
     let verifier = PrefixVerifierContext {
         instance: reader.instance,
+        root_scope: reader.root_scope,
     };
     let mut cursor = reader.prefix.lock();
     let prefix = cursor.as_mut().unwrap();

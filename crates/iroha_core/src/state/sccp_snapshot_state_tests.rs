@@ -9,21 +9,22 @@ fn encoded(world: &World) -> String {
     out
 }
 
-fn restore(text: &str, world: &mut World) -> Result<(), json::Error> {
+fn restore(text: &str, world: &mut World) -> Result<(), StateRestoreError> {
     json::from_json::<SnapshotSccpState>(text)?.restore(world)
 }
 
 /// Return a World whose every SCCP map and cell holds a current value and an undo record.
 pub(crate) fn sccp_world() -> World {
     let world = World::default();
+    let budget = world.sccp_committee_generations.allocation_budget().clone();
     {
         let mut block = world.block();
-        populate_every_sccp_map(&mut block, 1);
+        populate_every_sccp_map(&mut block, 1, &budget);
         block.commit();
     }
     {
         let mut block = world.block();
-        populate_every_sccp_map(&mut block, 2);
+        populate_every_sccp_map(&mut block, 2, &budget);
         block.commit();
     }
     world
@@ -36,7 +37,7 @@ fn every_sccp_member_is_serialized_in_field_order() {
     let json::Value::Object(members) = &value else {
         panic!("the envelope is an object");
     };
-    assert_eq!(members.len(), 31, "one member per SCCP world field");
+    assert_eq!(members.len(), 25, "one member per SCCP world field");
     let mut restored = World::default();
     restore(&text, &mut restored).expect("an empty envelope restores");
     assert_eq!(encoded(&restored), text);
@@ -57,17 +58,23 @@ fn sccp_snapshot_preserves_every_current_and_undo_envelope() {
         serialize_block_envelope(&prior, &mut left);
         serialize_block_envelope(&replacement, &mut right);
         assert_eq!(left, right, "the undo records restore identically");
-        assert_eq!(*replacement.sccp_roster_current.get(), 1);
-        assert_eq!(replacement.sccp_bridge_keys.len(), 1);
+        assert_eq!(*replacement.sccp_committee_current.get(), 1);
+        assert_eq!(replacement.sccp_committee_generations.len(), 1);
         assert_eq!(replacement.sccp_light_client_checkpoints.len(), 1);
+        assert_eq!(
+            replacement.sccp_anchor_open.get().anchors()[0].core_hash,
+            [1; 32]
+        );
+        assert_eq!(replacement.sccp_anchor_chunks.len(), 1);
     }
     {
         let view = restored.view();
-        assert_eq!(*view.sccp_roster_current(), 2);
-        assert_eq!(view.sccp_bridge_keys().len(), 2);
-        assert_eq!(view.sccp_rosters().len(), 2);
+        assert_eq!(view.sccp_committee_current(), 2);
+        assert_eq!(view.sccp_committee_generations().len(), 2);
         assert_eq!(view.sccp_history().size, 1);
         assert!(view.sccp_parameters().is_some());
+        assert_eq!(view.sccp_anchor_open().anchors()[0].core_hash, [2; 32]);
+        assert_eq!(view.sccp_anchor_chunks().len(), 2);
     }
     restored.block_and_revert().commit();
     let reverted = encoded(&restored);
@@ -134,6 +141,100 @@ fn sccp_snapshot_requires_every_member_and_rejects_invalid_values() {
     }
 }
 
+#[test]
+fn native_generation_keys_and_both_complete_cuts_must_match_before_restore() {
+    let source = sccp_world();
+    let value: json::Value = json::from_json(&encoded(&source)).unwrap();
+    for member in ["blocks", "revert"] {
+        let mut malformed = value.clone();
+        let rows = malformed
+            .as_object_mut()
+            .unwrap()
+            .get_mut("sccp_committee_generations")
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .get_mut(member)
+            .unwrap()
+            .as_array_mut()
+            .unwrap();
+        let row = rows
+            .iter_mut()
+            .find(|row| !row.as_object().unwrap().get("value").unwrap().is_null())
+            .unwrap();
+        row.as_object_mut()
+            .unwrap()
+            .get_mut("key")
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .insert(
+                "encoded_hex".into(),
+                json::Value::String(hex::encode(99_u64.encode())),
+            );
+        let mut target = World::default();
+        let before = encoded(&target);
+        let error = restore(&json::to_json(&malformed).unwrap(), &mut target).unwrap_err();
+        assert!(
+            error.to_string().contains("sccp_committee_generations"),
+            "{error}"
+        );
+        assert_eq!(encoded(&target), before, "{member}: atomic refusal");
+    }
+    for member in ["blocks", "revert"] {
+        let mut malformed = value.clone();
+        let current = malformed
+            .as_object_mut()
+            .unwrap()
+            .get_mut("sccp_committee_current")
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .get_mut(member)
+            .unwrap();
+        if member == "blocks" {
+            *current = json::to_value(&99_u64).unwrap();
+        } else {
+            current
+                .as_object_mut()
+                .unwrap()
+                .insert("value".into(), json::to_value(&99_u64).unwrap());
+        }
+        let mut target = World::default();
+        let before = encoded(&target);
+        assert!(restore(&json::to_json(&malformed).unwrap(), &mut target).is_err());
+        assert_eq!(
+            encoded(&target),
+            before,
+            "{member}: complete native cut required"
+        );
+    }
+}
+
+#[test]
+fn retired_snapshot_fields_are_rejected_instead_of_becoming_silent_aliases() {
+    let value: json::Value = json::from_json(&encoded(&World::default())).unwrap();
+    for retired in [
+        "sccp_rosters",
+        "sccp_bridge_keys",
+        "sccp_attestation_subjects",
+        "sccp_prune_cursor",
+    ] {
+        let mut malformed = value.clone();
+        malformed
+            .as_object_mut()
+            .unwrap()
+            .insert(retired.into(), json::Value::Null);
+        let mut target = World::default();
+        let before = encoded(&target);
+        assert!(
+            restore(&json::to_json(&malformed).unwrap(), &mut target).is_err(),
+            "{retired}"
+        );
+        assert_eq!(encoded(&target), before);
+    }
+}
+
 /// Return a World whose only SCCP content is one entry `write` puts directly into the overlay,
 /// bypassing the `store` funnel that would refuse it.
 fn world_with(write: impl FnOnce(&mut WorldBlock<'_>)) -> World {
@@ -148,23 +249,11 @@ fn world_with(write: impl FnOnce(&mut WorldBlock<'_>)) -> World {
 
 #[test]
 fn sccp_snapshot_rejects_every_storage_invariant_violation() {
-    use crate::smartcontracts::isi::sccp::test_support::{peer, sample_roster, sample_route};
+    use crate::smartcontracts::isi::sccp::test_support::sample_route;
     use iroha_data_model::sccp::{
-        attestation::SccpBlockCommitmentV1, params::SCCP_MESSAGES_MAX_PER_BLOCK_V1,
+        commitment::SccpBlockCommitmentV1, params::SCCP_MESSAGES_MAX_PER_BLOCK_V1,
     };
     let network = SccpNetworkV1::EthereumMainnet;
-    let subject = |height: u64| SccpAttestationSubjectV1 {
-        height,
-        epoch: 1,
-        timestamp_ms: height * 4_000,
-        sccp_root: [1; 32],
-        message_count: 1,
-        history_root: [1; 32],
-        history_size: 1,
-        generation: 1,
-        roster_digest: [1; 32],
-        next_roster_digest: [0; 32],
-    };
     let control = |commitment_index| SccpControlRecordV1 {
         paused: true,
         height: 4,
@@ -183,24 +272,6 @@ fn sccp_snapshot_rejects_every_storage_invariant_violation() {
         history_index: 0,
     };
     let cases: Vec<(&str, World, World)> = vec![
-        (
-            "sccp_bridge_key_owners",
-            world_with(|block| {
-                block.sccp_bridge_key_owners.insert([0; 20], peer(1));
-            }),
-            world_with(|block| {
-                block.sccp_bridge_key_owners.insert([1; 20], peer(1));
-            }),
-        ),
-        (
-            "sccp_rosters",
-            world_with(|block| {
-                block.sccp_rosters.insert(2, sample_roster(1, 5));
-            }),
-            world_with(|block| {
-                block.sccp_rosters.insert(1, sample_roster(1, 5));
-            }),
-        ),
         (
             "sccp_block_leaves",
             world_with(|block| {
@@ -236,15 +307,6 @@ fn sccp_snapshot_rejects_every_storage_invariant_violation() {
             }),
             world_with(|block| {
                 block.sccp_block_commitments.insert(4, commitment(1));
-            }),
-        ),
-        (
-            "sccp_attestation_subjects",
-            world_with(|block| {
-                block.sccp_attestation_subjects.insert(5, subject(4));
-            }),
-            world_with(|block| {
-                block.sccp_attestation_subjects.insert(4, subject(4));
             }),
         ),
         (
@@ -351,5 +413,92 @@ fn sccp_snapshot_rejects_every_storage_invariant_violation() {
             text,
             "{field}: the valid neighbour restores"
         );
+    }
+}
+
+#[test]
+fn anchor_snapshot_rejects_full_open_or_overflowing_chunk_in_both_cuts_atomically() {
+    use iroha_data_model::sccp::committee::SccpAnchorV1;
+    let original = sccp_world();
+    let value: json::Value = json::from_json(&encoded(&original)).unwrap();
+    let present_chunk = value
+        .get("sccp_anchor_chunks")
+        .unwrap()
+        .get("blocks")
+        .unwrap()
+        .as_array()
+        .unwrap()[0]
+        .get("value")
+        .unwrap()
+        .clone();
+    assert!(!present_chunk.is_null());
+    let full = vec![
+        SccpAnchorV1 {
+            core_hash: [7; 32],
+            result: [8; 32]
+        };
+        4096
+    ];
+    for member in ["blocks", "revert"] {
+        let mut bad_open = value.clone();
+        let open = bad_open
+            .as_object_mut()
+            .unwrap()
+            .get_mut("sccp_anchor_open")
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .get_mut(member)
+            .unwrap();
+        if member == "blocks" {
+            *open = json::to_value(&full).unwrap();
+        } else {
+            open.as_object_mut()
+                .unwrap()
+                .insert("value".into(), json::to_value(&full).unwrap());
+        }
+        let mut bad_chunk = value.clone();
+        let rows = bad_chunk
+            .as_object_mut()
+            .unwrap()
+            .get_mut("sccp_anchor_chunks")
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .get_mut(member)
+            .unwrap()
+            .as_array_mut()
+            .unwrap();
+        let row = rows
+            .first_mut()
+            .expect("current and undo each retain a chunk change");
+        // This fixture's undo records removal of a newly inserted chunk. Supply
+        // an actual present claim so both cuts exercise the chunk-key bound.
+        row.as_object_mut()
+            .unwrap()
+            .insert("value".into(), present_chunk.clone());
+        row.as_object_mut()
+            .unwrap()
+            .get_mut("key")
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .insert(
+                "encoded_hex".into(),
+                json::Value::String(hex::encode(u64::MAX.encode())),
+            );
+        for malformed in [bad_open, bad_chunk] {
+            let mut target = sccp_world();
+            let before = encoded(&target);
+            assert!(
+                restore(&json::to_json(&malformed).unwrap(), &mut target).is_err(),
+                "{member}"
+            );
+            assert_eq!(
+                encoded(&target),
+                before,
+                "{member}: complete original current and undo retained"
+            );
+        }
     }
 }

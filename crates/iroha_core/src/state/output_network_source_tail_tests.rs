@@ -28,15 +28,26 @@ fn intrinsic_body_rejection_keeps_only_pipeline_gas_transfer_under_the_original_
         .expect("canonical network XOR fee asset");
         let mut state = fixture_with_fee_asset(65_536, None, Some(asset.clone()));
         state.nexus.get_mut().fees.base_fee = Quantity::zero();
-        state.pipeline.gas.tech_account_id = CARPENTER_ID.to_string();
-        state.pipeline.gas.accepted_assets = vec![asset.canonical_address()];
-        state.pipeline.gas.units_per_gas = vec![GasRate {
+        let mut gas = iroha_config::parameters::actual::Gas::default();
+        gas.tech_account_id = CARPENTER_ID.to_string();
+        gas.accepted_assets = vec![asset.canonical_address()];
+        gas.units_per_gas = vec![GasRate {
             asset: asset.canonical_address(),
             units_per_gas: 1,
             twap_local_per_xor: Numeric::one(),
             liquidity: GasLiquidity::Tier1,
             volatility: GasVolatility::Stable,
         }];
+        {
+            let mut parameters = state.world.parameters.block();
+            for parameter in crate::pipeline_gas_policy::parameters_for_testing(gas) {
+                parameters
+                    .get_mut()
+                    .set_parameter(parameter)
+                    .expect("valid fixture parameters");
+            }
+            parameters.commit();
+        }
         let alice = AssetId::of(asset.clone(), ALICE_ID.clone());
         let bob = AssetId::of(asset.clone(), BOB_ID.clone());
         let tech = AssetId::of(asset.clone(), CARPENTER_ID.clone());
@@ -67,7 +78,8 @@ fn intrinsic_body_rejection_keeps_only_pipeline_gas_transfer_under_the_original_
         .unwrap();
         parameters
             .get_mut()
-            .set_parameter(Parameter::Block(BlockParameter::FastpqSource(profile)));
+            .set_parameter(Parameter::Block(BlockParameter::FastpqSource(profile)))
+            .expect("valid fixture parameters");
         parameters.commit();
 
         let marker: Name = "intrinsic_pipeline_body_rollback".parse().unwrap();
@@ -389,9 +401,16 @@ fn transfer_mint_transfer_keeps_one_accounted_entry_before_d7_relation_activatio
         // Use the actual consuming output seal: it finalizes the owned source
         // inventory, reconciles quotas, and attaches the complete original archive.
         block
-            .seal_execution_outputs::<String>(&mut source, |block, _, routes| {
+            .seal_execution_outputs::<String>(&mut source, |block, source, routes| {
                 assert_eq!(routes.len(), 1);
                 Ok(crate::state::ExecutionOutputSealMetadata {
+                    sccp_finality_header:
+                        iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+                            *block.network_id().as_bytes(),
+                            source.header().height().get(),
+                            source.header().creation_time_ms,
+                        )
+                        .expect("nonzero fixture height"),
                     committed_fragment_count: u64::try_from(block.committed_fragment_count())
                         .unwrap(),
                 })

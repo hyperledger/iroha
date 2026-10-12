@@ -145,11 +145,9 @@ fn initial_executor_candidate_bonds_after_key_lead_without_joining_current_topol
     let mut block = state.block(original_staking_header(&state));
     let mut stx = block.transaction_for_callback_testing();
     let (validator, _, escrow, definition) = prepare_accounts(&mut stx);
-    stx.world
-        .parameters
-        .get_mut()
-        .sumeragi
-        .key_activation_lead_blocks = 7;
+    let mut consensus = stx.world.parameters.sumeragi().clone();
+    consensus.key_activation_lead_blocks = 7;
+    stx.world.parameters.get_mut().set_sumeragi(consensus);
     let peer_key = checked_keypair_with_algorithm(Algorithm::BlsNormal);
     let candidate = signed_candidate(&stx, &validator, &peer_key, 1000, LaneId::new(42));
     let peer = candidate.registration.peer_id.clone();
@@ -564,8 +562,7 @@ fn candidate_requires_committed_schedule_and_rejects_expired_tenure_consent() {
     stx.world
         .parameters
         .get_mut()
-        .custom
-        .remove(&SumeragiNposParameters::parameter_id());
+        .remove_custom_parameter(&SumeragiNposParameters::parameter_id());
     let error = candidate
         .execute(&validator, &mut stx)
         .expect_err("missing committed schedule");

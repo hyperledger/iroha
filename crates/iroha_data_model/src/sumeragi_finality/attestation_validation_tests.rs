@@ -47,7 +47,7 @@ fn body(fixture: &Fixture) -> SumeragiFinalityAttestationBody {
 
 // The original recipe calls the same complete native proof decoder twice. It preserves
 // the exact duplicate-binding and error order without implementing another proof verifier.
-fn independent(body: &SumeragiFinalityAttestationBody) -> Result<(), FinalityError> {
+fn independent(body: &SumeragiFinalityAttestationBody) -> Result<(), FinalityReadError> {
     need(
         body.challenge != [0; 32]
             && body.observed_at_unix_ms != 0
@@ -99,6 +99,15 @@ fn replace_result(proof: &mut SumeragiFinalityProof, result: &ExecutionResultCom
     let header = certificate.consensus_header().to_vec();
     let qc = certificate.commit_qc().to_vec();
     let availability = certificate.availability().to_vec();
+    let (finality_header, _) = CertifiedResultV1::decode(
+        certificate.result_preimage(),
+        CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap()
+    .into_parts();
+    // Preserve the original fixed header while allowing deliberately invalid bodies
+    // to reach the validation gate under test.
+    let result = CertifiedResultV1::from_parts_unvalidated(finality_header, result.clone());
     block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
         header,
         qc,
@@ -156,26 +165,39 @@ fn attestation_epoch_work_is_one_statement_and_preserves_signed_bytes() {
     genesis_only.status.committed_height = 1;
     genesis_only.status.applied_height = 1;
     assert_eq!(
-        genesis_only.validate_consistency(),
-        independent(&genesis_only)
+        genesis_only
+            .validate_consistency()
+            .map_err(invalid_read_error),
+        independent(&genesis_only).map_err(invalid_read_error)
     );
     signed(&fixture, genesis_only.clone()).verify().unwrap();
     let mut different_genesis = genesis_only;
     let mut result = fixture.first.decode_checked().unwrap().commitment;
     result.execution.parent_state_root = Hash::new(b"different genesis parent state");
     replace_result(&mut different_genesis.finality_proof, &result);
-    let expected = independent(&different_genesis).unwrap_err();
+    let expected = independent(&different_genesis)
+        .map_err(invalid_read_error)
+        .unwrap_err();
     assert_eq!(
-        different_genesis.validate_consistency().unwrap_err(),
+        different_genesis
+            .validate_consistency()
+            .map_err(invalid_read_error)
+            .unwrap_err(),
         expected
     );
     assert_eq!(
-        signed(&fixture, different_genesis).verify().unwrap_err(),
+        signed(&fixture, different_genesis)
+            .verify()
+            .map_err(invalid_read_error)
+            .unwrap_err(),
         expected
     );
     let mut alternate = attestation.body;
     alternate.finality_proof = fixture.alternate();
-    assert_eq!(alternate.validate_consistency(), independent(&alternate));
+    assert_eq!(
+        alternate.validate_consistency().map_err(invalid_read_error),
+        independent(&alternate).map_err(invalid_read_error)
+    );
     signed(&fixture, alternate).verify().unwrap();
 }
 
@@ -198,14 +220,22 @@ fn attestation_rechecks_every_proof_and_preserves_first_error_order() {
             _ => changed.status.protocol_version = 0,
         }
         let bytes = norito::encode_canonical(&changed).unwrap();
-        let expected = independent(&changed).unwrap_err();
+        let expected = independent(&changed)
+            .map_err(invalid_read_error)
+            .unwrap_err();
         assert_eq!(
-            changed.validate_consistency().unwrap_err(),
+            changed
+                .validate_consistency()
+                .map_err(invalid_read_error)
+                .unwrap_err(),
             expected,
             "mutation {mutation}"
         );
         assert_eq!(
-            signed(&fixture, changed.clone()).verify().unwrap_err(),
+            signed(&fixture, changed.clone())
+                .verify()
+                .map_err(invalid_read_error)
+                .unwrap_err(),
             expected
         );
         assert_eq!(norito::encode_canonical(&changed).unwrap(), bytes);
@@ -214,16 +244,33 @@ fn attestation_rechecks_every_proof_and_preserves_first_error_order() {
     let mut both = original.clone();
     both.genesis_finality_proof.block_wire.push(0);
     corrupt_qc(&mut both.finality_proof);
-    let genesis_error = both.genesis_finality_proof.decode_checked().unwrap_err();
+    let genesis_error = both
+        .genesis_finality_proof
+        .decode_checked()
+        .map_err(invalid_read_error)
+        .unwrap_err();
     assert_ne!(
         genesis_error,
-        both.finality_proof.decode_checked().unwrap_err()
+        both.finality_proof
+            .decode_checked()
+            .map_err(invalid_read_error)
+            .unwrap_err()
     );
-    assert_eq!(both.validate_consistency().unwrap_err(), genesis_error);
+    assert_eq!(
+        both.validate_consistency()
+            .map_err(invalid_read_error)
+            .unwrap_err(),
+        genesis_error
+    );
     both.challenge = [0; 32];
-    let binding_error = independent(&both).unwrap_err();
+    let binding_error = independent(&both).map_err(invalid_read_error).unwrap_err();
     assert_ne!(binding_error, genesis_error);
-    assert_eq!(both.validate_consistency().unwrap_err(), binding_error);
+    assert_eq!(
+        both.validate_consistency()
+            .map_err(invalid_read_error)
+            .unwrap_err(),
+        binding_error
+    );
 }
 
 #[test]
@@ -258,10 +305,15 @@ fn attestation_epoch_reuse_requires_complete_context_and_current_certificate() {
         }
         let mut changed = original.clone();
         replace_result(&mut changed.finality_proof, &changed_result);
-        let expected = independent(&changed).unwrap_err();
+        let expected = independent(&changed)
+            .map_err(invalid_read_error)
+            .unwrap_err();
         let before = validation_counts::calls();
         assert_eq!(
-            changed.validate_consistency().unwrap_err(),
+            changed
+                .validate_consistency()
+                .map_err(invalid_read_error)
+                .unwrap_err(),
             expected,
             "mutation {mutation}"
         );
@@ -269,15 +321,32 @@ fn attestation_epoch_reuse_requires_complete_context_and_current_certificate() {
             assert_eq!(validation_counts::calls() - before, 2);
         }
         // A new node signature cannot authenticate a changed native certificate or context.
-        assert_eq!(signed(&fixture, changed).verify().unwrap_err(), expected);
+        assert_eq!(
+            signed(&fixture, changed)
+                .verify()
+                .map_err(invalid_read_error)
+                .unwrap_err(),
+            expected
+        );
         original.validate_consistency().unwrap();
     }
 }
 
+// These independent recipes have distinct budget identities. Compare actual kind and exact
+// refusal fields after classification, together with every consumed counter and crypto count.
+#[derive(Debug, PartialEq, Eq)]
+enum ObservedError {
+    Invalid(FinalityError),
+    Resource(
+        norito::core::DecodeAttemptErrorKind,
+        norito::core::DecodeResourceError,
+    ),
+}
+
 fn under_caller(
     allocation: usize,
-    operation: impl FnOnce() -> Result<(), FinalityError>,
-) -> (Result<(), FinalityError>, u64, usize) {
+    operation: impl FnOnce() -> Result<(), FinalityReadError>,
+) -> (Result<(), ObservedError>, u64, usize) {
     let limits = norito::DecodeLimits::new(
         1024 * 1024,
         MAX_FINALITY_CHECKPOINT_BYTES,
@@ -287,7 +356,15 @@ fn under_caller(
     );
     let budget = DecodeBudgetContext::new(limits);
     let before = validation_counts::calls();
-    let result = budget.with(operation);
+    let result = budget.with(operation).map_err(|error| match error {
+        FinalityReadError::Invalid(error) => ObservedError::Invalid(error),
+        FinalityReadError::DecodeResource(error) => {
+            let kind = error.kind();
+            assert_eq!(kind, norito::core::DecodeAttemptErrorKind::EnclosingLimit);
+            ObservedError::Resource(kind, error.into_error().decode_resource_error().unwrap())
+        }
+        other => panic!("unexpected genesis read in binary attestation: {other:?}"),
+    });
     (
         result,
         budget.consumed_allocated_bytes(),

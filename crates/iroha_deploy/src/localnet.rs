@@ -1328,6 +1328,10 @@ fn generate_localnet_runtime<T: Write>(
         block_max_transactions,
         opts.consensus_mode,
     )?;
+    genesis = genesis
+        .into_builder()
+        .append_parameter(localnet_gas_custody_parameter(&gas_account_id))
+        .build_raw()?;
     genesis = append_localnet_contract_permissions_for_client(
         genesis,
         &genesis_account_id,
@@ -2760,12 +2764,6 @@ fn render_peer_config(
         );
     }
     pipeline.insert("signature_batch_max_bls".into(), Value::Integer(4i64));
-    let mut gas = Table::new();
-    gas.insert(
-        "tech_account_id".into(),
-        Value::String(gas_account_id.to_owned()),
-    );
-    pipeline.insert("gas".into(), Value::Table(gas));
     root.insert("pipeline".into(), Value::Table(pipeline));
     let mut queue = Table::new();
     queue.insert(
@@ -3560,6 +3558,13 @@ fn localnet_custom_parameter_id(name: &str) -> CustomParameterId {
         name.parse()
             .expect("constant custom parameter name is valid"),
     )
+}
+/// Pin the deterministic fee receiver in the signed chain parameter owner.
+fn localnet_gas_custody_parameter(account: &AccountId) -> Parameter {
+    Parameter::Custom(CustomParameter::new(
+        localnet_custom_parameter_id("ivm_gas_tech_account_id"),
+        Json::new(account.to_string()),
+    ))
 }
 fn localnet_ivm_gas_units_per_gas_payload(asset: &str) -> Json {
     let payload = format!(
@@ -5010,7 +5015,6 @@ fn generated_config_parameter_name(id: &iroha_config::base::ParameterId) -> Opti
             &["pipeline"],
             &["signature_batch_max_ed25519", "signature_batch_max_bls"],
         ),
-        (&["pipeline", "gas"], &["tech_account_id"]),
         (
             &["queue"],
             &[

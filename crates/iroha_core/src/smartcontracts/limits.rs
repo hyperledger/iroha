@@ -153,7 +153,8 @@ mod tests {
             .set_parameter(Parameter::Custom(CustomParameter::new(
                 name,
                 Json::new(64_u64),
-            )));
+            )))
+            .expect("valid fixture parameters");
         let mut metadata = Metadata::default();
         metadata.insert("exact".parse().expect("metadata key"), document(64));
         enforce_metadata_value_sizes(&mut transaction, &metadata)

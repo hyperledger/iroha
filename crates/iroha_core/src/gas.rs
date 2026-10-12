@@ -104,11 +104,6 @@ pub const DEFAULT_ZK_GAS_PER_COMMITMENT: u64 = 500;
 /// Dynamic factors (per-byte) applied to encoded payloads where sensible.
 /// Base cost of an SCCP instruction: bounded SCCP World reads and writes (`specs/sccp.md` §4).
 const BASE_SCCP: u64 = BASE_REGISTER;
-/// One secp256k1 public-key recovery with its EIP-712 digest: an attestation entry, a bridge
-/// key's proof of possession or one fault signature.
-const SCCP_SECP256K1_RECOVER: u64 = 1_000;
-/// Verification of one peer consensus-key signature over a bridge-key binding.
-const SCCP_PEER_SIGNATURE_VERIFY: u64 = 25_000;
 /// Verification base of one source-chain light-client proof (the source chain's consensus
 /// signatures), matching the default ZK verification base.
 const SCCP_LIGHT_CLIENT_VERIFY: u64 = DEFAULT_ZK_GAS_BASE_VERIFY;
@@ -306,34 +301,6 @@ fn sccp_proof_gas(proof_bytes: usize) -> u64 {
 /// proof work, or `None` for any other instruction.
 fn sccp_instruction_gas(any: &dyn core::any::Any) -> Option<u64> {
     use dm_isi::sccp;
-    if let Some(submit) = any.downcast_ref::<sccp::SubmitSccpAttestationsV1>() {
-        let entries = u64::try_from(submit.entries.len()).unwrap_or(u64::MAX);
-        return Some(BASE_SCCP.saturating_add(SCCP_SECP256K1_RECOVER.saturating_mul(entries)));
-    }
-    if let Some(set) = any.downcast_ref::<sccp::SetSccpBridgeKeyV1>() {
-        let registration = if set.public_key.is_some() {
-            // The key's own account is registered implicitly and its PoP recovered.
-            BASE_REGISTER.saturating_add(SCCP_SECP256K1_RECOVER)
-        } else {
-            0
-        };
-        return Some(
-            BASE_SCCP
-                .saturating_add(SCCP_PEER_SIGNATURE_VERIFY)
-                .saturating_add(registration),
-        );
-    }
-    if let Some(fault) = any.downcast_ref::<sccp::SubmitSccpAttestationFaultV1>() {
-        return Some(
-            BASE_SCCP
-                .saturating_add(SCCP_SECP256K1_RECOVER)
-                .saturating_add(sccp_byte_gas(
-                    fault.statement.encode().len(),
-                    PER_BYTE_SCCP,
-                    1,
-                )),
-        );
-    }
     if let Some(record) = any.downcast_ref::<sccp::RecordSccpMessage>() {
         return Some(
             BASE_SCCP
@@ -763,15 +730,20 @@ mod tests {
             per_nullifier: DEFAULT_ZK_GAS.per_nullifier + 4,
             per_commitment: DEFAULT_ZK_GAS.per_commitment + 5,
         };
-        let fixture = halo2_fixture_envelope("halo2/ipa:two-schedules", [0u8; 32]);
-        let proof_box = fixture.proof_box("halo2/ipa");
+        let fixture = native_framing_fixture_envelope(
+            crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID,
+            [0u8; 32],
+        );
+        let proof_box = fixture.proof_box("pipa-r/pasta");
         let attachment = ProofAttachment::new_ref(
             proof_box.backend.clone(),
             proof_box,
-            VerifyingKeyId::new("halo2/ipa", "vk-two-schedules"),
+            VerifyingKeyId::new("pipa-r/pasta", "vk-two-schedules"),
         );
         let proof_bytes = attachment.proof.bytes.len() as u64;
-        let public_inputs = (fixture.public_inputs.len() / super::FIELD_ELEMENT_BYTES) as u64;
+        let public_inputs =
+            super::ipa_public_input_count(&attachment).expect("native public column");
+        assert_eq!(public_inputs, 9);
         let instruction: InstructionBox = VerifyProof::new(attachment).into();
         let under_default = meter_instruction(&instruction, &DEFAULT_ZK_GAS);
         let under_changed = meter_instruction(&instruction, &changed);
@@ -2025,7 +1997,7 @@ mod tests {
         assert_eq!(confidential_gas_cost(&instr, &DEFAULT_ZK_GAS), 0);
     }
     #[test]
-    fn sccp_gas_grows_with_signature_and_proof_work_and_fits_the_block() {
+    fn sccp_gas_grows_with_source_proof_work_and_fits_the_block() {
         use crate::smartcontracts::isi::sccp::test_support::SampleInstructions as I;
         use iroha_data_model::sccp::{
             inbound::{SCCP_SOURCE_PROOF_MAX_BYTES_V1, SccpSourceProofBytesV1},
@@ -2041,23 +2013,6 @@ mod tests {
             assert!(gas(instruction.clone()) < SHIPPED_BLOCK_GAS_LIMIT);
             assert_eq!(confidential_gas_cost(&instruction, &DEFAULT_ZK_GAS), 0);
         }
-        let attestations = |entries: usize| {
-            let mut submit = I::attestations();
-            submit.entries = vec![submit.entries[0].clone(); entries];
-            gas(submit.into())
-        };
-        assert_eq!(attestations(1), BASE_SCCP + SCCP_SECP256K1_RECOVER);
-        assert_eq!(attestations(64) - attestations(63), SCCP_SECP256K1_RECOVER);
-        assert!(
-            attestations(1_024) < SHIPPED_BLOCK_GAS_LIMIT,
-            "a maximal attestation batch is includable"
-        );
-        let mut revocation = I::set_bridge_key();
-        revocation.public_key = None;
-        revocation.key_pop = None;
-        assert!(gas(I::set_bridge_key().into()) > gas(revocation.clone().into()));
-        assert!(gas(revocation.into()) >= SCCP_PEER_SIGNATURE_VERIFY);
-        assert!(gas(I::fault().into()) > SCCP_SECP256K1_RECOVER);
         let record = |bytes: usize| {
             let mut record = I::record();
             record.recipient = vec![1; bytes];

@@ -1,29 +1,25 @@
-//! Authenticated native height inputs for the SCCP post-execution roster hook.
+//! Authenticated native height inputs for the SCCP post-execution generation hook.
 //!
 //! The original output finalizer advances the World consensus schedule before SCCP reads it.
 //! Each ready slot retains the exact epoch authorization and ordered committee. At an epoch
-//! boundary, the next roster must also be authorized; a pending slot fails closed. Neither
+//! boundary, the next epoch must also be authorized; a pending slot fails closed. Neither
 //! registration state nor unauthenticated staged genesis writes can create voting authority.
 
 use crate::state::WorldReadOnly;
+use crate::sumeragi::schedule::RetainedConsensusSchedule;
 use iroha_data_model::parameter::system::ConsensusMode;
-use iroha_model_base::peer::PeerId;
+use iroha_data_model::sumeragi::epoch::ValidatorEpochContextV1;
 
-/// Consensus inputs of one height for the SCCP roster rule (§4.3.2).
+/// Retained original native schedule of one post-execution height (§4.2.2 G4).
+/// Private coordinates and immutable custody prevent a peer-list projection from becoming
+/// substitute authority. Cloning shares the already funded original schedule graph.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SccpHeightInputsV1 {
-    /// Consensus mode that selected the roster.
-    pub mode: ConsensusMode,
-    /// Executing height `h`.
-    pub height: u64,
-    /// Epoch of `h`.
-    pub epoch: u64,
-    /// Last height of the epoch of `h`; `h` is a boundary iff it equals `height`.
-    pub epoch_end_height: u64,
-    /// Voting roster of `h`, in canonical consensus order.
-    pub roster: Vec<PeerId>,
-    /// Voting roster of the next epoch, present exactly at a boundary.
-    pub next_roster: Option<Vec<PeerId>>,
+    schedule: RetainedConsensusSchedule,
+    height: u64,
+    epoch: u64,
+    epoch_end_height: u64,
+    mode: ConsensusMode,
 }
 
 /// Where block validation takes the SCCP height inputs of the block it executes.
@@ -57,6 +53,9 @@ pub enum SccpHeightInputsError {
     /// The scheduled epoch length is zero.
     #[error("the scheduled epoch length of height {0} is zero")]
     ZeroEpochLength(u64),
+    /// Current/successor context mode or network disagrees with the captured source.
+    #[error("SCCP schedule context mode or network mismatch")]
+    Mode,
     /// A height does not fit `u64`.
     #[error("height arithmetic overflows")]
     Overflow,
@@ -90,42 +89,79 @@ impl SccpHeightInputsV1 {
             .map_err(|_| SccpHeightInputsError::Unscheduled(height))?;
         let epoch = current.epoch.authorization.epoch;
         let epoch_end_height = current.epoch.authorization.last_height;
-        let next_roster = if height == epoch_end_height {
+        if current.epoch.mode != mode {
+            return Err(SccpHeightInputsError::Mode);
+        }
+        if height == epoch_end_height {
             let next_height = height
                 .checked_add(1)
                 .ok_or(SccpHeightInputsError::Overflow)?;
             let next = schedule
                 .ready(next_height)
                 .map_err(|_| SccpHeightInputsError::Unscheduled(next_height))?;
-            Some(
-                next.epoch
-                    .committee
-                    .iter()
-                    .map(|member| member.validator.clone())
-                    .collect(),
-            )
-        } else {
-            None
-        };
+            if next.epoch.mode != mode || next.epoch.network_id != current.epoch.network_id {
+                return Err(SccpHeightInputsError::Mode);
+            }
+        }
         Ok(Self {
-            mode,
+            schedule: schedule.clone(),
             height,
             epoch,
             epoch_end_height,
-            roster: current
-                .epoch
-                .committee
-                .iter()
-                .map(|member| member.validator.clone())
-                .collect(),
-            next_roster,
+            mode,
         })
     }
 
-    /// Return whether the height is the last one of its epoch (§4.3.2 boundary).
-    #[must_use]
+    /// Executing height of the captured original schedule.
+    pub fn height(&self) -> u64 {
+        self.height
+    }
+    /// Native epoch number of this height.
+    pub fn epoch(&self) -> u64 {
+        self.epoch
+    }
+    /// Last height of the captured epoch.
+    pub fn epoch_end_height(&self) -> u64 {
+        self.epoch_end_height
+    }
+    /// Consensus mode of both captured original contexts.
+    pub fn mode(&self) -> ConsensusMode {
+        self.mode
+    }
+    /// Whether the captured height ends its native epoch.
     pub fn is_boundary(&self) -> bool {
         self.height == self.epoch_end_height
+    }
+    /// Borrow both complete original credential lists; a non-boundary uses the same context.
+    pub fn epochs(
+        &self,
+    ) -> Result<(&ValidatorEpochContextV1, &ValidatorEpochContextV1), SccpHeightInputsError> {
+        let current = &self
+            .schedule
+            .ready(self.height)
+            .map_err(|_| SccpHeightInputsError::Unscheduled(self.height))?
+            .epoch;
+        let next = if self.is_boundary() {
+            let height = self
+                .height
+                .checked_add(1)
+                .ok_or(SccpHeightInputsError::Overflow)?;
+            &self
+                .schedule
+                .ready(height)
+                .map_err(|_| SccpHeightInputsError::Unscheduled(height))?
+                .epoch
+        } else {
+            current
+        };
+        Ok((current, next))
+    }
+    /// Bind the captured graph to the exact original World source cut without re-admission.
+    pub(super) fn matches_source(&self, world: &(impl WorldReadOnly + ?Sized)) -> bool {
+        std::ptr::eq(
+            self.schedule.canonical(),
+            world.consensus_schedule().canonical(),
+        )
     }
 }
 
@@ -244,10 +280,24 @@ mod tests {
         let inner =
             SccpHeightInputsV1::from_sumeragi_schedule(&block.world, 4, 1, ConsensusMode::Npos)
                 .unwrap();
-        assert_eq!(inner.roster, roster);
-        assert_eq!(inner.epoch, 0);
-        assert_eq!(inner.epoch_end_height, 5);
-        assert_eq!(inner.next_roster, None);
+        assert_eq!(
+            inner
+                .epochs()
+                .unwrap()
+                .0
+                .committee
+                .iter()
+                .map(|seat| seat.validator.clone())
+                .collect::<Vec<_>>(),
+            roster
+        );
+        assert_eq!(inner.epoch(), 0);
+        assert_eq!(inner.epoch_end_height(), 5);
+        assert!(std::ptr::eq(
+            inner.epochs().unwrap().0,
+            inner.epochs().unwrap().1
+        ));
+        assert!(inner.matches_source(&block.world));
         assert!(!inner.is_boundary());
         assert_eq!(
             SccpHeightInputsV1::from_sumeragi_schedule(&block.world, 5, 1, ConsensusMode::Npos),

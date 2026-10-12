@@ -11,7 +11,7 @@
 
 use super::{
     admission::{self, SccpExemptClassV1},
-    bridge_keys, escrow, fees,
+    escrow, fees,
     inbound::{SccpProvenInboundV1, record_proven},
     settle::{self, execute_settle},
     store,
@@ -21,7 +21,7 @@ use super::{
     },
 };
 use crate::state::{State, StateReadOnly, StateTransaction};
-use iroha_crypto::{Algorithm, Hash, KeyPair, PrivateKey};
+use iroha_crypto::{Algorithm, Hash, KeyPair};
 use iroha_data_model::{
     NetworkId,
     account::{Account, AccountAddress, AccountId},
@@ -45,7 +45,7 @@ use iroha_sccp::{
         ethereum::{EthereumHeaderSegmentV1, EthereumLcAdvanceV1},
         proof::{SccpLcAdvanceV1, SccpLcSegmentV1},
     },
-    v1::{key_file::SccpBridgeKeyFileV1, payload::SccpTransferPayloadV1},
+    v1::payload::SccpTransferPayloadV1,
 };
 
 const ETH: SccpNetworkV1 = SccpNetworkV1::EthereumMainnet;
@@ -137,13 +137,6 @@ fn set_enabled(stx: &mut StateTransaction<'_, '_>, enabled: bool) {
     store::parameters::set(stx, Some(params));
 }
 
-fn bridge_key_pair(key: &SccpBridgeKeyFileV1) -> KeyPair {
-    KeyPair::from_private_key(
-        PrivateKey::from_bytes(Algorithm::Secp256k1, key.secret()).expect("bridge scalar"),
-    )
-    .expect("bridge key pair")
-}
-
 /// The committed parent World every case is judged against.
 struct Parent {
     state: State,
@@ -167,11 +160,13 @@ fn parent() -> Parent {
         {
             let mut stx = block.transaction();
             // Fee quoting needs the explicit immutable root scope of the network.
-            stx.world.parameters.get_mut().set_parameter(
-                crate::sumeragi::lanes::routing::test_support::metadata(
+            stx.world
+                .parameters
+                .get_mut()
+                .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
                     iroha_data_model::block::consensus::SumeragiRootScope::Global,
-                ),
-            );
+                ))
+                .expect("valid fixture parameters");
             install_value_route(
                 &mut stx,
                 ETH,
@@ -451,6 +446,7 @@ fn every_inbound_shape_and_authority_is_classified_quoted_counted_and_executed_a
             world,
             &nexus,
             &pipeline,
+            &view.zk().gas,
             payload,
             0,
             3,
@@ -597,6 +593,7 @@ fn a_relayer_proof_is_charged_once_and_owes_no_self_claim_fee() {
         view.world(),
         &nexus,
         &iroha_config::parameters::actual::Pipeline::default(),
+        &view.zk().gas,
         transaction.payload(),
         0,
         3,
@@ -630,10 +627,7 @@ fn only_an_eligible_advance_admits_an_absent_authority() {
     );
     let admits = |instructions: Vec<InstructionBox>| {
         let transaction = signed(&ed25519(KEEPER), instructions);
-        let sccp = admission::allows_unregistered_authority(
-            transaction.instructions(),
-            transaction.authority(),
-        );
+        let sccp = admission::allows_unregistered_authority(transaction.instructions());
         // The SCCP rule is the only one that can admit these shapes.
         assert_eq!(
             crate::tx::allows_unregistered_authority(
@@ -661,11 +655,20 @@ fn only_an_eligible_advance_admits_an_absent_authority() {
 }
 
 #[test]
-fn a_bridge_key_is_recognised_by_its_secp256k1_account() {
-    let key = SccpBridgeKeyFileV1::new([0x31; 32], 0).expect("key");
-    let pair = bridge_key_pair(&key);
+fn an_ordinary_secp256k1_account_has_no_special_sccp_exemption() {
+    let key = KeyPair::try_from_seed(vec![0x31; 32], Algorithm::Secp256k1).expect("key");
+    let parent = parent();
+    let transaction = signed(&key, vec![SettleSccpV1::inbound(parent.settleable).into()]);
+    let view = parent.state.view();
     assert_eq!(
-        AccountId::new(pair.public_key().clone()),
-        bridge_keys::account_of(&key.public_key().expect("public key")).expect("account")
+        fees::exempt_class(view.world(), transaction.payload()),
+        None
+    );
+    assert!(!admission::allows_unregistered_authority(
+        transaction.instructions()
+    ));
+    assert_eq!(
+        admission::classify(view.world(), &view, 3, &transaction),
+        Ok(None)
     );
 }

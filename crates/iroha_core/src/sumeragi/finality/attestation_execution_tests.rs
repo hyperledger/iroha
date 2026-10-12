@@ -333,9 +333,7 @@ fn current_attestation_refuses_coherent_genesis_and_h2_replacement_under_unchang
 
 #[inline(never)]
 fn check_coherent_replacement(chain: &CertifiedTestChain) {
-    use crate::sumeragi::{
-        block_store::commit_certificate, commitment::ExecutionResultCommitment, crypto::BlsCrypto,
-    };
+    use crate::sumeragi::{block_store::commit_certificate, crypto::BlsCrypto};
     use iroha_data_model::block::CommitCertificate;
     use iroha_sumeragi::types::Hash32;
     let view = chain.state().view();
@@ -343,9 +341,20 @@ fn check_coherent_replacement(chain: &CertifiedTestChain) {
     let genesis = chain.committed(1).block().clone();
     let second = chain.committed(2).block().clone();
     let certificate = genesis.commit_certificate().unwrap();
-    let mut result = ExecutionResultCommitment::decode(certificate.result_preimage()).unwrap();
+    let (finality_header, mut result) =
+        iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+            certificate.result_preimage(),
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        )
+        .unwrap()
+        .into_parts();
     result.execution.world_state_root = Hash::new(b"different coherent genesis execution");
-    let preimage = result.preimage().unwrap();
+    let preimage = iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
+        finality_header,
+        result.clone(),
+    )
+    .preimage()
+    .unwrap();
     let changed_genesis = crate::block::reserve_block_for_tests().initialize(
         genesis.as_ref().clone().with_commit_certificate(Some(
             CommitCertificate::from_untrusted_parts(
@@ -359,7 +368,7 @@ fn check_coherent_replacement(chain: &CertifiedTestChain) {
     let second_certificate = second.commit_certificate().unwrap();
     let mut header: iroha_sumeragi::message::BlockHeader =
         norito::decode_canonical(second_certificate.consensus_header()).unwrap();
-    header.parent_result = crate::sumeragi::commitment::result_of_preimage(&preimage);
+    header.parent_result = crate::sumeragi::commitment::result_of_preimage(&preimage).unwrap();
     header.availability_digest = Hash32::ZERO;
     let mut payload = Vec::new();
     second.write_resultless_proposal_wire(&mut payload).unwrap();
@@ -367,7 +376,8 @@ fn check_coherent_replacement(chain: &CertifiedTestChain) {
     let qc = chain.commit_qc(
         2,
         available.header().hash(&BlsCrypto::new()),
-        crate::sumeragi::commitment::result_of_preimage(second_certificate.result_preimage()),
+        crate::sumeragi::commitment::result_of_preimage(second_certificate.result_preimage())
+            .unwrap(),
         Signers::Quorum,
     );
     let changed_second = crate::block::reserve_block_for_tests().initialize(

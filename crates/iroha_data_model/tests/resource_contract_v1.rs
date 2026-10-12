@@ -3,6 +3,10 @@
 //! These are the predicates SDK preflight shares with node admission. This is a separate
 //! target so it does not depend on the large internal unit suite.
 
+#[cfg(feature = "privacy-exact12-conformance")]
+#[path = "maximum_proof_transport_v1.rs"]
+mod maximum_proof_transport_v1;
+
 use core::num::{NonZeroU32, NonZeroU64};
 
 use iroha_data_model::{
@@ -69,7 +73,7 @@ fn committed_defaults_are_the_values_the_contract_records() {
     assert_eq!(transaction.ivm_bytecode_size().get(), 4 * MIB);
     assert_eq!(transaction.max_metadata_depth().get(), 8);
     assert_eq!(transaction.max_time_to_live_ms().get(), 86_400_000);
-    assert_eq!(parameters.sumeragi().max_block_bytes().get(), 4_194_304);
+    assert_eq!(parameters.sumeragi().max_block_bytes().get(), 16_777_216);
     assert_eq!(parameters.sumeragi().exec_budget_ms().get(), 4_000);
     assert_eq!(parameters.sumeragi().apply_budget_ms().get(), 1_000);
     assert_eq!(parameters.block().max_transactions().get(), 512);
@@ -89,9 +93,9 @@ fn committed_defaults_are_the_values_the_contract_records() {
 fn includable_transaction_bound_accepts_the_limit_and_rejects_one_over() {
     let parameters = Parameters::default();
     let route = TransactionInclusionRoute::Global;
-    // Today's defaults: the 4 MiB payload less the proposer's reserve is below the 10 MiB cap.
+    // The committed default carries every transaction within the fixed 10 MiB cap.
     let limit = parameters.max_includable_transaction_bytes(route);
-    assert_eq!(limit, 4_194_304 - 65_536);
+    assert_eq!(limit, TRANSACTION_CAP_BYTES);
     assert_eq!(
         parameters.check_signed_transaction_bytes(limit, route),
         Ok(())
@@ -103,19 +107,19 @@ fn includable_transaction_bound_accepts_the_limit_and_rejects_one_over() {
             max_bytes: limit,
         })
     );
-    // The relation X.2 must establish: with a 16 MiB payload the transaction cap is the bound.
-    let target = with_max_block_bytes(16 * 1024 * 1024);
+    // Smaller explicit payload limits still lower the usable admission bound.
+    let target = with_max_block_bytes(4 * 1024 * 1024);
     assert_eq!(
         target.max_includable_transaction_bytes(route),
-        TRANSACTION_CAP_BYTES
+        4_194_304 - 65_536
     );
     assert_eq!(
-        target.check_signed_transaction_bytes(TRANSACTION_CAP_BYTES, route),
+        target.check_signed_transaction_bytes(4_194_304 - 65_536, route),
         Ok(())
     );
     assert!(
         target
-            .check_signed_transaction_bytes(TRANSACTION_CAP_BYTES + 1, route)
+            .check_signed_transaction_bytes(4_194_304 - 65_536 + 1, route)
             .is_err()
     );
 }
@@ -164,7 +168,7 @@ fn includable_transaction_bound_takes_the_larger_proposer_budget() {
 /// queue admission refuses it.
 #[test]
 fn includable_transaction_bound_follows_the_route() {
-    let parameters = Parameters::default();
+    let parameters = with_max_block_bytes(4 * 1024 * 1024);
     let global = parameters.max_includable_transaction_bytes(TransactionInclusionRoute::Global);
     let lane_payload = NonZeroU32::new(8 * 1024 * 1024).unwrap();
     let native = TransactionInclusionRoute::NativeLane {
@@ -234,7 +238,7 @@ fn privacy_proof_ceiling_accepts_the_limit_and_rejects_one_over() {
 
 /// Today's privacy profile and the relations it does and does not satisfy.
 #[test]
-fn privacy_limits_keep_their_order_and_record_the_open_envelope_relation() {
+fn privacy_limits_keep_their_order_and_fit_complete_envelopes() {
     let limits = PrivacyConsensusLimitsV1::taira_default();
     assert_eq!(limits.validate(), Ok(()));
     assert_eq!(limits.max_action_bytes, TAIRA_PRIVACY_MAX_ACTION_BYTES_V1);
@@ -269,16 +273,21 @@ fn privacy_limits_keep_their_order_and_record_the_open_envelope_relation() {
             hard_max: TAIRA_PRIVACY_MAX_PROOF_BYTES_PER_ACTION_V1,
         })
     );
-    // Open relation recorded by the contract (owner X.2): the action bound equals the proof
-    // bound, so the Norito frame of a ceiling-sized proof alone is already larger than the
-    // action bound, and the per-block privacy bound is larger than today's block payload.
-    assert_eq!(limits.max_action_bytes, limits.max_proof_bytes_per_action);
+    // Proof, whole statement, and fixed metadata have separate budgets. Count and actual
+    // aggregate privacy bytes remain independently enforced.
+    assert_eq!(limits.max_action_bytes, 9_699_840);
+    assert_eq!(limits.max_actions_per_block, 2);
     let ceiling = usize::try_from(X509_PROOF_CEILING_BYTES).unwrap();
-    let framed = norito::to_bytes(&PrivacyProofBytesV1::new(vec![0xA5; ceiling])).unwrap();
-    assert!(framed.len() as u64 > u64::from(limits.max_action_bytes));
-    assert!(
+    let framed = norito::encode_canonical(&PrivacyProofBytesV1::new(vec![0xA5; ceiling])).unwrap();
+    assert!((framed.len() as u64) < u64::from(limits.max_action_bytes));
+    assert_eq!(
         u64::from(limits.max_privacy_bytes_per_block)
-            > u64::from(Parameters::default().sumeragi().max_block_bytes().get())
+            + u64::from(BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES),
+        u64::from(Parameters::default().sumeragi().max_block_bytes().get())
+    );
+    assert!(
+        u64::from(limits.max_actions_per_block) * u64::from(limits.max_action_bytes)
+            > u64::from(limits.max_privacy_bytes_per_block)
     );
 }
 
@@ -542,9 +551,10 @@ fn committed_block_payload_limit_accepts_the_frame_limit_and_rejects_one_over() 
     assert_eq!(FRAME_OVERHEAD, 264_224);
     assert_eq!(
         CHAIN_TRANSPORT_FRAME_LIMIT,
-        16 * MIB + u64::from(FRAME_OVERHEAD)
+        16 * MIB + 2 * u64::from(FRAME_OVERHEAD)
     );
-    let largest = u32::try_from(CHAIN_TRANSPORT_FRAME_LIMIT - u64::from(FRAME_OVERHEAD)).unwrap();
+    let largest =
+        u32::try_from(CHAIN_TRANSPORT_FRAME_LIMIT - 2 * u64::from(FRAME_OVERHEAD)).unwrap();
     assert_eq!(u64::from(largest), 16 * MIB);
     let record =
         |bytes: u32| ChainParamsRecord::from_parameters(with_max_block_bytes(bytes).sumeragi());
@@ -590,5 +600,7 @@ fn rs16_layout_accepts_the_payload_limit_and_rejects_one_over() {
         u64::from(Parameters::default().sumeragi().max_block_bytes().get())
             <= MAX_DA_PAYLOAD_SIZE_BYTES
     );
-    assert!(CHAIN_TRANSPORT_FRAME_LIMIT - u64::from(FRAME_OVERHEAD) <= MAX_DA_PAYLOAD_SIZE_BYTES);
+    assert!(
+        CHAIN_TRANSPORT_FRAME_LIMIT - 2 * u64::from(FRAME_OVERHEAD) <= MAX_DA_PAYLOAD_SIZE_BYTES
+    );
 }

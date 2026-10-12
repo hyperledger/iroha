@@ -7393,10 +7393,12 @@ mod validation_fee_registry_restore_tests {
             let mut parameters = world.parameters.block();
             parameters
                 .get_mut()
-                .set_parameter(Parameter::Custom(npos.into_custom_parameter()));
+                .set_parameter(Parameter::Custom(npos.into_custom_parameter()))
+                .expect("valid fixture parameters");
             parameters
                 .get_mut()
-                .set_parameter(Parameter::Custom(registry.clone().into_custom_parameter()));
+                .set_parameter(Parameter::Custom(registry.clone().into_custom_parameter()))
+                .expect("valid fixture parameters");
             parameters.commit();
         }
         (world, registry)
@@ -9162,22 +9164,22 @@ fn decode_world_fields(
         // SCCP v1 state is restored from its own snapshot envelope after `parse_world`.
         sccp_parameters: Cell::default(),
         sccp_reset_nonce: Cell::default(),
-        sccp_bridge_keys: Storage::default(),
-        sccp_bridge_key_owners: Storage::default(),
-        sccp_rosters: Storage::default(),
-        sccp_roster_current: Cell::default(),
-        sccp_heartbeat_marker: Cell::default(),
+        sccp_committee_generations: CommitteeStorage::try_new_admitted(execution_budget.clone())?,
+        sccp_committee_current: scalar_cell_custody::initialize(0, execution_budget)?,
+        sccp_liability_clock: scalar_cell_custody::initialize(0, execution_budget)?,
+        sccp_degraded_run: mv::cell::CellInitialization::<u32>::try_reserve(execution_budget)
+            .map(|owner| owner.initialize(0, None))
+            .map_err(scalar_cell_custody::admission_error)?,
+        sccp_anchor_open: mv::cell::CellInitialization::<RetainedSccpAnchorOpen>::try_reserve(
+            execution_budget,
+        )
+        .map(|owner| owner.initialize(RetainedSccpAnchorOpen::empty(execution_budget), None))
+        .map_err(scalar_cell_custody::admission_error)?,
+        sccp_anchor_chunks: AnchorStorage::try_new_admitted(execution_budget.clone())?,
         sccp_block_leaves: Storage::default(),
         sccp_block_commitments: Storage::default(),
         sccp_history: Cell::default(),
         sccp_history_leaves: Storage::default(),
-        sccp_attestation_subjects: Storage::default(),
-        sccp_attestation_status: Storage::default(),
-        sccp_attestation_signatures: Storage::default(),
-        sccp_attestation_faults: Storage::default(),
-        sccp_member_last_signed: Storage::default(),
-        sccp_handoff_stalled: Storage::default(),
-        sccp_prune_cursor: Cell::default(),
         sccp_outbound_messages: Storage::default(),
         sccp_outbound_by_nonce: Storage::default(),
         sccp_control_messages: Storage::default(),
@@ -11533,7 +11535,7 @@ mod decode_tests {
         let mut map = SnapshotJsonMap::from_owned(map);
         let parsed = take_parameters_cell(&mut map, "parameters")
             .expect("canonical parameters MV envelope must be accepted");
-        assert_eq!(parsed.view().get(), &expected);
+        assert_eq!(&**parsed.view().get(), &expected);
     }
     #[test]
     fn borrowed_snapshot_map_rejects_duplicates_and_noncanonical_order() {

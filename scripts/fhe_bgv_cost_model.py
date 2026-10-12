@@ -31,8 +31,10 @@ What this tool does:
     (crates/iroha_fhe/tests/vectors/bgv_cost_model_v1.txt) are the renderings
     of the summary.
   It needs no measurement log, and neither SageMath nor the estimator.
-* `--build RUN_DIR [RUN_DIR ...]` reads accepted run directories of
+* `--build RUN_DIR [RUN_DIR ...] --manifest-sha256 SHA256 [SHA256 ...]`
+  reads externally pinned accepted run directories of
   scripts/zk_resource_harness.py (under the ignored dist/zk-resource-harness/)
+  through its verified-document reader, without reopening evidence paths,
   and prints the summary; with `--write` it replaces the tracked file, the
   view and the embedded tables.
 * `--rederive` recomputes every derived block from the measured runs the
@@ -84,6 +86,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import math
 import re
@@ -92,6 +95,12 @@ from pathlib import Path
 from typing import Any, Optional
 
 ROOT = Path(__file__).resolve().parents[1]
+_HARNESS_SPEC = importlib.util.spec_from_file_location(
+    "bgv_cost_resource_harness", Path(__file__).with_name("zk_resource_harness.py")
+)
+assert _HARNESS_SPEC is not None and _HARNESS_SPEC.loader is not None
+HARNESS = importlib.util.module_from_spec(_HARNESS_SPEC)
+_HARNESS_SPEC.loader.exec_module(HARNESS)
 REFERENCE_DIRECTORY = "crates/iroha_fhe/tests/vectors"
 VECTORS_TEST = "crates/iroha_fhe/tests/bgv_vectors.rs"
 SUMMARY_PATH = "specs/fhe_bgv_cost_summary.json"
@@ -1750,15 +1759,15 @@ EVALUATION_PHASES = (
 TAPE_SETUP_PHASES = ("profile", "key_generation", "client_input", "machine_setup", "open", "release")
 
 
-def read_run(run_dir: Path) -> dict:
-    """Extract the measured block of one accepted harness run."""
-    report = json.loads((run_dir / "report.json").read_text())
-    if report.get("verdict") != "accepted":
-        raise SystemExit(f"{run_dir}: the harness did not accept this run")
-    records = sorted(path for path in (run_dir / "child").glob("bgv-*.json"))
+def read_run(run_dir: Path, manifest_sha256: str) -> tuple[dict, dict]:
+    """Return measured block and host from one pinned, verified byte snapshot."""
+    verified = HARNESS.read_pinned_run(run_dir, manifest_sha256)
+    report = verified["report"]
+    records = [entry["json"]["path"] for entry in report["records"]
+               if Path(entry["json"]["path"]).name.startswith("bgv-")]
     if len(records) != 1:
         raise SystemExit(f"{run_dir}: expected exactly one workload record")
-    record = json.loads(records[0].read_text())
+    record = verified["documents"][records[0]]
     if record["outcome"] != "succeeded":
         raise SystemExit(f"{run_dir}: the workload did not succeed")
     nodes = record["phase_tree"]["nodes"]
@@ -1799,6 +1808,7 @@ def read_run(run_dir: Path) -> dict:
         "profile_name": name,
         "run": {
             "run_directory": run_dir.name,
+            "manifest_sha256": verified["manifest_sha256"],
             "verdict": report["verdict"],
             "artifact": report["context"]["artifact"],
             "source_commit": report["context"]["source_commit"],
@@ -1839,7 +1849,7 @@ def read_run(run_dir: Path) -> dict:
             opcode: phase(f"tape/{opcode}") for opcode in OPCODES if f"tape/{opcode}" in by_path
         }
         block["final_zeroing_mask"] = phase("tape/final_zeroing_mask")
-    return block
+    return block, report["host"]
 
 
 def evaluation_wall_ns(run: dict) -> int:
@@ -2550,14 +2560,21 @@ def summary_frame(runs: list, host: dict, root: Path = ROOT) -> dict:
     }
 
 
-def build_summary(run_dirs: list) -> dict:
+def build_summary(run_dirs: list, *, manifest_sha256: list[str]) -> dict:
+    """Build only from unique external pins and their verified run documents."""
+    if not run_dirs or len(run_dirs) != len(manifest_sha256):
+        raise ValueError("exactly one external manifest SHA-256 is required per run directory")
+    if any(not isinstance(pin, str) or not re.fullmatch(r"[0-9a-f]{64}", pin)
+           for pin in manifest_sha256):
+        raise ValueError("every external manifest pin must be a SHA-256 digest")
+    if len(set(manifest_sha256)) != len(manifest_sha256):
+        raise ValueError("one sealed run cannot be counted as multiple measurements")
     runs = []
     hosts = []
-    for run_dir in run_dirs:
-        block = read_run(run_dir)
-        block["run"]["manifest_sha256"] = sha256_of(run_dir / "manifest.json")
+    for run_dir, pin in zip(run_dirs, manifest_sha256):
+        block, host = read_run(run_dir, pin)
         runs.append(block)
-        hosts.append(json.loads((run_dir / "report.json").read_text())["host"])
+        hosts.append(host)
     runs.sort(key=lambda run: (run["config"], run["run"]["run_directory"]))
     host = hosts[0]
     if any(other != host for other in hosts):
@@ -3490,6 +3507,8 @@ def write_outputs(summary: dict, root: Path = ROOT) -> None:
 def main(argv: list) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--build", nargs="+", metavar="RUN_DIR", help="accepted harness run directories")
+    parser.add_argument("--manifest-sha256", nargs="+", metavar="SHA256",
+                        help="with --build: one externally retained manifest pin per directory")
     parser.add_argument(
         "--rederive",
         action="store_true",
@@ -3504,6 +3523,8 @@ def main(argv: list) -> int:
     parser.add_argument("--tables", action="store_true", help="print the Markdown tables the specifications embed")
     parser.add_argument("--summary", default=str(ROOT / SUMMARY_PATH), help="summary file to check")
     arguments = parser.parse_args(argv)
+    if bool(arguments.build) != bool(arguments.manifest_sha256):
+        parser.error("--build requires --manifest-sha256; pins are only valid with --build")
     if arguments.plan:
         print_plans()
         return 0
@@ -3515,7 +3536,12 @@ def main(argv: list) -> int:
         return 0
     if arguments.build or arguments.rederive:
         if arguments.build:
-            summary = build_summary([Path(item) for item in arguments.build])
+            try:
+                summary = build_summary([Path(item) for item in arguments.build],
+                                        manifest_sha256=arguments.manifest_sha256)
+            except (HARNESS.HarnessRefusal, ValueError) as error:
+                print(str(error), file=sys.stderr)
+                return 1
         else:
             summary = rederive(json.loads(Path(arguments.summary).read_text()))
         if arguments.write:

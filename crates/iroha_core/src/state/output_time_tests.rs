@@ -55,10 +55,14 @@ fn fixture(
         policy.max_time_invocations = maximum;
         parameters
             .get_mut()
-            .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)));
-        parameters.get_mut().set_parameter(Parameter::Block(
-            BlockParameter::MaxTimeTriggerInvocations(NonZeroU32::new(maximum).unwrap()),
-        ));
+            .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)))
+            .expect("valid fixture parameters");
+        parameters
+            .get_mut()
+            .set_parameter(Parameter::Block(BlockParameter::MaxTimeTriggerInvocations(
+                NonZeroU32::new(maximum).unwrap(),
+            )))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
     {
@@ -910,10 +914,14 @@ mod retry_and_periodic {
             policy.validate().unwrap();
             parameters
                 .get_mut()
-                .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)));
-            parameters.get_mut().set_parameter(Parameter::Block(
-                BlockParameter::MaxTimeTriggerInvocations(NonZeroU32::new(3).unwrap()),
-            ));
+                .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)))
+                .expect("valid fixture parameters");
+            parameters
+                .get_mut()
+                .set_parameter(Parameter::Block(BlockParameter::MaxTimeTriggerInvocations(
+                    NonZeroU32::new(3).unwrap(),
+                )))
+                .expect("valid fixture parameters");
             parameters.commit();
         }
         {

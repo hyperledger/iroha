@@ -303,6 +303,7 @@ def validate_privacy_api(classes: dict[str, object]) -> None:
         ("nativeValidateExact12CapabilityManifestForNetworkV1", "([B[B)I"),
         ("nativeRequireExact12CapabilityTupleForNetworkV1", "([BI[B)Z"),
         ("nativeValidateExact12SubmitProofConstructionForNetworkV1", "([BI[B[B)Z"),
+        ("nativeSubmitProofIntentProjectionV1", "([B)[B"),
     ):
         matches = [method for method in privacy.methods if method.name == name]
         if len(matches) != 1 or matches[0].descriptor != descriptor or not matches[0].native or not matches[0].static:

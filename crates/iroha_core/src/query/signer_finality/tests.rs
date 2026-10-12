@@ -212,10 +212,7 @@ fn original_genesis_without_a_successor_has_execution_but_no_signer_finality() {
 
 #[test]
 fn genesis_execution_finality_requires_a_verified_successor() {
-    use crate::sumeragi::{
-        certified_chain::{CertifiedChain, QcVerification},
-        commitment::ExecutionResultCommitment,
-    };
+    use crate::sumeragi::certified_chain::{CertifiedChain, QcVerification};
 
     for (has_successor, changed_result, bad_successor) in [
         (false, false, false),
@@ -234,8 +231,13 @@ fn genesis_execution_finality_requires_a_verified_successor() {
         }
         if changed_result {
             let original = genesis.commit_certificate().unwrap();
-            let mut preimage =
-                ExecutionResultCommitment::decode(original.result_preimage()).unwrap();
+            let (finality_header, mut preimage) =
+                iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+                    original.result_preimage(),
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+                )
+                .unwrap()
+                .into_parts();
             preimage.execution.world_state_root = Hash::new(b"unsigned replacement genesis result");
             preimage.validate().expect(
                 "the forged World root preserves result shape and the native-lane proof; only authenticated R rejects it",
@@ -244,7 +246,12 @@ fn genesis_execution_finality_requires_a_verified_successor() {
                 .kura()
                 .corrupt_commit_result_for_testing(
                     std::num::NonZeroUsize::new(1).unwrap(),
-                    preimage.preimage().unwrap(),
+                    iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
+                        finality_header,
+                        preimage.clone(),
+                    )
+                    .preimage()
+                    .unwrap(),
                 )
                 .expect("change only the unsigned local result after genuine publication");
             let changed = chain
@@ -307,17 +314,18 @@ fn genesis_execution_finality_requires_a_verified_successor() {
 
 #[test]
 fn genesis_result_rejects_a_substituted_native_lane_witness_root() {
-    use crate::sumeragi::{
-        certified_chain::{CertifiedChain, ChainReadError},
-        commitment::ExecutionResultCommitment,
-    };
+    use crate::sumeragi::certified_chain::{CertifiedChain, ChainReadError};
 
     let chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000))
         .expect("original native genesis execution");
     let original = chain.committed(1).block().clone();
-    let mut preimage =
-        ExecutionResultCommitment::decode(original.commit_certificate().unwrap().result_preimage())
-            .unwrap();
+    let (finality_header, mut preimage) =
+        iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+            original.commit_certificate().unwrap().result_preimage(),
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        )
+        .unwrap()
+        .into_parts();
     preimage.execution.ordinary_writes_root = Hash::new(b"substituted native lane witness root");
     assert_eq!(
         preimage.validate().unwrap_err().to_string(),
@@ -327,7 +335,12 @@ fn genesis_result_rejects_a_substituted_native_lane_witness_root() {
         .kura()
         .corrupt_commit_result_for_testing(
             std::num::NonZeroUsize::new(1).unwrap(),
-            preimage.preimage().unwrap(),
+            iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
+                finality_header,
+                preimage.clone(),
+            )
+            .preimage()
+            .unwrap(),
         )
         .unwrap();
     let view = chain.state().view();

@@ -236,6 +236,33 @@ fn failure_mapping_never_turns_uncertain_or_missing_custody_into_absence() {
     );
 }
 
+#[test]
+fn original_decoder_refusal_maps_to_resource_after_its_scope_retires() {
+    let bytes = norito::encode_canonical(&vec![7u8; 128]).unwrap();
+    let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+    let original = norito::with_decode_limits_scope(limits, || {
+        norito::decode_canonical_for_admission::<Vec<u8>>(
+            &bytes,
+            norito::canonical_decode_limits(bytes.len()),
+        )
+    })
+    .unwrap_err();
+    assert_eq!(
+        original.kind(),
+        norito::core::DecodeAttemptErrorKind::EnclosingLimit
+    );
+    // An unrelated scope with identical numbers does not reclassify the saved original.
+    let failure = norito::with_decode_limits_scope(limits, || {
+        Failure::from(state::Error::DecodeResource(original))
+    });
+    assert_eq!(failure, Failure::code(RESOURCE));
+    assert_eq!(failure.reason, -1);
+    assert_eq!(failure.platform_code, 0);
+    assert_ne!(failure.status, PROOF_REJECTED);
+    assert_ne!(failure.status, CUSTODY_LOST);
+    assert_ne!(failure.status, NOT_ENOUGH_MEMORY);
+}
+
 #[derive(Default)]
 struct CallbackState {
     retained: AtomicUsize,

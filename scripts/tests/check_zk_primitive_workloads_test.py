@@ -195,7 +195,10 @@ class ScanChecks(TreeFixture):
             self.assertEqual(self.spec["consumers"]["ivm"]["uses"][primitive]["class"], "role", primitive)
         self.assertIn("streebog", files["crates/iroha_crypto/src/signature/gost.rs"])
         self.assertIn("crates/ivm/src/host.rs", files)
-        self.assertIn("crates/iroha_core_zk/src/kagemusha_v1_poseidon.rs", files)
+        self.assertIn(
+            "poseidon",
+            files["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_worker/incoming_inputs.rs"],
+        )
 
     def test_an_unclassified_consumer_use_fails(self) -> None:
         spec = self.mutated()
@@ -462,6 +465,43 @@ class ScannerUnits(unittest.TestCase):
 class RoleChecks(TreeFixture):
     def role_errors(self, spec: dict) -> list:
         return self.errors(checker.check_roles, spec, ROOT)
+
+    def test_already_blake3_cannot_relabel_another_native_hash(self) -> None:
+        for key in ("mkhe.parameter-identity-keccak", "ram-lfe.public-commitment-blake2b"):
+            with self.subTest(role=key):
+                spec = self.mutated()
+                self.role(spec, key)["canonical_native"]["decision"] = "already-blake3"
+                self.assertReported(self.role_errors(spec), "already-blake3 requires the blake3 primitive")
+
+    def test_current_native_transcript_roles_are_separate_from_retained_profiles(self) -> None:
+        roles = {role["key"]: role for role in self.spec["digest_roles"]}
+        transcript = roles["pipa-r.transcript-poseidon-base"]
+        binding = roles["pipa-r.vk-binding-blake2b"]
+        self.assertEqual(transcript["primitive"], "poseidon")
+        self.assertEqual(binding["primitive"], "blake2b")
+        self.assertEqual(transcript["family"], "proof-internal")
+        self.assertEqual(binding["family"], "proof-internal")
+        self.assertIn("pipa-rb1", transcript["domain_separation"])
+        self.assertIn("Iroha-PlonkVK-v2", binding["domain_separation"])
+        workload = next(workload for workload in self.spec["workloads"]["definitions"]
+                        if workload["id"] == "h1.family.halo2-ipa")
+        self.assertIn(transcript["key"], workload["roles"])
+        self.assertIn(binding["key"], workload["roles"])
+        self.assertNotIn("halo2.transcript-blake2b", workload["roles"])
+        for key in (transcript["key"], binding["key"]):
+            spec = self.mutated()
+            self.role(spec, key)["sites"][0]["literals"].append('b"unimplemented-profile-domain"')
+            self.assertReported(self.role_errors(spec), "unimplemented-profile-domain")
+
+    def test_pgc_account_roots_record_their_proof_binding(self) -> None:
+        role = self.role(self.spec, "privacy.state-digest-blake3")
+        seed = role["canonical_native"]["transcript_seed_check"]
+        self.assertTrue(seed["binds_proof_internals"])
+        self.assertTrue(seed["coordination"])
+        self.assertTrue(any(site["path"].endswith("pgc_account_root.rs") for site in role["sites"]))
+        spec = self.mutated()
+        del self.role(spec, role["key"])["canonical_native"]["transcript_seed_check"]["coordination"]
+        self.assertReported(self.role_errors(spec), "names the profile it changes with")
 
     def test_a_missing_path_symbol_or_literal_fails(self) -> None:
         for field, value, expected in (
@@ -1457,6 +1497,7 @@ class SemanticProfiles(TreeFixture):
         return {
             "id": "test/measurement", "label": "exploratory", "qualification": False, "source_commit": "c",
             "hardware": "h", "command": "x", "conditions": "y", "results": {"a": 1}, "profile_identities": identities,
+            "measurement_scope": "workload-profiles",
         }  # fmt: skip
 
     @staticmethod
@@ -1539,7 +1580,7 @@ class SemanticProfiles(TreeFixture):
         current = self.profile(self.spec, self.TRANSCRIPT)["identity"]
         cases = (
             (lambda m: m.pop("profile_identities"), "`profile_identities` is missing"),
-            (lambda m: m.__setitem__("profile_identities", {}), "names no profile identity and does not say why"),
+            (lambda m: m.__setitem__("profile_identities", {}), "must name the complete profile set"),
             (lambda m: m.__setitem__("profile_identities", {"unknown.profile": current}), "names the unknown profile"),
             (lambda m: m.__setitem__("profile_identities", {self.NATIVE: current}), "that its workload does not depend on"),
         )
@@ -1553,14 +1594,53 @@ class SemanticProfiles(TreeFixture):
         measurement = self.measurement({})
         measurement["profile_binding"] = "none: bare primitives"
         self.workload(spec, "h1.transcript.candidates")["exploratory_measurements"] = [measurement]
-        self.assertEqual([error for error in self.profile_errors(spec) if "test/measurement" in error], [])
+        self.assertReported(self.profile_errors(spec), "must name the complete profile set")
+        self.assertReported(self.profile_errors(spec), "retired `profile_binding`")
         # The tracked record binds at least one real measurement to a frozen identity.
         bound = [
             identities
-            for _, _, entry in checker.recorded_measurements(self.spec)
+            for _, _, _, entry in checker.recorded_measurements(self.spec)
             if (identities := entry.get("profile_identities"))
         ]
         self.assertTrue(bound)
+
+    def test_measurement_scope_cannot_downgrade_a_frozen_run(self) -> None:
+        for scope in (None, "bare-primitives", "unknown"):
+            spec = self.mutated()
+            measurement = self.workload(spec, "h1.transcript.candidates")["exploratory_measurements"][0]
+            measurement["measurement_scope"] = scope
+            measurement["profile_identities"] = {}
+            measurement["scope_note"] = "No frozen profile was measured."
+            errors = self.profile_errors(spec)
+            self.assertReported(errors, "`measurement_scope` must be 'workload-profiles'")
+            self.assertReported(errors, "must name the complete profile set")
+
+    def test_workload_measurement_cannot_omit_one_of_multiple_profiles(self) -> None:
+        spec = self.mutated()
+        workload = self.workload(spec, "h1.transcript.candidates")
+        workload["roles"].append("catalog.exact12-commitment")
+        checker.refresh_semantic_profiles(spec)
+        self.assertEqual(set(workload["profiles"]), {self.TRANSCRIPT, self.NATIVE})
+        measurement = workload["exploratory_measurements"][0]
+        self.assertReported(self.profile_errors(spec), "must name the complete profile set")
+        measurement["profile_identities"][self.NATIVE] = self.profile(spec, self.NATIVE)["identity"]
+        self.assertEqual([error for error in self.profile_errors(spec) if "measurement " in error], [])
+
+    def test_bare_primitive_comparisons_cannot_claim_profile_evidence(self) -> None:
+        spec = self.mutated()
+        measurement = spec["canonical_native_commitment"]["exploratory_measurements"][0]
+        self.assertEqual(measurement["measurement_scope"], "bare-primitives")
+        self.assertEqual(measurement["profile_identities"], {})
+        self.assertEqual(self.profile_errors(spec), [])
+        measurement["profile_identities"][self.NATIVE] = self.profile(spec, self.NATIVE)["identity"]
+        measurement["measurement_scope"] = "workload-profiles"
+        errors = self.profile_errors(spec)
+        self.assertReported(errors, "`measurement_scope` must be 'bare-primitives'")
+        self.assertReported(errors, "must name the complete profile set")
+        measurement["profile_identities"] = {}
+        measurement["measurement_scope"] = "bare-primitives"
+        measurement.pop("scope_note")
+        self.assertReported(self.profile_errors(spec), "explains its scope in `scope_note`")
 
     def test_workloads_name_the_profiles_of_their_roles(self) -> None:
         for workload in self.spec["workloads"]["definitions"]:

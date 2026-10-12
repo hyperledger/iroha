@@ -20,8 +20,8 @@ final class PrivacyExact12CapabilityManifestV1Tests: XCTestCase {
         XCTAssertEqual(manifest.canonicalBytes(), fixture.manifest)
         XCTAssertEqual(manifest.protocols.count, 12)
         let expectedConsensusLimits: [UInt32] = [
-            1, 2, 9 * 1024 * 1024, 9 * 1024 * 1024, 9 * 1024 * 1024,
-            18 * 1024 * 1024, 256 * 1024, 8, 8, 2_048,
+            1, 2, 9 * 1024 * 1024, 9_699_840, 9_699_840,
+            16_711_680, 256 * 1024, 8, 8, 2_048,
         ]
         XCTAssertEqual(
             manifest.consensusPolicy.currentLimits.orderedValues,
@@ -433,6 +433,42 @@ final class PrivacyExact12CapabilityManifestV1Tests: XCTestCase {
                     )
             )
         }
+    }
+
+    func testSubmitProofChargesCanonicalEnvelopeWithoutItsInstructionWrapper() throws {
+        let fixture = makeFixture()
+        let manifest = try PrivacyExact12CapabilityManifestCodecV1.decode(
+            fixture.manifest, nativeCatalogArchive: fixture.catalog
+        )
+        let archive = submitProofInstruction()
+        let frame = try XCTUnwrap(noritoDecodeFrame(archive))
+        var prefixBytes = 0
+        for byte in frame.payload {
+            prefixBytes += 1
+            if byte & 0x80 == 0 { break }
+        }
+        // The synthetic projection has no valid proof; this checks framing only.
+        let envelopeCharge = UInt32(archive.count - prefixBytes)
+        let defaults = manifest.consensusPolicy.currentLimits
+        func limits(_ actionBytes: UInt32) -> PrivacyConsensusLimitsV1 {
+            PrivacyConsensusLimitsV1(
+                maxActionsPerTransaction: 1, maxActionsPerBlock: 2,
+                maxProofBytesPerAction: 1, maxActionBytes: actionBytes,
+                maxPrivacyBytesPerTransaction: defaults.maxPrivacyBytesPerTransaction,
+                maxPrivacyBytesPerBlock: defaults.maxPrivacyBytesPerBlock,
+                maxStatementAndEncryptedOutputBytesPerTransaction: 1,
+                maxNullifiersPerAction: 8, maxCommitmentsPerAction: 8, retainedRootCount: 2048
+            )
+        }
+        let row = manifest.row(for: .zkAcePqAuthorizationV1)
+        let network = try NetworkId(bytes: networkBytes)
+        XCTAssertGreaterThan(archive.count, Int(envelopeCharge))
+        try PrivacyExact12CapabilityManifestCodecV1.requireSubmitProofInstruction(
+            archive, row: row, consensusLimits: limits(envelopeCharge), expectedNetworkId: network
+        )
+        XCTAssertThrowsError(try PrivacyExact12CapabilityManifestCodecV1.requireSubmitProofInstruction(
+            archive, row: row, consensusLimits: limits(envelopeCharge - 1), expectedNetworkId: network
+        ))
     }
 
     func testFinalEnvelopeRequiresEveryWireMarkerAndCatalogByte() throws {
@@ -1104,8 +1140,8 @@ final class PrivacyExact12CapabilityManifestV1Tests: XCTestCase {
     ) -> Data {
         let current = structure(
             u32(maxActionsPerTransaction), u32(2),
-            u32(9 * 1024 * 1024), u32(9 * 1024 * 1024),
-            u32(9 * 1024 * 1024), u32(18 * 1024 * 1024),
+            u32(9 * 1024 * 1024), u32(9_699_840),
+            u32(9_699_840), u32(16_711_680),
             u32(256 * 1024), u32(8), u32(8), u32(2_048)
         )
         let pending: Data?
@@ -1115,8 +1151,8 @@ final class PrivacyExact12CapabilityManifestV1Tests: XCTestCase {
                 u64(schedule.1),
                 structure(
                     u32(maxActionsPerTransaction), u32(2),
-                    u32(9 * 1024 * 1024), u32(9 * 1024 * 1024),
-                    u32(9 * 1024 * 1024), u32(18 * 1024 * 1024),
+                    u32(9 * 1024 * 1024), u32(9_699_840),
+                    u32(9_699_840), u32(16_711_680),
                     u32(256 * 1024), u32(8), u32(8), u32(1_024)
                 )
             )

@@ -1130,7 +1130,8 @@ async fn protected_namespaces_get_rejects_a_present_malformed_policy() {
         .world_mut_for_testing()
         .parameters_mut_for_testing()
         .get_mut()
-        .set_parameter(iroha_data_model::parameter::Parameter::Custom(parameter));
+        .set_parameter(iroha_data_model::parameter::Parameter::Custom(parameter))
+        .expect("valid fixture parameters");
     transaction.apply();
     block
         .commit_world_overlay_for_testing()
@@ -2859,7 +2860,8 @@ async fn governed_contract_read_obeys_committed_manifest_frame_bound() {
         .get_mut()
         .set_parameter(iroha_data_model::parameter::Parameter::Transaction(
             iroha_data_model::parameter::TransactionParameter::IvmBytecodeSize(nonzero!(1_u64)),
-        ));
+        ))
+        .expect("valid fixture parameters");
     transaction.apply();
     block
         .commit_world_overlay_for_testing()

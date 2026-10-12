@@ -146,7 +146,8 @@ fn actual_pipeline_output_owns_its_emissions_separately_from_network() {
             policy.max_pipeline_triggers = 1;
             parameters
                 .get_mut()
-                .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)));
+                .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)))
+                .expect("valid fixture parameters");
             parameters.commit();
         }
         {

@@ -796,9 +796,9 @@ impl Execute for BootstrapPrivacyOrchardPoolV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation("Orchard pool bootstrap canonical encoding failed".into())
             })?;
@@ -977,9 +977,9 @@ impl Execute for BootstrapPrivacyProofManagedPoolV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation(
                     "proof-managed pool bootstrap canonical encoding failed".into(),
@@ -1300,9 +1300,9 @@ impl Execute for BootstrapPrivacyZkAmsRegistryV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation(
                     "ZK-AMS registry bootstrap canonical encoding failed".into(),
@@ -1476,9 +1476,9 @@ impl Execute for BootstrapPrivacyPgcAccountsV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation("privacy PGC bootstrap canonical encoding failed".into())
             })?;
@@ -1598,11 +1598,12 @@ impl Execute for BootstrapPrivacyPgcAccountsV1 {
                 format!("privacy PGC bootstrap canonical encoding failed: {error}").into(),
             )
         })?;
-        let namespace_encoding = norito::to_bytes(&self.bootstrap.namespace).map_err(|error| {
-            Error::InvariantViolation(
-                format!("privacy PGC namespace canonical encoding failed: {error}").into(),
-            )
-        })?;
+        let namespace_encoding =
+            norito::encode_canonical(&self.bootstrap.namespace).map_err(|error| {
+                Error::InvariantViolation(
+                    format!("privacy PGC namespace canonical encoding failed: {error}").into(),
+                )
+            })?;
         let native_public_keys = self
             .bootstrap
             .accounts
@@ -2007,9 +2008,9 @@ fn preflight_x509_governance_action_v1<T: norito::NoritoSerialize>(
     label: &str,
     state_transaction: &StateTransaction<'_, '_>,
 ) -> Result<(u32, u64), Error> {
-    let encoded_action_bytes = norito::to_bytes(instruction)
+    let encoded_action_bytes = norito::canonical_frame_len(instruction)
         .ok()
-        .and_then(|bytes| u64::try_from(bytes.len()).ok())
+        .and_then(|length| u64::try_from(length).ok())
         .ok_or_else(|| {
             Error::InvariantViolation(format!("{label} canonical encoding failed").into())
         })?;
@@ -2884,9 +2885,9 @@ impl Execute for RegisterPrivacyZkAcePolicyV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation(
                     "ZK-ACE policy registration canonical encoding failed".into(),
@@ -2945,9 +2946,9 @@ impl Execute for RotatePrivacyZkAcePolicyV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation("ZK-ACE policy rotation canonical encoding failed".into())
             })?;
@@ -2999,9 +3000,9 @@ impl Execute for RevokePrivacyZkAcePolicyV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation(
                     "ZK-ACE policy revocation canonical encoding failed".into(),
@@ -3059,9 +3060,9 @@ impl Execute for RegisterPrivacyBootleLanternIssuerPolicyV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation(
                     "Bootle/Lantern issuer-policy registration canonical encoding failed".into(),
@@ -3125,9 +3126,9 @@ impl Execute for RotatePrivacyBootleLanternIssuerPolicyV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation(
                     "Bootle/Lantern issuer-policy rotation canonical encoding failed".into(),
@@ -3199,9 +3200,9 @@ impl Execute for RevokePrivacyBootleLanternIssuerPolicyV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation(
                     "Bootle/Lantern issuer-policy revocation canonical encoding failed".into(),
@@ -3322,9 +3323,9 @@ impl Execute for RegisterPrivacyVegaIssuerV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation(
                     "Vega issuer registration canonical encoding failed".into(),
@@ -3389,9 +3390,9 @@ impl Execute for RotatePrivacyVegaIssuerV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation("Vega issuer rotation canonical encoding failed".into())
             })?;
@@ -3497,9 +3498,9 @@ impl Execute for RevokePrivacyVegaIssuerV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation("Vega issuer revocation canonical encoding failed".into())
             })?;
@@ -3718,9 +3719,9 @@ impl PreparedPrivacySubmissionV1 {
                     "privacy transaction-intent binding rejected: {error}"
                 ))
             })?;
-        let encoded_action_bytes = norito::to_bytes(&instruction.envelope)
+        let encoded_action_bytes = norito::canonical_frame_len(&instruction.envelope)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation("privacy proof envelope canonical encoding failed".into())
             })?;

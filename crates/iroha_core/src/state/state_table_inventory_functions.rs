@@ -223,12 +223,6 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
         UseOwner::Accumulator("sccp_message_accumulator"),
     ),
     function(
-        "crates/iroha_core/src/smartcontracts/isi/sccp/governance.rs",
-        "pinnable_generation",
-        1,
-        UseOwner::Other(Use::Record, RECORD_IDENTITY),
-    ),
-    function(
         "crates/iroha_core/src/smartcontracts/isi/sccp/light_clients.rs",
         "verify_source_proof",
         1,
@@ -291,30 +285,6 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
     function(
         "crates/iroha_core/src/smartcontracts/isi/sccp/read/views.rs",
         "history_proof",
-        1,
-        UseOwner::Accumulator("sccp_message_accumulator"),
-    ),
-    function(
-        "crates/iroha_core/src/smartcontracts/isi/sccp/roster.rs",
-        "install",
-        1,
-        UseOwner::Other(Use::Record, RECORD_IDENTITY),
-    ),
-    function(
-        "crates/iroha_core/src/smartcontracts/isi/sccp/subjects.rs",
-        "block_hash",
-        1,
-        UseOwner::Other(Use::Record, BLOCK_HASH),
-    ),
-    function(
-        "crates/iroha_core/src/smartcontracts/isi/sccp/subjects.rs",
-        "statement_digest",
-        1,
-        UseOwner::Accumulator("sccp_message_accumulator"),
-    ),
-    function(
-        "crates/iroha_core/src/smartcontracts/isi/sccp/subjects.rs",
-        "statement_digest_of",
         1,
         UseOwner::Accumulator("sccp_message_accumulator"),
     ),

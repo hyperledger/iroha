@@ -61,6 +61,20 @@ resource limits and source-bound deployment qualification remain mandatory.
 See [proof envelopes](zk_envelopes.md), [FASTPQ](fastpq_plan.md), and
 [audit dispositions](zk_cryptographic_audit.md) for implementation details.
 
+Canonical privacy sizes count the complete uncompressed Norito V1 frame with
+`canonical_frame_len`; provenance hashes encode those same canonical bytes.
+Ambient layout guards cannot change admission charges or privacy digests.
+The default raw proof ceiling remains 9,437,184 bytes. The envelope and aggregate
+transaction privacy ceiling is 9,699,840 bytes: the proof ceiling, the complete
+262,144-byte statement ceiling (including encrypted outputs), and a 512-byte
+metadata/framing allowance. The 16 MiB block reserves 65,536 bytes for its
+non-transaction fields, leaving a 16,711,680-byte aggregate privacy budget.
+The two-action count and actual aggregate bytes are independent limits; two
+maximum-sized envelopes cannot fit. Complete signed-transaction and block
+framing checks still apply. The [resource contract](zk_resource_contract.json)
+records the owners and boundary tests; these arithmetic and codec checks do not
+qualify maximum native proofs or four-validator execution.
+
 ## Exact12 implementation map
 
 An implemented engine or available compiled profile in this table is not a

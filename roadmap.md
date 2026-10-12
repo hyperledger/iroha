@@ -118,10 +118,11 @@ and the graph holds the tasks, their status and their evidence. Three criteria
 come from the [resource contract](specs/zk_resource_contract.json). For C5, the
 maximum-proof transport (plan task X.2) closes the contract relations it owns,
 including `private_settlement_carrier_within_includable_transaction`. For N5,
-the signed attachment list frame, 8 MiB today, admits a ceiling-sized proof
-(I.1). For N4 and N8, the 10 remaining node-local validity bounds, all of the
+the canonical signed attachment occurrence and aggregate frame carry a
+ceiling-sized proof through every SDK and native admission path (I.1); the
+separate 8 MiB staging list is not a signed-transaction limit. For N4 and N8, the 10 remaining node-local validity bounds, all of the
 `[nexus]` catalog, become committed State, and the eight bounds that no state
-transition compares with anything are enforced or removed (F.4); 49 bounds are
+transition compares with anything are enforced or removed (F.4); 45 bounds are
 committed as `zk_validity_policy_v1` and 15 as `pipeline_validity_policy_v1`,
 with no node-schema key.
 

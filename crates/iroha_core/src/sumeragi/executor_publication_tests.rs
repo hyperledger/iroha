@@ -1003,6 +1003,7 @@ fn reversible_publication_refusal_retains_original_overlay_capture_and_certified
             .unwrap()
             .commitment()
             .get()
+            .commitment()
             .schedule
             .current
             .committee
@@ -1034,6 +1035,7 @@ fn reversible_publication_refusal_retains_original_overlay_capture_and_certified
                     .unwrap()
                     .commitment()
                     .get()
+                    .commitment()
                     .schedule
                     .current
                     .committee
@@ -1644,7 +1646,13 @@ fn context_proof_capacity_retry_retains_original_witness_inputs_and_execution() 
             overlay
         );
         assert_eq!(
-            live.commitment().get().schedule.current.committee.as_ptr(),
+            live.commitment()
+                .get()
+                .commitment()
+                .schedule
+                .current
+                .committee
+                .as_ptr(),
             authority
         );
         assert_eq!(live.witness.as_ref().unwrap().writes.as_ptr(), writes);
@@ -1703,6 +1711,7 @@ fn result_encoding_capacity_retry_keeps_original_execution_and_allocation_custod
             .ready()
             .unwrap()
             .get()
+            .commitment()
             .schedule
             .current
             .committee
@@ -1722,6 +1731,7 @@ fn result_encoding_capacity_retry_keeps_original_execution_and_allocation_custod
                     .ready()
                     .unwrap()
                     .get()
+                    .commitment()
                     .schedule
                     .current
                     .committee
@@ -1744,7 +1754,13 @@ fn result_encoding_capacity_retry_keeps_original_execution_and_allocation_custod
             overlay
         );
         assert_eq!(
-            live.commitment().get().schedule.current.committee.as_ptr(),
+            live.commitment()
+                .get()
+                .commitment()
+                .schedule
+                .current
+                .committee
+                .as_ptr(),
             authority
         );
         assert_eq!(
@@ -1806,7 +1822,14 @@ fn assert_certificate_allocation_retry(
             let overlay = original_overlay(worker);
             let live = worker.live.as_ref().unwrap();
             let witness = iroha_crypto::HashOf::new(live.witness.as_ref().unwrap().wire());
-            let authority = live.commitment().get().schedule.current.committee.as_ptr();
+            let authority = live
+                .commitment()
+                .get()
+                .commitment()
+                .schedule
+                .current
+                .committee
+                .as_ptr();
             let preimage = match &live.phase {
                 PublicationPhase::Executed { preimage, .. } => preimage.as_slice().as_ptr(),
                 _ => panic!("original executed phase"),
@@ -1872,7 +1895,13 @@ fn assert_certificate_allocation_retry(
                     witness
                 );
                 assert_eq!(
-                    live.commitment().get().schedule.current.committee.as_ptr(),
+                    live.commitment()
+                        .get()
+                        .commitment()
+                        .schedule
+                        .current
+                        .committee
+                        .as_ptr(),
                     authority
                 );
                 assert_eq!(live.events.len(), event_count);
@@ -2348,7 +2377,14 @@ fn native_certificate_refusals_retain_original_execution_until_exact_publication
                 let overlay = original_overlay(worker);
                 let live = worker.live.as_ref().unwrap();
                 let commitment = std::ptr::from_ref(live.commitment().get());
-                let authority = live.commitment().get().schedule.current.committee.as_ptr();
+                let authority = live
+                    .commitment()
+                    .get()
+                    .commitment()
+                    .schedule
+                    .current
+                    .committee
+                    .as_ptr();
                 let event_count = live.events.len();
                 let PublicationPhase::Executed { preimage, .. } = &live.phase else {
                     panic!("actual execution owns its original result preimage")
@@ -2416,7 +2452,13 @@ fn native_certificate_refusals_retain_original_execution_until_exact_publication
                     let live = worker.live.as_ref().unwrap();
                     assert_eq!(std::ptr::from_ref(live.commitment().get()), commitment);
                     assert_eq!(
-                        live.commitment().get().schedule.current.committee.as_ptr(),
+                        live.commitment()
+                            .get()
+                            .commitment()
+                            .schedule
+                            .current
+                            .committee
+                            .as_ptr(),
                         authority
                     );
                     assert_eq!(live.events.len(), event_count);
@@ -2472,7 +2514,14 @@ fn boundary_certificate_read_refusal_retains_original_source_and_availability_un
 
             let overlay = original_overlay(worker);
             let live = worker.live.as_ref().unwrap();
-            let authority = live.commitment().get().schedule.current.committee.as_ptr();
+            let authority = live
+                .commitment()
+                .get()
+                .commitment()
+                .schedule
+                .current
+                .committee
+                .as_ptr();
             let PublicationPhase::Executed { preimage, .. } = &live.phase else {
                 panic!("actual original boundary preimage")
             };
@@ -2513,6 +2562,7 @@ fn boundary_certificate_read_refusal_retains_original_source_and_availability_un
                         .unwrap()
                         .commitment()
                         .get()
+                        .commitment()
                         .schedule
                         .current
                         .committee
@@ -2756,7 +2806,13 @@ fn context_proof_decoder_refusal_retains_original_inputs_and_retries() {
             overlay
         );
         assert_eq!(
-            live.commitment().get().schedule.current.committee.as_ptr(),
+            live.commitment()
+                .get()
+                .commitment()
+                .schedule
+                .current
+                .committee
+                .as_ptr(),
             committee
         );
         let witness = live.witness.as_ref().unwrap();
@@ -2818,7 +2874,13 @@ fn native_context_archive_decoder_refusal_retains_original_execution_and_retries
             );
             assert_eq!(
                 NativeLaneStateProof::from_witness(&original.witness, &budget).unwrap(),
-                original.phase.ready().unwrap().get().native_lanes,
+                original
+                    .phase
+                    .ready()
+                    .unwrap()
+                    .get()
+                    .commitment()
+                    .native_lanes,
                 "the same original witness is valid before local admission refusal"
             );
             let oracle = norito::with_decode_limits_scope(limits, || {
@@ -2843,8 +2905,14 @@ fn native_context_archive_decoder_refusal_retains_original_execution_and_retries
                 original.witness.writes.as_ptr(),
                 target.value.as_ptr(),
                 iroha_crypto::HashOf::new(original.witness.wire()),
-                result.get().schedule.current.committee.as_ptr(),
-                norito::encode_canonical(result.get()).unwrap(),
+                result
+                    .get()
+                    .commitment()
+                    .schedule
+                    .current
+                    .committee
+                    .as_ptr(),
+                result.get().preimage().unwrap(),
                 original.valid.as_ref().hash(),
             ));
             held = Some(budget.reserved_bytes());
@@ -2923,6 +2991,7 @@ fn native_context_archive_decoder_refusal_retains_original_execution_and_retries
                 .ready()
                 .unwrap()
                 .get()
+                .commitment()
                 .schedule
                 .current
                 .committee
@@ -2930,7 +2999,7 @@ fn native_context_archive_decoder_refusal_retains_original_execution_and_retries
             committee
         );
         assert_eq!(
-            norito::encode_canonical(original.phase.ready().unwrap().get()).unwrap(),
+            original.phase.ready().unwrap().get().preimage().unwrap(),
             canonical_result
         );
         assert_eq!(original.valid.as_ref().hash(), executed_hash);
@@ -2952,11 +3021,17 @@ fn native_context_archive_decoder_refusal_retains_original_execution_and_retries
         assert_eq!(witness.writes.as_ptr(), writes);
         assert_eq!(iroha_crypto::HashOf::new(witness.wire()), witness_hash);
         assert_eq!(
-            live.commitment().get().schedule.current.committee.as_ptr(),
+            live.commitment()
+                .get()
+                .commitment()
+                .schedule
+                .current
+                .committee
+                .as_ptr(),
             committee
         );
         assert_eq!(
-            norito::encode_canonical(live.commitment().get()).unwrap(),
+            live.commitment().get().preimage().unwrap(),
             canonical_result
         );
         assert!(live.commitment().belongs_to(&budget));
@@ -3107,15 +3182,16 @@ fn native_context_archive_capacity_retry_retains_original_overlay_and_result() {
         );
         let overlay = std::ptr::from_ref(original.overlay.as_ref());
         let commitment = original.phase.ready().unwrap().get();
-        let authority = commitment.schedule.current.committee.as_ptr();
+        let authority = commitment.commitment().schedule.current.committee.as_ptr();
         let proofs: Vec<_> = commitment
+            .commitment()
             .schedule
             .current
             .committee
             .iter()
             .map(|member| member.proof_of_possession.as_ptr())
             .collect();
-        let canonical_result = norito::encode_canonical(commitment).unwrap();
+        let canonical_result = commitment.preimage().unwrap();
         let witness = iroha_crypto::HashOf::new(original.witness.wire());
         let budget = worker.state.ivm_execution_budget();
         assert!(original.phase.ready().unwrap().belongs_to(&budget));
@@ -3133,6 +3209,7 @@ fn native_context_archive_capacity_retry_retains_original_overlay_and_result() {
                     .ready()
                     .unwrap()
                     .get()
+                    .commitment()
                     .schedule
                     .current
                     .committee
@@ -3142,6 +3219,7 @@ fn native_context_archive_capacity_retry_retains_original_overlay_and_result() {
             let commitment = retained.phase.ready().unwrap().get();
             assert_eq!(
                 commitment
+                    .commitment()
                     .schedule
                     .current
                     .committee
@@ -3150,10 +3228,7 @@ fn native_context_archive_capacity_retry_retains_original_overlay_and_result() {
                     .collect::<Vec<_>>(),
                 proofs
             );
-            assert_eq!(
-                norito::encode_canonical(commitment).unwrap(),
-                canonical_result
-            );
+            assert_eq!(commitment.preimage().unwrap(), canonical_result);
             assert_eq!(iroha_crypto::HashOf::new(retained.witness.wire()), witness);
             assert!(
                 retained
@@ -3181,12 +3256,19 @@ fn native_context_archive_capacity_retry_retains_original_overlay_and_result() {
         // RetainedPayload's inline value moves into Live. Its original heap allocations,
         // complete canonical value and allocation-pool custody must survive that move.
         assert_eq!(
-            live.commitment().get().schedule.current.committee.as_ptr(),
+            live.commitment()
+                .get()
+                .commitment()
+                .schedule
+                .current
+                .committee
+                .as_ptr(),
             authority
         );
         assert_eq!(
             live.commitment()
                 .get()
+                .commitment()
                 .schedule
                 .current
                 .committee
@@ -3196,7 +3278,7 @@ fn native_context_archive_capacity_retry_retains_original_overlay_and_result() {
             proofs
         );
         assert_eq!(
-            norito::encode_canonical(live.commitment().get()).unwrap(),
+            live.commitment().get().preimage().unwrap(),
             canonical_result
         );
         assert!(live.commitment().belongs_to(&budget));
@@ -3231,6 +3313,7 @@ fn native_context_archive_capacity_retry_retains_original_overlay_and_result() {
         assert!(
             live.commitment()
                 .get()
+                .commitment()
                 .native_lanes
                 .matches_state_encoding(chain.network_id(), 2, &projection.lanes)
                 .unwrap()
@@ -3369,16 +3452,23 @@ fn native_context_archive_preparation_refuses_foreign_pool_without_reexecuting()
             let result = original.phase.ready().unwrap();
             assert!(result.belongs_to(&worker.state.ivm_execution_budget()));
             original_result = Some((
-                result.get().schedule.current.committee.as_ptr(),
                 result
                     .get()
+                    .commitment()
+                    .schedule
+                    .current
+                    .committee
+                    .as_ptr(),
+                result
+                    .get()
+                    .commitment()
                     .schedule
                     .current
                     .committee
                     .iter()
                     .map(|member| member.proof_of_possession.as_ptr())
                     .collect::<Vec<_>>(),
-                norito::encode_canonical(result.get()).unwrap(),
+                result.get().preimage().unwrap(),
             ));
             assert!(matches!(
                 foreign.prepare(
@@ -3405,6 +3495,7 @@ fn native_context_archive_preparation_refuses_foreign_pool_without_reexecuting()
                 retained
                     .commitment()
                     .get()
+                    .commitment()
                     .schedule
                     .current
                     .committee
@@ -3412,13 +3503,14 @@ fn native_context_archive_preparation_refuses_foreign_pool_without_reexecuting()
                 retained
                     .commitment()
                     .get()
+                    .commitment()
                     .schedule
                     .current
                     .committee
                     .iter()
                     .map(|member| member.proof_of_possession.as_ptr())
                     .collect::<Vec<_>>(),
-                norito::encode_canonical(retained.commitment().get()).unwrap(),
+                retained.commitment().get().preimage().unwrap(),
             )),
             original_result
         );

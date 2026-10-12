@@ -196,6 +196,7 @@ class Checker:
             "transaction_guards",
             "round_states",
             "round_events",
+            "round_guards",
             "attempt_evidence",
             "error_codes",
             "stages",
@@ -267,7 +268,7 @@ class Checker:
                 if row.get("event") != "dispatch_intent":
                     self.problem(where, f"{key}: only a dispatch intent enters `submitting`")
                 expected = (
-                    "dispatches_remaining"
+                    "always"
                     if row.get("from") == "signed"
                     else "retransmission_authorized_after_exact_absence"
                 )
@@ -307,6 +308,12 @@ class Checker:
                 self.problem(where, f"round transition {row} uses an unknown state")
             if row.get("event") not in vocabulary["round_events"]:
                 self.problem(where, f"round transition {row} uses an unknown event")
+            if row.get("guard") not in vocabulary["round_guards"]:
+                self.problem(where, f"round transition {row} uses an unknown guard")
+            if row.get("event") in ("round_intent", "round_restart_intent") and row.get("guard") != "not_cancelling":
+                self.problem(where, "round start and restart intents need guard `not_cancelling`")
+            if row.get("event") == "round_not_started" and row.get("guard") != "while_cancelling":
+                self.problem(where, "a never-started round is reset only `while_cancelling`")
             if row.get("from") in ("round_completed", "round_failed"):
                 self.problem(where, f"terminal round state `{row.get('from')}` has an exit")
         terminal = {
@@ -351,6 +358,9 @@ class Checker:
                 if not 1 <= maximum <= limits.get("max_transaction_identities_per_step", 0):
                     self.problem(where, "transaction identity bound is out of range")
             elif kind == "offchain_round":
+                maximum = step.get("max_transcript_bytes", limits.get("max_round_transcript_bytes", 0))
+                if type(maximum) is not int or not 1 <= maximum <= limits.get("max_round_transcript_bytes", 0):
+                    self.problem(where, "round transcript bound is out of range")
                 for key in ("irreversible", "participants_required", "custody_handles_required"):
                     if key not in step:
                         self.problem(where, f"round step `{step.get('label')}` lacks `{key}`")
@@ -607,13 +617,27 @@ class Checker:
     # ------------------------------------------------------------------ vectors
     def check_vectors(self, vectors: dict, vocabulary: dict) -> None:
         where = f"{FIXTURES}/vectors.json"
+        def check_input(value: dict, key: str, digest: str, domain: bytes) -> None:
+            try:
+                data = bytes.fromhex(value.get(key + "_hex", ""))
+            except (TypeError, ValueError):
+                self.problem(where, f"{key}_hex is not hexadecimal")
+                return
+            if not data or iroha_hash(domain + data).hex() != value.get(digest):
+                self.problem(where, f"{key}_hex does not reproduce {digest}")
+            if not isinstance(value.get(key), dict) or not value[key]:
+                self.problem(where, f"{key} semantic input is missing")
+
         if vectors.get("schema") != "iroha.durable_workflow.vectors.v1":
             self.problem(where, "unknown schema")
+        check_input(vectors, "plan", "plan_digest", b"iroha:durable-workflow:plan:v1\0")
+        check_input(vectors, "identity", "workflow_id", b"iroha:durable-workflow:id:v1\0")
         records = vectors.get("records", [])
         if not records:
             self.problem(where, "no records")
         for record in records:
             name = record.get("name")
+            check_input(record, "journal", "journal_digest", b"iroha:durable-workflow:journal:v1\0")
             try:
                 data = bytes.fromhex(record.get("record_hex", ""))
             except ValueError:

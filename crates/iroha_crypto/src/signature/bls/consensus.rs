@@ -31,11 +31,10 @@
 //! [`crate::BlsNormalAggregateScratch`]), and its verification allocates nothing.
 //!
 //! `TODO:` unify every other BLS signature on RFC 9380 suites in a later release.
-//! `TODO(WP-C1):` route the production Sumeragi `Signer`/`Crypto` implementations
-//! (`KeyPairSigner`, `BlsCrypto`, `ProofCrypto`, and the signers delegating to them) through
-//! this module; until then they still sign and verify consensus messages with the w3f
-//! transcript (`specs/sumeragi.md` §1 item 6, planned case SC4). `BlsCrypto`'s request-funded
-//! `BlsNormalAggregateScratch` becomes a [`ConsensusAggregateScratch`] admitted the same way.
+//! The production Sumeragi `KeyPairSigner`, `BlsCrypto`, data-model `ProofCrypto` and
+//! delegated signers use this suite exclusively. Request-funded `BlsCrypto` readers admit
+//! a [`ConsensusAggregateScratch`] before invoking the signature relation. Generic
+//! attestations and account signatures retain their separate domains.
 
 use core::borrow::Borrow;
 

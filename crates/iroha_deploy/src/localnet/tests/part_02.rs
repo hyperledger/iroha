@@ -2554,15 +2554,17 @@ fn npos_without_sora_profile_uses_mandatory_nexus() {
         .get("pipeline")
         .and_then(toml::Value::as_table)
         .expect("pipeline table");
-    let pipeline_gas = pipeline
-        .get("gas")
-        .and_then(toml::Value::as_table)
-        .expect("pipeline.gas table");
+    assert!(
+        pipeline.get("gas").is_none(),
+        "fee policy is committed chain state"
+    );
+    let manifest = genesis_json_from_path(&temp.path().join("genesis.json"));
+    let parameters = genesis_parameters(&manifest);
+    let projected = iroha_core::state::StateParameters::try_from(parameters).unwrap();
     assert_eq!(
-        pipeline_gas
-            .get("tech_account_id")
-            .and_then(toml::Value::as_str),
-        Some(gas_account_id.as_str())
+        AccountId::parse_encoded(&projected.gas().tech_account_id).unwrap(),
+        localnet_gas_account_id(&genesis_public_key),
+        "the same deterministic custody account is pinned in signed parameters"
     );
 }
 include!("../private_fee_and_account_tests.rs");
@@ -2576,6 +2578,22 @@ fn localnet_gas_custody_derivation_is_deterministic() {
     let custody = localnet_gas_account_id(genesis.public_key());
     assert_eq!(custody, localnet_gas_account_id(genesis.public_key()));
     assert_ne!(custody, AccountId::new(genesis.public_key().clone()));
+}
+
+#[test]
+fn localnet_gas_custody_parameter_projects_the_original_account() {
+    let custody = localnet_gas_account_id(KeyPair::random().public_key());
+    let mut parameters = Parameters::default();
+    parameters.set_parameter(localnet_gas_custody_parameter(&custody));
+    let projected = iroha_core::state::StateParameters::try_from(parameters).unwrap();
+    assert_eq!(
+        AccountId::parse_encoded(&projected.gas().tech_account_id).unwrap(),
+        custody
+    );
+    assert!(
+        projected.gas().accepted_assets.is_empty(),
+        "pinning a receiver alone enables no fee asset"
+    );
 }
 #[test]
 fn localnet_gas_custody_is_bound_to_genesis_identity() {

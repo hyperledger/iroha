@@ -42,9 +42,11 @@ fn new_state(
     // genesis/finality cases below still use the signed CertifiedTestChain.
     {
         let mut parameters = world.parameters.block();
-        parameters.set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
-            iroha_data_model::block::consensus::SumeragiRootScope::Global,
-        ));
+        parameters
+            .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+                iroha_data_model::block::consensus::SumeragiRootScope::Global,
+            ))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
     let state = State::new_with_chain_for_testing(world, kura, query_handle, chain_id);

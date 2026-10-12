@@ -12,27 +12,24 @@
 //! invariants of the stored records are enforced by the SCCP instructions and hooks that write
 //! them (ws30–ws33, ws41).
 
+use super::deserialize::StateRestoreError;
 use super::*;
-use crate::smartcontracts::isi::sccp::store;
+use crate::smartcontracts::isi::sccp::{
+    committee_owner::CommitteeOwnerError, committee_storage::CommitteeStoragePolicy, store,
+};
 use iroha_data_model::{
     bridge::SccpNetworkV1,
     sccp::{
-        attestation::{
-            SccpAttestationStatusV1, SccpAttestationSubjectV1, SccpBlockCommitmentV1,
-            SccpHistoryStateV1,
-        },
+        commitment::{SccpBlockCommitmentV1, SccpHistoryStateV1},
         control::{SccpControlRecordV1, SccpLeafRefV1},
         governance::SccpGovernanceSubjectV1,
         inbound::SccpInboundRecordV1,
-        keys::{SccpAttestationFaultRecordV1, SccpBridgeKeyStateV1},
-        keys_index::SccpPruneCursorV1,
         light_client::{
             SccpLcCheckpointV1, SccpLcConsensusSetV1, SccpLcProfileActivationV1, SccpLightClientV1,
         },
         outbound::SccpOutboundMessageRecordV1,
         params::SccpParametersV1,
         registry::SccpRouteV1,
-        roster::SccpBridgeRosterV1,
     },
 };
 use norito::json::JsonSerialize as _;
@@ -42,25 +39,21 @@ pub(crate) const SCCP_SNAPSHOT_MEMBER: &str = "sccp";
 
 /// Required SCCP wire fields; every store includes both current and exact undo maps.
 #[derive(JsonSerialize, JsonDeserialize)]
+#[norito(deny_unknown_fields)]
 pub(crate) struct SnapshotSccpState {
     pub(super) sccp_parameters: Cell<Option<SccpParametersV1>>,
     pub(super) sccp_reset_nonce: Cell<Option<[u8; 32]>>,
-    pub(super) sccp_bridge_keys: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_bridge_key_owners: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_rosters: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_roster_current: Cell<u64>,
-    pub(super) sccp_heartbeat_marker: Cell<Option<u64>>,
+    pub(super) sccp_committee_generations: snapshot_storage::SnapshotStorage,
+    pub(super) sccp_committee_current: SnapshotScalar<u64>,
+    pub(super) sccp_liability_clock: SnapshotScalar<u64>,
+    pub(super) sccp_degraded_run: SnapshotScalar<u32>,
+    pub(super) sccp_anchor_open:
+        SnapshotScalar<Vec<iroha_data_model::sccp::committee::SccpAnchorV1>>,
+    pub(super) sccp_anchor_chunks: snapshot_storage::SnapshotStorage,
     pub(super) sccp_block_leaves: snapshot_storage::SnapshotStorage,
     pub(super) sccp_block_commitments: snapshot_storage::SnapshotStorage,
     pub(super) sccp_history: Cell<SccpHistoryStateV1>,
     pub(super) sccp_history_leaves: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_attestation_subjects: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_attestation_status: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_attestation_signatures: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_attestation_faults: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_member_last_signed: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_handoff_stalled: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_prune_cursor: Cell<SccpPruneCursorV1>,
     pub(super) sccp_outbound_messages: snapshot_storage::SnapshotStorage,
     pub(super) sccp_outbound_by_nonce: snapshot_storage::SnapshotStorage,
     pub(super) sccp_control_messages: snapshot_storage::SnapshotStorage,
@@ -74,6 +67,29 @@ pub(crate) struct SnapshotSccpState {
     pub(super) sccp_light_client_checkpoints: snapshot_storage::SnapshotStorage,
     pub(super) sccp_light_client_stride_index: snapshot_storage::SnapshotStorage,
     pub(super) sccp_light_client_profiles: snapshot_storage::SnapshotStorage,
+}
+
+/// Inline claims matching the sole MV Cell wire layout, without allocating Cell owners.
+#[derive(JsonSerialize, JsonDeserialize)]
+#[norito(deny_unknown_fields)]
+pub(super) struct SnapshotScalar<T> {
+    revert: Option<SnapshotScalarUndo<T>>,
+    blocks: T,
+}
+#[derive(JsonSerialize, JsonDeserialize)]
+#[norito(deny_unknown_fields)]
+struct SnapshotScalarUndo<T> {
+    value: T,
+}
+impl<T: mv::Value> SnapshotScalar<T> {
+    fn restore(
+        self,
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<Cell<T, iroha_allocation::AllocationCharge>, StateRestoreError> {
+        mv::cell::CellInitialization::try_reserve(budget)
+            .map(|owner| owner.initialize(self.blocks, self.revert.map(|undo| undo.value)))
+            .map_err(|error| scalar_cell_custody::admission_error(error).into())
+    }
 }
 
 /// Append the key of one envelope member, preceded by a comma after the first member.
@@ -102,22 +118,16 @@ macro_rules! serialize_sccp_fields {
         serialize_sccp_fields!(@members $world, $out, $serialize;
             cell sccp_parameters,
             cell sccp_reset_nonce,
-            store sccp_bridge_keys,
-            store sccp_bridge_key_owners,
-            store sccp_rosters,
-            cell sccp_roster_current,
-            cell sccp_heartbeat_marker,
+            store sccp_committee_generations,
+            cell sccp_committee_current,
+            cell sccp_liability_clock,
+            cell sccp_degraded_run,
+            cell sccp_anchor_open,
+            store sccp_anchor_chunks,
             store sccp_block_leaves,
             store sccp_block_commitments,
             cell sccp_history,
             store sccp_history_leaves,
-            store sccp_attestation_subjects,
-            store sccp_attestation_status,
-            store sccp_attestation_signatures,
-            store sccp_attestation_faults,
-            store sccp_member_last_signed,
-            store sccp_handoff_stalled,
-            cell sccp_prune_cursor,
             store sccp_outbound_messages,
             store sccp_outbound_by_nonce,
             store sccp_control_messages,
@@ -216,7 +226,124 @@ fn valid_history(history: &SccpHistoryStateV1) -> Result<(), String> {
 
 impl SnapshotSccpState {
     /// Decode and validate every current/predecessor envelope before publishing any field.
-    pub(super) fn restore(self, world: &mut World) -> Result<(), json::Error> {
+    pub(super) fn restore(self, world: &mut World) -> Result<(), StateRestoreError> {
+        let budget = world.sccp_committee_generations.allocation_budget().clone();
+        let committee_generations = self.sccp_committee_generations.decode_admitted::<
+            u64, iroha_data_model::sccp::committee::SccpCommitteeGenerationV1,
+            RetainedSccpCommitteeGeneration, CommitteeStoragePolicy,
+        >("sccp_committee_generations", budget.clone(), |key, value| *key == value.generation,
+          |claim| RetainedSccpCommitteeGeneration::admit_claim(&claim, &budget).map_err(|error| {
+              match error {
+                  CommitteeOwnerError::Invalid(error) => invalid("sccp_committee_generations", error.to_string()).into(),
+                  CommitteeOwnerError::DecodeResource(original) => crate::execution_attempt::norito_decode_attempt_error(
+                      original, |error| invalid("sccp_committee_generations", error.to_string())).into(),
+                  local => StateRestoreError::SccpCommittee(local),
+              }
+          }))?;
+        let admit_open = |claims: Vec<iroha_data_model::sccp::committee::SccpAnchorV1>| {
+            if claims.len() >= iroha_sccp::v1::evidence::SCCP_ANCHOR_CHUNK as usize {
+                return Err(StateRestoreError::from(invalid(
+                    "sccp_anchor_open",
+                    "completed chunk must be cleared",
+                )));
+            }
+            RetainedSccpAnchorOpen::admit_claim(&claims, &budget).map_err(|error| {
+                StateRestoreError::Admission(StateAdmissionError::Storage(
+                    StateStorageAdmissionError::SccpAnchor(
+                        crate::smartcontracts::isi::sccp::anchor::SccpAnchorLocalError::from_owner(
+                            error,
+                        ),
+                    ),
+                ))
+            })
+        };
+        let anchor_open = SnapshotScalar {
+            blocks: admit_open(self.sccp_anchor_open.blocks)?,
+            revert: self
+                .sccp_anchor_open
+                .revert
+                .map(|undo| admit_open(undo.value).map(|value| SnapshotScalarUndo { value }))
+                .transpose()?,
+        }
+        .restore(&budget)?;
+        let anchor_chunks = self.sccp_anchor_chunks.decode_admitted::<u64, [u8; 32], [u8; 32],
+            crate::smartcontracts::isi::sccp::anchor_storage::AnchorStoragePolicy>(
+            "sccp_anchor_chunks", budget.clone(),
+            |key, _| key.checked_add(1).and_then(|end| end.checked_mul(iroha_sccp::v1::evidence::SCCP_ANCHOR_CHUNK)).is_some(),
+            Ok)?;
+        // Empty SCCP has no anchors at either original MV cut. Claims never authenticate R.
+        {
+            let params_now = self.sccp_parameters.view();
+            let params_undo = self.sccp_parameters.predecessor_view();
+            let open_now = anchor_open.view();
+            let open_undo = anchor_open.predecessor_view();
+            let chunks = anchor_chunks.snapshot();
+            let previous_parameters = params_undo.get().as_ref().unwrap_or(params_now.get());
+            let previous_open = open_undo.get().as_ref().unwrap_or(open_now.get());
+            let previous_chunks = chunks
+                .current()
+                .iter()
+                .any(|(key, _)| chunks.revert_map().get(key).is_none())
+                || chunks.revert_map().iter().any(|(_, value)| value.is_some());
+            if (params_now.get().is_none()
+                && (!open_now.get().anchors().is_empty()
+                    || chunks.current().iter().next().is_some()))
+                || (previous_parameters.is_none()
+                    && (!previous_open.anchors().is_empty() || previous_chunks))
+            {
+                return Err(invalid("sccp_anchor_open", "absent SCCP has anchors").into());
+            }
+        }
+        let committee_current = self.sccp_committee_current.restore(&budget)?;
+        let liability_clock = self.sccp_liability_clock.restore(&budget)?;
+        let degraded_run = self.sccp_degraded_run.restore(&budget)?;
+        {
+            use crate::smartcontracts::isi::sccp::committee_snapshot::validate_cut;
+            let rows = committee_generations.snapshot();
+            validate_cut(
+                self.sccp_parameters.view().get().is_some(),
+                *committee_current.view().get(),
+                *liability_clock.view().get(),
+                *degraded_run.view().get(),
+                rows.current()
+                    .iter()
+                    .map(|(key, owner)| (key, owner.record())),
+            )
+            .map_err(|reason| invalid("sccp_committee_generations", reason))?;
+            let params_view = self.sccp_parameters.view();
+            let params_undo = self.sccp_parameters.predecessor_view();
+            let previous_params = params_undo.get().as_ref().unwrap_or(params_view.get());
+            let previous_current = committee_current
+                .predecessor_view()
+                .get()
+                .unwrap_or(*committee_current.view().get());
+            let previous_lc = liability_clock
+                .predecessor_view()
+                .get()
+                .unwrap_or(*liability_clock.view().get());
+            let previous_degraded = degraded_run
+                .predecessor_view()
+                .get()
+                .unwrap_or(*degraded_run.view().get());
+            // Overlay exact undo preimages on untouched current rows; allocate no shadow map.
+            let undo = rows.revert_map();
+            let previous =
+                rows.current()
+                    .iter()
+                    .filter(|(key, _)| undo.get(key).is_none())
+                    .map(|(key, owner)| (key, owner.record()))
+                    .chain(undo.iter().filter_map(|(key, owner)| {
+                        owner.as_ref().map(|owner| (key, owner.record()))
+                    }));
+            validate_cut(
+                previous_params.is_some(),
+                previous_current,
+                previous_lc,
+                previous_degraded,
+                previous,
+            )
+            .map_err(|reason| invalid("sccp_committee_generations.undo", reason))?;
+        }
         validate_cell(&self.sccp_parameters, "sccp_parameters", valid_parameters)?;
         validate_cell(
             &self.sccp_reset_nonce,
@@ -224,16 +351,6 @@ impl SnapshotSccpState {
             valid_reset_nonce,
         )?;
         validate_cell(&self.sccp_history, "sccp_history", valid_history)?;
-        let bridge_keys = self
-            .sccp_bridge_keys
-            .decode::<PeerId, SccpBridgeKeyStateV1>("sccp_bridge_keys", |_, _| true)?;
-        let bridge_key_owners = self.sccp_bridge_key_owners.decode::<[u8; 20], PeerId>(
-            "sccp_bridge_key_owners",
-            store::bridge_key_owners::valid_entry,
-        )?;
-        let rosters = self
-            .sccp_rosters
-            .decode::<u64, SccpBridgeRosterV1>("sccp_rosters", store::rosters::valid_entry)?;
         let block_leaves = self.sccp_block_leaves.decode::<(u64, u32), SccpLeafRefV1>(
             "sccp_block_leaves",
             store::block_leaves::valid_entry,
@@ -247,30 +364,6 @@ impl SnapshotSccpState {
         let history_leaves = self
             .sccp_history_leaves
             .decode::<u64, (u64, [u8; 32])>("sccp_history_leaves", |_, _| true)?;
-        let attestation_subjects = self
-            .sccp_attestation_subjects
-            .decode::<u64, SccpAttestationSubjectV1>(
-                "sccp_attestation_subjects",
-                store::attestation_subjects::valid_entry,
-            )?;
-        let attestation_status = self
-            .sccp_attestation_status
-            .decode::<u64, SccpAttestationStatusV1>("sccp_attestation_status", |_, _| true)?;
-        let attestation_signatures = self
-            .sccp_attestation_signatures
-            .decode::<(u64, u8), [u8; 65]>("sccp_attestation_signatures", |_, _| true)?;
-        let attestation_faults = self
-            .sccp_attestation_faults
-            .decode::<([u8; 20], u64), SccpAttestationFaultRecordV1>(
-                "sccp_attestation_faults",
-                |_, _| true,
-            )?;
-        let member_last_signed = self
-            .sccp_member_last_signed
-            .decode::<[u8; 20], u64>("sccp_member_last_signed", |_, _| true)?;
-        let handoff_stalled = self
-            .sccp_handoff_stalled
-            .decode::<u64, u64>("sccp_handoff_stalled", |_, _| true)?;
         let outbound_messages = self
             .sccp_outbound_messages
             .decode::<[u8; 32], SccpOutboundMessageRecordV1>("sccp_outbound_messages", |_, _| {
@@ -332,22 +425,16 @@ impl SnapshotSccpState {
             )?;
         world.sccp_parameters = self.sccp_parameters;
         world.sccp_reset_nonce = self.sccp_reset_nonce;
-        world.sccp_bridge_keys = bridge_keys;
-        world.sccp_bridge_key_owners = bridge_key_owners;
-        world.sccp_rosters = rosters;
-        world.sccp_roster_current = self.sccp_roster_current;
-        world.sccp_heartbeat_marker = self.sccp_heartbeat_marker;
+        world.sccp_committee_generations = committee_generations;
+        world.sccp_committee_current = committee_current;
+        world.sccp_liability_clock = liability_clock;
+        world.sccp_degraded_run = degraded_run;
+        world.sccp_anchor_open = anchor_open;
+        world.sccp_anchor_chunks = anchor_chunks;
         world.sccp_block_leaves = block_leaves;
         world.sccp_block_commitments = block_commitments;
         world.sccp_history = self.sccp_history;
         world.sccp_history_leaves = history_leaves;
-        world.sccp_attestation_subjects = attestation_subjects;
-        world.sccp_attestation_status = attestation_status;
-        world.sccp_attestation_signatures = attestation_signatures;
-        world.sccp_attestation_faults = attestation_faults;
-        world.sccp_member_last_signed = member_last_signed;
-        world.sccp_handoff_stalled = handoff_stalled;
-        world.sccp_prune_cursor = self.sccp_prune_cursor;
         world.sccp_outbound_messages = outbound_messages;
         world.sccp_outbound_by_nonce = outbound_by_nonce;
         world.sccp_control_messages = control_messages;

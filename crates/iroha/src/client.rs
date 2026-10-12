@@ -7195,9 +7195,8 @@ impl TransactionDispatchOutcomeUnknownIdentity {
     fn for_prepared_payload(payload: &PreparedTransactionPayload) -> Result<Self> {
         let transaction = SignedTransaction::decode_all_versioned(payload.as_bytes())
             .wrap_err("prepared transaction payload is not a versioned SignedTransaction")?;
-        if transaction.encode_versioned().as_slice() != payload.as_bytes()
-            || transaction.hash() != payload.hash()
-        {
+        // decode_all_versioned already validates the exact fallible canonical wire.
+        if transaction.hash() != payload.hash() {
             return Err(eyre!(
                 "prepared transaction payload bytes and hash are not canonical"
             ));
@@ -7245,6 +7244,8 @@ pub(crate) enum PreflightFailure {
     CompatibilityProbe,
     /// The node advertises an incompatible data model or transaction schema.
     IncompatibleNode,
+    /// The original payload read or canonical writer could not finish locally.
+    LocalResourceRefusal,
     /// The payload bytes and hash are not one canonical signed transaction.
     NonCanonicalPayload,
     /// The HTTP request could not be built.
@@ -11511,10 +11512,8 @@ mod evidence_http_tests {
                 sig: NativeSignature([0; SIGNATURE_LEN]),
             };
             vote.sig = NativeSignature(
-                Signature::new(key.private_key(), &vote.preimage())
-                    .payload()
-                    .try_into()
-                    .expect("BLS signature width"),
+                iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &vote.preimage())
+                    .expect("allowlisted native Prepare signature"),
             );
             vote
         };
@@ -15161,7 +15160,15 @@ impl AccountClient {
                 Ok(expected) => expected,
                 Err(report) => {
                     return PreparedDispatch::NotDispatched {
-                        cause: PreflightFailure::NonCanonicalPayload,
+                        cause: if report.chain().any(|cause| {
+                            cause
+                                .downcast_ref::<iroha_version::error::Error>()
+                                .is_some_and(iroha_version::error::Error::is_local_resource_refusal)
+                        }) {
+                            PreflightFailure::LocalResourceRefusal
+                        } else {
+                            PreflightFailure::NonCanonicalPayload
+                        },
                         report,
                     };
                 }

@@ -1,129 +1,117 @@
-//! Read-side assembly of SCCP views and proof bundles from committed state (`specs/sccp.md`
-//! §6). Owner: ws35.
+//! Native SCCP read assembly over one committed State cut (`specs/sccp.md` §6).
 //!
-//! Every honest peer derives identical bytes from committed state; wallets and destinations
-//! never trust them and verify every bundle themselves. Torii, the CLI and tests share these
-//! functions. The views that do not depend on the attestation format (message status union,
-//! pages, light-client detail, governance detail, history paths) live in [`views`]; history
-//! paths go through the validated `O(log n)` node cache of `history`.
-//!
-//! TODO(ws35): serve signatures pruned from state (`attestation_retention_ms`, §4.10) from the
-//! recorded `SubmitSccpAttestationsV1` transactions in Kura; until then they are `Pruned` (HTTP
-//! 410).
+//! Certificates come only from verified canonical Kura carriers. No decoded DTO or caller
+//! supplied committee establishes authority. History and monetary views share the same cut.
 
 mod history;
+#[cfg(test)]
+#[path = "read/native_finality_tests.rs"]
+mod native_finality_tests;
 mod views;
-
-pub use views::*;
-
-use super::{leaves, light_clients, store, subjects};
-use crate::state::{StateReadOnly, WorldReadOnly};
-use iroha_data_model::{
-    bridge::SccpNetworkV1,
-    sccp::{attestation::SccpAttestationStatementV1, control::SccpLeafRefV1},
+use super::{leaves, light_clients, store};
+use crate::{
+    state::{StateReadOnly, WorldReadOnly},
+    sumeragi::certified_chain::CertifiedChain,
 };
-/// The §6 wire types and page limits, re-exported for Torii and other readers.
+use iroha_data_model::{bridge::SccpNetworkV1, sccp::control::SccpLeafRefV1};
 pub use iroha_sccp::api::{
     self, MAX_CONTROLS_PAGE, MAX_OUTBOUND_PAGE, MAX_RECENT_MESSAGES, MAX_ROTATION_STEPS,
 };
 use iroha_sccp::{
     api::{
-        SccpCapabilitiesV1, SccpControlProofBundleV1, SccpHistoryProofV1, SccpLcProfileStatusV1,
-        SccpMemberLivenessV1, SccpMessageProofBundleV1, SccpPendingHandoffV1, SccpReadLimitsV1,
-        SccpRosterViewV1, SccpRotationChainV1, SccpRotationStepV1, SccpSignatureSetV1,
+        SccpBlockRefV1, SccpCapabilitiesV1, SccpCertificateV1, SccpControlProofBundleV1,
+        SccpGenerationV1, SccpLcProfileStatusV1, SccpMessageProofBundleV1, SccpReadLimitsV1,
+        SccpRotationV1, finality::verify_native_certificate,
     },
     light_client::profile::{SCCP_LC_PROFILE_NETWORKS_V1, SccpLcProfileCatalogV1},
-    v1::{eip712::domain_separator, merkle::PromoteOddTree, roster::RosterV1},
+    v1::{
+        finality::{QcFixedV1, SccpFinalityHeaderV1, X_LEN, body_digest, signers_from_bitmap},
+        merkle::{PromoteOddTree, verify_block_inclusion},
+        proof::DestinationV1,
+    },
 };
+use mv::storage::StorageReadOnly as _;
+pub use views::*;
 
 /// Why a read cannot be served.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SccpReadError {
-    /// The named record does not exist.
+    /// The named record does not exist in this committed view.
     #[error("not found: {0}")]
     NotFound(String),
-    /// The record exists but is not attested yet (`sccp_attestation_pending`).
-    #[error("sccp_attestation_pending: {0}")]
-    Pending(String),
-    /// The data existed but was pruned by retention (`sccp_pruned`, HTTP 410).
+    /// Required native source custody is unavailable, not an invalid user payload.
+    #[error("sccp_unavailable: {0}")]
+    Unavailable(String),
+    /// Retention removed a record that existed.
     #[error("sccp_pruned: {0}")]
     Pruned(String),
-    /// The query is invalid against state.
+    /// The retained rotation window no longer covers the requested generation.
+    #[error("sccp_rotation_pruned: {0}")]
+    RotationPruned(String),
+    /// The requested coordinates or source claims are inconsistent.
     #[error("invalid query: {0}")]
     Invalid(String),
 }
 
-/// Which attestation a proof bundle uses (`?attestation=own|latest|<height>`).
+/// Which committed certificate covers a proof (`?at=record|latest|<height>`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SccpAttestationChoiceV1 {
-    /// The subject of the block that holds the leaf (direct mode).
-    Own,
-    /// The newest attested subject at or above the leaf's block.
+pub enum SccpCertificateChoiceV1 {
+    /// The block containing the leaf.
+    Record,
+    /// The durable committed tip of this view.
     Latest,
-    /// The subject at this height, at or above the leaf's block.
+    /// An explicit committed height at or above the leaf.
     At(u64),
 }
-
-impl SccpAttestationChoiceV1 {
-    /// Parse `own`, `latest` or a decimal height.
+impl SccpCertificateChoiceV1 {
+    /// Parse the native selector; retired selectors and zero heights are refused.
     #[must_use]
     pub fn parse(text: &str) -> Option<Self> {
         match text {
-            "own" => Some(Self::Own),
+            "record" => Some(Self::Record),
             "latest" => Some(Self::Latest),
-            height => height.parse().ok().map(Self::At),
+            height if !height.is_empty() && height.bytes().all(|b| b.is_ascii_digit()) => {
+                height.parse::<u64>().ok().filter(|h| *h > 0).map(Self::At)
+            }
+            _ => None,
         }
     }
 }
 
-/// Assemble `GET /v1/sccp/capabilities` (§6).
-#[must_use]
-pub fn capabilities(view: &(impl StateReadOnly + ?Sized)) -> SccpCapabilitiesV1 {
+/// Assemble identity and actual retained native generation state.
+///
+/// # Errors
+/// Refuses an active SCCP instance without authenticated signed-genesis custody.
+pub fn capabilities(
+    view: &(impl StateReadOnly + ?Sized),
+) -> Result<SccpCapabilitiesV1, SccpReadError> {
     let world = view.world();
-    let network_id = *view.network_id().as_bytes();
-    let current_generation = *store::roster_current::get(world);
-    let members = store::rosters::get(world, &current_generation)
-        .map(|roster| {
-            roster
-                .members
-                .iter()
-                .enumerate()
-                .filter_map(|(index, member)| {
-                    Some(SccpMemberLivenessV1 {
-                        index: u8::try_from(index).ok()?,
-                        address: member.address,
-                        last_signed_height: store::member_last_signed::get(world, &member.address)
-                            .copied(),
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    let pending_handoffs = store::rosters::iter(world)
-        .filter_map(|(generation, roster)| {
-            let height = roster.handoff_height?;
-            let attested = store::attestation_status::get(world, &height)
-                .is_some_and(|status| status.attested_at_height.is_some());
-            (!attested).then(|| SccpPendingHandoffV1 {
-                height,
-                generation: *generation,
-                stalled: store::handoff_stalled::contains(world, &height),
-            })
-        })
-        .collect();
-    let committed_height = u64::try_from(view.height()).unwrap_or(u64::MAX);
-    SccpCapabilitiesV1 {
-        network_id,
-        domain_separator: domain_separator(&network_id),
-        parameters: store::parameters::get(world).clone(),
+    let parameters = store::parameters::get(world).clone();
+    let consensus_instance = if parameters.is_some() {
+        Some(
+            CertifiedChain::new(view)
+                .map_err(|e| SccpReadError::Unavailable(e.to_string()))?
+                .instance()
+                .0,
+        )
+    } else {
+        None
+    };
+    let current = world.sccp_committee_current();
+    let committed_height = view.height() as u64;
+    let current_generation = generation_view(world, current);
+    if parameters.is_some() && current_generation.is_none() {
+        return Err(SccpReadError::Unavailable(
+            "current native generation is not retained".into(),
+        ));
+    }
+    Ok(SccpCapabilitiesV1 {
+        network_id: *view.network_id().as_bytes(),
+        consensus_instance,
+        parameters,
         committed_height,
-        latest_attested_height: store::attestation_status::iter(world)
-            .rev()
-            .find(|(_, status)| status.attested_at_height.is_some())
-            .map(|(height, _)| *height),
         current_generation,
-        members,
-        pending_handoffs,
+        liability_clock: world.sccp_liability_clock(),
         light_client_profiles: light_client_profiles(world, committed_height.saturating_add(1)),
         chain_id: view.chain_id().to_string(),
         profiles: compiled_profiles(),
@@ -135,7 +123,126 @@ pub fn capabilities(view: &(impl StateReadOnly + ?Sized)) -> SccpCapabilitiesV1 
         .policy_hash(),
         limits: SccpReadLimitsV1::v1(),
         path_templates: Vec::new(),
+    })
+}
+
+/// Project one retained generation and its exact liability at this cut.
+#[must_use]
+pub fn generation_view(
+    world: &(impl WorldReadOnly + ?Sized),
+    generation: u64,
+) -> Option<SccpGenerationV1> {
+    let record = world.sccp_committee_generations().get(&generation)?;
+    Some(SccpGenerationV1::from_record(
+        record.record(),
+        world.sccp_committee_current(),
+        world.sccp_liability_clock(),
+    ))
+}
+
+/// Read and independently verify a native SCCP certificate from canonical Kura custody.
+///
+/// # Errors
+/// Refuses uncommitted heights, unavailable local carrier custody, pruned generations and
+/// inconsistent certificates. Genesis has no CommitQC and cannot be fabricated into one.
+pub fn finality_certificate(
+    view: &(impl StateReadOnly + ?Sized),
+    height: u64,
+) -> Result<SccpCertificateV1, SccpReadError> {
+    if height == 0 || height > view.height() as u64 {
+        return Err(SccpReadError::NotFound(format!(
+            "height {height} is not committed"
+        )));
     }
+    let chain = CertifiedChain::new(view).map_err(|e| SccpReadError::Unavailable(e.to_string()))?;
+    let block = chain
+        .certified(height)
+        .map_err(|e| SccpReadError::Unavailable(e.to_string()))?;
+    let qc = block
+        .commit_qc()
+        .ok_or_else(|| SccpReadError::Unavailable("genesis has no native CommitQC".into()))?;
+    let carrier = block
+        .certificate()
+        .ok_or_else(|| SccpReadError::Unavailable("native certificate carrier".into()))?;
+    let preimage = carrier.result_preimage();
+    let header = preimage
+        .get(..X_LEN)
+        .ok_or_else(|| SccpReadError::Unavailable("native finality header".into()))?;
+    let header = SccpFinalityHeaderV1::parse(header)
+        .map_err(|e| SccpReadError::Unavailable(e.to_string()))?;
+    if !header.is_active() {
+        return Err(SccpReadError::Unavailable(
+            "SCCP was inactive at the requested height".into(),
+        ));
+    }
+    let world = view.world();
+    let generation = world
+        .sccp_committee_generations()
+        .get(&header.generation())
+        .ok_or_else(|| {
+            if header.generation() < world.sccp_committee_current() {
+                SccpReadError::Pruned(format!("native generation {}", header.generation()))
+            } else {
+                SccpReadError::Unavailable(
+                    "certified generation is absent from the original cut".into(),
+                )
+            }
+        })?;
+    let signers =
+        signers_from_bitmap(qc.signers.as_bytes(), generation.keys.len()).ok_or_else(|| {
+            SccpReadError::Unavailable("native signer bitmap differs from generation".into())
+        })?;
+    let certificate = SccpCertificateV1 {
+        height,
+        header: *header.as_bytes(),
+        aggregate_signature: qc.agg_sig.0,
+        committee: generation.keys.clone(),
+        qc: QcFixedV1 {
+            epoch: qc.epoch.epoch,
+            epoch_context: qc.epoch.context.0,
+            view: qc.view,
+            block_hash: qc.block_hash.0,
+            result_body: body_digest(&preimage[X_LEN..]),
+            signers,
+        }
+        .encode(),
+    };
+    let verified = verify_native_certificate(
+        &certificate,
+        view.network_id().as_bytes(),
+        &chain.instance().0,
+        generation.record(),
+    )
+    .map_err(|e| SccpReadError::Unavailable(e.to_string()))?;
+    if verified.result != qc.result.0 || verified.header.timestamp_ms() != block.block_time_ms() {
+        return Err(SccpReadError::Unavailable(
+            "certified source coordinates disagree".into(),
+        ));
+    }
+    Ok(certificate)
+}
+
+fn certificate_height(
+    committed_height: u64,
+    record_height: u64,
+    choice: SccpCertificateChoiceV1,
+) -> Result<u64, SccpReadError> {
+    let at = match choice {
+        SccpCertificateChoiceV1::Record => record_height,
+        SccpCertificateChoiceV1::Latest => committed_height,
+        SccpCertificateChoiceV1::At(at) => at,
+    };
+    if at < record_height || at == 0 {
+        return Err(SccpReadError::Invalid(
+            "certificate height precedes the record".into(),
+        ));
+    }
+    if at > committed_height {
+        return Err(SccpReadError::NotFound(
+            "certificate height is not committed".into(),
+        ));
+    }
+    Ok(at)
 }
 
 /// Return the light-client profile every external source chain runs under at Taira height
@@ -245,91 +352,6 @@ pub fn governance_revisions(
         .collect()
 }
 
-/// Return the view of generation `generation` under the live `NetworkId`.
-#[must_use]
-pub fn roster_view(
-    world: &(impl WorldReadOnly + ?Sized),
-    network_id: &[u8; 32],
-    generation: u64,
-) -> Option<SccpRosterViewV1> {
-    let roster = store::rosters::get(world, &generation)?;
-    SccpRosterViewV1::from_roster(
-        &RosterV1 {
-            generation,
-            valid_from_ms: roster.valid_from_ms,
-            valid_until_ms: roster.valid_until_ms,
-            members: roster.members.iter().map(|member| member.address).collect(),
-        },
-        network_id,
-    )
-    .ok()
-}
-
-/// Return every signature stored for subject `height`, ascending by member index.
-#[must_use]
-pub fn signature_set(world: &(impl WorldReadOnly + ?Sized), height: u64) -> SccpSignatureSetV1 {
-    let mut set = SccpSignatureSetV1::default();
-    for ((_, index), signature) in
-        store::attestation_signatures::range(world, (height, 0)..=(height, u8::MAX))
-    {
-        if *index < 32 {
-            set.signer_bitmap |= 1 << index;
-            set.signatures.push(*signature);
-        }
-    }
-    set
-}
-
-/// An attested statement with everything a destination verifies it with.
-struct Attested {
-    statement: SccpAttestationStatementV1,
-    digest: [u8; 32],
-    roster: SccpRosterViewV1,
-    signatures: SccpSignatureSetV1,
-}
-
-/// An attested subject `height` whose stored `signatures` are fewer than `threshold` had them
-/// pruned by retention (§4.10): `Pruned` (HTTP 410), never `Pending`.
-fn require_retained(
-    height: u64,
-    signatures: &SccpSignatureSetV1,
-    threshold: u8,
-) -> Result<(), SccpReadError> {
-    if signatures.popcount() < u32::from(threshold) {
-        return Err(SccpReadError::Pruned(format!(
-            "the signatures of subject {height} were pruned from state; use a later attestation"
-        )));
-    }
-    Ok(())
-}
-
-fn attested(view: &(impl StateReadOnly + ?Sized), height: u64) -> Result<Attested, SccpReadError> {
-    let world = view.world();
-    let statement = subjects::statement(view, height)
-        .ok_or_else(|| SccpReadError::NotFound(format!("no attestation subject at {height}")))?;
-    if !store::attestation_status::get(world, &height)
-        .is_some_and(|status| status.attested_at_height.is_some())
-    {
-        return Err(SccpReadError::Pending(format!(
-            "subject {height} is not attested"
-        )));
-    }
-    let network_id = *view.network_id().as_bytes();
-    let generation = store::attestation_subjects::get(world, &height)
-        .map(|subject| subject.generation)
-        .ok_or_else(|| SccpReadError::NotFound(format!("no attestation subject at {height}")))?;
-    let roster = roster_view(world, &network_id, generation)
-        .ok_or_else(|| SccpReadError::NotFound(format!("generation {generation} is unknown")))?;
-    let signatures = signature_set(world, height);
-    require_retained(height, &signatures, roster.threshold)?;
-    Ok(Attested {
-        digest: subjects::fields(&statement).digest(&network_id),
-        statement,
-        roster,
-        signatures,
-    })
-}
-
 /// Return the leaf hashes of block `height` in commitment order.
 fn block_leaf_hashes(
     world: &(impl WorldReadOnly + ?Sized),
@@ -354,171 +376,224 @@ fn block_leaf_hashes(
         .collect()
 }
 
-/// Pick the attesting height for a leaf in block `height`.
-fn attesting_height(
-    world: &(impl WorldReadOnly + ?Sized),
-    height: u64,
-    choice: SccpAttestationChoiceV1,
-) -> Result<u64, SccpReadError> {
-    match choice {
-        SccpAttestationChoiceV1::Own => Ok(height),
-        SccpAttestationChoiceV1::At(at) if at >= height => Ok(at),
-        SccpAttestationChoiceV1::At(at) => Err(SccpReadError::Invalid(format!(
-            "attestation height {at} is below the leaf's block {height}"
-        ))),
-        SccpAttestationChoiceV1::Latest => store::attestation_subjects::range(world, height..)
-            .rev()
-            .map(|(subject_height, _)| *subject_height)
-            .find(|subject_height| {
-                store::attestation_status::get(world, subject_height)
-                    .is_some_and(|status| status.attested_at_height.is_some())
-            })
-            .ok_or_else(|| {
-                SccpReadError::Pending(format!("no attested subject at or above {height}"))
-            }),
-    }
-}
-
-/// Block path, leaf count and (for a later statement) history proof of leaf `index` of block
-/// `height` under `attested`.
+/// Build and verify a block path and, when necessary, its certified history path.
 fn leaf_paths(
     world: &(impl WorldReadOnly + ?Sized),
     height: u64,
     index: u32,
-    attested: &Attested,
-) -> Result<(Vec<[u8; 32]>, u32, Option<SccpHistoryProofV1>), SccpReadError> {
-    let leaves = block_leaf_hashes(world, height)?;
-    let tree = PromoteOddTree::block(&leaves)
-        .map_err(|error| SccpReadError::Invalid(format!("block {height} tree: {error}")))?;
+    certified: &SccpFinalityHeaderV1,
+) -> Result<(Vec<[u8; 32]>, SccpBlockRefV1), SccpReadError> {
+    if height > certified.height() {
+        return Err(SccpReadError::Invalid("leaf is above certificate".into()));
+    }
+    let hashes = block_leaf_hashes(world, height)?;
+    let tree =
+        PromoteOddTree::block(&hashes).map_err(|e| SccpReadError::Unavailable(e.to_string()))?;
     let path = tree
-        .path(usize::try_from(index).unwrap_or(usize::MAX))
-        .map_err(|error| SccpReadError::Invalid(format!("leaf {index}: {error}")))?;
-    let message_count = u32::try_from(leaves.len())
-        .map_err(|_| SccpReadError::Invalid("leaf count overflows".into()))?;
-    if attested.statement.height == height {
-        return Ok((path, message_count, None));
-    }
-    // O(log n) through the shared history cache, never a rebuild of the whole history.
-    let (root, history) = history_proof(world, height, attested.statement.history_size)?;
-    if root != attested.statement.history_root {
-        return Err(SccpReadError::Invalid(format!(
-            "the stored history disagrees with the history root of subject {}",
-            attested.statement.height
-        )));
-    }
-    Ok((path, message_count, Some(history)))
+        .path(index as usize)
+        .map_err(|e| SccpReadError::Unavailable(e.to_string()))?;
+    let count =
+        u32::try_from(hashes.len()).map_err(|_| SccpReadError::Unavailable("leaf count".into()))?;
+    let block = if height == certified.height() {
+        if count != certified.message_count() {
+            return Err(SccpReadError::Unavailable(
+                "recorded leaf count differs from certificate".into(),
+            ));
+        }
+        SccpBlockRefV1 {
+            height,
+            sccp_root: certified.sccp_root(),
+            message_count: count,
+            history_index: 0,
+            history_path: Vec::new(),
+        }
+    } else {
+        let (root, history) = history_proof(world, height, certified.history_size())?;
+        if root != certified.history_root() || count != history.message_count {
+            return Err(SccpReadError::Unavailable(
+                "retained history differs from certificate".into(),
+            ));
+        }
+        iroha_sccp::v1::history::verify_history_inclusion(
+            &iroha_sccp::v1::hashes::history_leaf(height, &history.sccp_root, count),
+            history.leaf_index,
+            certified.history_size(),
+            &history.path,
+            &certified.history_root(),
+        )
+        .map_err(|e| SccpReadError::Unavailable(e.to_string()))?;
+        SccpBlockRefV1 {
+            height,
+            sccp_root: history.sccp_root,
+            message_count: count,
+            history_index: history.leaf_index,
+            history_path: history.path,
+        }
+    };
+    let leaf = hashes
+        .get(index as usize)
+        .ok_or_else(|| SccpReadError::Unavailable("missing leaf".into()))?;
+    verify_block_inclusion(leaf, index, count, &path, &block.sccp_root)
+        .map_err(|e| SccpReadError::Unavailable(e.to_string()))?;
+    Ok((path, block))
 }
 
-/// Assemble the proof bundle of outbound message `message_id` (`GET
-/// /v1/sccp/messages/{message_id}/proof`, §6).
+/// Serve a transfer only after verifying its native certificate, payload and both paths.
 ///
 /// # Errors
-///
-/// [`SccpReadError::NotFound`] for an unknown message, [`SccpReadError::Pending`] until the
-/// chosen subject is attested.
+/// Returns absence, retention or native-source refusal; never substitutes an attestation.
 pub fn message_proof(
     view: &(impl StateReadOnly + ?Sized),
     message_id: &[u8; 32],
-    choice: SccpAttestationChoiceV1,
+    choice: SccpCertificateChoiceV1,
 ) -> Result<SccpMessageProofBundleV1, SccpReadError> {
     let world = view.world();
     let record = store::outbound_messages::get(world, message_id)
         .ok_or_else(|| SccpReadError::NotFound("outbound message".into()))?;
-    let at = attesting_height(world, record.height, choice)?;
-    let attested = attested(view, at)?;
-    let (path, message_count, history) =
-        leaf_paths(world, record.height, record.commitment_index, &attested)?;
-    Ok(SccpMessageProofBundleV1 {
+    let at = certificate_height(view.height() as u64, record.height, choice)?;
+    let certificate = finality_certificate(view, at)?;
+    let header = SccpFinalityHeaderV1::parse(&certificate.header)
+        .map_err(|e| SccpReadError::Unavailable(e.to_string()))?;
+    let (path, block) = leaf_paths(world, record.height, record.commitment_index, &header)?;
+    let route = store::routes::get(world, &record.network)
+        .and_then(|route| route.revisions.get(&record.revision))
+        .ok_or_else(|| SccpReadError::Unavailable("message route revision".into()))?;
+    let bundle = SccpMessageProofBundleV1 {
         message_id: *message_id,
         payload: record.payload.clone(),
         deadline_ms: record.deadline_ms,
         leaf_index: record.commitment_index,
-        message_count,
         path,
-        statement: attested.statement,
-        digest: attested.digest,
-        roster: attested.roster,
-        signatures: attested.signatures,
-        history,
-    })
+        block,
+        certificate,
+    };
+    bundle
+        .check_shape()
+        .map_err(|e| SccpReadError::Unavailable(e.to_string()))?;
+    let verified = bundle
+        .message_proof()
+        .transfer(
+            view.network_id().as_bytes(),
+            &DestinationV1 {
+                network: record.network,
+                route_revision: record.revision,
+                destination_word: route.destination_word,
+            },
+        )
+        .map_err(|e| SccpReadError::Unavailable(e.to_string()))?;
+    if verified.message_id != *message_id
+        || verified.payload.deadline_ms != record.deadline_ms
+        || verified.leaf != record.leaf
+        || verified.payload.amount != record.amount
+    {
+        return Err(SccpReadError::Unavailable(
+            "recorded payload fields disagree".into(),
+        ));
+    }
+    // Reverify using the computed payload leaf, not a server-supplied leaf claim.
+    verify_block_inclusion(
+        &verified.leaf,
+        bundle.leaf_index,
+        bundle.block.message_count,
+        &bundle.path,
+        &bundle.block.sccp_root,
+    )
+    .map_err(|e| SccpReadError::Unavailable(e.to_string()))?;
+    Ok(bundle)
 }
 
-/// Assemble the proof bundle of destination control `(network, revision, control_nonce)`
-/// (`GET /v1/sccp/controls/{network}/{revision}/{control_nonce}/proof`, §6).
+/// Read a native destination control bundle.
 ///
 /// # Errors
-///
-/// As [`message_proof`].
+/// Refuses missing records and the not-yet-integrated native control owner explicitly.
 pub fn control_proof(
     view: &(impl StateReadOnly + ?Sized),
     network: SccpNetworkV1,
     revision: u32,
     control_nonce: u64,
-    choice: SccpAttestationChoiceV1,
+    choice: SccpCertificateChoiceV1,
 ) -> Result<SccpControlProofBundleV1, SccpReadError> {
-    let world = view.world();
-    let record = store::control_messages::get(world, &(network, revision, control_nonce))
+    let record = store::control_messages::get(view.world(), &(network, revision, control_nonce))
         .ok_or_else(|| SccpReadError::NotFound("control message".into()))?;
-    let at = attesting_height(world, record.height, choice)?;
-    let attested = attested(view, at)?;
-    let (path, message_count, history) =
-        leaf_paths(world, record.height, record.commitment_index, &attested)?;
-    Ok(SccpControlProofBundleV1 {
-        network,
-        revision,
-        control_nonce,
-        paused: record.paused,
-        leaf_index: record.commitment_index,
-        message_count,
-        path,
-        statement: attested.statement,
-        digest: attested.digest,
-        roster: attested.roster,
-        signatures: attested.signatures,
-        history,
-    })
+    certificate_height(view.height() as u64, record.height, choice)?;
+    // TODO: migrate the admitted control writer/record to the native track, full pause state,
+    // certificate id and effect hash. A retired paused-only leaf cannot be reinterpreted as one.
+    Err(SccpReadError::Unavailable(
+        "native control record owner is not integrated".into(),
+    ))
 }
 
-/// Assemble the catch-up rotation chain from generation `after_generation` (`GET
-/// /v1/sccp/rosters/rotations`, §6), at most `limit` (≤ 16) steps, reporting the first
-/// unattested handoff.
-#[must_use]
+/// Assemble retained native rotations in generation order, with every certificate verified.
+///
+/// # Errors
+/// Returns a pruned window, missing native archive custody, or inconsistent lifecycle facts.
 pub fn rotation_chain(
     view: &(impl StateReadOnly + ?Sized),
     after_generation: u64,
     limit: usize,
-) -> SccpRotationChainV1 {
+) -> Result<Vec<SccpRotationV1>, SccpReadError> {
     let world = view.world();
-    let network_id = *view.network_id().as_bytes();
-    let mut chain = SccpRotationChainV1 {
-        steps: Vec::new(),
-        first_unattested_handoff: None,
-    };
-    let limit = limit.clamp(1, MAX_ROTATION_STEPS);
-    let mut generation = after_generation;
-    while chain.steps.len() < limit {
-        let Some(handoff) =
-            store::rosters::get(world, &generation).and_then(|roster| roster.handoff_height)
-        else {
-            break;
-        };
-        let (Ok(attested), Some(next_roster)) = (
-            attested(view, handoff),
-            roster_view(world, &network_id, generation.saturating_add(1)),
-        ) else {
-            chain.first_unattested_handoff = Some(handoff);
-            break;
-        };
-        chain.steps.push(SccpRotationStepV1 {
-            statement: attested.statement,
-            digest: attested.digest,
-            signatures: attested.signatures,
-            current_roster: attested.roster,
-            next_roster,
-        });
-        generation = generation.saturating_add(1);
+    let current = world.sccp_committee_current();
+    if after_generation == 0
+        || after_generation > current
+        || !(1..=MAX_ROTATION_STEPS).contains(&limit)
+    {
+        return Err(SccpReadError::Invalid(
+            "generation or rotation limit".into(),
+        ));
     }
-    chain
+    if after_generation == current {
+        return Ok(Vec::new());
+    }
+    let tip_time = view
+        .authenticated_query_ledger_time_ms()
+        .ok_or_else(|| SccpReadError::Unavailable("authenticated committed time".into()))?;
+    let mut rotations = Vec::new();
+    for id in after_generation..current {
+        if rotations.len() == limit {
+            break;
+        }
+        let record = world
+            .sccp_committee_generations()
+            .get(&id)
+            .ok_or_else(|| SccpReadError::RotationPruned(format!("generation {id}")))?;
+        if record.deadline_ms < tip_time {
+            return Err(SccpReadError::RotationPruned(format!(
+                "generation {id} is beyond its catch-up window"
+            )));
+        }
+        let end = record
+            .end
+            .ok_or_else(|| SccpReadError::Unavailable("generation end".into()))?;
+        let successor = world
+            .sccp_committee_generations()
+            .get(&(id + 1))
+            .ok_or_else(|| SccpReadError::RotationPruned(format!("successor of {id}")))?;
+        if end.next_committee_root != successor.committee_root
+            || end.end_height.checked_add(1) != Some(successor.start_height)
+            || end.end_timestamp_ms != successor.start_timestamp_ms
+            || end.successor_validity_ms != successor.validity_ms
+        {
+            return Err(SccpReadError::Unavailable(
+                "generation successor differs from handoff".into(),
+            ));
+        }
+        // TODO: persist/backfill the node-local rotation archive so Kura body pruning does not
+        // remove an otherwise retained destination catch-up window (§6).
+        let certificate = finality_certificate(view, end.end_height)?;
+        let header = SccpFinalityHeaderV1::parse(&certificate.header)
+            .map_err(|e| SccpReadError::Unavailable(e.to_string()))?;
+        if !header.is_rotation() || header.generation() != id {
+            return Err(SccpReadError::Unavailable(
+                "no certified handoff across this boundary".into(),
+            ));
+        }
+        rotations.push(SccpRotationV1 {
+            certificate,
+            next_committee: successor.keys.clone(),
+        });
+    }
+    Ok(rotations)
 }
 
 #[cfg(test)]
@@ -527,126 +602,15 @@ mod tests {
     use crate::{
         smartcontracts::isi::sccp::{
             commitment,
-            test_support::{authority, blank_state, header, sample_roster},
+            test_support::{authority, blank_state, header},
         },
         state::StateTransaction,
     };
     use iroha_data_model::sccp::{
-        attestation::SccpAttestationSubjectV1,
         control::SccpTransferLeafRefV1,
         outbound::{SccpOutboundMessageRecordV1, SccpOutboundStatusV1},
     };
-    use iroha_sccp::v1::{
-        history::{history_root, verify_history_inclusion},
-        merkle::verify_block_inclusion,
-    };
-
-    fn subject(height: u64, history_root: [u8; 32], history_size: u64) -> SccpAttestationSubjectV1 {
-        SccpAttestationSubjectV1 {
-            height,
-            epoch: 0,
-            timestamp_ms: height * 4_000,
-            sccp_root: [0; 32],
-            message_count: 0,
-            history_root,
-            history_size,
-            generation: 1,
-            roster_digest: [5; 32],
-            next_roster_digest: [0; 32],
-        }
-    }
-
-    fn attested_at(statement: SccpAttestationStatementV1) -> Attested {
-        Attested {
-            statement,
-            digest: [0; 32],
-            roster: SccpRosterViewV1 {
-                generation: 1,
-                valid_from_ms: 0,
-                valid_until_ms: 1,
-                threshold: 1,
-                members: Vec::new(),
-                digest: [0; 32],
-            },
-            signatures: SccpSignatureSetV1::default(),
-        }
-    }
-
-    fn record_message(stx: &mut StateTransaction<'_, '_>, seed: u8) -> [u8; 32] {
-        let message_id = [seed; 32];
-        let height = stx._curr_block.height().get();
-        let index = leaves::allocate_leaf(
-            stx,
-            SccpLeafRefV1::Transfer(SccpTransferLeafRefV1 { message_id }),
-        )
-        .expect("leaf");
-        store::outbound_messages::insert(
-            stx,
-            message_id,
-            SccpOutboundMessageRecordV1 {
-                network: SccpNetworkV1::EthereumMainnet,
-                revision: 1,
-                nonce: u64::from(seed),
-                height,
-                commitment_index: index,
-                deadline_ms: 99,
-                sender: authority(1),
-                amount: 1,
-                payload: vec![seed],
-                leaf: [seed.wrapping_add(100); 32],
-                status: SccpOutboundStatusV1::Recorded,
-            },
-        )
-        .expect("record");
-        message_id
-    }
-
-    #[test]
-    fn attestation_choices_parse() {
-        assert_eq!(
-            SccpAttestationChoiceV1::parse("own"),
-            Some(SccpAttestationChoiceV1::Own)
-        );
-        assert_eq!(
-            SccpAttestationChoiceV1::parse("latest"),
-            Some(SccpAttestationChoiceV1::Latest)
-        );
-        assert_eq!(
-            SccpAttestationChoiceV1::parse("42"),
-            Some(SccpAttestationChoiceV1::At(42))
-        );
-        assert_eq!(SccpAttestationChoiceV1::parse("-1"), None);
-    }
-
-    #[test]
-    fn capabilities_report_identity_generation_and_pending_handoffs() {
-        let state = blank_state();
-        let mut block = state.block(header(30));
-        let mut stx = block.transaction();
-        let empty = capabilities(&stx);
-        assert_eq!(empty.parameters, None);
-        assert_eq!(empty.domain_separator, domain_separator(&empty.network_id));
-        let mut first = sample_roster(1, 1);
-        first.handoff_height = Some(10);
-        store::rosters::insert(&mut stx, 1, first).expect("roster");
-        store::rosters::insert(&mut stx, 2, sample_roster(2, 11)).expect("roster");
-        store::roster_current::set(&mut stx, 2);
-        store::member_last_signed::insert(&mut stx, [1; 20], 9).expect("liveness");
-        store::handoff_stalled::insert(&mut stx, 10, 1).expect("stalled");
-        let reported = capabilities(&stx);
-        assert_eq!(reported.current_generation, 2);
-        assert_eq!(reported.members.len(), 4);
-        assert_eq!(reported.members[0].last_signed_height, Some(9));
-        assert_eq!(
-            reported.pending_handoffs,
-            vec![SccpPendingHandoffV1 {
-                height: 10,
-                generation: 1,
-                stalled: true
-            }]
-        );
-    }
-
+    use iroha_sccp::v1::finality::{FLAG_ACTIVE, SccpFinalityHeaderFieldsV1};
     #[test]
     fn light_client_profiles_report_the_active_version_per_network() {
         use iroha_data_model::{
@@ -670,7 +634,7 @@ mod tests {
             assert!(status.supported_until_ms.is_some());
         }
         assert_eq!(
-            capabilities(&stx).profiles_policy_hash,
+            capabilities(&stx).unwrap().profiles_policy_hash,
             catalog.genesis().policy_hash(),
             "without activations the policy hash commits to version 1 of every network"
         );
@@ -694,7 +658,7 @@ mod tests {
         assert_eq!(bsc.supported_until_ms, None, "this release lacks version 2");
         // Capabilities report the profiles of the next block, and the policy hash commits to
         // the same active versions (the SCCP input of the confidential policy digest).
-        let reported = capabilities(&stx);
+        let reported = capabilities(&stx).unwrap();
         let next = reported.committed_height + 1;
         assert_eq!(
             reported.light_client_profiles,
@@ -752,119 +716,178 @@ mod tests {
     }
 
     #[test]
-    fn signature_sets_follow_member_order() {
-        let state = blank_state();
-        let mut block = state.block(header(3));
-        let mut stx = block.transaction();
-        store::attestation_signatures::insert(&mut stx, (2, 3), [3; 65]).expect("sig");
-        store::attestation_signatures::insert(&mut stx, (2, 0), [1; 65]).expect("sig");
-        store::attestation_signatures::insert(&mut stx, (4, 1), [9; 65]).expect("sig");
-        let set = signature_set(&*stx.world, 2);
-        assert_eq!(set.signer_bitmap, 0b1001);
-        assert_eq!(set.signatures, vec![[1; 65], [3; 65]]);
-    }
-
-    #[test]
-    fn signatures_below_the_threshold_of_an_attested_subject_are_pruned() {
-        let state = blank_state();
-        let mut block = state.block(header(3));
-        let mut stx = block.transaction();
-        for index in [0_u8, 2] {
-            store::attestation_signatures::insert(&mut stx, (2, index), [index; 65]).expect("sig");
+    fn selectors_only_accept_native_committed_coordinates() {
+        assert_eq!(
+            SccpCertificateChoiceV1::parse("record"),
+            Some(SccpCertificateChoiceV1::Record)
+        );
+        assert_eq!(
+            SccpCertificateChoiceV1::parse("latest"),
+            Some(SccpCertificateChoiceV1::Latest)
+        );
+        assert_eq!(
+            SccpCertificateChoiceV1::parse("42"),
+            Some(SccpCertificateChoiceV1::At(42))
+        );
+        for invalid in ["own", "0", "-1", "+1", " 1", "", "18446744073709551616"] {
+            assert_eq!(SccpCertificateChoiceV1::parse(invalid), None);
         }
-        let two = signature_set(&*stx.world, 2);
+        assert_eq!(
+            certificate_height(9, 3, SccpCertificateChoiceV1::Record),
+            Ok(3)
+        );
+        assert_eq!(
+            certificate_height(9, 3, SccpCertificateChoiceV1::Latest),
+            Ok(9)
+        );
         assert!(matches!(
-            require_retained(2, &two, 3),
-            Err(SccpReadError::Pruned(message)) if message.contains("subject 2")
-        ));
-        assert_eq!(require_retained(2, &two, 2), Ok(()));
-        // Fully pruned: no signature is left at all.
-        assert!(matches!(
-            require_retained(5, &signature_set(&*stx.world, 5), 1),
-            Err(SccpReadError::Pruned(_))
-        ));
-    }
-
-    #[test]
-    fn unknown_and_unattested_messages_have_no_bundle() {
-        let state = blank_state();
-        let mut block = state.block(header(3));
-        let mut stx = block.transaction();
-        assert!(matches!(
-            message_proof(&stx, &[1; 32], SccpAttestationChoiceV1::Own),
-            Err(SccpReadError::NotFound(_))
-        ));
-        let id = record_message(&mut stx, 7);
-        commitment::commit_block(&mut stx, 3).expect("commit");
-        store::attestation_subjects::insert(&mut stx, 3, subject(3, [0; 32], 1)).expect("subject");
-        assert!(matches!(
-            message_proof(&stx, &id, SccpAttestationChoiceV1::Latest),
-            Err(SccpReadError::Pending(_))
-        ));
-        assert!(matches!(
-            message_proof(&stx, &id, SccpAttestationChoiceV1::At(2)),
+            certificate_height(9, 3, SccpCertificateChoiceV1::At(2)),
             Err(SccpReadError::Invalid(_))
         ));
+        assert!(matches!(
+            certificate_height(9, 3, SccpCertificateChoiceV1::At(10)),
+            Err(SccpReadError::NotFound(_))
+        ));
+    }
+    #[test]
+    fn absent_native_authority_never_yields_a_certificate() {
+        let state = blank_state();
+        let view = state.view();
+        assert!(matches!(
+            finality_certificate(&view, 0),
+            Err(SccpReadError::NotFound(_))
+        ));
+        assert!(matches!(
+            finality_certificate(&view, 1),
+            Err(SccpReadError::NotFound(_))
+        ));
+        let caps = capabilities(&view).unwrap();
+        assert_eq!(caps.consensus_instance, None);
+        assert_eq!(caps.current_generation, None);
+        assert_eq!(caps.liability_clock, 0);
+        assert!(generation_view(view.world(), 1).is_none());
+    }
+    fn record_message(stx: &mut StateTransaction<'_, '_>, seed: u8) -> [u8; 32] {
+        let message_id = [seed; 32];
+        let height = stx._curr_block.height().get();
+        let index = leaves::allocate_leaf(
+            stx,
+            SccpLeafRefV1::Transfer(SccpTransferLeafRefV1 { message_id }),
+        )
+        .expect("leaf");
+        store::outbound_messages::insert(
+            stx,
+            message_id,
+            SccpOutboundMessageRecordV1 {
+                network: SccpNetworkV1::EthereumMainnet,
+                revision: 1,
+                nonce: u64::from(seed),
+                height,
+                commitment_index: index,
+                deadline_ms: 99,
+                sender: authority(1),
+                amount: 1,
+                payload: vec![seed],
+                leaf: [seed.wrapping_add(100); 32],
+                status: SccpOutboundStatusV1::Recorded,
+            },
+        )
+        .expect("record");
+        message_id
     }
 
     #[test]
-    fn block_and_history_paths_verify() {
+    fn block_and_history_paths_bind_to_native_certified_roots() {
         let state = blank_state();
         let mut block = state.block(header(3));
         let mut stx = block.transaction();
         for seed in 1..=3 {
             record_message(&mut stx, seed);
         }
-        let commitment = commitment::commit_block(&mut stx, 3)
-            .expect("commit")
-            .expect("commitment");
-        let leaves = block_leaf_hashes(&*stx.world, 3).expect("leaves");
-        assert_eq!(leaves.len(), 3);
-        let direct = attested_at(subject(3, [0; 32], 1).statement([0; 32]));
-        for (index, leaf) in leaves.iter().enumerate() {
-            let index = u32::try_from(index).expect("index");
-            let (path, count, history) = leaf_paths(&*stx.world, 3, index, &direct).expect("paths");
-            assert_eq!((count, history), (3, None));
-            verify_block_inclusion(leaf, index, count, &path, &commitment.root)
-                .expect("block inclusion");
+        let commitment = commitment::commit_block(&mut stx, 3).unwrap().unwrap();
+        let hashes = block_leaf_hashes(&*stx.world, 3).unwrap();
+        let (history_root, history_size) = commitment::history_root_and_size(&*stx.world);
+        let fields = SccpFinalityHeaderFieldsV1 {
+            network_id: [1; 32],
+            height: 3,
+            timestamp_ms: 12_000,
+            flags: FLAG_ACTIVE,
+            generation: 1,
+            committee_root: [2; 32],
+            message_count: 3,
+            sccp_root: commitment.root,
+            history_root,
+            history_size,
+            ..SccpFinalityHeaderFieldsV1::default()
+        };
+        let direct = SccpFinalityHeaderV1::from_fields(&fields).unwrap();
+        for (index, leaf) in hashes.iter().enumerate() {
+            let (path, block) = leaf_paths(&*stx.world, 3, index as u32, &direct).unwrap();
+            assert_eq!(block.message_count, 3);
+            assert!(block.history_path.is_empty());
+            verify_block_inclusion(leaf, index as u32, 3, &path, &block.sccp_root).unwrap();
         }
-        // A later statement proves block 3 through its history root.
-        let size = commitment::history_root_and_size(&*stx.world).1;
-        let history: Vec<[u8; 32]> = store::history_leaves::range(&*stx.world, 0..size)
-            .map(|(_, (_, leaf))| *leaf)
-            .collect();
-        let root = history_root(&history).expect("root");
-        let later = attested_at(subject(9, root, size).statement([0; 32]));
-        let (_, _, history_proof) = leaf_paths(&*stx.world, 3, 1, &later).expect("paths");
-        let history_proof = history_proof.expect("historical mode");
-        assert_eq!(history_proof.sccp_root, commitment.root);
-        let leaf = store::history_leaves::get(&*stx.world, &history_proof.leaf_index)
-            .expect("history leaf")
+        let later = SccpFinalityHeaderV1::from_fields(&SccpFinalityHeaderFieldsV1 {
+            height: 9,
+            ..fields
+        })
+        .unwrap();
+        let (_, historical) = leaf_paths(&*stx.world, 3, 1, &later).unwrap();
+        assert_eq!(historical.sccp_root, commitment.root);
+        let leaf = store::history_leaves::get(&*stx.world, &historical.history_index)
+            .unwrap()
             .1;
-        verify_history_inclusion(
+        iroha_sccp::v1::history::verify_history_inclusion(
             &leaf,
-            history_proof.leaf_index,
-            size,
-            &history_proof.path,
-            &root,
+            historical.history_index,
+            history_size,
+            &historical.history_path,
+            &history_root,
         )
-        .expect("history inclusion");
+        .unwrap();
+        let altered = SccpFinalityHeaderV1::from_fields(&SccpFinalityHeaderFieldsV1 {
+            sccp_root: [9; 32],
+            ..fields
+        })
+        .unwrap();
+        assert!(leaf_paths(&*stx.world, 3, 1, &altered).is_err());
+        let altered = SccpFinalityHeaderV1::from_fields(&SccpFinalityHeaderFieldsV1 {
+            height: 9,
+            history_root: [9; 32],
+            ..fields
+        })
+        .unwrap();
+        assert!(leaf_paths(&*stx.world, 3, 1, &altered).is_err());
+        assert!(leaf_paths(&*stx.world, 3, 3, &direct).is_err());
     }
 
     #[test]
-    fn rotation_chains_stop_at_the_first_unattested_handoff() {
+    fn unknown_or_uncommitted_records_cannot_yield_native_bundles() {
         let state = blank_state();
-        let mut block = state.block(header(30));
+        let mut block = state.block(header(3));
         let mut stx = block.transaction();
-        let mut first = sample_roster(1, 1);
-        first.handoff_height = Some(10);
-        store::rosters::insert(&mut stx, 1, first).expect("roster");
-        store::rosters::insert(&mut stx, 2, sample_roster(2, 11)).expect("roster");
-        let chain = rotation_chain(&stx, 1, 16);
-        assert!(chain.steps.is_empty());
-        assert_eq!(chain.first_unattested_handoff, Some(10));
-        let current = rotation_chain(&stx, 2, 16);
-        assert!(current.steps.is_empty());
-        assert_eq!(current.first_unattested_handoff, None);
+        assert!(matches!(
+            message_proof(&stx, &[1; 32], SccpCertificateChoiceV1::Record),
+            Err(SccpReadError::NotFound(_))
+        ));
+        let id = record_message(&mut stx, 7);
+        assert!(matches!(
+            message_proof(&stx, &id, SccpCertificateChoiceV1::Record),
+            Err(SccpReadError::NotFound(_))
+        ));
+        assert!(matches!(
+            control_proof(
+                &stx,
+                SccpNetworkV1::EthereumMainnet,
+                1,
+                99,
+                SccpCertificateChoiceV1::Record
+            ),
+            Err(SccpReadError::NotFound(_))
+        ));
+        assert!(matches!(
+            rotation_chain(&stx, 1, 16),
+            Err(SccpReadError::Invalid(_))
+        ));
     }
 }

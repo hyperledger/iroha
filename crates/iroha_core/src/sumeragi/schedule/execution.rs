@@ -77,6 +77,8 @@ pub(crate) enum ScheduleStep {
     Requested {
         /// Original complete context, guards and same-pool nested allocations.
         captured: CapturedExecution,
+        /// Exact root scope captured from the original signed genesis or committed root policy.
+        root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
         /// Fixed-width transported proof authenticated against that same original cut.
         pulse: epoch_beacon::VerifiedEpochPulse,
     },
@@ -99,6 +101,24 @@ impl fmt::Debug for ScheduleStep {
     }
 }
 impl ScheduleStep {
+    /// Borrow the original signed-genesis context while that pristine request is executing.
+    /// A decoded World schedule or a finished/ordinary successor cannot create this token.
+    pub(crate) fn sccp_genesis_source(&self) -> Option<SccpGenesisSource<'_>> {
+        let Self::Requested {
+            captured,
+            root_scope,
+            ..
+        } = self
+        else {
+            return None;
+        };
+        let original = &captured.inputs().schedule;
+        (original.height == 1).then_some(SccpGenesisSource {
+            epoch: &original.current,
+            root_scope: *root_scope,
+        })
+    }
+
     pub(crate) fn frozen_boundary(&self) -> Option<&FrozenEpochBoundary> {
         match self {
             Self::Requested {
@@ -109,6 +129,30 @@ impl ScheduleStep {
         }
     }
 }
+
+/// Borrowed original signed-genesis authority, retained by the pristine schedule capture.
+/// Private construction prevents a decoded epoch or mutable registration from substituting it.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SccpGenesisSource<'a> {
+    epoch: &'a iroha_data_model::sumeragi::epoch::ValidatorEpochContextV1,
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
+}
+
+impl SccpGenesisSource<'_> {
+    /// Exact scope of the same authenticated original signed genesis.
+    pub(crate) fn root_scope(&self) -> iroha_data_model::block::consensus::SumeragiRootScope {
+        self.root_scope
+    }
+
+    /// Original ordered keys, PoPs and authorization; no mutable lookup or copy occurs.
+    pub(crate) fn epoch(&self) -> &iroha_data_model::sumeragi::epoch::ValidatorEpochContextV1 {
+        self.epoch
+    }
+}
+
+#[cfg(test)]
+#[path = "execution/sccp_source_tests.rs"]
+mod sccp_source_tests;
 
 /// Authenticate a successor's original native context at one committed State cut.
 /// Reused before event attribution and by the pristine writer before schedule effects.
@@ -347,7 +391,11 @@ impl StateBlock<'_> {
                 .global_beacon_latest_pulse
                 .insert(GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY, link);
         }
-        self.sumeragi_schedule = ScheduleStep::Requested { captured, pulse };
+        self.sumeragi_schedule = ScheduleStep::Requested {
+            captured,
+            root_scope,
+            pulse,
+        };
         Ok(())
     }
 
@@ -357,7 +405,12 @@ impl StateBlock<'_> {
         &mut self,
     ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<ScheduleError>> {
         let step = std::mem::take(&mut self.sumeragi_schedule);
-        let ScheduleStep::Requested { captured, pulse } = step else {
+        let ScheduleStep::Requested {
+            captured,
+            root_scope,
+            pulse,
+        } = step
+        else {
             self.sumeragi_schedule = step;
             return Ok(());
         };
@@ -369,6 +422,8 @@ impl StateBlock<'_> {
                 validate_executed_genesis(&self.world, &source.current)?;
                 params
             } else {
+                crate::resource_coherence::validate_final_policy(&self.world, source.height)
+                    .map_err(|error| ScheduleError::Epoch(error.to_string()))?;
                 self.world.consensus_schedule().ready(source.height)?.params
             };
             let graph = epoch_election::retain_outcome_schedule(
@@ -386,7 +441,11 @@ impl StateBlock<'_> {
         })();
         match prepare {
             Err(error) => {
-                self.sumeragi_schedule = ScheduleStep::Requested { captured, pulse };
+                self.sumeragi_schedule = ScheduleStep::Requested {
+                    captured,
+                    root_scope,
+                    pulse,
+                };
                 Err(error)
             }
             Ok((graph, params)) => {
@@ -445,6 +504,8 @@ pub(crate) fn validate_executed_genesis(
 ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<ScheduleError>> {
     use iroha_data_model::{consensus::ConsensusKeyRole, parameter::system::ConsensusMode};
     context.validate().map_err(ScheduleError::Epoch)?;
+    crate::resource_coherence::validate_final_policy(world, 1)
+        .map_err(|error| ScheduleError::Epoch(error.to_string()))?;
     crate::executor::private_fees::policy(world).map_err(|error| {
         error.map_rejection(|error| {
             ScheduleError::Epoch(format!(

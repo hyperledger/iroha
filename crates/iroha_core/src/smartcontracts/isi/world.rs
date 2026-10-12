@@ -414,85 +414,7 @@ pub mod isi {
         }
         Ok(())
     }
-    #[derive(crate::json_macros::JsonDeserialize)]
-    struct GovernedGasRate {
-        asset: String,
-        units_per_gas: u64,
-        twap_local_per_xor: Option<String>,
-        liquidity_profile: Option<String>,
-        volatility_class: Option<String>,
-    }
-    fn validate_governed_pipeline_gas_parameter(
-        custom: &iroha_data_model::parameter::CustomParameter,
-    ) -> Result<(), Error> {
-        let parameter_id = crate::state::governed_pipeline_gas_parameter_id();
-        if custom.id() != &parameter_id {
-            return Ok(());
-        }
-        let rates = custom
-            .payload()
-            .try_into_any_norito::<Vec<GovernedGasRate>>()
-            .map_err(|_| {
-                invalid_smart_contract_parameter(
-                    "ivm_gas_units_per_gas must be a list of gas-rate objects",
-                )
-            })?;
-        let mut assets = BTreeSet::new();
-        for rate in rates {
-            let asset = AssetDefinitionId::parse_address_literal(&rate.asset).map_err(|error| {
-                invalid_smart_contract_parameter(format!(
-                    "invalid ivm_gas_units_per_gas asset `{}`: {error}",
-                    rate.asset
-                ))
-            })?;
-            if rate.asset != asset.canonical_address() {
-                return Err(invalid_smart_contract_parameter(format!(
-                    "ivm_gas_units_per_gas asset `{}` is not a canonical asset definition address",
-                    rate.asset
-                )));
-            }
-            if !assets.insert(asset) {
-                return Err(invalid_smart_contract_parameter(format!(
-                    "ivm_gas_units_per_gas contains duplicate asset `{}`",
-                    rate.asset
-                )));
-            }
-            // A zero rate is an intentional convention for signature-bound gas that is
-            // settled by the Nexus component rather than a second pipeline transfer.
-            let _units_per_gas = rate.units_per_gas;
-            if let Some(value) = rate.twap_local_per_xor.as_deref() {
-                let twap = Numeric::from_str(value).map_err(|error| {
-                    invalid_smart_contract_parameter(format!(
-                        "invalid ivm_gas_units_per_gas twap `{value}` for asset `{}`: {error}",
-                        rate.asset
-                    ))
-                })?;
-                if twap <= Numeric::zero() {
-                    return Err(invalid_smart_contract_parameter(format!(
-                        "invalid ivm_gas_units_per_gas twap `{value}` for asset `{}`: value must be positive",
-                        rate.asset
-                    )));
-                }
-            }
-            if let Some(value) = rate.liquidity_profile.as_deref()
-                && iroha_config::parameters::actual::GasLiquidity::from_str(value).is_err()
-            {
-                return Err(invalid_smart_contract_parameter(format!(
-                    "invalid ivm_gas_units_per_gas liquidity `{value}` for asset `{}`",
-                    rate.asset
-                )));
-            }
-            if let Some(value) = rate.volatility_class.as_deref()
-                && iroha_config::parameters::actual::GasVolatility::from_str(value).is_err()
-            {
-                return Err(invalid_smart_contract_parameter(format!(
-                    "invalid ivm_gas_units_per_gas volatility `{value}` for asset `{}`",
-                    rate.asset
-                )));
-            }
-        }
-        Ok(())
-    }
+
     fn validate_hijiri_parameters(
         custom: &iroha_data_model::parameter::CustomParameter,
         state_transaction: &StateTransaction<'_, '_>,
@@ -5653,7 +5575,9 @@ pub mod isi {
         let previous = {
             let parameters = state_transaction.world.parameters.get_mut();
             let previous = parameters.custom().get(next.id()).cloned();
-            parameters.set_parameter(Parameter::Custom(next.clone()));
+            parameters
+                .set_parameter(Parameter::Custom(next.clone()))
+                .expect("validation fee registry is not a pipeline fee parameter");
             previous
         };
         state_transaction
@@ -8772,7 +8696,8 @@ pub mod isi {
                     .world
                     .parameters
                     .get_mut()
-                    .set_parameter(Parameter::Custom(next.clone()));
+                    .set_parameter(Parameter::Custom(next.clone()))
+                    .expect("Parliament registry is not a pipeline validity parameter");
                 state_transaction
                     .world
                     .emit_events(Some(ConfigurationEvent::Changed(ParameterChanged {
@@ -18087,6 +18012,7 @@ pub mod isi {
                     state_transaction.world.parameters.get().sumeragi(),
                     change,
                     state_transaction._curr_block.is_genesis(),
+                    super::sccp::params::exists(&*state_transaction.world),
                 )
                 .map_err(|error| {
                     InstructionExecutionError::InvalidParameter(
@@ -18162,7 +18088,6 @@ pub mod isi {
                     }
                 }
                 validate_alias_dataspace_bootstrap_grant(custom, state_transaction)?;
-                validate_governed_pipeline_gas_parameter(custom)?;
                 // The committed ZK validity policy is an ordinary authorized
                 // parameter. A malformed or incoherent payload, or one that strands
                 // committed pending transitions, is rejected from the instruction
@@ -18177,10 +18102,8 @@ pub mod isi {
                         .map(|(effective_height, count)| (*effective_height, *count)),
                 )
                 .map_err(|error| invalid_smart_contract_parameter(error.to_string()))?;
-                // The committed pipeline validity policy: same rule, decided from
-                // the instruction bytes alone.
-                crate::pipeline_validity_policy::validate_set_parameter(custom)
-                    .map_err(|error| invalid_smart_contract_parameter(error.to_string()))?;
+                // The atomic parameter owner validates pipeline limits and fee
+                // fields below, preserving an original local decoder refusal.
                 validate_hijiri_parameters(custom, state_transaction)?;
                 validate_da_ingest_admission_policy(custom, state_transaction)?;
                 validate_reputation_archive_retention_request(custom, state_transaction)?;
@@ -18239,7 +18162,14 @@ pub mod isi {
                             let new_param = Parameter::$container(
                                 iroha_data_model::parameter::$single::$variant(next),
                             );
-                            params.set_parameter(new_param.clone());
+                            let result = params.set_parameter(new_param.clone());
+                            result.map_err(|error| {
+                                state_transaction.attempt_error_to_instruction_error(
+                                    crate::execution_attempt::norito_decode_attempt_error(error, |error| {
+                                        invalid_smart_contract_parameter(error.to_string())
+                                    }),
+                                )
+                            })?;
                             state_transaction.world.emit_events(
                                 Some(ConfigurationEvent::Changed(ParameterChanged {
                                     old_value: prev_param,
@@ -18286,12 +18216,10 @@ pub mod isi {
                                         )),
                                     )
                                 })?;
-                                state_transaction
-                                    .world
-                                    .parameters
-                                    .get_mut()
-                                    .sumeragi
-                                    .block_cadence_ms = metadata.block_cadence_ms;
+                                let parameters = state_transaction.world.parameters.get_mut();
+                                let mut consensus = parameters.sumeragi().clone();
+                                consensus.block_cadence_ms = metadata.block_cadence_ms;
+                                parameters.set_sumeragi(consensus);
                             }
                             if next.id()
                                 == &iroha_data_model::isi::settlement::FxCorridorPolicyRegistry::parameter_id()
@@ -18445,7 +18373,14 @@ pub mod isi {
                             let previous = {
                                 let params = state_transaction.world.parameters.get_mut();
                                 let previous = params.custom().get(next.id()).cloned();
-                                params.set_parameter(Parameter::Custom(next.clone()));
+                                let result = params.set_parameter(Parameter::Custom(next.clone()));
+                                result.map_err(|error| {
+                                    state_transaction.attempt_error_to_instruction_error(
+                                        crate::execution_attempt::norito_decode_attempt_error(error, |error| {
+                                            invalid_smart_contract_parameter(error.to_string())
+                                        }),
+                                    )
+                                })?;
                                 previous
                             };
                             state_transaction.world.emit_events(Some(
@@ -30713,7 +30648,9 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             {
                 let mut stx = state_block.transaction();
                 let params = stx.world.parameters.get_mut();
-                params.sumeragi.key_activation_lead_blocks = 2;
+                let mut consensus = params.sumeragi().clone();
+                consensus.key_activation_lead_blocks = 2;
+                params.set_sumeragi(consensus);
                 stx.apply();
             }
             crate::status::reset_peer_key_policy_counters_for_tests();
@@ -32131,7 +32068,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             ));
             assert!(stx.world.parameters.get().custom().get(&parameter_id).is_none());
             // An already committed exact grant remains retryable after its authorized creation.
-            stx.world.parameters.get_mut().set_parameter(Parameter::Custom(custom.clone()));
+            stx.world.parameters.get_mut().set_parameter(Parameter::Custom(custom.clone())).expect("valid fixture parameters");
             SetParameter::new(Parameter::Custom(custom.clone()))
                 .expect_execute(&ALICE_ID, &mut stx, "installed exact grant retry does not mutate SNS ownership");
             assert_eq!(stx.world.parameters.get().custom().get(&parameter_id), Some(&custom));
@@ -32193,7 +32130,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                     .expect("each governed transaction variant has a current value");
                 let next_parameter = Parameter::Transaction(next);
                 let mut expected_parameters = stx.world.parameters.get().clone();
-                expected_parameters.set_parameter(next_parameter.clone());
+                expected_parameters.set_parameter(next_parameter.clone()).expect("valid fixture parameters");
                 let internal_before = stx.world.internal_event_buf.len();
                 let external_before = stx.world.external_event_buf.len();
                 SetParameter::new(next_parameter.clone())
@@ -32666,7 +32603,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 let mut world = state.world.block();
                 world.parameters.get_mut().set_parameter(Parameter::Custom(
                     SumeragiNposParameters::default().into_custom_parameter(),
-                ));
+                )).expect("valid fixture parameters");
                 world.commit();
             }
             let block = new_dummy_block_at_height(NonZeroU64::new(2).unwrap());
@@ -34010,7 +33947,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             stx.world
                 .parameters
                 .get_mut()
-                .set_parameter(Parameter::Custom(protected));
+                .set_parameter(Parameter::Custom(protected)).expect("valid fixture parameters");
             let rotation = scode::CommitContractDeployment {
                 expected_deploy_nonce: 1,
                 contract_address: address_at_nonce_1.clone(),
@@ -34067,7 +34004,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             stx.world
                 .parameters
                 .get_mut()
-                .set_parameter(Parameter::Custom(parameter));
+                .set_parameter(Parameter::Custom(parameter)).expect("valid fixture parameters");
             let contract_address = ContractAddress::derive(
                 stx.network_id(),
                 &ALICE_ID,
@@ -34111,7 +34048,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             stx.world
                 .parameters
                 .get_mut()
-                .set_parameter(Parameter::Custom(protected));
+                .set_parameter(Parameter::Custom(protected)).expect("valid fixture parameters");
             grant_contract_lifecycle_authority(&mut stx, &ALICE_ID);
             let code_hash = Hash::new(b"protected-contract");
             let manifest = ContractManifest {

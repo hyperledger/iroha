@@ -1,7 +1,7 @@
 //! Public asynchronous SCCP v1 reads on one immutable client context (`specs/sccp.md` §6).
 //!
 //! Every response is data from one Taira peer; nothing here is trusted. Wallets verify proof
-//! bundles and rotation chains locally (`iroha_sccp_wallet::pure`) before using them.
+//! bundles locally (`iroha_sccp_wallet::pure`) before using them.
 
 use super::{Client, dispatch, join_torii_url};
 use crate::{Error, Result, http::Method};
@@ -12,7 +12,7 @@ use iroha_sccp::api::{
     SccpCapabilitiesV1, SccpControlPageV1, SccpControlProofBundleV1,
     SccpGovernanceProposalDetailV1, SccpHistoryPathViewV1, SccpLcCheckpointCoverV1,
     SccpLightClientDetailV1, SccpMessageProofBundleV1, SccpMessageStatusV1, SccpOutboundPageV1,
-    SccpRecentMessagesV1, SccpRosterViewV1, SccpRotationChainV1,
+    SccpRecentMessagesV1,
 };
 use iroha_torii_shared::route_catalog::{RouteDescriptor, sccp};
 use norito::json::JsonDeserialize;
@@ -358,43 +358,6 @@ impl Sccp<'_> {
         );
         self.get(sccp::CONTROL_PROOF, &path).await
     }
-
-    /// Read the current roster generation.
-    ///
-    /// # Errors
-    /// Returns structured transport, HTTP or decoding errors.
-    pub async fn current_roster(&self) -> Result<SccpRosterViewV1> {
-        self.get(sccp::ROSTER_CURRENT, sccp::ROSTER_CURRENT.path())
-            .await
-    }
-
-    /// Read one roster generation.
-    ///
-    /// # Errors
-    /// Returns structured transport, HTTP or decoding errors.
-    pub async fn roster(&self, generation: u64) -> Result<SccpRosterViewV1> {
-        self.get(
-            sccp::ROSTER,
-            &path(sccp::ROSTER, &[&generation.to_string()]),
-        )
-        .await
-    }
-
-    /// Read the catch-up rotation chain from `after_generation`, at most `limit` (≤ 16) steps.
-    ///
-    /// # Errors
-    /// Returns structured transport, HTTP or decoding errors.
-    pub async fn rotations(
-        &self,
-        after_generation: u64,
-        limit: usize,
-    ) -> Result<SccpRotationChainV1> {
-        let path = format!(
-            "{}?after_generation={after_generation}&limit={limit}",
-            sccp::ROSTER_ROTATIONS.path()
-        );
-        self.get(sccp::ROSTER_ROTATIONS, &path).await
-    }
 }
 
 /// The path and query of a recent-messages request.
@@ -444,7 +407,6 @@ mod tests {
             path(sccp::CONTROL_PROOF, &["ton-mainnet", "2", "7"]),
             "/v1/sccp/controls/ton-mainnet/2/7/proof"
         );
-        assert_eq!(path(sccp::ROSTER, &["4"]), "/v1/sccp/rosters/4");
         assert_eq!(
             path(sccp::OUTBOUND_BY_NONCE, &["bsc-mainnet", "3"]),
             "/v1/sccp/outbound/bsc-mainnet/3"

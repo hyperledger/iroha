@@ -27,6 +27,7 @@ use iroha_data_model::{
     sccp::{
         bounded_bytes::SccpBoundedBytesError,
         commitment::{SCCP_HISTORY_MAX_SIZE_V1, SccpBlockCommitmentV1, SccpHistoryStateV1},
+        committee::SccpGenerationCauseV1,
         control::{
             SCCP_FIRST_CONTROL_NONCE_V1, SccpControlLeafRefV1, SccpControlRecordV1, SccpLeafRefV1,
             SccpTransferLeafRefV1,
@@ -38,13 +39,16 @@ use iroha_data_model::{
             sccp_taira_xor_asset_definition_id, sccp_xor_route_escrow_account_id_v1,
         },
         events::{
-            SccpBlockCommittedV1, SccpBounceReasonV1, SccpControlRecordedV1, SccpEvent,
-            SccpEventSet, SccpGovernanceEnactedV1, SccpInboundBouncedV1,
-            SccpInboundLiabilityShortfallV1, SccpInboundProvenV1, SccpInboundReleasedV1,
-            SccpLightClientAdvancedV1, SccpLightClientFrozenV1, SccpLightClientInitializedV1,
-            SccpMessageRecordedV1, SccpOutboundRefundedV1, SccpOutboundStrandedV1,
-            SccpOutboundVoidedV1, SccpRecipientRegisteredV1, SccpRevisionActivationChangedV1,
-            SccpStrandedReleasedV1, SccpTrustedCheckpointInstalledV1,
+            SccpBlockCommittedV1, SccpBounceReasonV1, SccpCommitteeGenerationCreatedV1,
+            SccpCommitteeResyncV1, SccpControlRecordedV1, SccpEvent, SccpEventSet,
+            SccpFinalityDegradedReasonV1, SccpFinalityDegradedV1,
+            SccpGenerationDestinationClearedV1, SccpGenerationMemberUnslashableV1,
+            SccpGovernanceEnactedV1, SccpInboundBouncedV1, SccpInboundLiabilityShortfallV1,
+            SccpInboundProvenV1, SccpInboundReleasedV1, SccpLightClientAdvancedV1,
+            SccpLightClientFrozenV1, SccpLightClientInitializedV1, SccpMessageRecordedV1,
+            SccpOutboundRefundedV1, SccpOutboundStrandedV1, SccpOutboundVoidedV1,
+            SccpRecipientRegisteredV1, SccpRevisionActivationChangedV1, SccpStrandedReleasedV1,
+            SccpTrustedCheckpointInstalledV1,
         },
         governance::SccpGovernanceSubjectV1,
         inbound::{
@@ -248,8 +252,8 @@ fn evidence(len: usize) -> SccpLcEvidenceBytesV1 {
 
 /// Codec index of every event variant, in declaration order. Indices 2 to 9 belonged to the
 /// events of the attestation transport and stay unassigned.
-const EVENT_CODEC_INDICES: [u32; 18] = [
-    0, 1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+const EVENT_CODEC_INDICES: [u32; 23] = [
+    0, 1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
 ];
 
 /// JSON tags of the events deleted with the attestation transport (§4.17).
@@ -447,6 +451,45 @@ fn every_event() -> Vec<(SccpEvent, &'static str)> {
                 ],
             }),
             "governance_enacted",
+        ),
+        (
+            SccpEvent::FinalityDegraded(SccpFinalityDegradedV1 {
+                height: 31,
+                reason: SccpFinalityDegradedReasonV1::MissingHeightInputs,
+            }),
+            "finality_degraded",
+        ),
+        (
+            SccpEvent::CommitteeGenerationCreated(SccpCommitteeGenerationCreatedV1 {
+                generation: 3,
+                cause: SccpGenerationCauseV1::KeyChange,
+                committee_root: [23; 32],
+                start_height: 32,
+                deadline_ms: 1_758_604_800_000,
+            }),
+            "committee_generation_created",
+        ),
+        (
+            SccpEvent::CommitteeResync(SccpCommitteeResyncV1 {
+                generation: 4,
+                committee_root: [24; 32],
+                start_height: 33,
+            }),
+            "committee_resync",
+        ),
+        (
+            SccpEvent::GenerationMemberUnslashable(SccpGenerationMemberUnslashableV1 {
+                generation: 4,
+                index: 30,
+            }),
+            "generation_member_unslashable",
+        ),
+        (
+            SccpEvent::GenerationDestinationCleared(SccpGenerationDestinationClearedV1 {
+                generation: 3,
+                lc: 1_758_604_800_001,
+            }),
+            "generation_destination_cleared",
         ),
     ]
 }
@@ -877,6 +920,30 @@ fn event_schema_names_are_stable() {
             SccpGovernanceEnactedV1::nominal_name(),
             "iroha_data_model::sccp::events::SccpGovernanceEnactedV1",
         ),
+        (
+            SccpFinalityDegradedReasonV1::nominal_name(),
+            "iroha_data_model::sccp::events::SccpFinalityDegradedReasonV1",
+        ),
+        (
+            SccpFinalityDegradedV1::nominal_name(),
+            "iroha_data_model::sccp::events::SccpFinalityDegradedV1",
+        ),
+        (
+            SccpCommitteeGenerationCreatedV1::nominal_name(),
+            "iroha_data_model::sccp::events::SccpCommitteeGenerationCreatedV1",
+        ),
+        (
+            SccpCommitteeResyncV1::nominal_name(),
+            "iroha_data_model::sccp::events::SccpCommitteeResyncV1",
+        ),
+        (
+            SccpGenerationMemberUnslashableV1::nominal_name(),
+            "iroha_data_model::sccp::events::SccpGenerationMemberUnslashableV1",
+        ),
+        (
+            SccpGenerationDestinationClearedV1::nominal_name(),
+            "iroha_data_model::sccp::events::SccpGenerationDestinationClearedV1",
+        ),
     ];
     let mut seen = BTreeSet::new();
     for (actual, expected) in cases {
@@ -1107,6 +1174,53 @@ fn every_event_roundtrips_with_its_snake_case_tag() {
     for retired in RETIRED_EVENT_TAGS {
         assert!(!tags.contains(retired), "{retired}");
     }
+}
+
+#[test]
+fn native_generation_event_payloads_cover_every_decoder() {
+    for reason in [
+        SccpFinalityDegradedReasonV1::MissingHeightInputs,
+        SccpFinalityDegradedReasonV1::InvalidHeightInputs,
+        SccpFinalityDegradedReasonV1::MissingCurrentGeneration,
+        SccpFinalityDegradedReasonV1::InconsistentGenerationState,
+        SccpFinalityDegradedReasonV1::MissingParentTip,
+        SccpFinalityDegradedReasonV1::ArithmeticOverflow,
+    ] {
+        roundtrip_with_slice(&reason);
+        roundtrip_with_slice(&SccpFinalityDegradedV1 {
+            height: u64::MAX,
+            reason,
+        });
+    }
+    for cause in [
+        SccpGenerationCauseV1::Genesis,
+        SccpGenerationCauseV1::KeyChange,
+        SccpGenerationCauseV1::Heartbeat,
+        SccpGenerationCauseV1::Resync,
+    ] {
+        roundtrip_with_slice(&SccpCommitteeGenerationCreatedV1 {
+            generation: u64::MAX,
+            cause,
+            committee_root: [0xff; 32],
+            start_height: u64::MAX,
+            deadline_ms: u64::MAX,
+        });
+    }
+    roundtrip_with_slice(&SccpCommitteeResyncV1 {
+        generation: u64::MAX,
+        committee_root: [0x80; 32],
+        start_height: u64::MAX,
+    });
+    for index in [0, 30] {
+        roundtrip_with_slice(&SccpGenerationMemberUnslashableV1 {
+            generation: u64::MAX,
+            index,
+        });
+    }
+    roundtrip_with_slice(&SccpGenerationDestinationClearedV1 {
+        generation: u64::MAX,
+        lc: u64::MAX,
+    });
 }
 
 #[test]

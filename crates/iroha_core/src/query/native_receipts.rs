@@ -168,7 +168,8 @@ pub fn private_dataspace_record_proof(
         .commit_certificate()
         .ok_or("private-root record carrier lacks a native certificate")?;
     let result =
-        iroha_data_model::sumeragi_finality::result_of_preimage(certificate.result_preimage());
+        iroha_data_model::sumeragi_finality::result_of_preimage(certificate.result_preimage())
+            .ok_or("private-root carrier has a malformed native result preimage")?;
     let proof = PrivateDataspaceRecordProof::from_writes(
         *view.network_id(),
         height,

@@ -72,10 +72,14 @@ fn world(
     {
         let mut parameters = world.parameters.block();
         if let Some(scope) = scope {
-            parameters.set_parameter(test_support::metadata(scope));
+            parameters
+                .set_parameter(test_support::metadata(scope))
+                .expect("valid fixture parameters");
         }
         if let Some(policy) = admission {
-            parameters.set_parameter(Parameter::Custom(policy.into_custom_parameter().unwrap()));
+            parameters
+                .set_parameter(Parameter::Custom(policy.into_custom_parameter().unwrap()))
+                .expect("valid fixture parameters");
         }
         parameters.commit();
     }

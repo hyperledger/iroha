@@ -13,6 +13,8 @@ from __future__ import annotations
 import copy
 import importlib.util
 import io
+import re
+from collections import Counter
 import sys
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -363,14 +365,14 @@ class Status(Base):
         self.assert_fails(errors, "operations[nexus::RegisterVerifiedFeeSponsorVaultAllocation]: test_evidence is `none`")
 
         def table_test(inventory: dict) -> None:
-            relation = next(item for item in inventory["relations"] if item["id"] == "halo2.confidential_transfer")
+            relation = next(item for item in inventory["relations"] if item["id"] == "native_pipa_r.confidential_transfer")
             relation["tests"] = [{"path": "crates/iroha_core_zk/src/verification/tests.rs",
-                                  "test": "every_admitted_halo2_circuit_has_one_explicit_relation"}]
+                                  "test": "every_admitted_native_circuit_has_one_explicit_relation"}]
         self.assert_fails(run("check_products", edited(table_test)),
-                          "relations[halo2.confidential_transfer]: test every_admitted_halo2_circuit_has_one_explicit_relation does not name `verify_for_relation`")
+                          "relations[native_pipa_r.confidential_transfer]: test every_admitted_native_circuit_has_one_explicit_relation does not name `verify_for_relation`")
 
         def another_relation(inventory: dict) -> None:
-            relation = next(item for item in inventory["relations"] if item["id"] == "halo2.confidential_transfer")
+            relation = next(item for item in inventory["relations"] if item["id"] == "native_pipa_r.confidential_transfer")
             relation["tests"] = [{"path": "crates/iroha_core_zk/src/verification/tests.rs",
                                   "test": "backend_confusion_and_unknown_circuits_reject_before_crypto"}]
         self.assert_fails(run("check_products", edited(another_relation)), "and none of ['ConfidentialTransfer']")
@@ -445,8 +447,8 @@ class Status(Base):
             inventory["products"][1]["owner_tasks"] = []
             inventory["digests"]["products"] = inventory["digests"]["products"][1:]
             relations = {relation["id"]: relation for relation in inventory["relations"]}
-            relations["halo2.kaigi_usage"]["tests"] = []
-            del relations["halo2.kaigi_authorization"]["verifier"]
+            relations["native_pipa_r.kaigi_usage"]["tests"] = []
+            del relations["native_pipa_r.kaigi_authorization"]["verifier"]
             del relations["ram_lfe.execution"]["refusal"]
             relations["fastpq.axt"]["status"] = "ready"
             relations["race.race_v1"]["guarantee"] = ""
@@ -456,8 +458,8 @@ class Status(Base):
         self.assert_fails(errors, "products[generic_proof]: requirements is required")
         self.assert_fails(errors, "products[fastpq_ordinary_effects]: owner_tasks is required")
         self.assert_fails(errors, "products[generic_proof]: digests.products has no entry for this product")
-        self.assert_fails(errors, "relations[halo2.kaigi_usage]: test_evidence is `none`")
-        self.assert_fails(errors, "relations[halo2.kaigi_authorization]: a `implemented` relation needs its verifier")
+        self.assert_fails(errors, "relations[native_pipa_r.kaigi_usage]: test_evidence is `none`")
+        self.assert_fails(errors, "relations[native_pipa_r.kaigi_authorization]: a `implemented` relation needs its verifier")
         self.assert_fails(errors, "relations[ram_lfe.execution]: an `unavailable` relation needs its refusal")
         self.assert_fails(errors, "relations[fastpq.axt]: status must be")
         self.assert_fails(errors, "relations[race.race_v1]: guarantee must say what the relation establishes")
@@ -526,11 +528,71 @@ class Exact12(Base):
 
 
 class ClosedLists(Base):
+    def test_native_circuit_constants_and_relation_mapping_are_pinned(self) -> None:
+        self.assert_clean(run("check_generic"))
+        path = "crates/kaigi_zk/src/usage_v1.rs"
+        overrides = replaced(path, '"pipa-r/pasta/kaigi-usage-v1"', '"pipa-r/pasta/another-usage-v1"')
+        self.assert_fails(run("check_generic", overrides=overrides), "native_circuits[KaigiUsage]")
+        overrides = replaced(VERIFICATION,
+                             "NativeRelationV1::KaigiUsage => ProofRelation::KaigiUsage",
+                             "NativeRelationV1::KaigiUsage => ProofRelation::KaigiAuthorization")
+        self.assert_fails(run("check_generic", overrides=overrides), "native_circuits: compiled_relation maps")
+
+    def test_native_admission_list_cannot_omit_duplicate_or_hide_a_relation(self) -> None:
+        path = "crates/iroha_core_zk/src/native_pipa_r.rs"
+        for substitute in ("", "        Self::KaigiAuthorization,\n", "        OTHER_RELATION,\n"):
+            overrides = replaced(path, "        Self::KaigiUsage,\n", substitute)
+            self.assert_fails(run("check_generic", overrides=overrides), "native_circuits: ALL lists")
+
+    def test_native_kind_substitution_and_lower_circuit_swaps_fail(self) -> None:
+        path = "crates/iroha_core_zk/src/native_pipa_r.rs"
+        for original, substitute, fragment in (
+            ("Self::KaigiUsage => Some(KaigiRelation::Usage)",
+             "Self::KaigiUsage => Some(KaigiRelation::Authorization)", "kaigi selects"),
+            ("Self::ConfidentialTransfer => Some(Kind::Transfer)",
+             "Self::ConfidentialTransfer => Some(Kind::Full)", "confidential selects"),
+            ("if let Some(kind) = self.kaigi() {\n            kind.circuit_id()",
+             "if let Some(_kind) = self.kaigi() {\n            KaigiRelation::Usage.circuit_id()", "circuit_id must delegate"),
+        ):
+            self.assert_fails(run("check_generic", overrides=replaced(path, original, substitute)), fragment)
+        for path, original, substitute, fragment in (
+            ("crates/kaigi_zk/src/native.rs", "Self::Usage => KAIGI_USAGE_CIRCUIT_ID_V1",
+             "Self::Usage => KAIGI_AUTHORIZATION_CIRCUIT_ID_V1", "kaigi circuit_id maps"),
+            ("crates/iroha_core_zk/src/confidential_native/mod.rs", "Self::Transfer => super::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID",
+             "Self::Transfer => super::CONFIDENTIAL_UNSHIELD_V2_CIRCUIT_ID", "confidential circuit_id maps"),
+        ):
+            self.assert_fails(run("check_generic", overrides=replaced(path, original, substitute)), fragment)
+
+    def test_unused_lookalike_constant_cannot_supply_the_native_identity(self) -> None:
+        path = "crates/kaigi_zk/src/usage_v1.rs"
+        overrides = replaced(path, '"pipa-r/pasta/kaigi-usage-v1"', '"pipa-r/pasta/wrong-usage-v1"')
+        overrides[path] += '\npub const UNUSED_CIRCUIT_ID: &str = "pipa-r/pasta/kaigi-usage-v1";\n'
+
+        def unrelated(inventory: dict) -> None:
+            row = next(row for row in inventory["generic_relations"]["relations"] if row["variant"] == "KaigiUsage")
+            row["circuit_source"]["constant"] = "UNUSED_CIRCUIT_ID"
+        self.assert_fails(run("check_generic", edited(unrelated), overrides), "kaigi circuit_id maps")
+
+    def test_native_circuit_identity_cannot_be_omitted_or_duplicated_in_inventory(self) -> None:
+        def omitted(inventory: dict) -> None:
+            row = next(row for row in inventory["generic_relations"]["relations"] if row["variant"] == "KaigiUsage")
+            del row["circuit_source"]
+        self.assert_fails(run("check_generic", edited(omitted)), "native_circuits[KaigiUsage]")
+
+        def duplicate(inventory: dict) -> None:
+            rows = {row["variant"]: row for row in inventory["generic_relations"]["relations"]}
+            rows["KaigiUsage"]["circuits"] = rows["KaigiAuthorization"]["circuits"]
+            rows["KaigiUsage"]["circuit_source"] = rows["KaigiAuthorization"]["circuit_source"]
+        self.assert_fails(run("check_generic", edited(duplicate)), "each native relation requires a distinct circuit identity")
+
     def test_new_generic_relation_and_circuit_fail(self) -> None:
         overrides = replaced(VERIFICATION, "    KaigiUsage,\n}", "    KaigiUsage,\n    /// New.\n    VoteBallot,\n}")
         self.assert_fails(run("check_generic", overrides=overrides), "ProofRelation has variants")
-        overrides = replaced(ZK_LIB, '    "halo2/pasta/ipa/kaigi-usage-v1",\n', '    "halo2/pasta/ipa/kaigi-usage-v1",\n    "halo2/pasta/ipa/vote-ballot-v1",\n')
-        self.assert_fails(run("check_generic", overrides=overrides), "HALO2_IPA_PRODUCTION_CIRCUIT_IDS_V1 is")
+        path = "crates/iroha_core_zk/src/native_pipa_r.rs"
+        overrides = replaced(path, "    ConfidentialChangeUnshield,\n}", "    ConfidentialChangeUnshield,\n    VoteBallot,\n}")
+        self.assert_fails(run("check_generic", overrides=overrides), "NativeRelationV1 has variants")
+        overrides = replaced(path, "        Self::KaigiUsage,\n", "        Self::KaigiUsage,\n        Self::VoteBallot,\n")
+        self.assert_fails(run("check_generic", overrides=overrides), "native_circuits: ALL lists")
         path = "crates/iroha_core_privacy/src/execution_proofs/registry.rs"
         overrides = replaced(path, "enum CompiledAdapterV1 {\n    RaceV1,\n}", "enum CompiledAdapterV1 {\n    RaceV1,\n    ClassedRaceV1,\n}")
         self.assert_fails(run("check_generic", overrides=overrides), "generic_relations.execution_adapters: CompiledAdapterV1 has variants")
@@ -776,7 +838,8 @@ def small_selection(inventory: dict) -> dict:
     section["selector_census"]["roots"] = ["crates/iroha_core/src/smartcontracts/isi/kaigi", "crates/iroha_core_zk/src/verification.rs",
                                            "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs", "crates/iroha_core/src/smartcontracts/isi/game.rs",
                                            "crates/iroha_core_privacy/src/privacy_state.rs", "crates/iroha_core/src/state.rs",
-                                           "crates/iroha_core/src/smartcontracts/ivm/host.rs", "crates/iroha_data_model/src/proof.rs"]
+                                           "crates/iroha_core/src/smartcontracts/ivm/host.rs", "crates/iroha_data_model/src/proof.rs",
+                                           "crates/iroha_torii/src/routing.rs"]
     section["source_inclusion_census"]["roots"] = ["crates/iroha_core_privacy/src/execution_proofs"]
     checker = C.Checker(inventory, C.Tree(), None)
     known = {(row["token"], row["path"]): row["site"] for row in section["selector_census"]["occurrences"]}
@@ -833,7 +896,7 @@ class GuaranteeSelection(Base):
     def test_site_shape_is_checked(self) -> None:
         inventory = copy.deepcopy(self.small)
         sites = {site["id"]: site for site in inventory["guarantee_selection"]["sites"]}
-        sites["generic.halo2_uploaded_key"]["rejection_tests"] = []
+        sites["generic.native_uploaded_key"]["rejection_tests"] = []
         del sites["soracloud.typed_role_feature"]["open_defect"]
         sites["kaigi.policy_named_key"]["selector"] = "astrology"
         del sites["voting.election_keys"]["site"]
@@ -842,7 +905,7 @@ class GuaranteeSelection(Base):
         inventory["guarantee_selection"]["source_inclusion_census"]["files"][0]["use"] = "decoration"
         inventory["guarantee_selection"]["source_inclusion_census"]["files"][1]["site"] = "no.such.site"
         errors = run("check_guarantee_selection", inventory)
-        self.assert_fails(errors, "sites[generic.halo2_uploaded_key]: cite a rejection test or record an open defect")
+        self.assert_fails(errors, "sites[generic.native_uploaded_key]: cite a rejection test or record an open defect")
         self.assert_fails(errors, "sites[soracloud.typed_role_feature]: a selector that can choose a guarantee is an open defect")
         self.assert_fails(errors, "sites[kaigi.policy_named_key]: selector must be one of")
         self.assert_fails(errors, "sites[voting.election_keys]: site (path and symbol) is required")
@@ -1594,6 +1657,109 @@ class EntryPoints(Base):
         self.assertTrue(all(row["route"] == "excluded" for row in rows))
 
 
+class PlainBallotAndRestoreGuards(Base):
+    """Actual shared authority and restore guards stay independently anchored."""
+
+    BALLOTS = ("governance::CastPlainBallot", "governance::UpdatePlainConviction")
+    WORLD = "crates/iroha_core/src/smartcontracts/isi/world.rs"
+    RESTORE_WORLD = "crates/iroha_core/src/state/deserialize_world.rs"
+    RESTORE_CORE = "crates/iroha_core/src/state/deserialize_core.rs"
+
+    def guarded_ballots(self) -> list[dict]:
+        return [operation(INVENTORY, identifier) for identifier in self.BALLOTS]
+
+    def guarded_restore(self) -> list[dict]:
+        return [site for site in INVENTORY["admission_routes"]["restore"]["sites"] if "state_field" in site]
+
+    def anchors(self, **nodes) -> dict:
+        routes = [{"id": route} for item in nodes.get("operations", []) for route in item.get("routes", [])]
+        return dict(inventories=INVENTORY["inventories"], routes={"list": routes}, **nodes)
+
+    def removed_symbol(self, site: dict) -> dict:
+        text = source(site["path"])
+        pattern = re.compile(r"\s+".join(re.escape(part) for part in site["symbol"].split()))
+        matches = list(pattern.finditer(text))
+        self.assertEqual(len(matches), 1, site)
+        match = matches[0]
+        return {site["path"]: text[:match.start()] + text[match.end():]}
+
+    def test_both_plain_ballots_name_exact_permission_citizen_and_shared_owner_guards(self) -> None:
+        for op in self.guarded_ballots():
+            guards = [item for item in op["authority"] if item.get("scope") == "file"]
+            symbols = " ".join(item["symbol"] for item in guards)
+            for name in ("CanSubmitGovernanceBallot", "ensure_exact_governance_ballot_permission",
+                         "ensure_citizen_for_ballot", "if ballot.owner != *authority"):
+                self.assertIn(name, symbols, op["id"])
+            self.assertTrue(all(item.get("what") for item in guards))
+        direct = operation(INVENTORY, "governance::UpdatePlainConviction")["authority"]
+        self.assertTrue(any(item["symbol"] == "!= *authority" for item in direct))
+        self.assertTrue(any('"owner must equal authority"' in item["symbol"] for item in direct))
+        self.assert_clean(run("check_anchors", self.anchors(operations=self.guarded_ballots())))
+
+    def test_removing_each_shared_plain_ballot_guard_is_detected_for_both_operations(self) -> None:
+        guards = [item for item in self.guarded_ballots()[0]["authority"]
+                  if item.get("scope") == "file" and item["symbol"] != "fn execute_plain_ballot_position("]
+        self.assertEqual(len(guards), 4)
+        for guard in guards:
+            with self.subTest(guard=guard["symbol"]):
+                errors = run("check_anchors", self.anchors(operations=self.guarded_ballots()),
+                             overrides=self.removed_symbol(guard))
+                for identifier in self.BALLOTS:
+                    self.assert_fails(errors, f"operations[{identifier}].authority[")
+
+    def test_restore_lists_all_twenty_two_axt_guards_and_committed_height_policy(self) -> None:
+        guards = self.guarded_restore()
+        self.assertEqual(Counter(site["state_field"] for site in guards), {
+            "world.axt_handle_counters": 10, "world.axt_source_transfer_replay_ledger": 4,
+            "world.axt_asset_incarnations": 3, "world.axt_replay_ledger": 3,
+            "world.axt_handle_budget_ledger": 1, "world.axt_spend_nonce_ledger": 1,
+            "world.privacy_consensus_policy": 1,
+        })
+        refs = INVENTORY["admission_routes"]["restore"]["references"]
+        for site in guards:
+            self.assertTrue(site["what"])
+            self.assertIn({"inventory": "state", "key": "fields/" + site["state_field"]}, refs)
+        self.assert_clean(run("check_anchors", self.anchors(sites=guards, references=refs)))
+
+    def test_removing_each_original_restore_guard_is_detected(self) -> None:
+        for guard in self.guarded_restore():
+            with self.subTest(field=guard["state_field"], guard=guard["symbol"]):
+                errors = run("check_anchors", self.anchors(sites=[guard]),
+                             overrides=self.removed_symbol(guard))
+                self.assert_fails(errors, "sites[0]:")
+
+    def test_restore_guard_requires_original_state_reference_and_meaning(self) -> None:
+        def edit(inventory: dict) -> None:
+            restore = inventory["admission_routes"]["restore"]
+            restore["references"] = [ref for ref in restore["references"]
+                                     if ref["key"] != "fields/world.axt_handle_counters"]
+            next(site for site in restore["sites"] if site.get("state_field") == "world.privacy_consensus_policy").pop("what")
+        errors = run("check_admission_routes", edited(edit))
+        self.assert_fails(errors, "world.axt_handle_counters needs its State inventory reference")
+        self.assert_fails(errors, "world.privacy_consensus_policy needs `what`")
+
+    def test_removed_key_and_committed_height_validations_change_the_census(self) -> None:
+        for path, call, expected in (
+            (self.RESTORE_WORLD, ".validate_for_key(key)", "occurs 2 times, recorded 3"),
+            (self.RESTORE_CORE, ".validate_at_committed_height(committed_height)", "no longer occurs"),
+        ):
+            with self.subTest(call=call):
+                errors = run("check_admission_routes", overrides=replaced(path, call, ".unchecked()"))
+                self.assert_fails(errors, expected)
+
+    def test_new_axt_or_key_or_height_restore_calls_require_classification(self) -> None:
+        for call, expected in (
+            ("validate_axt_replay_ledger(w)", "`validate_axt_replay_ledger`"),
+            ("w.validate_for_key(key)", "occurs 4 times, recorded 3"),
+            ("w.validate_at_committed_height(height)", "`validate_at_committed_height`"),
+        ):
+            with self.subTest(call=call):
+                path = self.RESTORE_WORLD
+                errors = run("check_admission_routes", overrides={path: source(path) +
+                             "\nfn new_restore_guard(w: &World) { " + call + "; }\n"})
+                self.assert_fails(errors, expected)
+
+
 class AxtSplit(Base):
     """The refusals of AXT proofs and anchored spends are operations of their own."""
 
@@ -1775,13 +1941,13 @@ class SelectionEvidence(Base):
 
     def test_a_relation_core_is_reached_from_its_verifier(self) -> None:
         def cut(inventory: dict) -> None:
-            relation = next(item for item in inventory["relations"] if item["id"] == "halo2.kaigi_usage")
+            relation = next(item for item in inventory["relations"] if item["id"] == "native_pipa_r.kaigi_usage")
             relation["core"]["via"] = relation["core"]["via"][1:]
         self.assert_fails(run("check_products", edited(cut)),
-                          "relations[halo2.kaigi_usage]: core: `verify_usage_commitment` does not name `verify_backend_with_timing_guardrails`")
+                          "relations[native_pipa_r.kaigi_usage]: core: `verify_usage_commitment` does not name `verify_backend_with_timing_guardrails`")
 
         def no_words(inventory: dict) -> None:
-            relation = next(item for item in inventory["relations"] if item["id"] == "halo2.kaigi_usage")
+            relation = next(item for item in inventory["relations"] if item["id"] == "native_pipa_r.kaigi_usage")
             del relation["test_words"]
         self.assert_fails(run("check_products", edited(no_words)), "core needs a function symbol, a verifier with a body and test_words")
 

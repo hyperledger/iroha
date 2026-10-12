@@ -762,7 +762,7 @@ fn load_peer_config_for_signing(
         Some(iroha_core::da::proof_policy_bundle(
             &context.nexus().lane_config,
         )),
-        iroha_core::state::compute_genesis_confidential_policy_hash(context.zk()),
+        iroha_core::state::default_genesis_confidential_policy_hash(),
         creation_time_ms,
     )
     .wrap_err("construct original provisional signed genesis for policy binding")?;
@@ -2135,6 +2135,20 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         let bound = context.bind_signed_genesis(&signed.0).unwrap();
         assert_eq!(bound.genesis.expected_hash, signed.0.hash());
         assert_eq!(bound.genesis.public_key, *key.public_key());
+        fs::write(&path, toml::to_string(&table).unwrap()).unwrap();
+        let loaded =
+            load_peer_config_for_signing(&path, &manifest, &key, Some(1_700_000_000_000)).unwrap();
+        let expected = iroha_deploy::genesis::staging::build_signed_genesis(
+            manifest.clone(),
+            &key,
+            Some(iroha_core::da::proof_policy_bundle(
+                &bound.nexus.lane_config,
+            )),
+            iroha_core::state::default_genesis_confidential_policy_hash(),
+            Some(1_700_000_000_000),
+        )
+        .unwrap();
+        assert_eq!(loaded.genesis.expected_hash, expected.0.hash());
         let wrong_key = checked_genesis_sign_keypair_with_algorithm(Algorithm::Ed25519);
         let wrong = build_signed_genesis(
             manifest,

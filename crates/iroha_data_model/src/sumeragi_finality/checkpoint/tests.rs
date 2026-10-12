@@ -241,6 +241,7 @@ fn checkpoint_lag_two_binding_and_height_exhaustion_refuse() {
     assert!(
         verifier
             .verify(&third)
+            .map_err(invalid_read_error)
             .unwrap_err()
             .0
             .contains("height exhausted")
@@ -412,8 +413,13 @@ fn retained_decision_verifier_uses_selected_checkpoint_commitments() {
     let header = cert.consensus_header().to_vec();
     let availability = cert.availability().to_vec();
     let mut qc: Qc = norito::decode_canonical(cert.commit_qc()).unwrap();
-    let mut result = ExecutionResultCommitment::decode(cert.result_preimage()).unwrap();
+    let (finality_header, mut result) =
+        CertifiedResultV1::decode(cert.result_preimage(), CertifiedResultScope::TairaGlobal)
+            .unwrap()
+            .into_parts();
     result.execution.parent_state_root = Hash::new(b"different retained execution");
+    let result =
+        CertifiedResultV1::new(finality_header, result, CertifiedResultScope::TairaGlobal).unwrap();
     qc.result = result.result().unwrap();
     sign_qc(&mut qc, &fixture.keys, &[0, 1, 2]);
     block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
@@ -766,8 +772,28 @@ fn checkpoint_import_handoff_preserves_exact_witness_scope_and_resource_errors()
             SumeragiFinalityVerifier::from_trusted_checkpoint(&selected, &fixture.network, CHAIN)
         })
         .unwrap_err();
-        assert!(matches!(handoff, FinalityReadError::DecodeResource(_)));
-        assert_eq!(format!("{handoff:?}"), format!("{ordinary:?}"));
+        let resource_fields = |error: FinalityReadError| {
+            let FinalityReadError::DecodeResource(original) = error else {
+                panic!("expected the original decode resource refusal: {error:?}");
+            };
+            assert_eq!(
+                original.kind(),
+                norito::core::DecodeAttemptErrorKind::EnclosingLimit
+            );
+            original
+                .into_error()
+                .decode_resource_error()
+                .expect("original resource fields")
+        };
+        // Independent attempts own different scope identities, while retaining the same
+        // refusal kind and exact allocation fields through each handoff API.
+        let expected = resource_fields(ordinary);
+        assert!(matches!(
+            expected,
+            norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit: 0 }
+                if attempted > 0
+        ));
+        assert_eq!(resource_fields(handoff), expected);
         let refused = std::cell::Cell::new(0_u32);
         let consumer = norito::with_decode_limits_scope(no_allocation, || {
             SumeragiFinalityVerifier::from_trusted_checkpoint_with_consumer(
@@ -778,8 +804,7 @@ fn checkpoint_import_handoff_preserves_exact_witness_scope_and_resource_errors()
             )
         })
         .unwrap_err();
-        assert!(matches!(consumer, FinalityReadError::DecodeResource(_)));
-        assert_eq!(format!("{consumer:?}"), format!("{ordinary:?}"));
+        assert_eq!(resource_fields(consumer), expected);
         let owned_source = selected.clone();
         let owned_refusal = norito::with_decode_limits_scope(no_allocation, || {
             SumeragiFinalityVerifier::from_trusted_checkpoint_with_consumer(
@@ -790,11 +815,7 @@ fn checkpoint_import_handoff_preserves_exact_witness_scope_and_resource_errors()
             )
         })
         .unwrap_err();
-        assert!(matches!(
-            owned_refusal,
-            FinalityReadError::DecodeResource(_)
-        ));
-        assert_eq!(format!("{owned_refusal:?}"), format!("{ordinary:?}"));
+        assert_eq!(resource_fields(owned_refusal), expected);
         assert_eq!(refused.get(), 0);
         assert_eq!(selected.encode_canonical().unwrap(), original);
         let retried = SumeragiFinalityVerifier::from_trusted_checkpoint_with_consumer(

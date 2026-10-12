@@ -29,7 +29,7 @@ const PRIVACY_SIGNED_SUBMISSION_HASH_DOMAIN_V1: &[u8] = b"iroha.privacy.signed-s
 pub(crate) fn privacy_signed_submission_hash_v1(
     submission: &SubmitPrivacyProofV1,
 ) -> Result<iroha_crypto::Hash, norito::Error> {
-    let encoded = norito::to_bytes(submission)?;
+    let encoded = norito::encode_canonical(submission)?;
     let encoded_len = u64::try_from(encoded.len())
         .expect("Norito output length always fits u64 on supported targets");
     let mut preimage = Vec::with_capacity(
@@ -567,6 +567,27 @@ mod tests {
     };
     const PROPOSAL_HEIGHT: u64 = 1_000;
     const ACTIVATION_HEIGHT: u64 = PROPOSAL_HEIGHT;
+    #[test]
+    fn signed_submission_hash_ignores_ambient_layout_flags_and_binds_proof_bytes() {
+        for sample in iroha_data_model::privacy::privacy_action_role_samples_v1()
+            .expect("all canonical privacy roles")
+        {
+            let mut submission = SubmitPrivacyProofV1::new(sample.envelope);
+            let expected = privacy_signed_submission_hash_v1(&submission).expect("canonical hash");
+            let alternate_flags =
+                norito::core::default_encode_flags() ^ norito::core::header_flags::COMPACT_LEN;
+            let _layout = norito::core::DecodeFlagsGuard::enter(alternate_flags);
+            assert_eq!(
+                privacy_signed_submission_hash_v1(&submission).unwrap(),
+                expected
+            );
+            submission.envelope.proof.bytes_mut().bytes.push(0xA5);
+            assert_ne!(
+                privacy_signed_submission_hash_v1(&submission).unwrap(),
+                expected
+            );
+        }
+    }
     fn proposal() -> PrivacyProtocolActivationRecordV1 {
         compiled_privacy_profile_v1(PrivacyProtocolIdV1::VeRangeTransparentRangeV1)
             .expect("compiled VeRange profile")
@@ -819,17 +840,38 @@ mod tests {
         assert_eq!(block.bytes(), 0);
     }
     #[test]
-    fn exactly_two_maximal_transactions_fill_taira_block() {
+    fn privacy_block_counts_and_actual_aggregate_bytes_are_independent() {
         let limits = PrivacyConsensusLimitsV1::taira_default();
         let mut block = PrivacyBlockBudgetV1::new(limits).expect("valid limits");
-        for expected_actions in 1..=2 {
+        let first_bytes = u64::from(limits.max_action_bytes);
+        let remaining = u64::from(limits.max_privacy_bytes_per_block) - first_bytes;
+        assert!(remaining < first_bytes, "two maximal envelopes cannot fit");
+        {
             let mut transaction = block.begin_transaction();
             transaction
-                .reserve(0, u64::from(limits.max_action_bytes))
-                .expect("boundary-sized transaction");
+                .reserve(0, first_bytes)
+                .expect("maximum first action");
             transaction.commit();
-            assert_eq!(block.actions(), expected_actions);
         }
+        {
+            let mut transaction = block.begin_transaction();
+            for bytes in [first_bytes, remaining + 1] {
+                assert_eq!(
+                    transaction.reserve(0, bytes),
+                    Err(PrivacyBudgetError::BlockBytesExceeded {
+                        bytes: first_bytes + bytes,
+                        max: limits.max_privacy_bytes_per_block,
+                    })
+                );
+                assert_eq!(transaction.actions(), 0);
+                assert_eq!(transaction.bytes(), 0);
+            }
+            transaction
+                .reserve(0, remaining)
+                .expect("exact remaining aggregate bytes");
+            transaction.commit();
+        }
+        assert_eq!(block.actions(), 2);
         assert_eq!(block.bytes(), u64::from(limits.max_privacy_bytes_per_block));
         let mut third = block.begin_transaction();
         assert!(matches!(

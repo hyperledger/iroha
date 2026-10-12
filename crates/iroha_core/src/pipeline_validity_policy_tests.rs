@@ -31,6 +31,13 @@ use crate::{
     sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
 };
 
+// Explicitly build the same validated owner used by State before pure policy assertions.
+fn effective_pipeline(installed: Pipeline, parameters: &Parameters) -> Pipeline {
+    let owner = crate::pipeline_gas_policy::StateParameters::try_from(parameters.clone())
+        .expect("valid test parameters");
+    super::effective_pipeline(installed, &owner)
+}
+
 /// The local resource settings of `pipeline`, for comparison. Exhaustive like
 /// [`policy_of`]: every field is either a local resource listed here or a
 /// validity value named as ignored.
@@ -58,7 +65,7 @@ fn local_resources_of(pipeline: &Pipeline) -> String {
         overlay_max_instructions: _,
         overlay_max_bytes: _,
         overlay_chunk_instructions: _,
-        gas,
+        gas: _,
         ivm_max_cycles_upper_bound: _,
         ivm_max_decoded_instructions: _,
         ivm_max_decoded_bytes: _,
@@ -79,7 +86,7 @@ fn local_resources_of(pipeline: &Pipeline) -> String {
          {debug_trace_tx_eval} {signature_batch_max_ed25519} {signature_batch_max_secp256k1} \
          {signature_batch_max_pqc} {signature_batch_max_bls} {cache_size} \
          {ivm_cache_max_decoded_ops} {ivm_cache_max_bytes} {ivm_execution_max_bytes} \
-         {ivm_prover_threads} {gas:?} {query_default_cursor_mode:?}"
+         {ivm_prover_threads} {query_default_cursor_mode:?}"
     )
 }
 
@@ -125,6 +132,8 @@ fn divergent_node_pipeline(base: &Pipeline) -> Pipeline {
     node.amx_per_instruction_ns = 999;
     node.amx_per_memory_access_ns = 999;
     node.amx_per_syscall_ns = 999;
+    node.gas.tech_account_id = BOB_ID.to_string();
+    node.gas.accepted_assets = vec!["invalid-local-fee-asset".to_owned()];
     node
 }
 
@@ -160,7 +169,8 @@ fn state_with(policy: Option<&PipelineValidityPolicyV1>) -> State {
         block
             .parameters
             .get_mut()
-            .set_parameter(Parameter::Custom(policy.into_custom_parameter()));
+            .set_parameter(Parameter::Custom(policy.into_custom_parameter()))
+            .expect("the fixture pipeline policy is valid");
         block.commit();
     }
     State::new_for_testing(
@@ -270,7 +280,7 @@ fn effective_pipeline_reads_the_committed_policy() {
     let second = effective_pipeline(divergent_node_pipeline(&Pipeline::default()), &parameters);
     assert_eq!(policy_of(&first), policy);
     assert_eq!(policy_of(&second), policy);
-    // A different committed payload is decoded afresh, not served from the memo.
+    // A different committed payload builds a distinct validated owner.
     let other = committed_policy();
     assert_eq!(
         policy_of(&effective_pipeline(
@@ -283,7 +293,7 @@ fn effective_pipeline_reads_the_committed_policy() {
         policy_of(&effective_pipeline(Pipeline::default(), &parameters)),
         policy
     );
-    // Without a committed policy the installed value is returned as is.
+    // Without a committed policy the protocol default is authoritative.
     assert_eq!(
         policy_of(&effective_pipeline(
             Pipeline::default(),
@@ -291,8 +301,7 @@ fn effective_pipeline_reads_the_committed_policy() {
         )),
         PipelineValidityPolicyV1::protocol_default()
     );
-    // A payload no valid transition commits leaves the installed value and is
-    // reported by `committed`.
+    // A malformed payload is reported by the parser and cannot construct a State owner.
     let mut malformed = Parameters::default();
     malformed.set_parameter(Parameter::Custom(CustomParameter::new(
         PipelineValidityPolicyV1::parameter_id(),
@@ -302,10 +311,7 @@ fn effective_pipeline_reads_the_committed_policy() {
         committed(&malformed),
         Err(PipelineValidityPolicyError::Malformed(_))
     ));
-    assert_eq!(
-        policy_of(&effective_pipeline(Pipeline::default(), &malformed)),
-        PipelineValidityPolicyV1::protocol_default()
-    );
+    assert!(crate::state::StateParameters::try_from(malformed).is_err());
 }
 
 #[test]
@@ -360,7 +366,15 @@ fn install_node_pipeline_keeps_local_resources_and_ignores_validity_values() {
     let ignored = state
         .install_node_pipeline(node.clone())
         .expect("node pipeline resources install");
-    assert_eq!(ignored.len(), 16, "every validity value is reported");
+    let expected_ignored: Vec<_> = PipelineValidityPolicyV1::FIELD_NAMES
+        .iter()
+        .copied()
+        .chain(["gas"])
+        .collect();
+    assert_eq!(
+        ignored, expected_ignored,
+        "every validity value is reported"
+    );
     assert_eq!(
         local_resources_of(&state.installed_pipeline()),
         local_resources_of(&node)
@@ -455,38 +469,30 @@ fn committed_policy_decides_every_view_and_block_under_divergent_node_configurat
 }
 
 #[test]
-fn install_node_pipeline_refuses_a_malformed_committed_policy() {
-    let world = World::default();
-    {
-        let mut block = world.block();
-        block
-            .parameters
-            .get_mut()
-            .set_parameter(Parameter::Custom(CustomParameter::new(
-                PipelineValidityPolicyV1::parameter_id(),
-                Json::new("not a policy"),
-            )));
-        block.commit();
-    }
-    let mut state = State::new_for_testing(
-        world,
-        Kura::blank_kura_for_testing(),
-        LiveQueryStore::start_test(),
-    );
-    let before = format!("{:?}", state.installed_pipeline());
-    assert!(matches!(
-        state.install_node_pipeline(divergent_node_pipeline(&Pipeline::default())),
-        Err(PipelineValidityPolicyError::Malformed(_))
+fn parameter_owner_refuses_malformed_pipeline_policy() {
+    let mut owner = crate::state::StateParameters::default();
+    let before = owner.clone();
+    let malformed = Parameter::Custom(CustomParameter::new(
+        PipelineValidityPolicyV1::parameter_id(),
+        Json::new("not a policy"),
     ));
-    assert_eq!(
-        format!("{:?}", state.installed_pipeline()),
-        before,
-        "nothing is installed"
-    );
+    assert!(owner.set_parameter(malformed.clone()).is_err());
+    assert_eq!(owner, before);
+    let mut original = Parameters::default();
+    original.set_parameter(malformed);
+    let snapshot = norito::json::to_json(&original).unwrap();
+    assert!(norito::json::from_str::<crate::state::StateParameters>(&snapshot).is_err());
 }
 
 #[test]
 fn set_parameter_installs_the_policy_and_rejects_invalid_payloads() {
+    use iroha_data_model::isi::error::{InstructionExecutionError, InvalidParameterError};
+
+    let malformed_payload = Json::new("not a policy");
+    let expected_malformed = malformed_payload
+        .try_into_any_norito::<PipelineValidityPolicyV1>()
+        .expect_err("the fixture is malformed JSON policy content")
+        .to_string();
     let set = |policy: PipelineValidityPolicyV1| {
         SetParameter::new(Parameter::Custom(policy.into_custom_parameter()))
     };
@@ -506,15 +512,29 @@ fn set_parameter_installs_the_policy_and_rejects_invalid_payloads() {
             let mut transaction = block.transaction();
             let malformed = SetParameter::new(Parameter::Custom(CustomParameter::new(
                 PipelineValidityPolicyV1::parameter_id(),
-                Json::new("not a policy"),
+                malformed_payload.clone(),
             )))
             .execute(&ALICE_ID, &mut transaction)
             .expect_err("a malformed policy payload is rejected");
-            observed.push(format!("{malformed:?}"));
+            assert!(
+                matches!(
+                    &malformed,
+                    InstructionExecutionError::InvalidParameter(InvalidParameterError::SmartContract(detail))
+                        if detail == &expected_malformed
+                ),
+                "{malformed:?}"
+            );
+            observed.push(malformed);
             let structural = set(zero)
                 .execute(&ALICE_ID, &mut transaction)
                 .expect_err("a structurally invalid policy is rejected");
-            observed.push(format!("{structural:?}"));
+            assert_eq!(
+                structural,
+                InstructionExecutionError::InvalidParameter(InvalidParameterError::SmartContract(
+                    PipelineValidityPolicyError::Zero("overlay_chunk_instructions").to_string()
+                ))
+            );
+            observed.push(structural);
             assert_eq!(
                 committed(transaction.world.parameters.get()),
                 Ok(None),
@@ -537,14 +557,7 @@ fn set_parameter_installs_the_policy_and_rejects_invalid_payloads() {
         outcomes.push(observed);
     }
     assert_eq!(outcomes[0], outcomes[1]);
-    assert!(
-        outcomes[0][0].contains("not a canonical V1 policy"),
-        "{outcomes:?}"
-    );
-    assert!(
-        outcomes[0][1].contains("overlay_chunk_instructions"),
-        "{outcomes:?}"
-    );
+    assert_eq!(outcomes[0].len(), 4, "both invalid cases at both heights");
 }
 
 #[test]
@@ -892,4 +905,220 @@ fn installed_settings_are_read_through_accessors_and_edited_through_the_installe
         std::time::Duration::from_millis(9),
         "a local resource of the installed value reaches the snapshot"
     );
+}
+
+#[test]
+fn validated_fee_projection_reads_under_zero_decode_capacity() {
+    let mut owner = crate::state::StateParameters::default();
+    let receiver = ALICE_ID.to_string();
+    owner
+        .set_parameter(Parameter::Custom(CustomParameter::new(
+            "ivm_gas_tech_account_id".parse().unwrap(),
+            Json::new(receiver.clone()),
+        )))
+        .unwrap();
+    let mut committed_limits = PipelineValidityPolicyV1::protocol_default();
+    committed_limits.ivm_max_cycles_upper_bound = 777;
+    owner
+        .set_parameter(Parameter::Custom(committed_limits.into_custom_parameter()))
+        .unwrap();
+    let local = divergent_node_pipeline(&Pipeline::default());
+    let effective =
+        norito::with_decode_limits_scope(norito::DecodeLimits::new(0, 0, 0, 0, 0), || {
+            super::effective_pipeline(local, &owner)
+        });
+    assert_eq!(effective.gas.tech_account_id, receiver);
+    assert_eq!(effective.ivm_max_cycles_upper_bound.get(), 777);
+}
+
+#[test]
+fn fee_projection_ignores_divergent_nodes_and_rejects_corrupt_restoration() {
+    let ordinary = Pipeline::default();
+    let divergent = divergent_node_pipeline(&ordinary);
+    let parameters = Parameters::default();
+    assert_eq!(
+        effective_pipeline(ordinary, &parameters).gas,
+        effective_pipeline(divergent.clone(), &parameters).gas,
+    );
+    assert_eq!(
+        node_local_resources(divergent).gas,
+        iroha_config::parameters::actual::Gas::default()
+    );
+    let mut malformed = Parameters::default();
+    malformed.set_parameter(Parameter::Custom(CustomParameter::new(
+        "ivm_gas_accepted_assets".parse().unwrap(),
+        Json::new(vec!["invalid"]),
+    )));
+    let snapshot = norito::json::to_json(&malformed).unwrap();
+    assert!(norito::json::from_str::<crate::state::StateParameters>(&snapshot).is_err());
+}
+
+#[test]
+fn divergent_local_fee_settings_cannot_change_certified_history_or_gas() {
+    let mut expected = None;
+    for divergent in [false, true] {
+        let mut chain = alice_chain(divergent, None);
+        let instructions = logs(2);
+        let before = chain.state().view().pipeline().gas.clone();
+        assert_eq!(before, iroha_config::parameters::actual::Gas::default());
+        let gas = crate::gas::meter_instructions(&instructions, &chain.state().view().zk().gas);
+        let transaction = chain.sign(&ALICE_KEYPAIR, instructions, 1);
+        assert_eq!(chain.commit(vec![transaction]), vec![true]);
+        let observation = (
+            certified_history(&chain),
+            gas,
+            chain.state().view().pipeline().gas.clone(),
+        );
+        if let Some(expected) = &expected {
+            assert_eq!(&observation, expected);
+        } else {
+            expected = Some(observation);
+        }
+    }
+}
+
+#[test]
+fn committed_fees_use_one_predecessor_for_quotes_execution_and_effects() {
+    use iroha_data_model::{
+        asset::{AssetBalancePolicy, AssetDefinition, AssetId},
+        isi::{Mint, Register},
+        transaction::{FeePaymentIntent, SignedTransaction, TransactionBuilder},
+    };
+    use iroha_primitives::numeric::Quantity;
+    use mv::storage::StorageReadOnly as _;
+
+    fn quoted(
+        chain: &CertifiedTestChain,
+        instructions: Vec<InstructionBox>,
+        time: u64,
+    ) -> SignedTransaction {
+        let mut builder = TransactionBuilder::new(
+            chain.network_id(),
+            ALICE_ID.clone(),
+            FeePaymentIntent::authority(Vec::new(), None),
+        );
+        builder.set_creation_time(std::time::Duration::from_millis(time));
+        let builder = builder.with_instructions(instructions);
+        let draft = builder.clone().sign(ALICE_KEYPAIR.private_key());
+        let view = chain.state().view();
+        let quote = crate::executor::quote_nexus_fee_admission_draft(
+            view.world(),
+            view.nexus(),
+            view.pipeline(),
+            &view.zk().gas,
+            draft.payload(),
+            view.query_ledger_time_ms(),
+            chain.height() + 1,
+            None,
+        )
+        .expect("the queue quote uses the committed predecessor");
+        builder
+            .with_fee_payment_intent(quote.recommended_intent)
+            .sign(ALICE_KEYPAIR.private_key())
+    }
+
+    let asset = iroha_data_model::parameter::system::SumeragiNposParameters::default()
+        .xor_asset_definition_id;
+    let receiver_asset = AssetId::new(asset.clone(), BOB_ID.clone());
+    let parameter = |id: &str, payload: Json| {
+        Parameter::Custom(CustomParameter::new(id.parse().unwrap(), payload))
+    };
+    let mut expected = None;
+    for divergent in [false, true] {
+        let mut config = TestChainConfig::new(alice_world([Permission::from(CanSetParameters)]), 0);
+        config.genesis_key = ALICE_KEYPAIR.clone();
+        let mut nexus = iroha_config::parameters::actual::Nexus::default();
+        nexus.fees.base_fee = Quantity::zero();
+        nexus.fees.per_byte_fee = Quantity::zero();
+        nexus.fees.per_instruction_fee = Quantity::zero();
+        nexus.fees.per_gas_unit_fee = Quantity::zero();
+        nexus.fees.fee_asset_id = asset.canonical_address();
+        nexus.fees.fee_sink_account_id = BOB_ID.to_string();
+        config.nexus = Some(nexus);
+        config.genesis_instructions = vec![
+            Register::asset_definition(AssetDefinition::numeric(
+                asset.clone(),
+                "pipeline gas".to_owned(),
+                AssetBalancePolicy::Global,
+                None,
+            ))
+            .into(),
+            Mint::asset_quantity(
+                Quantity::from(1_000_000_u32),
+                AssetId::new(asset.clone(), ALICE_ID.clone()),
+            )
+            .into(),
+        ];
+        config.genesis_parameters = vec![
+            parameter("ivm_gas_tech_account_id", Json::new(BOB_ID.to_string())),
+            parameter(
+                "ivm_gas_accepted_assets",
+                Json::new(vec![asset.canonical_address()]),
+            ),
+            parameter(
+                "ivm_gas_units_per_gas",
+                Json::from_str_norito(&format!(
+                    r#"[{{"asset":"{}","liquidity_profile":"tier1","twap_local_per_xor":"1","units_per_gas":1,"volatility_class":"stable"}}]"#,
+                    asset.canonical_address(),
+                ))
+                .unwrap(),
+            ),
+        ];
+        let mut prepared = CertifiedTestChain::prepare(config).unwrap();
+        if divergent {
+            let state = Arc::get_mut(&mut prepared.state).unwrap();
+            let node = divergent_node_pipeline(state.installed_pipeline());
+            state.install_node_pipeline(node).unwrap();
+        }
+        let mut chain = CertifiedTestChain::from_prepared(prepared).unwrap();
+        let change = vec![
+            SetParameter::new(parameter(
+                "ivm_gas_tech_account_id",
+                Json::new(ALICE_ID.to_string()),
+            ))
+            .into(),
+        ];
+        let work = logs(1);
+        let gas = crate::gas::meter_instructions(&change, &chain.state().view().zk().gas)
+            + crate::gas::meter_instructions(&work, &chain.state().view().zk().gas);
+        assert!(gas > 0, "the regression must actually settle a fee");
+        let change_tx = quoted(&chain, change, 1);
+        let same_block = quoted(&chain, work.clone(), 2);
+        assert_eq!(chain.commit(vec![change_tx, same_block]), vec![true, true]);
+        // The change is visible to the next queue quote, but both transactions
+        // above must pay the predecessor's receiver, including the second one.
+        assert_eq!(
+            chain.state().view().pipeline().gas.tech_account_id,
+            ALICE_ID.to_string()
+        );
+        let balance = chain
+            .state()
+            .view()
+            .world()
+            .assets()
+            .get(&receiver_asset)
+            .unwrap()
+            .as_ref()
+            .clone();
+        assert_eq!(balance, Quantity::from(u128::from(gas)));
+        let next = quoted(&chain, work, 1_001);
+        assert_eq!(chain.commit(vec![next]), vec![true]);
+        assert_eq!(
+            chain
+                .state()
+                .view()
+                .world()
+                .assets()
+                .get(&receiver_asset)
+                .unwrap()
+                .as_ref(),
+            &balance
+        );
+        let observation = (certified_history(&chain), gas, balance);
+        if let Some(expected) = &expected {
+            assert_eq!(&observation, expected);
+        } else {
+            expected = Some(observation);
+        }
+    }
 }

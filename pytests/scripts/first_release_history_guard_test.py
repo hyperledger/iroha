@@ -262,7 +262,7 @@ def inventory() -> dict:
     return {
         "schema": GUARD.SCHEMA,
         "contract": CONTRACT_MD,
-        "history_wire": [{"type": "SignedBlock", "path": BLOCK_RS, "version": 1}],
+        "history_wire": [{"type": "SignedBlock", "path": BLOCK_RS, "version": 1, "kind": "versioned-payload"}],
         "test_only_version_impls": [{"type": "Probe", "path": BLOCK_RS}],
         "replay_tests": [
             {"path": NODE_RS, "test": "history_replays_from_storage", "covers": "", **lib},
@@ -602,14 +602,14 @@ def test_current_inventory_declares_the_abi_cutover_and_every_carrier() -> None:
         for target in surface["regenerate"]
         if "carries" in target
     }
-    assert forms["crates/ivm/tests/abi_hash_versions.rs"] == "hex"
+    assert forms["crates/iroha_data_model/tests/fixtures/abi_v1_hash.rs"] == "hex"
     assert forms["scripts/ivm_artifacts.tsv"] == "artifact_map"
     assert forms["defaults/executor.to"] == "ivm_header"
-    assert forms["crates/iroha_data_model/tests/fixtures/axt_golden.rs"] == "hex_wrapped"
+    assert forms["crates/ivm_abi/tests/fixtures/axt_golden.rs"] == "hex_wrapped"
     assert {path for path, form in forms.items() if form == "HEX"} == {
         f"demo/{name}.manifest.json"
         for name in ("authority_probe", "irohaswap", "ivm_smoke", "prediction_market")
-    }
+    } | {"crates/iroha/tests/fixtures/contract_code_readback/code_readback.manifest.json"}
     # A compiler capture is read row by row, both programs of every row.
     captures = {
         f"fixtures/kotodama/{name}/native_v1.tsv"
@@ -636,8 +636,10 @@ def test_current_inventory_declares_the_abi_cutover_and_every_carrier() -> None:
         "HEX",
         "ivm_base64",
     ]
-    # The hand-maintained provenance record of the SDK readback fixture is a carrier too.
-    assert forms["crates/iroha/tests/fixtures/contract_code_readback/provenance.json"] == "hex"
+    # The generated readback manifest replaced the retired hand-maintained carrier.
+    retired_readback = "crates/iroha/tests/fixtures/contract_code_readback/provenance.json"
+    assert retired_readback not in forms
+    assert not (ROOT / retired_readback).exists()
     # Every program of the artifact map carries the declared hash in its header.
     raw = bytes.fromhex(declaration["abi_hash"])
     rows = [
@@ -652,16 +654,20 @@ def test_current_inventory_declares_the_abi_cutover_and_every_carrier() -> None:
 def test_current_inventory_retired_the_headerless_block_decoder() -> None:
     data, _ = GUARD.load_inventory(ROOT)
     assert not any(entry["id"] == "T1-A15" for entry in data["open_findings"])
-    # What is left of the headerless form is an open finding: the generic versioned codec
-    # still encodes and decodes a block, and production may not name that decode.
-    assert [(entry["needle"], entry["finding"]) for entry in data["test_only_references"]] == [
-        ("decode_exact_versioned::<SignedBlock>", "T1-A16")
-    ]
+    # The generic codec cannot infer a block because its Version trait is retired.
+    assert data["test_only_references"] == []
     findings = {entry["id"]: entry for entry in data["open_findings"]}
-    assert findings["T1-A16"]["path"] == "crates/iroha_data_model/src/block/mod.rs"
-    assert "EncodeVersioned for SignedBlock" in findings["T1-A16"]["anchor"]
-    # The leaf form the frame decoders refuse is recorded with the test that shows the refusal.
-    assert findings["T1-A17"]["path"] == "crates/norito/src/core.rs"
+    assert "T1-A16" not in findings
+    block_wire = next(entry for entry in data["history_wire"] if entry["type"] == "SignedBlock")
+    assert block_wire["kind"] == "canonical-frame"
+    # Both the generic leaf and complete frame reject the retired packed array form.
+    assert "T1-A17" not in findings
+    assert {
+        "path": "crates/norito/src/core/borrowed_field_framing_tests.rs",
+        "test": "generic_byte_arrays_reject_length_n_truncation_inside_and_outside_options",
+        "package": "norito",
+        "target": "lib",
+    } in data["obsolete_layout_rejection_tests"]
     assert any(
         entry["test"] == "framed_block_rejects_packed_confidential_digest_hash_arrays"
         and entry["path"] == "crates/iroha_data_model/src/block/tests.rs"
@@ -671,9 +677,13 @@ def test_current_inventory_retired_the_headerless_block_decoder() -> None:
     assert {
         "frame_versioned_signed_block_bytes",
         "decode_bare_versioned_signed_block_inner",
+        "deframe_versioned_signed_block_bytes",
+        "DeframedSignedBlockBytes",
     } <= retired
     assert {(entry["trait"], entry["type"]) for entry in data["retired_impls"]} == {
-        ("DecodeVersioned", "SignedBlock")
+        ("DecodeVersioned", "SignedBlock"),
+        ("EncodeVersioned", "SignedBlock"),
+        ("Version", "SignedBlock"),
     }
     block = (ROOT / "crates/iroha_data_model/src/block/mod.rs").read_text(encoding="utf-8")
     assert "pub fn decode_framed_signed_block(" in block
@@ -682,6 +692,37 @@ def test_current_inventory_retired_the_headerless_block_decoder() -> None:
 
 def test_synthetic_tree_passes(tree: Path) -> None:
     assert GUARD.check(tree) == ()
+
+
+@pytest.mark.parametrize(
+    "source,valid",
+    [
+        ("impl Framed { pub const WIRE_VERSION: u8 = 1; }", True),
+        ("impl Framed { pub const WIRE_VERSION: u8 = 2; }", False),
+        ("impl Framed { pub const WIRE_VERSION: u8 = CURRENT; }", False),
+        ("impl Other { pub const WIRE_VERSION: u8 = 1; }", False),
+        ("// impl Framed { pub const WIRE_VERSION: u8 = 1; }", False),
+        ("impl Framed { const WIRE_VERSION: u8 = 1; }", False),
+        ("#[cfg(test)] impl Framed { pub const WIRE_VERSION: u8 = 1; }", False),
+        ("#![cfg(test)] impl Framed { pub const WIRE_VERSION: u8 = 1; }", False),
+        ("impl Framed { #[cfg(test)] pub const WIRE_VERSION: u8 = 1; }", False),
+        ('#[cfg(feature = "enabled")] impl Framed { pub const WIRE_VERSION: u8 = 1; }', False),
+        ('impl Framed { #[cfg_attr(test, cfg(any()))] pub const WIRE_VERSION: u8 = 1; }', False),
+        ("mod foreign { struct Framed; impl Framed { pub const WIRE_VERSION: u8 = 1; } }", False),
+        ("impl Framed { fn nested() { pub const WIRE_VERSION: u8 = 1; } }", False),
+        ("impl Framed { pub const WIRE_VERSION: u8 = 1; } "
+         "impl Framed { pub const WIRE_VERSION: u8 = 1; }", False),
+    ],
+)
+def test_framed_wire_version_is_owned_and_pinned(tmp_path: Path, source: str, valid: bool) -> None:
+    write(tmp_path, "frame.rs", source)
+    entries = [{"type": "Framed", "path": "frame.rs", "version": 1, "kind": "canonical-frame"}]
+    errors = GUARD.framed_wire_errors(tmp_path, entries)
+    assert (errors == []) is valid
+    if not valid:
+        assert_single(errors, "Framed::WIRE_VERSION must be the single literal 1")
+    (tmp_path / "frame.rs").unlink()
+    assert_single(GUARD.framed_wire_errors(tmp_path, entries), "canonical frame source is missing")
 
 
 def test_report_prints_open_findings_with_current_lines(tree: Path) -> None:

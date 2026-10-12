@@ -30,8 +30,8 @@ use crate::{
     DeriveJsonDeserialize, DeriveJsonSerialize,
     sumeragi::epoch::ValidatorEpochContextV1,
     sumeragi_finality::{
-        ExecutionResultCommitment, FinalityValidator, MAX_RESULT_PREIMAGE_BYTES, ProofCrypto,
-        core_epoch, result_of_preimage,
+        CertifiedResultScope, CertifiedResultV1, ExecutionResultCommitment, FinalityValidator,
+        MAX_RESULT_PREIMAGE_BYTES, ProofCrypto, core_epoch, result_of_preimage,
     },
 };
 
@@ -57,6 +57,9 @@ pub struct AmxForeignInstanceV1 {
         bounded_with = "crate::json_helpers::fixed_bytes_hex::serialize_bounded"
     )]
     pub instance: [u8; 32],
+    /// Original registered root class; supplied with the independent epoch authority,
+    /// never inferred from an offered result header.
+    pub result_scope: CertifiedResultScope,
     /// Latest verified epoch context `C_{J,e}`.
     pub current: ValidatorEpochContextV1,
     /// Its verified predecessor `C_{J,e−1}`; absent until the first handoff.
@@ -109,9 +112,14 @@ impl AmxForeignInstanceV1 {
     ///
     /// # Errors
     /// The anchor context is invalid.
-    pub fn new(instance: [u8; 32], anchor: ValidatorEpochContextV1) -> Result<Self, AmxError> {
+    pub fn new(
+        instance: [u8; 32],
+        anchor: ValidatorEpochContextV1,
+        result_scope: CertifiedResultScope,
+    ) -> Result<Self, AmxError> {
         let tracker = Self {
             instance,
+            result_scope,
             current: anchor,
             previous: None,
         };
@@ -170,9 +178,10 @@ impl AmxForeignInstanceV1 {
                 && block.result_preimage.len() <= MAX_RESULT_PREIMAGE_BYTES,
             "certified block parts are empty or exceed their bounds",
         )?;
-        let outer_scope = norito::core::decode_limits_active();
-        let header: CoreHeader = norito::decode_canonical(&block.consensus_header)
-            .map_err(|error| super::proof_codec_error(&error, "core header", outer_scope))?;
+        let header: CoreHeader = norito::core::classify_decode_attempt(|| {
+            norito::decode_canonical(&block.consensus_header)
+        })
+        .map_err(|error| super::proof_codec_error(error, "core header"))?;
         let context = self.context(header.epoch.epoch)?;
         let epoch = core_epoch(context).map_err(|error| AmxError::Anchor(error.to_string()))?;
         need(
@@ -183,8 +192,9 @@ impl AmxForeignInstanceV1 {
             header.epoch == epoch.id && epoch.contains(header.height),
             "the block is outside its tracked epoch context",
         )?;
-        let qc: Qc = norito::decode_canonical(&block.commit_qc)
-            .map_err(|error| super::proof_codec_error(&error, "commit certificate", outer_scope))?;
+        let qc: Qc =
+            norito::core::classify_decode_attempt(|| norito::decode_canonical(&block.commit_qc))
+                .map_err(|error| super::proof_codec_error(error, "commit certificate"))?;
         let validators: Vec<FinalityValidator> = context
             .committee
             .iter()
@@ -208,11 +218,15 @@ impl AmxForeignInstanceV1 {
             .verify_qc(&qc)
             .map_err(|error| proof_error(format!("commit certificate: {error:?}")))?;
         need(
-            result_of_preimage(&block.result_preimage) == qc.result,
+            result_of_preimage(&block.result_preimage) == Some(qc.result),
             "the result preimage does not hash to the certified result",
         )?;
-        let commitment = ExecutionResultCommitment::decode(&block.result_preimage)
-            .map_err(|error| super::commitment_error(&error))?;
+        // AMX tracks both the global coordinator and foreign roots. Preserve the original
+        // registered scope; the offered X cannot select or widen that authority.
+        let commitment = CertifiedResultV1::decode(&block.result_preimage, self.result_scope)
+            .map_err(super::certified_result_error)?
+            .into_parts()
+            .1;
         need(
             commitment.height == header.height && commitment.schedule.current == *context,
             "the result preimage names another height or epoch context",

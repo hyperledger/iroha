@@ -6,7 +6,6 @@ use crate::{
     proof::{ProofBox, VerifyingKeyId},
 };
 use iroha_crypto::{Algorithm, KeyPair, privacy::LaneCommitmentId};
-use norito::core::DecodeFromSlice as _;
 
 const INTENT: OrderedIntentDigestV1 = OrderedIntentDigestV1::new([0x11; 32]);
 
@@ -798,6 +797,24 @@ fn action_decoder_roundtrips_every_binding_and_exact_nested_limits() {
 }
 
 #[test]
+fn borrowed_action_preflight_does_not_charge_owned_allocation() {
+    let value = with_occurrences(SIGNED_ATTACHMENTS_MAX_OCCURRENCES_V1);
+    let _flags = ncore::DecodeFlagsGuard::enter(ncore::default_encode_flags());
+    let encoded = norito::codec::Encode::encode(&value.actions[0]);
+    let limits = ncore::DecodeLimits::new(usize::MAX, usize::MAX, 0, 0, 32);
+    ncore::with_decode_limits(limits, || {
+        let mut offset = 0;
+        let mut fields = [&[][..]; 8];
+        for field in &mut fields {
+            *field = take_field(&encoded, &mut offset, encoded.len())?;
+        }
+        assert_eq!(offset, encoded.len());
+        preflight_action_fields(0, fields[1], fields[4], fields[7])
+    })
+    .expect("borrowing fields and inspecting counts need no owned allocation or elements");
+}
+
+#[test]
 fn action_decoder_refuses_nested_counts_before_decoding_elements() {
     let value = with_occurrences(1);
     let action = &value.actions[0];
@@ -822,14 +839,20 @@ fn action_decoder_refuses_nested_counts_before_decoding_elements() {
         assert_eq!(offset, encoded.len());
         result
     };
+    let bounded_decode = |bytes: &[u8]| {
+        // Nothing in these rejected descriptors needs an owned allocation.
+        // Charging a borrowed field or attempting to decode the forged
+        // vectors would exhaust this budget before the schema error appears.
+        let limits = ncore::DecodeLimits::new(usize::MAX, usize::MAX, 0, 0, 32);
+        ncore::with_decode_limits(limits, || ActionIntentV1::decode_from_slice(bytes))
+    };
 
     // Supply only a count, with no reference elements. The bounded error must
     // win over the generic vector's malformed-span error and allocation.
     let references = u64::try_from(SIGNED_ATTACHMENTS_MAX_OCCURRENCES_V1 + 1)
         .expect("reference count")
         .to_le_bytes();
-    let error = ActionIntentV1::decode_from_slice(&replace_field(7, &references))
-        .expect_err("references over limit");
+    let error = bounded_decode(&replace_field(7, &references)).expect_err("references over limit");
     assert!(
         error.to_string().contains("17 attachment references"),
         "{error}"
@@ -845,8 +868,7 @@ fn action_decoder_refuses_nested_counts_before_decoding_elements() {
             .expect("path depth")
             .to_le_bytes(),
     );
-    let error = ActionIntentV1::decode_from_slice(&replace_field(4, &invocation))
-        .expect_err("path over limit");
+    let error = bounded_decode(&replace_field(4, &invocation)).expect_err("path over limit");
     assert!(error.to_string().contains("path of 33 calls"), "{error}");
 
     // An oversized declared wire identifier is refused before its String is
@@ -862,8 +884,8 @@ fn action_decoder_refuses_nested_counts_before_decoding_elements() {
         u64::try_from(name.len()).expect("name field"),
     );
     operation.extend_from_slice(&name);
-    let error = ActionIntentV1::decode_from_slice(&replace_field(1, &operation))
-        .expect_err("wire identifier over limit");
+    let error =
+        bounded_decode(&replace_field(1, &operation)).expect_err("wire identifier over limit");
     assert!(
         error
             .to_string()

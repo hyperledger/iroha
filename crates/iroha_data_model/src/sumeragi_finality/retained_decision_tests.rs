@@ -17,7 +17,12 @@ fn proof_with_certified_beacon(fixture: &Fixture) -> SumeragiFinalityProof {
     let availability = certificate.availability().to_vec();
     let native_header: CoreHeader = norito::decode_canonical(&header).unwrap();
     let mut qc: Qc = norito::decode_canonical(certificate.commit_qc()).unwrap();
-    let mut value = ExecutionResultCommitment::decode(certificate.result_preimage()).unwrap();
+    let (finality_header, mut value) = CertifiedResultV1::decode(
+        certificate.result_preimage(),
+        CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap()
+    .into_parts();
     let (_, signature) = fixture.keys[0].public_key().try_to_bytes().unwrap();
     let mut pulse = FinalizedGlobalThresholdBeaconPulseV1 {
         version: GLOBAL_THRESHOLD_BEACON_VERSION_V1,
@@ -45,6 +50,8 @@ fn proof_with_certified_beacon(fixture: &Fixture) -> SumeragiFinalityProof {
     pulse.pulse_id = global_threshold_beacon_pulse_id_v1(&pulse, pulse.seed);
     value.beacon = Some(pulse);
     value.validate().unwrap();
+    let value =
+        CertifiedResultV1::new(finality_header, value, CertifiedResultScope::TairaGlobal).unwrap();
     qc.result = value.result().unwrap();
     super::tests::sign_qc(&mut qc, &fixture.keys, &[0, 1, 2]);
     block.set_commit_certificate(Some(crate::block::CommitCertificate::from_untrusted_parts(
@@ -120,12 +127,18 @@ fn retained_decision_borrowed_comparison_rejects_each_changed_authenticated_fiel
         // its selected retained decision rather than an unrelated parser or parent check.
         let rejected = FinalityError("proof differs from retained authenticated decision".into());
         assert_eq!(
-            selected.verify_retained_decision(&proof).unwrap_err(),
+            selected
+                .verify_retained_decision(&proof)
+                .map_err(invalid_read_error)
+                .unwrap_err(),
             rejected,
             "{field}"
         );
         assert_eq!(
-            selected.verify_same_decision(&proof, &proof).unwrap_err(),
+            selected
+                .verify_same_decision(&proof, &proof)
+                .map_err(invalid_read_error)
+                .unwrap_err(),
             rejected,
             "same witness: {field}"
         );
@@ -140,9 +153,18 @@ fn retained_decision_borrowed_comparison_rejects_each_changed_authenticated_fiel
 
     let empty = fixture.verifier();
     let outside = FinalityError("decision is outside authenticated prefix".into());
-    assert_eq!(empty.verify_retained_decision(&proof).unwrap_err(), outside);
     assert_eq!(
-        empty.verify_same_decision(&proof, &proof).unwrap_err(),
+        empty
+            .verify_retained_decision(&proof)
+            .map_err(invalid_read_error)
+            .unwrap_err(),
+        outside
+    );
+    assert_eq!(
+        empty
+            .verify_same_decision(&proof, &proof)
+            .map_err(invalid_read_error)
+            .unwrap_err(),
         outside
     );
     assert_eq!(norito::encode_canonical(&proof).unwrap(), source);
@@ -178,22 +200,37 @@ fn retained_decision_same_witness_rechecks_actual_native_signature() {
     assert_eq!(bad.block_header, proof.block_header);
     assert_ne!(bad.block_wire, proof.block_wire);
 
-    let expected = verifier.check(&bad).unwrap_err();
+    let expected = verifier
+        .check(&bad)
+        .map_err(invalid_read_error)
+        .unwrap_err();
     assert!(expected.0.starts_with("commit certificate:"), "{expected}");
     assert_eq!(
-        verifier.verify_retained_decision(&bad).unwrap_err(),
+        verifier
+            .verify_retained_decision(&bad)
+            .map_err(invalid_read_error)
+            .unwrap_err(),
         expected
     );
     assert_eq!(
-        verifier.verify_same_decision(&bad, &bad).unwrap_err(),
+        verifier
+            .verify_same_decision(&bad, &bad)
+            .map_err(invalid_read_error)
+            .unwrap_err(),
         expected
     );
     assert_eq!(
-        verifier.verify_same_decision(proof, &bad).unwrap_err(),
+        verifier
+            .verify_same_decision(proof, &bad)
+            .map_err(invalid_read_error)
+            .unwrap_err(),
         expected
     );
     assert_eq!(
-        verifier.verify_same_decision(&bad, proof).unwrap_err(),
+        verifier
+            .verify_same_decision(&bad, proof)
+            .map_err(invalid_read_error)
+            .unwrap_err(),
         expected
     );
     assert_eq!(norito::encode_canonical(proof).unwrap(), source);
@@ -220,20 +257,23 @@ fn retained_decision_preserves_original_decoder_refusal_and_same_proof_retry() {
         producer.kind(),
         norito::core::DecodeAttemptErrorKind::EnclosingLimit
     );
-    let expected = malformed(&producer);
+    let kind = producer.kind();
     let resource = producer.into_error().decode_resource_error().unwrap();
     assert!(matches!(
         resource,
         norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit: 0 }
             if attempted > 0
     ));
+    let expected = ReadErrorObservation::Resource(kind, resource);
     assert_eq!(
         norito::with_decode_limits_scope(limits, || verifier.verify_retained_decision(proof))
+            .map_err(observe_read_error)
             .unwrap_err(),
         expected
     );
     assert_eq!(
         norito::with_decode_limits_scope(limits, || verifier.verify_same_decision(proof, proof))
+            .map_err(observe_read_error)
             .unwrap_err(),
         expected
     );
@@ -265,9 +305,18 @@ fn borrowed_trusted_check_keeps_authentic_parent_refusal_before_retained_compari
     let mut selected = retained.clone();
     selected.decisions.get_mut(&1).unwrap().result = wrong_result;
     ordinary.decisions.get_mut(&1).unwrap().result = wrong_result;
-    assert_eq!(ordinary.verify(proof).unwrap_err(), parent_binding);
     assert_eq!(
-        selected.verify_retained_decision(proof).unwrap_err(),
+        ordinary
+            .verify(proof)
+            .map_err(invalid_read_error)
+            .unwrap_err(),
+        parent_binding
+    );
+    assert_eq!(
+        selected
+            .verify_retained_decision(proof)
+            .map_err(invalid_read_error)
+            .unwrap_err(),
         parent_binding
     );
     assert_eq!(ordinary.decisions.len(), 1, "refusal cannot insert H2");
@@ -306,7 +355,10 @@ fn borrowed_trusted_check_keeps_authentic_parent_refusal_before_retained_compari
     let mut selected = retained.clone();
     let parent = selected.decisions.remove(&1).unwrap();
     assert_eq!(
-        selected.verify_retained_decision(proof).unwrap_err(),
+        selected
+            .verify_retained_decision(proof)
+            .map_err(invalid_read_error)
+            .unwrap_err(),
         FinalityError("authenticated parent is missing".into()),
     );
     assert_eq!(selected.decisions.len(), 1);
@@ -319,7 +371,10 @@ fn borrowed_trusted_check_keeps_authentic_parent_refusal_before_retained_compari
     malformed.block_wire.clear();
     let empty = fixture.verifier();
     assert_eq!(
-        empty.verify_retained_decision(&malformed).unwrap_err(),
+        empty
+            .verify_retained_decision(&malformed)
+            .map_err(invalid_read_error)
+            .unwrap_err(),
         FinalityError("decision is outside authenticated prefix".into()),
     );
     assert_eq!(norito::encode_canonical(proof).unwrap(), source);

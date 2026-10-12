@@ -21,21 +21,45 @@ use iroha_data_model::{
         deployment::SccpDeploymentV1,
         events::{SccpEvent, SccpGovernanceEnactedV1, SccpStrandedReleasedV1},
         governance::{
-            SccpClearBridgeKeyFaultActionV1, SccpGovernanceActionV1, SccpGovernanceProposalV1,
-            SccpGovernanceSubjectV1, SccpRegisterRouteActionV1, SccpReleaseStrandedActionV1,
-            SccpRouteRevisionActionV1, SccpSwitchRevisionActionV1,
+            SccpGovernanceActionV1, SccpGovernanceProposalV1, SccpGovernanceSubjectV1,
+            SccpRegisterRouteActionV1, SccpReleaseStrandedActionV1, SccpRouteRevisionActionV1,
+            SccpSwitchRevisionActionV1,
         },
-        registry::{SccpRouteActivationV1, SccpRouteRevisionV1},
+        registry::SccpRouteActivationV1,
     },
 };
-use iroha_sccp::v1::{
-    constants::TON_AMOUNT_BOUND,
-    roster::RosterV1,
-    ton_cell::{TonMinterInitV1, minter_account_id},
-};
+use iroha_sccp::v1::constants::TON_AMOUNT_BOUND;
 
 fn refuse(reason: impl core::fmt::Display) -> Error {
     Error::InvariantViolation(format!("SCCP governance: {reason}").into())
+}
+
+/// Native authority required before a new SCCP destination may hold funds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+enum RouteRegistrationReadinessError {
+    /// No canonical native committee pin or completed launch dependencies exist yet.
+    #[error(
+        "RegisterRoute unavailable: native committee authority and its canonical pin are not implemented; the Parliament post-quantum ballot and reconciliation launch prerequisites are also incomplete"
+    )]
+    NativeAuthorityUnavailable,
+}
+
+/// The current action has no native committee pin (§4.14.3 P1); it cannot authorize a route.
+fn route_registration_readiness() -> Result<(), RouteRegistrationReadinessError> {
+    // TODO(WP-S4/S9): verify the real retained native committee pin and the completed
+    // Parliament ballot/reconciliation predicates before permitting route registration.
+    Err(RouteRegistrationReadinessError::NativeAuthorityUnavailable)
+}
+
+fn require_registration_readiness(proposal: &SccpGovernanceProposalV1) -> Result<(), Error> {
+    if proposal
+        .actions
+        .iter()
+        .any(|action| matches!(action, SccpGovernanceActionV1::RegisterRoute(_)))
+    {
+        route_registration_readiness().map_err(refuse)?;
+    }
+    Ok(())
 }
 
 /// Return `(version, heads)` of `proposal` against `world`: `heads = [(s, rev(s))]` over the
@@ -68,7 +92,7 @@ pub fn subject_heads(
 ///
 /// # Errors
 ///
-/// Fails when the proposal is stale; it can then never get another attempt.
+/// Fails when the proposal is stale or requires unavailable route-registration authority.
 pub fn preflight_attempt(
     state_transaction: &StateTransaction<'_, '_>,
     proposal: &SccpGovernanceProposalV1,
@@ -80,7 +104,7 @@ pub fn preflight_attempt(
 ///
 /// # Errors
 ///
-/// Fails when the proposal is stale.
+/// Fails when the proposal is stale or requires unavailable route-registration authority.
 pub fn preflight_attempt_in(
     world: &(impl WorldReadOnly + ?Sized),
     proposal: &SccpGovernanceProposalV1,
@@ -99,7 +123,7 @@ pub fn preflight_attempt_in(
             ensure_word_unused(world, &register.deployment)?;
         }
     }
-    Ok(())
+    require_registration_readiness(proposal)
 }
 
 fn ensure_word_unused(
@@ -130,6 +154,8 @@ pub fn enact(
     if store::parameters::get(&*state_transaction.world).is_none() {
         return Err(refuse("SCCP does not exist on this network"));
     }
+    // Check the entire proposal before the first effect, including a later RegisterRoute.
+    require_registration_readiness(proposal)?;
     for (index, action) in proposal.actions.iter().enumerate() {
         apply_action(state_transaction, action, proposal_id)
             .map_err(|error| refuse(format_args!("action {index}: {error}")))?;
@@ -209,64 +235,19 @@ fn apply_action(
             light_clients::freeze(state_transaction, action, proposal_id)
         }
         SccpGovernanceActionV1::SetParameters(action) => {
-            action
-                .next
-                .validate()
-                .map_err(|error| refuse(format_args!("parameters: {error}")))?;
+            super::params::validate_staking_policy(
+                &*state_transaction.world,
+                &action.next,
+                &state_transaction.nexus().staking,
+            )
+            .map_err(|error| refuse(format_args!("parameters: {error}")))?;
             store::parameters::set(state_transaction, Some(action.next.clone()));
             Ok(())
-        }
-        SccpGovernanceActionV1::ClearBridgeKeyFault(action) => {
-            clear_bridge_key_fault(state_transaction, action)
         }
         SccpGovernanceActionV1::ActivateLightClientProfile(action) => {
             light_clients::activate_profile(state_transaction, action, proposal_id)
         }
     }
-}
-
-/// Check that generation `generation` can pin a new deployment at `now_ms` and return it as
-/// the `iroha_sccp` roster with its stored digest (§4.14.3 `RegisterRoute`).
-fn pinnable_generation(
-    world: &(impl WorldReadOnly + ?Sized),
-    generation: u64,
-    now_ms: u64,
-    roster_max_age_ms: u64,
-) -> Result<(RosterV1, [u8; 32]), Error> {
-    let roster = store::rosters::get(world, &generation)
-        .ok_or_else(|| refuse(format_args!("generation {generation} does not exist")))?;
-    if roster.is_inert() {
-        return Err(refuse(format_args!("generation {generation} is inert")));
-    }
-    if roster.valid_until_ms <= now_ms.saturating_add(roster_max_age_ms) {
-        return Err(refuse(format_args!(
-            "generation {generation} expires too soon to rotate"
-        )));
-    }
-    // Every handoff from the pinned generation to the current one must be attested, so the
-    // deployment can be rotated forward to the signing generation.
-    let current = *store::roster_current::get(world);
-    for successor in generation..current {
-        let handoff = store::rosters::get(world, &successor)
-            .and_then(|roster| roster.handoff_height)
-            .ok_or_else(|| refuse(format_args!("generation {successor} has no handoff")))?;
-        let attested = store::attestation_status::get(world, &handoff)
-            .is_some_and(|status| status.attested_at_height.is_some());
-        if !attested {
-            return Err(refuse(format_args!(
-                "the handoff subject {handoff} of generation {successor} is unattested"
-            )));
-        }
-    }
-    Ok((
-        RosterV1 {
-            generation,
-            valid_from_ms: roster.valid_from_ms,
-            valid_until_ms: roster.valid_until_ms,
-            members: roster.members.iter().map(|member| member.address).collect(),
-        },
-        roster.digest,
-    ))
 }
 
 fn register_route(
@@ -275,12 +256,10 @@ fn register_route(
 ) -> Result<(), Error> {
     let network = register.network;
     let world = &*state_transaction.world;
-    let roster_max_age_ms = store::parameters::get(world)
+    store::parameters::get(world)
         .as_ref()
-        .map(|params| params.roster_max_age_ms)
         .ok_or_else(|| refuse("SCCP does not exist on this network"))?;
-    let mut route = store::routes::get(world, &network)
-        .cloned()
+    let route = store::routes::get(world, &network)
         .ok_or_else(|| refuse(format_args!("no route to {}", network.profile_key())))?;
     let expected_revision = route
         .latest_revision()
@@ -300,53 +279,7 @@ fn register_route(
         return Err(refuse(format_args!("supply cap {cap} is out of bounds")));
     }
     ensure_word_unused(world, &register.deployment)?;
-    let now_ms = state_transaction.block_unix_timestamp_ms();
-    let (roster, digest) = pinnable_generation(
-        world,
-        register.initial_roster_generation,
-        now_ms,
-        roster_max_age_ms,
-    )?;
-    if let SccpDeploymentV1::Ton(ton) = &register.deployment {
-        let init = TonMinterInitV1 {
-            taira_network_id: *state_transaction.network_id().as_bytes(),
-            route_revision: register.revision,
-            max_supply: cap,
-            roster,
-            wallet_code: ton.wallet_code,
-            bucket_code: ton.bucket_code,
-        };
-        let expected = minter_account_id(&init, ton.minter_code)
-            .map_err(|error| refuse(format_args!("TON minter address: {error}")))?;
-        if expected != ton.master_account {
-            return Err(refuse(
-                "the TON master account is not the canonical minter address",
-            ));
-        }
-    }
-    let height = state_transaction._curr_block.height().get();
-    let word = register.deployment.destination_word();
-    route.revisions.insert(
-        register.revision,
-        SccpRouteRevisionV1::staged(
-            register.revision,
-            register.deployment.clone(),
-            cap,
-            register.initial_roster_generation,
-            digest,
-            height,
-        ),
-    );
-    store::routes::insert(state_transaction, network, route)?;
-    store::destination_words::insert(state_transaction, word, (network, register.revision))?;
-    registry::emit_activation_changed(
-        state_transaction,
-        network,
-        register.revision,
-        None,
-        Some(SccpRouteActivationV1::Staged),
-    );
-    Ok(())
+    route_registration_readiness().map_err(refuse)
 }
 
 fn revision_activation(
@@ -545,34 +478,17 @@ fn set_taira_paused(
     Ok(())
 }
 
-fn clear_bridge_key_fault(
-    state_transaction: &mut StateTransaction<'_, '_>,
-    action: &SccpClearBridgeKeyFaultActionV1,
-) -> Result<(), Error> {
-    let mut state = store::bridge_keys::get(&*state_transaction.world, &action.peer)
-        .cloned()
-        .ok_or_else(|| refuse("the peer has no bridge-key state"))?;
-    if state.barred != Some(action.fault) {
-        return Err(refuse("the peer's newest fault is not the named one"));
-    }
-    state.barred = None;
-    store::bridge_keys::insert(state_transaction, action.peer.clone(), state)?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::smartcontracts::isi::sccp::test_support::{
-        blank_state, header, peer, sample_bridge_key_state, sample_proposal, sample_roster,
-    };
+    use crate::smartcontracts::isi::sccp::test_support::{blank_state, header, sample_proposal};
     use iroha_data_model::sccp::{
         deployment::SccpEvmDeploymentV1,
         governance::{
             SccpSetDestinationPausedActionV1, SccpSetParametersActionV1, SccpSetTairaPausedActionV1,
         },
-        keys::SccpFaultRefV1,
         params::SccpParametersV1,
+        registry::SccpRouteRevisionV1,
     };
 
     const NETWORK: SccpNetworkV1 = SccpNetworkV1::EthereumMainnet;
@@ -602,16 +518,28 @@ mod tests {
             revision,
             deployment: evm(seed),
             max_wrapped_supply: 1_000_000_000_000,
-            initial_roster_generation: 1,
         })
     }
 
-    /// Initialize SCCP with generation 1 current.
+    /// Initialize SCCP parameters and escrows without fabricating native authority.
     fn setup(stx: &mut StateTransaction<'_, '_>) {
         store::parameters::set(stx, Some(SccpParametersV1::taira_default()));
         escrow::create_route_escrows(stx).expect("escrows");
-        store::rosters::insert(stx, 1, sample_roster(1, 1)).expect("roster");
-        store::roster_current::set(stx, 1);
+    }
+
+    /// Seed an existing revision for governance transition tests, not registration authority.
+    fn seed_revision(stx: &mut StateTransaction<'_, '_>, revision: u32, seed: u8) {
+        let mut route = store::routes::get(&*stx.world, &NETWORK)
+            .cloned()
+            .expect("route");
+        let deployment = evm(seed);
+        route.revisions.insert(
+            revision,
+            SccpRouteRevisionV1::staged(revision, deployment, 1_000_000_000_000, 1),
+        );
+        store::routes::insert(stx, NETWORK, route).expect("seed route");
+        store::destination_words::insert(stx, deployment.destination_word(), (NETWORK, revision))
+            .expect("seed destination");
     }
 
     fn activation(stx: &StateTransaction<'_, '_>, revision: u32) -> Option<SccpRouteActivationV1> {
@@ -660,7 +588,13 @@ mod tests {
         setup(&mut stx);
         let route = SccpGovernanceSubjectV1::Route(NETWORK);
         let fresh = proposal(id, vec![(route.clone(), 0)], vec![register(1, 7)]);
-        preflight_attempt(&stx, &fresh).expect("fresh");
+        let unavailable =
+            preflight_attempt(&stx, &fresh).expect_err("native authority unavailable");
+        assert!(
+            unavailable
+                .to_string()
+                .contains("native committee authority")
+        );
         store::destination_words::insert(&mut stx, evm(7).destination_word(), (NETWORK, 9))
             .expect("word");
         preflight_attempt(&stx, &fresh).expect_err("word taken");
@@ -671,7 +605,7 @@ mod tests {
     }
 
     #[test]
-    fn enactment_registers_activates_pauses_and_counts_revisions() {
+    fn existing_revision_activation_pause_and_revision_accounting_remain_enforced() {
         let state = blank_state();
         let mut block = state.block(header(5));
         let mut stx = block.transaction();
@@ -679,18 +613,13 @@ mod tests {
         setup(&mut stx);
         let route = SccpGovernanceSubjectV1::Route(NETWORK);
         let control = SccpGovernanceSubjectV1::RouteControl(NETWORK);
-        let bring_up = proposal(id, vec![(route.clone(), 0)], vec![register(1, 7)]);
-        enact(&mut stx, &bring_up, [1; 32]).expect("register");
+        seed_revision(&mut stx, 1, 7);
+        store::set_governance_revision(&mut stx, route.clone(), 1);
         assert_eq!(activation(&stx, 1), Some(SccpRouteActivationV1::Staged));
-        assert_eq!(store::governance_revision(&*stx.world, &route), 1);
         assert_eq!(
             store::destination_words::get(&*stx.world, &evm(7).destination_word()),
             Some(&(NETWORK, 1))
         );
-        let staged = store::routes::get(&*stx.world, &NETWORK)
-            .and_then(|route| route.revisions.get(&1))
-            .expect("revision");
-        assert_eq!(staged.initial_roster_digest, sample_roster(1, 1).digest);
 
         // Activation needs a usable light client; the failure leaves the caller to drop the
         // effect transaction.
@@ -745,8 +674,11 @@ mod tests {
             &proposal(id, vec![(route.clone(), 2)], vec![register(5, 9)]),
             [4; 32],
         )
-        .expect_err("revision gap");
-        assert!(error.to_string().contains("next revision"), "{error}");
+        .expect_err("native registration unavailable");
+        assert!(
+            error.to_string().contains("native committee authority"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -754,19 +686,9 @@ mod tests {
         let state = blank_state();
         let mut block = state.block(header(5));
         let mut stx = block.transaction();
-        let id = stx.network_id;
         setup(&mut stx);
-        let route = SccpGovernanceSubjectV1::Route(NETWORK);
-        enact(
-            &mut stx,
-            &proposal(
-                id,
-                vec![(route.clone(), 0)],
-                vec![register(1, 7), register(2, 8)],
-            ),
-            [1; 32],
-        )
-        .expect("register two");
+        seed_revision(&mut stx, 1, 7);
+        seed_revision(&mut stx, 2, 8);
         registry::set_activation(&mut stx, NETWORK, 1, SccpRouteActivationV1::Bidirectional)
             .expect("live");
         let revision = |revision| SccpRouteRevisionActionV1 {
@@ -820,12 +742,7 @@ mod tests {
         .expect("no-op");
         assert_eq!(store::control_messages::len(&*stx.world), 0);
 
-        enact(
-            &mut stx,
-            &proposal(id, vec![(route.clone(), 1)], vec![register(3, 9)]),
-            [5; 32],
-        )
-        .expect("register third");
+        seed_revision(&mut stx, 3, 9);
         apply_action(
             &mut stx,
             &SccpGovernanceActionV1::RemoveStaged(revision(3)),
@@ -846,38 +763,84 @@ mod tests {
     }
 
     #[test]
-    fn bridge_key_faults_clear_only_by_name() {
+    fn registration_checks_revision_and_value_bounds_before_reporting_unavailability() {
         let state = blank_state();
         let mut block = state.block(header(5));
         let mut stx = block.transaction();
         setup(&mut stx);
-        let fault = SccpFaultRefV1 {
-            address: [4; 20],
-            height: 3,
+        let SccpGovernanceActionV1::RegisterRoute(mut action) = register(2, 7) else {
+            panic!("registration fixture");
         };
-        let mut key_state = sample_bridge_key_state(1);
-        key_state.barred = Some(SccpFaultRefV1 {
-            address: [4; 20],
-            height: 4,
-        });
-        store::bridge_keys::insert(&mut stx, peer(1), key_state).expect("state");
-        let action = SccpGovernanceActionV1::ClearBridgeKeyFault(SccpClearBridgeKeyFaultActionV1 {
-            peer: peer(1),
-            fault,
-        });
-        apply_action(&mut stx, &action, [1; 32]).expect_err("a newer fault");
-        let mut key_state = store::bridge_keys::get(&*stx.world, &peer(1))
-            .cloned()
-            .expect("state");
-        key_state.barred = Some(fault);
-        store::bridge_keys::insert(&mut stx, peer(1), key_state).expect("state");
-        apply_action(&mut stx, &action, [1; 32]).expect("clear");
-        assert_eq!(
-            store::bridge_keys::get(&*stx.world, &peer(1))
-                .expect("state")
-                .barred,
-            None
+        assert!(
+            register_route(&mut stx, &action)
+                .expect_err("revision gap")
+                .to_string()
+                .contains("not the next revision")
         );
+        action.revision = 1;
+        action.max_wrapped_supply = 0;
+        assert!(
+            register_route(&mut stx, &action)
+                .expect_err("zero cap")
+                .to_string()
+                .contains("supply cap")
+        );
+        action.max_wrapped_supply = 1_000_000_000_000;
+        assert!(
+            register_route(&mut stx, &action)
+                .expect_err("no native authority")
+                .to_string()
+                .contains("native committee authority")
+        );
+        assert!(
+            store::routes::get(&*stx.world, &NETWORK)
+                .expect("escrow route")
+                .revisions
+                .is_empty()
+        );
+        assert!(store::destination_words::is_empty(&*stx.world));
+    }
+
+    #[test]
+    fn registration_readiness_refuses_before_any_proposal_effect() {
+        assert_eq!(
+            route_registration_readiness(),
+            Err(RouteRegistrationReadinessError::NativeAuthorityUnavailable)
+        );
+        let state = blank_state();
+        let mut block = state.block(header(5));
+        let mut stx = block.transaction();
+        setup(&mut stx);
+        let before_parameters = store::parameters::get(&*stx.world).clone();
+        let before_routes: Vec<_> = store::routes::iter(&*stx.world)
+            .map(|(key, value)| (*key, value.clone()))
+            .collect();
+        let mut changed = before_parameters.clone().expect("parameters");
+        changed.enabled = !changed.enabled;
+        let proposal = proposal(
+            stx.network_id,
+            vec![],
+            vec![
+                SccpGovernanceActionV1::SetParameters(SccpSetParametersActionV1 { next: changed }),
+                register(1, 7),
+            ],
+        );
+        let preflight = preflight_attempt(&stx, &proposal).expect_err("no native authority");
+        let enacted = enact(&mut stx, &proposal, [1; 32]).expect_err("no native authority");
+        assert_eq!(
+            preflight, enacted,
+            "both paths report the same deterministic refusal"
+        );
+        assert_eq!(store::parameters::get(&*stx.world), &before_parameters);
+        assert_eq!(
+            store::routes::iter(&*stx.world)
+                .map(|(key, value)| (*key, value.clone()))
+                .collect::<Vec<_>>(),
+            before_routes
+        );
+        assert!(store::destination_words::is_empty(&*stx.world));
+        assert!(store::governance_revisions::is_empty(&*stx.world));
+        assert!(store::control_messages::is_empty(&*stx.world));
     }
 
     #[test]

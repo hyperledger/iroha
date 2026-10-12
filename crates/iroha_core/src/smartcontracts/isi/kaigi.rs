@@ -7710,7 +7710,8 @@ mod tests {
                 .set_parameter(Parameter::Custom(CustomParameter::new(
                     limit_id,
                     Json::new(1_u64),
-                )));
+                )))
+                .expect("valid fixture parameters");
             stx.world.take_external_events();
 
             let error = JoinKaigi {

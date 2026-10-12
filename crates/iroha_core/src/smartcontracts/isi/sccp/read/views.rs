@@ -1,4 +1,4 @@
-//! Read-side views of SCCP records that do not depend on the attestation format
+//! Read-side views of SCCP records from an explicit durable committed-height cut
 //! (`specs/sccp.md` §6): the message status union, outbound and control pages, recent messages,
 //! light-client detail and checkpoint cover, governance proposal detail and history paths.
 
@@ -11,14 +11,13 @@ use iroha_data_model::{
 };
 use iroha_sccp::{
     api::{
-        MAX_CONTROLS_PAGE, MAX_OUTBOUND_PAGE, MAX_RECENT_MESSAGES, SccpAttestationProgressV1,
-        SccpChainProfileViewV1, SccpControlPageV1, SccpControlViewV1,
-        SccpGovernanceProposalDetailV1, SccpGovernanceProposalPhaseV1, SccpHistoryPathViewV1,
-        SccpHistoryProofV1, SccpInboundMessageViewV1, SccpLcCheckpointCoverV1,
-        SccpLcCheckpointEntryV1, SccpLcCheckpointsSummaryV1, SccpLcSetsSummaryV1,
-        SccpLeafAttestationV1, SccpLightClientDetailV1, SccpMessageStatusV1,
-        SccpOutboundMessageViewV1, SccpOutboundPageV1, SccpOutboundStateV1, SccpRecentMessagesV1,
-        SccpRecordedStateV1,
+        MAX_CONTROLS_PAGE, MAX_OUTBOUND_PAGE, MAX_RECENT_MESSAGES, SccpChainProfileViewV1,
+        SccpControlPageV1, SccpControlViewV1, SccpGovernanceProposalDetailV1,
+        SccpGovernanceProposalPhaseV1, SccpHistoryPathViewV1, SccpHistoryProofV1,
+        SccpInboundMessageViewV1, SccpLcCheckpointCoverV1, SccpLcCheckpointEntryV1,
+        SccpLcCheckpointsSummaryV1, SccpLcSetsSummaryV1, SccpLightClientDetailV1,
+        SccpMessageStatusV1, SccpOutboundMessageViewV1, SccpOutboundPageV1, SccpOutboundStateV1,
+        SccpRecentMessagesV1, SccpRecordedStateV1,
     },
     light_client::{
         profile::{SccpChainProfilesV1, SccpLcProfileCatalogV1},
@@ -56,111 +55,36 @@ impl SccpDirectionV1 {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Attestation progress
+// Outbound state at the caller's durable committed-height cut
 // ---------------------------------------------------------------------------------------------
 
-/// Signatures stored for subject `height` against its generation's threshold, if the subject
-/// exists.
-fn subject_progress(
-    world: &(impl WorldReadOnly + ?Sized),
-    height: u64,
-) -> Option<SccpAttestationProgressV1> {
-    let subject = store::attestation_subjects::get(world, &height)?;
-    Some(SccpAttestationProgressV1 {
-        subject_height: height,
-        signers: store::attestation_status::get(world, &height)
-            .map_or(0, |status| status.signer_count()),
-        threshold: store::rosters::get(world, &subject.generation)
-            .map_or(0, |roster| u32::from(roster.threshold)),
-    })
-}
-
-fn is_attested(world: &(impl WorldReadOnly + ?Sized), height: u64) -> bool {
-    store::attestation_status::get(world, &height)
-        .is_some_and(|status| status.attested_at_height.is_some())
-}
-
-/// Height of the newest attested subject, if any.
-fn newest_attested_subject(world: &(impl WorldReadOnly + ?Sized)) -> Option<u64> {
-    store::attestation_status::iter(world)
-        .rev()
-        .find(|(_, status)| status.attested_at_height.is_some())
-        .map(|(height, _)| *height)
-}
-
-/// Attestation state of the subject of block `height` (the leaf's own block).
-#[must_use]
-pub fn leaf_attestation(
-    world: &(impl WorldReadOnly + ?Sized),
-    height: u64,
-) -> SccpLeafAttestationV1 {
-    let progress = subject_progress(world, height).unwrap_or(SccpAttestationProgressV1 {
-        subject_height: height,
-        signers: 0,
-        threshold: 0,
-    });
-    if is_attested(world, height) {
-        SccpLeafAttestationV1::Attested(progress)
-    } else {
-        SccpLeafAttestationV1::Pending(progress)
-    }
-}
-
-/// Whether state still holds at least `t` signatures of subject `height`, so a proof bundle
-/// under it can be served (retention prunes them, §4.10).
-fn signatures_retained(world: &(impl WorldReadOnly + ?Sized), height: u64) -> bool {
-    subject_progress(world, height).is_some_and(|progress| {
-        progress.threshold > 0
-            && super::signature_set(world, height).popcount() >= progress.threshold
-    })
-}
-
-/// Wallet-facing state of `record`; `newest_attested` is the newest attested subject height.
-///
-/// An attested record names the subject a proof bundle is served under: its own block's subject
-/// while that subject's signatures are retained, otherwise the newest attested subject (whose
-/// history covers the record), so `?attestation=<subject_height>` does not answer `410`.
+/// Wallet-facing state from immutable records and explicit durable commit availability.
+/// The flag is transport metadata, never an authenticated finality proof.
 fn outbound_state(
-    world: &(impl WorldReadOnly + ?Sized),
     record: &SccpOutboundMessageRecordV1,
-    newest_attested: Option<u64>,
+    committed_height: u64,
 ) -> SccpOutboundStateV1 {
     use iroha_data_model::sccp::outbound::SccpOutboundStatusV1 as Stored;
     match record.status {
         Stored::Voided(void) => SccpOutboundStateV1::Voided(void),
         Stored::Refunded(height) => SccpOutboundStateV1::Refunded(height),
         Stored::Stranded(height) => SccpOutboundStateV1::Stranded(height),
-        Stored::Recorded => {
-            let own = is_attested(world, record.height).then_some(record.height);
-            let later = newest_attested.filter(|newest| *newest > record.height);
-            let attesting = [own, later]
-                .into_iter()
-                .flatten()
-                .find(|height| signatures_retained(world, *height))
-                .or(own)
-                .or(later);
-            attesting
-                .and_then(|height| subject_progress(world, height))
-                .map_or(
-                    SccpOutboundStateV1::Recorded(SccpRecordedStateV1 {
-                        deadline_ms: record.deadline_ms,
-                    }),
-                    SccpOutboundStateV1::Attested,
-                )
-        }
+        Stored::Recorded => SccpOutboundStateV1::Recorded(SccpRecordedStateV1 {
+            deadline_ms: record.deadline_ms,
+            provable: record.height <= committed_height,
+        }),
     }
 }
 
 fn outbound_view(
-    world: &(impl WorldReadOnly + ?Sized),
     message_id: [u8; 32],
     record: &SccpOutboundMessageRecordV1,
-    newest_attested: Option<u64>,
+    committed_height: u64,
 ) -> SccpOutboundMessageViewV1 {
     SccpOutboundMessageViewV1 {
         message_id,
         record: record.clone(),
-        state: outbound_state(world, record, newest_attested),
+        state: outbound_state(record, committed_height),
     }
 }
 
@@ -170,18 +94,16 @@ fn outbound_view(
 
 /// Assemble `GET /v1/sccp/messages/{message_id}` (§6): the outbound or inbound record with its
 /// state, or `unknown`.
+/// The caller supplies the durable committed height for this read cut; World records alone
+/// never establish `provable`.
 #[must_use]
 pub fn message_status(
     world: &(impl WorldReadOnly + ?Sized),
+    committed_height: u64,
     message_id: &[u8; 32],
 ) -> SccpMessageStatusV1 {
     if let Some(record) = store::outbound_messages::get(world, message_id) {
-        return SccpMessageStatusV1::Outbound(outbound_view(
-            world,
-            *message_id,
-            record,
-            newest_attested_subject(world),
-        ));
+        return SccpMessageStatusV1::Outbound(outbound_view(*message_id, record, committed_height));
     }
     store::inbound_messages::get(world, message_id).map_or(SccpMessageStatusV1::Unknown, |record| {
         SccpMessageStatusV1::Inbound(SccpInboundMessageViewV1 {
@@ -193,12 +115,14 @@ pub fn message_status(
 
 /// Assemble `GET /v1/sccp/outbound/{network}/{revision}?from_nonce&limit` (§6): records of the
 /// revision by nonce, ascending, at most `limit` (≤ 256).
+/// `committed_height` is the caller's explicit durable read cut, shared by every record.
 ///
 /// # Errors
 ///
 /// [`SccpReadError::NotFound`] when the route revision does not exist.
 pub fn outbound_page(
     world: &(impl WorldReadOnly + ?Sized),
+    committed_height: u64,
     network: SccpNetworkV1,
     revision: u32,
     from_nonce: u64,
@@ -211,7 +135,6 @@ pub fn outbound_page(
             SccpReadError::NotFound(format!("{} revision {revision}", network.profile_key()))
         })?;
     let limit = limit.clamp(1, MAX_OUTBOUND_PAGE);
-    let newest_attested = newest_attested_subject(world);
     let mut records = Vec::new();
     let mut next_from_nonce = None;
     for ((_, _, nonce), message_id) in store::outbound_by_nonce::range(
@@ -225,7 +148,7 @@ pub fn outbound_page(
         let record = store::outbound_messages::get(world, message_id).ok_or_else(|| {
             SccpReadError::NotFound(format!("the record of outbound nonce {nonce}"))
         })?;
-        records.push(outbound_view(world, *message_id, record, newest_attested));
+        records.push(outbound_view(*message_id, record, committed_height));
     }
     Ok(SccpOutboundPageV1 {
         network,
@@ -250,11 +173,11 @@ fn invalid_cursor() -> SccpReadError {
 /// Newest outbound records strictly before the `(height, commitment_index)` cursor.
 fn recent_outbound(
     world: &(impl WorldReadOnly + ?Sized),
+    committed_height: u64,
     network: Option<SccpNetworkV1>,
     before: Option<(u64, u32)>,
     limit: usize,
 ) -> SccpRecentMessagesV1 {
-    let newest_attested = newest_attested_subject(world);
     let upper = before.map_or(Bound::Unbounded, Bound::Excluded);
     let leaves = store::block_leaves::range(world, (Bound::Unbounded, upper));
     let mut messages = Vec::new();
@@ -275,10 +198,9 @@ fn recent_outbound(
             continue;
         }
         messages.push(SccpMessageStatusV1::Outbound(outbound_view(
-            world,
             transfer.message_id,
             record,
-            newest_attested,
+            committed_height,
         )));
     }
     SccpRecentMessagesV1 {
@@ -339,12 +261,14 @@ fn recent_inbound(
 
 /// Assemble `GET /v1/sccp/messages/recent?direction&network&before&limit` (§6): records of one
 /// direction, newest first, at most `limit` (≤ 50).
+/// Outbound availability uses only the caller's explicit `committed_height` read cut.
 ///
 /// # Errors
 ///
 /// [`SccpReadError::Invalid`] for a malformed `before` cursor.
 pub fn recent_messages(
     world: &(impl WorldReadOnly + ?Sized),
+    committed_height: u64,
     direction: SccpDirectionV1,
     network: Option<SccpNetworkV1>,
     before: Option<&str>,
@@ -360,7 +284,13 @@ pub fn recent_messages(
                         .ok_or_else(invalid_cursor)
                 })
                 .transpose()?;
-            Ok(recent_outbound(world, network, before, limit))
+            Ok(recent_outbound(
+                world,
+                committed_height,
+                network,
+                before,
+                limit,
+            ))
         }
         SccpDirectionV1::Inbound => {
             let before = before
@@ -383,8 +313,7 @@ pub fn recent_messages(
 // ---------------------------------------------------------------------------------------------
 
 /// Assemble `GET /v1/sccp/controls/{network}/{revision}?after_nonce&limit` (§6, §4.14.6):
-/// controls with nonce above `after_nonce`, ascending, at most `limit` (≤ 64), each with the
-/// attestation state of its block.
+/// controls with nonce above `after_nonce`, ascending, at most `limit` (≤ 64).
 ///
 /// # Errors
 ///
@@ -421,7 +350,6 @@ pub fn controls_page(
         controls.push(SccpControlViewV1 {
             control_nonce: *control_nonce,
             record: *record,
-            attestation: leaf_attestation(world, record.height),
         });
     }
     Ok(SccpControlPageV1 {
@@ -751,14 +679,11 @@ mod tests {
     use crate::{
         smartcontracts::isi::sccp::{
             commitment,
-            test_support::{
-                authority, blank_state, header, sample_proposal, sample_roster, sample_route,
-            },
+            test_support::{authority, blank_state, header, sample_proposal, sample_route},
         },
         state::StateTransaction,
     };
     use iroha_data_model::sccp::{
-        attestation::{SccpAttestationStatusV1, SccpAttestationSubjectV1},
         control::{SccpControlLeafRefV1, SccpControlRecordV1, SccpTransferLeafRefV1},
         inbound::{
             SccpBounceStatusV1, SccpInboundRecordV1, SccpInboundStatusV1, SccpPendingReasonV1,
@@ -841,35 +766,6 @@ mod tests {
         .expect("inbound");
     }
 
-    fn subject(stx: &mut StateTransaction<'_, '_>, height: u64, signers: u32, attested: bool) {
-        store::attestation_subjects::insert(
-            stx,
-            height,
-            SccpAttestationSubjectV1 {
-                height,
-                epoch: 0,
-                timestamp_ms: height * 4_000,
-                sccp_root: [0; 32],
-                message_count: 1,
-                history_root: [0; 32],
-                history_size: 1,
-                generation: 1,
-                roster_digest: [5; 32],
-                next_roster_digest: [0; 32],
-            },
-        )
-        .expect("subject");
-        store::attestation_status::insert(
-            stx,
-            height,
-            SccpAttestationStatusV1 {
-                signer_bitmap: (1 << signers) - 1,
-                attested_at_height: attested.then_some(height + 1),
-            },
-        )
-        .expect("status");
-    }
-
     #[test]
     fn directions_parse() {
         assert_eq!(
@@ -888,52 +784,44 @@ mod tests {
         let state = blank_state();
         let mut block = state.block(header(40));
         let mut stx = block.transaction();
-        store::rosters::insert(&mut stx, 1, sample_roster(1, 1)).expect("roster");
         let world = &*stx.world;
         assert_eq!(
-            message_status(world, &[9; 32]),
+            message_status(world, 40, &[9; 32]),
             SccpMessageStatusV1::Unknown
         );
         let id = outbound(&mut stx, ETH, 0, 10, 0);
-        let status = message_status(&*stx.world, &id);
-        assert_eq!(
-            status.outbound().map(|view| view.state),
-            Some(SccpOutboundStateV1::Recorded(SccpRecordedStateV1 {
-                deadline_ms: 1_000
-            }))
-        );
-        // Two of three signatures: still recorded; the threshold reached: attested.
-        subject(&mut stx, 10, 2, false);
-        assert!(matches!(
-            message_status(&*stx.world, &id)
-                .outbound()
-                .map(|view| view.state),
-            Some(SccpOutboundStateV1::Recorded(_))
-        ));
-        subject(&mut stx, 10, 3, true);
-        assert_eq!(
-            message_status(&*stx.world, &id)
-                .outbound()
-                .map(|view| view.state),
-            Some(SccpOutboundStateV1::Attested(SccpAttestationProgressV1 {
-                subject_height: 10,
-                signers: 3,
-                threshold: 3,
-            }))
-        );
-        // A later attested subject also makes an unattested own subject provable.
+        for (committed_height, provable) in [(0, false), (9, false), (10, true), (40, true)] {
+            let status = message_status(&*stx.world, committed_height, &id);
+            assert_eq!(
+                status.outbound().map(|view| view.state),
+                Some(SccpOutboundStateV1::Recorded(SccpRecordedStateV1 {
+                    deadline_ms: 1_000,
+                    provable,
+                }))
+            );
+            assert!(!status.is_final());
+        }
         let later = outbound(&mut stx, ETH, 1, 12, 0);
-        subject(&mut stx, 12, 1, false);
-        subject(&mut stx, 15, 3, true);
-        assert!(matches!(
-            message_status(&*stx.world, &later)
+        assert_eq!(
+            message_status(&*stx.world, 11, &later)
                 .outbound()
-                .map(|view| view.state),
-            Some(SccpOutboundStateV1::Attested(SccpAttestationProgressV1 {
-                subject_height: 15,
-                ..
-            }))
-        ));
+                .unwrap()
+                .state,
+            SccpOutboundStateV1::Recorded(SccpRecordedStateV1 {
+                deadline_ms: 1_001,
+                provable: false,
+            })
+        );
+        assert_eq!(
+            message_status(&*stx.world, 12, &later)
+                .outbound()
+                .unwrap()
+                .state,
+            SccpOutboundStateV1::Recorded(SccpRecordedStateV1 {
+                deadline_ms: 1_001,
+                provable: true,
+            })
+        );
         // Voided and refunded records report their stored state.
         let mut record = store::outbound_messages::get(&*stx.world, &id)
             .expect("record")
@@ -945,7 +833,7 @@ mod tests {
         };
         record.status = SccpOutboundStatusV1::Voided(void);
         store::outbound_messages::insert(&mut stx, id, record.clone()).expect("void");
-        let status = message_status(&*stx.world, &id);
+        let status = message_status(&*stx.world, 40, &id);
         assert_eq!(
             status.outbound().map(|view| view.state),
             Some(SccpOutboundStateV1::Voided(void))
@@ -953,10 +841,10 @@ mod tests {
         assert!(!status.is_final());
         record.status = SccpOutboundStatusV1::Refunded(SccpStatusHeightV1 { height: 21 });
         store::outbound_messages::insert(&mut stx, id, record).expect("refund");
-        assert!(message_status(&*stx.world, &id).is_final());
+        assert!(message_status(&*stx.world, 40, &id).is_final());
         // Inbound ids report the inbound record and its status.
         inbound(&mut stx, 0x44, BSC, 30);
-        let status = message_status(&*stx.world, &[0x44; 32]);
+        let status = message_status(&*stx.world, 40, &[0x44; 32]);
         let view = status.inbound().expect("inbound");
         assert_eq!(
             view.record.status,
@@ -968,43 +856,43 @@ mod tests {
             bounce_message_id: [0x45; 32],
         });
         store::inbound_messages::insert(&mut stx, [0x44; 32], bounced).expect("bounce");
-        assert!(message_status(&*stx.world, &[0x44; 32]).is_final());
+        assert!(message_status(&*stx.world, 40, &[0x44; 32]).is_final());
     }
 
     #[test]
-    fn attested_states_name_a_subject_whose_signatures_are_retained() {
+    fn commit_cut_is_explicit_consistent_across_pages_and_does_not_mutate_records() {
         let state = blank_state();
         let mut block = state.block(header(40));
         let mut stx = block.transaction();
-        store::rosters::insert(&mut stx, 1, sample_roster(1, 1)).expect("roster");
-        let sign = |stx: &mut StateTransaction<'_, '_>, height: u64| {
-            for index in 0..3_u8 {
-                store::attestation_signatures::insert(stx, (height, index), [index; 65])
-                    .expect("signature");
-            }
-        };
-        let attested_at =
-            |stx: &StateTransaction<'_, '_>, id: &[u8; 32]| match message_status(&*stx.world, id)
-                .outbound()
-                .map(|view| view.state)
-            {
-                Some(SccpOutboundStateV1::Attested(progress)) => progress.subject_height,
-                other => panic!("not attested: {other:?}"),
-            };
+        route_with_nonces(&mut stx, ETH, 1);
         let id = outbound(&mut stx, ETH, 0, 10, 0);
-        // The own subject was attested but retention pruned its signatures, and no later subject
-        // is attested: the own subject is still named (its proof needs the Kura fallback).
-        subject(&mut stx, 10, 3, true);
-        assert_eq!(attested_at(&stx, &id), 10);
-        // A later attested subject with retained signatures serves the record instead.
-        subject(&mut stx, 15, 3, true);
-        sign(&mut stx, 15);
-        assert_eq!(attested_at(&stx, &id), 15);
-        // While the own subject's signatures are retained, it is preferred.
-        sign(&mut stx, 10);
-        assert_eq!(attested_at(&stx, &id), 10);
-        assert!(signatures_retained(&*stx.world, 10));
-        assert!(!signatures_retained(&*stx.world, 11), "no subject");
+        let original = store::outbound_messages::get(&*stx.world, &id)
+            .unwrap()
+            .clone();
+        assert!(stx.world.take_external_events().is_empty());
+        for (committed_height, provable) in [(9, false), (10, true), (11, true), (9, false)] {
+            let world = &*stx.world;
+            let status = message_status(world, committed_height, &id);
+            let page = outbound_page(world, committed_height, ETH, 1, 0, 1).unwrap();
+            let recent = recent_messages(
+                world,
+                committed_height,
+                SccpDirectionV1::Outbound,
+                None,
+                None,
+                1,
+            )
+            .unwrap();
+            let expected = SccpOutboundStateV1::Recorded(SccpRecordedStateV1 {
+                deadline_ms: original.deadline_ms,
+                provable,
+            });
+            assert_eq!(status.outbound().unwrap().state, expected);
+            assert_eq!(page.records[0].state, expected);
+            assert_eq!(recent.messages[0].outbound().unwrap().state, expected);
+            assert_eq!(store::outbound_messages::get(world, &id), Some(&original));
+        }
+        assert!(stx.world.take_external_events().is_empty());
     }
 
     #[test]
@@ -1013,14 +901,14 @@ mod tests {
         let mut block = state.block(header(40));
         let mut stx = block.transaction();
         assert!(matches!(
-            outbound_page(&*stx.world, ETH, 1, 0, 10),
+            outbound_page(&*stx.world, 40, ETH, 1, 0, 10),
             Err(SccpReadError::NotFound(_))
         ));
         route_with_nonces(&mut stx, ETH, 5);
         for nonce in 0..5 {
             outbound(&mut stx, ETH, nonce, 10 + nonce, 0);
         }
-        let first = outbound_page(&*stx.world, ETH, 1, 0, 2).expect("page");
+        let first = outbound_page(&*stx.world, 40, ETH, 1, 0, 2).expect("page");
         assert_eq!(first.next_outbound_nonce, 5);
         assert_eq!(
             first
@@ -1031,17 +919,17 @@ mod tests {
             vec![0, 1]
         );
         assert_eq!(first.next_from_nonce, Some(2));
-        let last = outbound_page(&*stx.world, ETH, 1, 4, 2).expect("page");
+        let last = outbound_page(&*stx.world, 40, ETH, 1, 4, 2).expect("page");
         assert_eq!(last.records.len(), 1);
         assert_eq!(last.next_from_nonce, None);
         assert!(
-            outbound_page(&*stx.world, ETH, 1, 9, 2)
+            outbound_page(&*stx.world, 40, ETH, 1, 9, 2)
                 .expect("page")
                 .records
                 .is_empty()
         );
         assert!(matches!(
-            outbound_page(&*stx.world, ETH, 2, 0, 2),
+            outbound_page(&*stx.world, 40, ETH, 2, 0, 2),
             Err(SccpReadError::NotFound(_))
         ));
     }
@@ -1071,21 +959,23 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         let world = &*stx.world;
-        let all = recent_messages(world, SccpDirectionV1::Outbound, None, None, 50).expect("all");
+        let all =
+            recent_messages(world, 40, SccpDirectionV1::Outbound, None, None, 50).expect("all");
         assert_eq!(nonces(&all), vec![2, 1, 0]);
         assert_eq!(all.next_before, None);
-        let first = recent_messages(world, SccpDirectionV1::Outbound, None, None, 2).expect("page");
+        let first =
+            recent_messages(world, 40, SccpDirectionV1::Outbound, None, None, 2).expect("page");
         assert_eq!(nonces(&first), vec![2, 1]);
         let cursor = first.next_before.expect("more");
-        let second = recent_messages(world, SccpDirectionV1::Outbound, None, Some(&cursor), 2)
+        let second = recent_messages(world, 40, SccpDirectionV1::Outbound, None, Some(&cursor), 2)
             .expect("page");
         assert_eq!(nonces(&second), vec![0]);
-        let eth =
-            recent_messages(world, SccpDirectionV1::Outbound, Some(ETH), None, 50).expect("eth");
+        let eth = recent_messages(world, 40, SccpDirectionV1::Outbound, Some(ETH), None, 50)
+            .expect("eth");
         assert_eq!(nonces(&eth), vec![2, 0]);
         for bad in ["10", "x:1", "10:y"] {
             assert!(matches!(
-                recent_messages(world, SccpDirectionV1::Outbound, None, Some(bad), 2),
+                recent_messages(world, 40, SccpDirectionV1::Outbound, None, Some(bad), 2),
                 Err(SccpReadError::Invalid(_))
             ));
         }
@@ -1106,25 +996,33 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         let world = &*stx.world;
-        let first = recent_messages(world, SccpDirectionV1::Inbound, None, None, 2).expect("page");
+        let first =
+            recent_messages(world, 40, SccpDirectionV1::Inbound, None, None, 2).expect("page");
         assert_eq!(ids(&first), vec![3, 2]);
         let cursor = first.next_before.expect("more");
         assert_eq!(cursor, format!("12:{}", hex::encode([2_u8; 32])));
-        let second =
-            recent_messages(world, SccpDirectionV1::Inbound, None, Some(&cursor), 2).expect("page");
+        let second = recent_messages(world, 40, SccpDirectionV1::Inbound, None, Some(&cursor), 2)
+            .expect("page");
         assert_eq!(ids(&second), vec![1]);
         assert_eq!(second.next_before, None);
         let eth =
-            recent_messages(world, SccpDirectionV1::Inbound, Some(ETH), None, 50).expect("eth");
+            recent_messages(world, 40, SccpDirectionV1::Inbound, Some(ETH), None, 50).expect("eth");
         assert_eq!(ids(&eth), vec![3, 1]);
         assert!(matches!(
-            recent_messages(world, SccpDirectionV1::Inbound, None, Some("12:abcd"), 2),
+            recent_messages(
+                world,
+                40,
+                SccpDirectionV1::Inbound,
+                None,
+                Some("12:abcd"),
+                2
+            ),
             Err(SccpReadError::Invalid(_))
         ));
     }
 
     #[test]
-    fn control_pages_report_attestation_progress() {
+    fn control_pages_preserve_order_and_exact_records() {
         let state = blank_state();
         let mut block = state.block(header(40));
         let mut stx = block.transaction();
@@ -1133,7 +1031,6 @@ mod tests {
             Err(SccpReadError::NotFound(_))
         ));
         route_with_nonces(&mut stx, ETH, 3);
-        store::rosters::insert(&mut stx, 1, sample_roster(1, 1)).expect("roster");
         for (nonce, height) in [(1_u64, 10_u64), (2, 11), (3, 12)] {
             store::control_messages::insert(
                 &mut stx,
@@ -1148,31 +1045,25 @@ mod tests {
             )
             .expect("control");
         }
-        subject(&mut stx, 10, 3, true);
-        subject(&mut stx, 11, 1, false);
         let page = controls_page(&*stx.world, ETH, 1, 0, 2).expect("page");
         assert_eq!(page.next_control_nonce, 4);
         assert_eq!(page.next_after_nonce, Some(2));
-        assert!(page.controls[0].attestation.is_attested());
-        assert_eq!(
-            page.controls[1].attestation,
-            SccpLeafAttestationV1::Pending(SccpAttestationProgressV1 {
-                subject_height: 11,
-                signers: 1,
-                threshold: 3,
-            })
-        );
+        for (view, nonce, height) in [(&page.controls[0], 1, 10), (&page.controls[1], 2, 11)] {
+            assert_eq!(view.control_nonce, nonce);
+            assert_eq!(view.record.height, height);
+            assert_eq!(view.record.paused, nonce % 2 == 1);
+            assert_eq!(
+                view.record,
+                *store::control_messages::get(&*stx.world, &(ETH, 1, nonce)).unwrap()
+            );
+        }
         let rest = controls_page(&*stx.world, ETH, 1, 2, 2).expect("page");
         assert_eq!(rest.controls.len(), 1);
         assert_eq!(rest.controls[0].control_nonce, 3);
+        assert_eq!(rest.controls[0].record.height, 12);
         assert_eq!(
-            rest.controls[0].attestation,
-            SccpLeafAttestationV1::Pending(SccpAttestationProgressV1 {
-                subject_height: 12,
-                signers: 0,
-                threshold: 0,
-            }),
-            "no subject yet"
+            rest.controls[0].record,
+            *store::control_messages::get(&*stx.world, &(ETH, 1, 3)).unwrap()
         );
         assert_eq!(rest.next_after_nonce, None);
         assert!(

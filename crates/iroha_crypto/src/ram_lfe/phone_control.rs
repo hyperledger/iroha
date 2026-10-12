@@ -410,10 +410,14 @@ impl<'de> norito::core::DeserializePayload<'de> for PhoneNumberCommitmentValueV1
     fn try_deserialize(
         archived: &'de norito::core::Archived<Self>,
     ) -> Result<Self, norito::core::Error> {
-        let bytes = <[u8; Self::BYTES] as norito::core::DeserializePayload>::try_deserialize(
-            archived.cast(),
-        )?;
-        Self::from_le_bytes(bytes).map_err(|_| Self::decode_error())
+        // The payload is exactly 48 raw bytes, not Norito's element-framed array.
+        let payload =
+            norito::core::payload_slice_from_ptr(core::ptr::from_ref(archived).cast::<u8>())?;
+        let (value, used) = <Self as norito::core::DecodeFromSlice>::decode_from_slice(payload)?;
+        if used != payload.len() {
+            return Err(norito::core::Error::LengthMismatch);
+        }
+        Ok(value)
     }
 }
 

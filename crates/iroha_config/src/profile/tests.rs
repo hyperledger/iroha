@@ -77,6 +77,30 @@ fn every_compiled_profile_loads_with_its_identity() {
 }
 
 #[test]
+fn shipping_gossip_profiles_and_execution_overlay_carry_the_default_frame() {
+    let expected = defaults::network::MAX_PLAINTEXT_FRAME_BYTES.get() as i64;
+    assert_eq!(
+        defaults::network::MAX_FRAME_BYTES_TX_GOSSIP.get() as i64,
+        expected
+    );
+    for id in [ProfileId::SoraNexusV1, ProfileId::SoraNexusV1Qual] {
+        let profile = Profile::compiled(id).unwrap();
+        assert_eq!(
+            integer_at(&profile.static_config, "network.max_frame_bytes_tx_gossip"),
+            expected
+        );
+    }
+    let overlay: toml::Table = toml::from_str(include_str!(
+        "../../../../configs/soranexus/execution-proof-transport.toml"
+    ))
+    .unwrap();
+    assert_eq!(
+        integer_at(&overlay, "network.max_frame_bytes_tx_gossip"),
+        expected
+    );
+}
+
+#[test]
 fn profile_and_role_names_roundtrip() {
     for id in ProfileId::ALL {
         assert_eq!(id.as_str().parse::<ProfileId>(), Ok(id));
@@ -200,7 +224,6 @@ fn sora_nexus_v1_literals_are_the_defaults_for_discriminant_369() {
         .to_i105_for_discriminant(369)
         .unwrap();
     for key in [
-        "pipeline.gas.tech_account_id",
         "nexus.staking.stake_escrow_account_id",
         "nexus.staking.slash_sink_account_id",
         "nexus.fees.fee_sink_account_id",
@@ -208,6 +231,10 @@ fn sora_nexus_v1_literals_are_the_defaults_for_discriminant_369() {
     ] {
         assert_eq!(string_at(static_config, key), custody, "{key}");
     }
+    assert!(
+        static_config["pipeline"].get("gas").is_none(),
+        "pipeline fee policy belongs exclusively to committed parameters"
+    );
     let asset = |domain: &str| {
         AssetDefinitionId::derive_from_components(
             DomainId::parse_fully_qualified(domain).unwrap(),
@@ -551,15 +578,11 @@ fn digests_are_stable_across_loads_and_formatting() {
 #[test]
 fn digests_are_pinned() {
     let profile = sora();
-    // The native Sumeragi hard cut removed block/queue geometry from both the
-    // static profile and DerivedGeometryV1 (8a99f3f5ba). Pin the resulting first-
-    // release shape; retaining the removed queue fields would change semantics.
-    // ZK delivery plan task F.4 removed static verifier selection: ZK
-    // validity values are the committed `zk_validity_policy_v1` parameter, not
-    // node configuration, and the key no longer exists in the node schema.
+    // The first-release profile admits complete 17 MiB transaction-gossip frames.
+    // Pipeline fee and ZK validity policies belong to committed parameters.
     assert_eq!(
         profile.consensus_digest(4).unwrap().to_string(),
-        "6dcc49948b24ea6675e4cfbfd3dfd963b5d91daa011f3d8b6eb4f00296c073fb"
+        "a4b90a9c3e3cbb2c70690511bf4296ebeecafa1dc427274b4d9fc75f53e1476b"
     );
     // The retired Torii KAGEMUSHA command policy is absent from this canonical input.
     // Native proof-backend selection above does not change this separate policy input.

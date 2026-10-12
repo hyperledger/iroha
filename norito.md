@@ -390,6 +390,14 @@ canonical nesting ceiling remain format rejections. This query
 adds no wire data, allocation owner or release notification, and does not retry
 the decoder.
 
+Canonical frame decoding retains one typed output slot while header, checksum,
+field-consumption and resource-scope wrappers return only their check result.
+`decode_canonical_for_admission_into` consumes that value after exact canonical
+comparison and after the decoder's private limits, layout/context guards and
+admission observer have retired. This avoids repeated large by-value return
+slots without a new heap owner or wire layout. Consumer work retains the caller's
+original ambient context and returns its own semantic result independently.
+
 Canonical artifact admission uses `decode_canonical_for_admission` for the complete
 single decode and exact canonical-byte comparison. Its opaque result distinguishes
 actual allocator failure, an original enclosing admission-budget refusal, and invalid
@@ -803,7 +811,11 @@ complete canonical frame of `SignedAttachmentsV1` (the 40-byte header,
 alignment padding and the bare payload). The frame bound is one ceiling-sized
 occurrence plus a 64 KiB aggregate allowance, so sixteen maximal occurrences do
 not fit. The decoder checks the frame size, both sequence counts and each
-declared byte count before it allocates. The complete signed transaction is
+declared byte count before it allocates. Each action also checks its wire-id
+length, call-path count and reference count before decoding owned fields; its
+reference count cannot exceed the 16-occurrence transaction bound. Borrowed
+field spans do not consume the allocation budget; owned decoders account for
+their materialized values. The complete signed transaction is
 still measured against the committed `transaction.max_tx_bytes`, and the sum of
 occurrence bytes against `transaction.max_decompressed_bytes`.
 
@@ -1494,6 +1506,23 @@ time. The signed payload's schema identity is
 `iroha_data_model::identifier::PhoneRetailCanonicalityPayloadV1`; the
 attestation's is
 `iroha_data_model::identifier::PhoneRetailCanonicalityAttestationV1`.
+
+### Sumeragi certified result envelope
+
+A native `CommitCertificate.result_preimage` is exactly `X ‖ body`: a fixed 221-byte
+`SccpFinalityHeaderV1` followed by the canonical Norito `ExecutionResultCommitment` body.
+The complete preimage is at most 65,536 bytes, so its body is at most 65,315 bytes.
+`CertifiedResultV1` is the sole reader of this envelope; a body frame alone is not a
+certificate preimage. It checks header/body height, network, committee and rotation bindings,
+then callers holding the original block check its height and timestamp. The scope comes from
+original signed genesis or independently registered authority, never from the offered header.
+AMX tracker state explicitly encodes `result_scope` with no missing-field default.
+
+The certificate result is raw `SHA-256(RESULT_TAG ‖ X ‖ D_body)`, where
+`D_body = H_iroha(RESULT_BODY_TAG ‖ body)`. Raw `R` remains `Hash32`; marker-setting Iroha
+hash conversions are prohibited. See `specs/sumeragi.md` §4.1.1 and `specs/sccp.md` §3.6–3.7.
+Lane results retain their separate lane contract. This first-release envelope has no fallback
+decoder or parallel body-only result hash.
 
 ### Sumeragi execution-result schedule projection
 

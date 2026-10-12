@@ -259,7 +259,8 @@ fn healthy_output_overflow_drops_both_business_and_its_staged_fee() {
         policy.max_output_bytes = 16_384;
         parameters
             .get_mut()
-            .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)));
+            .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
     let source = carrier(
@@ -309,11 +310,13 @@ fn commit_sccp_parameters(state: &State) {
 #[test]
 fn a_failed_sccp_exempt_transaction_is_charged_within_its_signed_intent() {
     let _fee_guard = crate::status::nexus_fee_test_lock().lock().unwrap();
-    // Fault evidence is eligible whenever SCCP exists; this one fails its signature check at
-    // execution. One instruction: base fee 1 + one instruction at 1.
-    let fault = || {
+    // A canonical keeper advance is eligible but fails without an installed light client.
+    // One instruction: base fee 1 + one instruction at 1.
+    let advance = || {
         vec![InstructionBox::from(
-            crate::smartcontracts::isi::sccp::test_support::SampleInstructions::fault(),
+            crate::smartcontracts::isi::sccp::test_support::SampleInstructions::eligible_advance(
+                iroha_data_model::bridge::SccpNetworkV1::EthereumMainnet,
+            ),
         )]
     };
     for (limit, balance_after) in [(Some(2_u32), 8_u32), (Some(1), 10), (None, 10)] {
@@ -323,14 +326,14 @@ fn a_failed_sccp_exempt_transaction_is_charged_within_its_signed_intent() {
             || FeePaymentIntent::authority(Vec::new(), None),
             |maximum| payment(&asset, maximum),
         );
-        let source = carrier(&state, vec![input(&state, fault(), intent, false)]);
+        let source = carrier(&state, vec![input(&state, advance(), intent, false)]);
         let (mut block, _recording) = recorded_network_block(&state, &source);
         execute(&mut block, &source).unwrap();
         let row = network_row(&block, 0);
         let reason = format!("{:?}", row.result.0);
-        assert!(row.result.is_err(), "{limit:?}: the fault evidence fails");
+        assert!(row.result.is_err(), "{limit:?}: the keeper advance fails");
         assert!(
-            reason.contains("SCCP fault"),
+            reason.contains("SCCP light client"),
             "{limit:?}: the failure keeps its own reason: {reason}"
         );
         assert_eq!(
@@ -349,7 +352,7 @@ fn a_failed_sccp_exempt_transaction_is_charged_within_its_signed_intent() {
 #[test]
 fn an_sccp_shape_that_is_not_eligible_pays_the_ordinary_fee() {
     let _fee_guard = crate::status::nexus_fee_test_lock().lock().unwrap();
-    // Without SCCP in the parent World nothing is exempt: fault evidence is an ordinary
+    // Without SCCP in the parent World nothing is exempt: a keeper advance is an ordinary
     // transaction, quoted at admission and charged on failure like any other.
     let (state, asset) = priced_fixture(None);
     let source = carrier(
@@ -357,7 +360,7 @@ fn an_sccp_shape_that_is_not_eligible_pays_the_ordinary_fee() {
         vec![input(
             &state,
             vec![InstructionBox::from(
-                crate::smartcontracts::isi::sccp::test_support::SampleInstructions::fault(),
+                crate::smartcontracts::isi::sccp::test_support::SampleInstructions::eligible_advance(iroha_data_model::bridge::SccpNetworkV1::EthereumMainnet),
             )],
             FeePaymentIntent::authority(Vec::new(), None),
             false,
@@ -369,7 +372,7 @@ fn an_sccp_shape_that_is_not_eligible_pays_the_ordinary_fee() {
     assert!(row.result.is_err());
     let reason = format!("{:?}", row.result.0);
     assert!(
-        !reason.contains("SCCP fault"),
+        !reason.contains("SCCP light client"),
         "fee admission refuses it before execution: {reason}"
     );
     assert_eq!(balance(&block, &asset, &ALICE_ID), Quantity::from(10_u32));

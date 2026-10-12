@@ -37,6 +37,9 @@ pub(crate) enum StateRestoreError {
     /// Original finite resources refused the complete native participant graph.
     #[error("snapshot native AMX admission deferred: {0}")]
     NativeAmx(#[source] crate::sumeragi::amx::NativeAmxAdmissionError),
+    /// Original finite resources refused immutable native SCCP generation ownership.
+    #[error("snapshot native SCCP admission deferred: {0}")]
+    SccpCommittee(#[source] crate::smartcontracts::isi::sccp::committee_owner::CommitteeOwnerError),
     /// Original resources refused canonical immutable evidence graph restoration.
     #[error("snapshot native evidence admission deferred: {0}")]
     Evidence(#[source] crate::sumeragi::evidence::record::EvidenceRecordRestoreError),
@@ -71,6 +74,73 @@ impl From<native_execution_tip::TipRestoreError> for StateRestoreError {
         }
     }
 }
+
+/// Validate both complete original versions before either can become a published World.
+fn validate_resource_policy_versions(
+    world: &World,
+    committed_height: u64,
+    execution_budget: &iroha_allocation::AllocationBudget,
+) -> Result<(), StateRestoreError> {
+    crate::resource_coherence::validate_restored_policy(&world.view(), committed_height).map_err(
+        |error| json::Error::InvalidField {
+            field: "state.world.resource_policy".to_owned(),
+            message: error.to_string(),
+        },
+    )?;
+    // Acquire the original undo cut atomically. Reading separate Cell predecessors
+    // here would risk mixing parameter, privacy-policy, and schedule generations.
+    let previous_world = world.try_block_and_revert(execution_budget)?;
+    // At height zero both cuts remain pre-genesis bootstrap state; no earlier
+    // committed height exists. Even that retained undo must be coherent.
+    let previous_height = committed_height.checked_sub(1).unwrap_or(0);
+    crate::resource_coherence::validate_restored_policy(&previous_world, previous_height).map_err(
+        |error| json::Error::InvalidField {
+            field: "state.world.resource_policy.revert".to_owned(),
+            message: error.to_string(),
+        },
+    )?;
+    Ok(())
+}
+
+/// Apply L1 to each complete original World cut under explicitly supplied replay policy.
+/// Snapshot fields are structural claims; neither defaults nor a current-only check can
+/// authenticate the genesis staking policy or an undo generation's liability window.
+fn validate_sccp_policy_versions(
+    world: &World,
+    replay_nexus: Option<&iroha_config::parameters::actual::Nexus>,
+    execution_budget: &iroha_allocation::AllocationBudget,
+) -> Result<(), StateRestoreError> {
+    fn validate(
+        cut: &(impl WorldReadOnly + ?Sized),
+        replay_nexus: Option<&iroha_config::parameters::actual::Nexus>,
+        field: &str,
+    ) -> Result<(), StateRestoreError> {
+        use crate::smartcontracts::isi::sccp::params;
+        let Some(parameters) = params::parameters(cut) else {
+            return Ok(());
+        };
+        // TODO: authenticate genesis-pinned staking custody in the native replay owner.
+        // Refuse config-free SCCP restore instead of substituting process defaults.
+        let policy = replay_nexus.ok_or_else(|| json::Error::InvalidField {
+            field: field.to_owned(),
+            message: "SCCP restore requires explicit original replay staking policy".to_owned(),
+        })?;
+        params::validate_staking_policy(cut, &parameters, &policy.staking).map_err(|error| {
+            json::Error::InvalidField {
+                field: field.to_owned(),
+                message: error.to_string(),
+            }
+        })?;
+        Ok(())
+    }
+    validate(&world.view(), replay_nexus, "state.sccp.staking_policy")?;
+    let previous = world.try_block_and_revert(execution_budget)?;
+    validate(&previous, replay_nexus, "state.sccp.staking_policy.revert")
+}
+
+#[cfg(test)]
+#[path = "sccp_policy_restore_tests.rs"]
+mod sccp_policy_restore_tests;
 impl From<mv::storage::AdmittedStorageError> for StateRestoreError {
     fn from(error: mv::storage::AdmittedStorageError) -> Self {
         Self::Admission(StateAdmissionError::Storage(
@@ -124,11 +194,11 @@ enum SnapshotJsonField<'a> {
     Owned(json::Value),
 }
 impl<'a> SnapshotJsonField<'a> {
-    fn decode_canonical<T>(self, field: &str) -> Result<T, json::Error>
+    fn decode_canonical_value<T>(self) -> Result<T, json::Error>
     where
         T: JsonDeserialize + JsonSerialize,
     {
-        let decoded: Result<T, json::Error> = match self {
+        match self {
             #[cfg(test)]
             Self::Owned(value) => json::value::from_value(value),
             Self::Borrowed { raw } => (|| {
@@ -143,11 +213,17 @@ impl<'a> SnapshotJsonField<'a> {
                 }
                 Ok(value)
             })(),
-        };
-        decoded.map_err(|error| json::Error::InvalidField {
-            field: field.to_owned(),
-            message: error.to_string(),
-        })
+        }
+    }
+    fn decode_canonical<T>(self, field: &str) -> Result<T, json::Error>
+    where
+        T: JsonDeserialize + JsonSerialize,
+    {
+        self.decode_canonical_value()
+            .map_err(|error| json::Error::InvalidField {
+                field: field.to_owned(),
+                message: error.to_string(),
+            })
     }
     fn decode_transactions(
         self,
@@ -422,6 +498,167 @@ pub(crate) fn snapshot_format_error_for_test(error: StateRestoreError) -> json::
 #[cfg(test)]
 mod state_snapshot_decode_error_tests {
     use super::*;
+
+    fn commit_resource_fixture(world: &World, lower_caps: bool, lower_privacy: bool) {
+        use iroha_data_model::{
+            parameter::{
+                Parameter,
+                system::{SumeragiParameter, TransactionParameter},
+            },
+            privacy::{PrivacyConsensusLimitsV1, PrivacyConsensusPolicyV1},
+        };
+        use std::num::{NonZeroU32, NonZeroU64};
+        let mut overlay = world.block();
+        let parameters = overlay.parameters.get_mut();
+        parameters.replace(Parameters::default()).unwrap();
+        if lower_caps {
+            parameters
+                .set_parameter(Parameter::Transaction(TransactionParameter::MaxTxBytes(
+                    NonZeroU64::new(3 * 1024 * 1024).unwrap(),
+                )))
+                .unwrap();
+            parameters
+                .set_parameter(Parameter::Sumeragi(SumeragiParameter::MaxBlockBytes(
+                    NonZeroU32::new(4 * 1024 * 1024).unwrap(),
+                )))
+                .unwrap();
+        }
+        let mut limits = PrivacyConsensusLimitsV1::taira_default();
+        if lower_privacy {
+            limits.max_proof_bytes_per_action = 2 * 1024 * 1024;
+            limits.max_action_bytes = 2 * 1024 * 1024;
+            limits.max_privacy_bytes_per_transaction = 2 * 1024 * 1024;
+            limits.max_privacy_bytes_per_block = 3 * 1024 * 1024;
+        }
+        *overlay.privacy_consensus_policy.get_mut() = PrivacyConsensusPolicyV1 {
+            current_limits: limits,
+            pending_tightening: None,
+        };
+        overlay.commit();
+    }
+
+    #[test]
+    fn resource_restore_validates_complete_current_and_predecessor_versions() {
+        let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
+        let world = World::try_with_execution_budget([], [], [], &budget).unwrap();
+        commit_resource_fixture(&world, true, true);
+        commit_resource_fixture(&world, false, false);
+        validate_resource_policy_versions(&world, 0, &budget).unwrap();
+        let previous = world.try_block_and_revert(&budget).unwrap();
+        assert_eq!(
+            previous.parameters().transaction().max_tx_bytes().get(),
+            3 * 1024 * 1024
+        );
+        assert_eq!(
+            previous
+                .privacy_consensus_policy()
+                .current_limits
+                .max_action_bytes,
+            2 * 1024 * 1024
+        );
+        assert_ne!(previous.parameters(), world.view().parameters());
+    }
+
+    #[test]
+    fn resource_restore_rejects_incoherent_original_undo_before_rollback() {
+        let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
+        let world = World::try_with_execution_budget([], [], [], &budget).unwrap();
+        commit_resource_fixture(&world, true, false);
+        commit_resource_fixture(&world, false, false);
+        crate::resource_coherence::validate_restored_policy(&world.view(), 0).unwrap();
+        assert!(matches!(
+            validate_resource_policy_versions(&world, 0, &budget),
+            Err(StateRestoreError::Serialization(json::Error::InvalidField { ref field, .. }))
+                if field == "state.world.resource_policy.revert"
+        ));
+    }
+
+    #[test]
+    fn resource_restore_keeps_original_undo_acquisition_refusal_local() {
+        let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
+        let world = World::try_with_execution_budget([], [], [], &budget).unwrap();
+        let retained_bytes = budget.reserved_bytes();
+        budget.set_limit_bytes(0);
+        let refused = validate_resource_policy_versions(&world, 0, &budget).unwrap_err();
+        let StateRestoreError::Admission(StateAdmissionError::Storage(
+            StateStorageAdmissionError::World(mv::storage::AdmittedStorageError::Allocation(
+                iroha_allocation::AllocationRefusal::Capacity {
+                    requested_bytes,
+                    reserved_bytes,
+                    limit_bytes,
+                    ..
+                },
+            )),
+        )) = refused
+        else {
+            panic!("expected original undo allocation capacity refusal: {refused:?}");
+        };
+        assert!(requested_bytes > 0);
+        assert_eq!(reserved_bytes, retained_bytes);
+        assert_eq!(limit_bytes, 0);
+        assert_eq!(budget.reserved_bytes(), retained_bytes);
+        budget.set_limit_bytes(64 * 1024 * 1024);
+        validate_resource_policy_versions(&world, 0, &budget).unwrap();
+        assert_eq!(budget.reserved_bytes(), retained_bytes);
+    }
+
+    fn fee_parameters_snapshot(receiver: &str) -> String {
+        let mut parameters = Parameters::default();
+        parameters.set_parameter(iroha_data_model::parameter::Parameter::Custom(
+            iroha_data_model::parameter::CustomParameter::new(
+                "ivm_gas_tech_account_id".parse().unwrap(),
+                iroha_primitives::json::Json::new(receiver),
+            ),
+        ));
+        json::to_json(&Cell::new(parameters)).unwrap()
+    }
+
+    fn parameters_map(raw: &str) -> SnapshotJsonMap<'_> {
+        SnapshotJsonMap {
+            fields: BTreeMap::from([(
+                "parameters".to_owned(),
+                SnapshotJsonField::Borrowed { raw },
+            )]),
+            source_order: None,
+        }
+    }
+
+    #[test]
+    fn canonical_parameters_cell_restores_validated_fee_projection() {
+        let receiver = iroha_test_samples::ALICE_ID.to_string();
+        let canonical = fee_parameters_snapshot(&receiver);
+        let restored = take_parameters_cell(&mut parameters_map(&canonical), "parameters")
+            .expect("canonical original Parameters cell restores its derived fee projection");
+        assert_eq!(restored.view().gas().tech_account_id, receiver);
+        assert_eq!(json::to_json(&restored).unwrap(), canonical);
+    }
+
+    #[test]
+    fn parameters_cell_restore_preserves_original_decode_refusal() {
+        let canonical = fee_parameters_snapshot(&iroha_test_samples::ALICE_ID.to_string());
+        let mut map = parameters_map(&canonical);
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+        let error = norito::with_decode_limits_scope(limits, || {
+            take_parameters_cell(&mut map, "parameters")
+                .err()
+                .expect("original decode budget refuses restore")
+        });
+        assert!(matches!(error, StateRestoreError::ExecutionDeferred(_)));
+        assert!(take_parameters_cell(&mut parameters_map(&canonical), "parameters").is_ok());
+    }
+
+    #[test]
+    fn parameters_cell_restore_rejects_malformed_fee_as_serialization() {
+        let malformed = fee_parameters_snapshot("alias@domain");
+        let error = take_parameters_cell(&mut parameters_map(&malformed), "parameters")
+            .err()
+            .expect("malformed committed receiver cannot create a StateParameters owner");
+        assert!(matches!(
+            error,
+            StateRestoreError::Serialization(json::Error::InvalidField { ref field, .. })
+                if field == "parameters"
+        ));
+    }
 
     #[test]
     fn positive_fast_manifest_cannot_construct_empty_world_at_a_committed_tip() {
@@ -766,7 +1003,7 @@ impl KuraSeed {
             soradns_history_len: take_required(&mut map, "soradns_history_len")?,
         }
         .restore(&mut world)?;
-        take_required::<sccp_snapshot_state::SnapshotSccpState>(
+        take_required_scoped::<sccp_snapshot_state::SnapshotSccpState>(
             &mut map,
             sccp_snapshot_state::SCCP_SNAPSHOT_MEMBER,
         )?
@@ -877,6 +1114,8 @@ impl KuraSeed {
                 field: "state.world.privacy_consensus_policy".to_owned(),
                 message: error.to_string(),
             })?;
+        validate_resource_policy_versions(&world, committed_height, &self.execution_budget)?;
+        validate_sccp_policy_versions(&world, replay_nexus.as_ref(), &self.execution_budget)?;
         crate::privacy_state::validate_privacy_activations_at_committed_height_v1(
             &world.privacy_activations.view(),
             committed_height,
@@ -1772,6 +2011,25 @@ where
     }
     Ok(())
 }
+/// Preserve the original decoder scope before adding a completed schema diagnostic.
+fn take_required_scoped<T>(map: &mut SnapshotJsonMap<'_>, key: &str) -> Result<T, StateRestoreError>
+where
+    T: JsonDeserialize + JsonSerialize,
+{
+    map.remove(key)
+        .ok_or_else(|| json::Error::missing_field(key))?
+        .decode_canonical_value()
+        .map_err(|error| {
+            crate::execution_attempt::json_decode_attempt_error(error, |error| {
+                json::Error::InvalidField {
+                    field: key.to_owned(),
+                    message: error.to_string(),
+                }
+            })
+            .into()
+        })
+}
+
 fn take_required<T>(map: &mut SnapshotJsonMap<'_>, key: &str) -> Result<T, json::Error>
 where
     T: JsonDeserialize + JsonSerialize,
@@ -2175,8 +2433,19 @@ fn take_ram_lfe_program_policies(
 fn take_parameters_cell(
     map: &mut SnapshotJsonMap<'_>,
     key: &str,
-) -> Result<Cell<Parameters>, json::Error> {
-    take_required(map, key)
+) -> Result<Cell<StateParameters>, StateRestoreError> {
+    let source = map
+        .remove(key)
+        .ok_or_else(|| json::Error::missing_field(key))?;
+    source.decode_canonical_value().map_err(|error| {
+        crate::execution_attempt::json_decode_attempt_error(error, |error| {
+            json::Error::InvalidField {
+                field: key.to_owned(),
+                message: error.to_string(),
+            }
+        })
+        .into()
+    })
 }
 fn take_topology_cell(
     map: &mut SnapshotJsonMap<'_>,
@@ -2678,7 +2947,10 @@ mod evidence_record_restore_adapter_tests {
         let canonical = json::to_json(&storage).unwrap();
         let projection = json::to_value(&storage).unwrap();
         let reordered = json::to_json(&projection).unwrap();
-        assert_ne!(canonical, reordered, "the DOM has discarded declaration order");
+        assert_ne!(
+            canonical, reordered,
+            "the DOM has discarded declaration order"
+        );
         let budget = AllocationBudget::new(1024);
         let restored = SnapshotJsonField::Borrowed { raw: &canonical }
             .decode_evidence(&budget)

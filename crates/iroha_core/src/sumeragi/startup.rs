@@ -189,11 +189,16 @@ fn finish_genesis(
         &transition,
         inputs,
         native_lanes,
+        overlay
+            .sccp_finality_header()
+            .map_err(StartupError::Local)?,
     )
     .map_err(StartupError::ExecutionCommitment)?;
     let preimage = encode_result_preimage(&retained_result, &budget)
         .map_err(|error| StartupError::Local(error.to_string()))?;
-    let result = result_of_preimage(preimage.as_slice());
+    let result = result_of_preimage(preimage.as_slice()).ok_or_else(|| {
+        StartupError::Local("original genesis result preimage is malformed".into())
+    })?;
     let empty_header = iroha_allocation::ChargedBuffer::new(0, &budget)
         .map_err(|error| StartupError::Local(error.to_string()))?;
     let empty_qc = iroha_allocation::ChargedBuffer::new(0, &budget)
@@ -318,7 +323,9 @@ pub fn stored_genesis(
     };
     let tip = GenesisTip {
         block_hash: core_hash_of(&block),
-        result: result_of_preimage(certificate.result_preimage()),
+        result: result_of_preimage(certificate.result_preimage()).ok_or_else(|| {
+            StartupError::Local("stored genesis result preimage is malformed".into())
+        })?,
     };
     let proposal = block
         .canonical_resultless_proposal()

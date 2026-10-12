@@ -29,6 +29,22 @@ use iroha_sumeragi::{
 };
 use std::{num::NonZeroU64, time::Duration};
 
+/// Wrap synthetic execution data in the required inactive finality header of its block.
+/// The caller still signs the resulting `X ‖ body` with the fixture's original quorum.
+#[must_use]
+pub fn inactive_result_for_block(
+    block: &SignedBlock,
+    body: ExecutionResultCommitment,
+) -> CertifiedResultV1 {
+    let header = SccpFinalityHeaderV1::inactive(
+        *body.schedule.current.network_id.as_bytes(),
+        block.header().height().get(),
+        block.header().creation_time_ms,
+    )
+    .unwrap();
+    CertifiedResultV1::new(header, body, CertifiedResultScope::NonGlobal).unwrap()
+}
+
 // Only fixed public fixture keys enter this signer; it is never deployment custody.
 struct FixtureSigner<'a> {
     public: CoreKey,
@@ -39,13 +55,7 @@ impl Signer for FixtureSigner<'_> {
         &self.public
     }
     fn sign(&self, preimage: &[u8]) -> Signature {
-        Signature(
-            iroha_crypto::Signature::try_new(self.key.private_key(), preimage)
-                .unwrap()
-                .payload()
-                .try_into()
-                .unwrap(),
-        )
+        Signature(consensus::sign_preimage(self.key.private_key(), preimage).unwrap())
     }
 }
 
@@ -329,7 +339,7 @@ impl NativeFinalityFixture {
             .unwrap();
         let mut block = genesis.clone();
         Self::install_network_results(&mut block, vec![Ok(Vec::new())]);
-        let result = Self::result(&block, &epoch);
+        let result = inactive_result_for_block(&block, Self::result(&block, &epoch));
         block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
             vec![],
             vec![],
@@ -544,6 +554,7 @@ impl NativeFinalityFixture {
         mut block: SignedBlock,
         result: &ExecutionResultCommitment,
     ) -> SumeragiFinalityProof {
+        let result = inactive_result_for_block(&block, result.clone());
         assert_eq!(block.header().height().get(), self.tip.height() + 1);
         assert_eq!(
             block.header().prev_block_hash(),
@@ -610,18 +621,9 @@ impl NativeFinalityFixture {
         };
         let shares: Vec<_> = self.keys[..quorum]
             .iter()
-            .map(|key| iroha_crypto::Signature::try_new(key.private_key(), &qc.preimage()).unwrap())
+            .map(|key| consensus::sign_preimage(key.private_key(), &qc.preimage()).unwrap())
             .collect();
-        let refs: Vec<_> = shares
-            .iter()
-            .map(iroha_crypto::Signature::payload)
-            .collect();
-        qc.agg_sig = AggregateSignature(
-            bls_normal_aggregate_signatures(&refs)
-                .unwrap()
-                .try_into()
-                .unwrap(),
-        );
+        qc.agg_sig = AggregateSignature(consensus::aggregate(&shares).unwrap());
         block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
             norito::encode_canonical(header).unwrap(),
             norito::encode_canonical(&qc).unwrap(),

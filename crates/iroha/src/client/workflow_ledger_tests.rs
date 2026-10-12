@@ -76,6 +76,59 @@ fn signed(account: &AccountClient) -> (SignedTransaction, Vec<u8>, TransactionId
     (transaction, bytes, identity)
 }
 
+#[test]
+fn unsigned_original_decode_refusal_retries_without_transport_or_custody_change() {
+    use futures_util::FutureExt as _;
+
+    let (account, snapshots) = scripted(Vec::new(), true);
+    let payload = account
+        .prepare_transaction(AccountTransactionDraft::new(
+            Vec::<InstructionBox>::new(),
+            FeePaymentIntent::authority(Vec::new(), None),
+            Metadata::default(),
+        ))
+        .unwrap();
+    let unsigned = norito::encode_canonical(&payload).unwrap();
+    let original = unsigned.clone();
+    let context = context_of(account);
+    let sign = || {
+        context
+            .sign(&unsigned)
+            .now_or_never()
+            .expect("local signer completes immediately")
+    };
+    let limits =
+        |allocation| norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, allocation, 64);
+    let (signed, usage) = norito::core::with_decode_limits_measured(limits(usize::MAX), sign);
+    let signed = signed.expect("measured actual signing");
+    assert!(usage.total_allocated_bytes() > 0);
+    for allocation in [0, usage.total_allocated_bytes() - 1] {
+        let error = norito::with_decode_limits_scope(limits(allocation), || {
+            sign().expect_err("original unsigned decoder refusal")
+        });
+        assert_eq!(
+            error.code,
+            WorkflowErrorCode::LocalResourceUnavailable,
+            "original unsigned operation budget {allocation}: {error:?}"
+        );
+        norito::with_decode_limits_scope(limits(allocation), || {
+            assert_eq!(error.code, WorkflowErrorCode::LocalResourceUnavailable);
+        });
+        assert_eq!(unsigned, original);
+        assert_eq!(sign().unwrap(), signed);
+        assert!(snapshots.lock().unwrap().is_empty());
+    }
+    let mut malformed = unsigned;
+    malformed.push(0);
+    let error = context
+        .sign(&malformed)
+        .now_or_never()
+        .expect("local signer completes immediately")
+        .expect_err("completed malformed payload");
+    assert_eq!(error.code, WorkflowErrorCode::NonCanonicalEncoding);
+    assert!(snapshots.lock().unwrap().is_empty());
+}
+
 fn rejection(
     status: u16,
     envelope_code: &str,
@@ -969,4 +1022,172 @@ fn the_non_admission_table_classifies_every_torii_queue_rejection() {
         assert!((400..500).contains(&row.status));
     }
     assert_eq!(classified.len(), DEFINITE_DISPATCH_ROWS.len());
+}
+
+#[test]
+fn retained_signed_journal_read_refusal_preserves_exact_custody_and_retry() {
+    use crate::workflow::{TransactionInputV1, WorkflowJournalV1, record_digest};
+
+    let (account, snapshots) = scripted(Vec::new(), true);
+    let (_, signed_bytes, identity) = signed(&account);
+    let context = context_of(account.clone());
+    let storage = Arc::new(MemoryWorkflowStorage::new());
+    let handle = account
+        .bootstrap_workflow(request(&account, "retained-original"), storage.clone())
+        .unwrap();
+    let mut journal = WorkflowJournalV1::new(handle.plan(), &context.binding(), 7).unwrap();
+    journal.sequence = 1;
+    let operation = journal.steps[0].transaction.as_mut().unwrap();
+    for event in [
+        TransactionInputV1::OpenAttempt,
+        TransactionInputV1::BuildStarted,
+        TransactionInputV1::PayloadBuilt { payload: vec![1] },
+        TransactionInputV1::Signed {
+            signed_transaction: signed_bytes.clone(),
+            identity,
+        },
+    ] {
+        operation.apply(event, 1).unwrap();
+    }
+    let original = journal.encode_record().unwrap();
+    storage
+        .compare_and_store(&handle.id(), None, &original)
+        .unwrap();
+    let limits = |n| norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, n, 64);
+    let (read, usage) =
+        norito::core::with_decode_limits_measured(limits(usize::MAX), || handle.progress());
+    assert_eq!(read.unwrap().unwrap(), journal.progress());
+    let (_, journal_usage) = norito::core::with_decode_limits_measured(limits(usize::MAX), || {
+        WorkflowJournalV1::decode_record(&original).unwrap()
+    });
+    assert!(usage.total_allocated_bytes() > journal_usage.total_allocated_bytes());
+    for budget in [0, usage.total_allocated_bytes() - 1] {
+        let error =
+            norito::with_decode_limits_scope(limits(budget), || handle.progress().unwrap_err());
+        assert_eq!(
+            error.code,
+            WorkflowErrorCode::LocalResourceUnavailable,
+            "retained signed operation budget {budget}; journal usage {}: {error:?}",
+            journal_usage.total_allocated_bytes()
+        );
+        assert!(error.is_resumable());
+        assert!(error.progress.is_none());
+        if budget != 0 {
+            assert_eq!(
+                error.step_index,
+                Some(0),
+                "the actual retained signed-byte read refused"
+            );
+        }
+        norito::with_decode_limits_scope(limits(budget), || {
+            assert_eq!(error.code, WorkflowErrorCode::LocalResourceUnavailable);
+        });
+        assert_eq!(storage.load(&handle.id()).unwrap().unwrap(), original);
+        assert_eq!(handle.progress().unwrap().unwrap(), journal.progress());
+        let cancelled =
+            norito::with_decode_limits_scope(limits(budget), || handle.cancel().unwrap_err());
+        assert_eq!(cancelled.code, WorkflowErrorCode::LocalResourceUnavailable);
+        assert_eq!(storage.load(&handle.id()).unwrap().unwrap(), original);
+    }
+    journal.steps[0]
+        .transaction
+        .as_mut()
+        .unwrap()
+        .signed_transaction
+        .as_mut()
+        .unwrap()
+        .push(0);
+    let malformed = journal.encode_record().unwrap();
+    storage
+        .compare_and_store(&handle.id(), Some(&record_digest(&original)), &malformed)
+        .unwrap();
+    let error = handle.progress().unwrap_err();
+    assert_eq!(error.code, WorkflowErrorCode::StorageCorrupted);
+    assert!(!error.is_resumable());
+    assert_eq!(storage.load(&handle.id()).unwrap().unwrap(), malformed);
+    storage
+        .compare_and_store(&handle.id(), Some(&record_digest(&malformed)), &original)
+        .unwrap();
+    let cancelled = handle.cancel().unwrap();
+    assert_eq!(cancelled.status, WorkflowStatusV1::Cancelled);
+    assert_eq!(cancelled.sequence, 2);
+    assert!(snapshots.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn original_signed_preflight_refusal_sends_nothing_and_retries_identical_bytes() {
+    use futures_util::FutureExt as _;
+
+    let (account, snapshots) = scripted(
+        vec![
+            Ok(mk_response(StatusCode::ACCEPTED, Vec::new(), None)),
+            Ok(mk_response(StatusCode::ACCEPTED, Vec::new(), None)),
+        ],
+        true,
+    );
+    let (transaction, bytes, identity) = signed(&account);
+    let payload = super::PreparedTransactionPayload::from_transaction(&transaction);
+    let context = context_of(account);
+    let limits = |n| norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, n, 64);
+    let (_, usage) = norito::core::with_decode_limits_measured(limits(usize::MAX), || {
+        super::TransactionDispatchOutcomeUnknownIdentity::for_prepared_payload(&payload).unwrap()
+    });
+    assert!(usage.total_allocated_bytes() > 0);
+    for budget in [0, usage.total_allocated_bytes() - 1] {
+        let before = snapshots.lock().unwrap().len();
+        let failure = norito::with_decode_limits_scope(limits(budget), || {
+            context.identify(&bytes).unwrap_err()
+        });
+        let original = norito::with_decode_limits_scope(limits(budget), || {
+            SignedTransaction::decode_all_versioned(&bytes).err()
+        });
+        assert_eq!(
+            failure.code,
+            WorkflowErrorCode::LocalResourceUnavailable,
+            "signed original budget {budget}: {original:?}; projected {failure:?}"
+        );
+        let refusal = norito::with_decode_limits_scope(limits(budget), || {
+            context
+                .dispatch(&bytes, &identity)
+                .now_or_never()
+                .expect("preflight does not await transport")
+        });
+        assert!(matches!(
+            refusal,
+            DispatchOutcome::NotAdmitted {
+                code: WorkflowErrorCode::LocalResourceUnavailable,
+                ..
+            }
+        ));
+        norito::with_decode_limits_scope(limits(budget), || {
+            assert!(matches!(
+                refusal,
+                DispatchOutcome::NotAdmitted {
+                    code: WorkflowErrorCode::LocalResourceUnavailable,
+                    ..
+                }
+            ));
+        });
+        assert_eq!(snapshots.lock().unwrap().len(), before);
+        assert_eq!(context.identify(&bytes).unwrap(), identity);
+        assert_eq!(
+            context.dispatch(&bytes, &identity).await,
+            DispatchOutcome::Accepted
+        );
+        assert_eq!(snapshots.lock().unwrap()[before].body, bytes);
+    }
+    let mut malformed = bytes;
+    malformed.push(0);
+    assert_eq!(
+        context.identify(&malformed).unwrap_err().code,
+        WorkflowErrorCode::NonCanonicalEncoding
+    );
+    assert!(matches!(
+        context.dispatch(&malformed, &identity).await,
+        DispatchOutcome::NotAdmitted {
+            code: WorkflowErrorCode::NonCanonicalEncoding,
+            ..
+        }
+    ));
+    assert_eq!(snapshots.lock().unwrap().len(), 2);
 }

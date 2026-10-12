@@ -1,41 +1,41 @@
 {
   "blocks": [
     {
-      "block_hash": "97d48b100c2f6b79d21b8a800623f0ecda4206b6421370793c2ea36daec5d957",
-      "bytes": 17175,
+      "block_hash": "e5cfc430f379e33b45492a6dd7f32a9e7b14e6ed5b3afa82ef83566e3c6d041d",
+      "bytes": 17423,
       "file": "block-1.wire",
       "height": 1,
-      "sha256": "cb1d89f2a9fdb8a5a4e7a79db446c0a15adddd60fcf64f76fd9e040bdb4812c0"
+      "sha256": "2a4992fb8290985dfc971266dc65e793a1c0965428d9b57da9c2b3bc26aaa5db"
     },
     {
-      "block_hash": "1149324686651c8edeec3cfdb1b183fc9d4777d0a816b07b0bce28d110596803",
-      "bytes": 12936,
+      "block_hash": "59c4b7c5fbe674162141855d7e421765272ae50fbec5e0f574380ba90b5e89ad",
+      "bytes": 13166,
       "file": "block-2.wire",
       "height": 2,
-      "sha256": "a92136d23fac14d51362208c4dd8341d3ff381fabaa2fc3f7298f84549f88fee"
+      "sha256": "4edf2124b3f633061528496dd354e93a6922b0378b8b4e872094fbd03fdc78a6"
     },
     {
-      "block_hash": "e29f0ed6ef272660209963497c0d01ba3d24cf2d0fcc73bc028c9403ff88a42b",
-      "bytes": 13321,
+      "block_hash": "e42fdfd0c58be20d5f96d8f2c04a9e59fed882aef0bd9deec55c8bc7d85780ed",
+      "bytes": 13551,
       "file": "block-3.wire",
       "height": 3,
-      "sha256": "b3ec42953ae79ba5d325428dd160c55bd23dc5712578149d02c9fe8f9804845e"
+      "sha256": "a09d4e7d65a99bab2955b8865b1b65d90415361690013a8dcf32ce9a7f84f7f5"
     }
   ],
   "chain_id": "sumeragi-node-test",
   "execution_tip": {
-    "core_hash": "62C112855E25E501FCEF9098244C07293E0A02128EEB09200C651DDC89831CF5",
-    "creation_time_ms": 1791562915320,
+    "core_hash": "71D8AF8311739F71A990F4D90873FD2DB123128BB22871876556741A5BE5A241",
+    "creation_time_ms": 1791750155751,
     "height": 3,
-    "iroha_hash": "hash:E29F0ED6EF272660209963497C0D01BA3D24CF2D0FCC73BC028C9403FF88A42B#7DE2",
-    "result": "5B4560D1ACDED33CF88950C1BE31260759D044E73FA52301AD3658FCF27ECFA7"
+    "iroha_hash": "hash:E42FDFD0C58BE20D5F96D8F2C04A9E59FED882AEF0BD9DEEC55C8BC7D85780ED#D1D2",
+    "result": "5C25F8F09D840C06E6FA1AECA196F8BAB9E339E9A33008B8CA657DB04AC0075C"
   },
   "format": "iroha.first_release_history.pinned.v1",
   "generator": {
     "path": "crates/iroha_core/src/sumeragi/node/tests/history_cutover_tests.rs",
     "test": "sumeragi::node::tests::history_cutover_tests::capture_pinned_first_release_history"
   },
-  "history_sha256": "fe6db5a27c5a98387f23cafa330051f2e97926e8e4e02373757102fd8013a9eb",
+  "history_sha256": "fef37b9704969ae7cc16e9208c553c6329d53d25fa9261b1a47033afd8f80d3e",
   "validators": 4,
-  "world_state_root": "4810d0eef0a6e7cee4b4d3b86875362d66dd32d6aff41027faadca7244dd3793"
+  "world_state_root": "f8616ed378bce45f0284462f0a2bcfa949854274fbac7a3a470c6483ffbcdda7"
 }

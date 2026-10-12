@@ -95,9 +95,7 @@ use iroha_sumeragi::{
 
 use super::{
     block_store::{StagedBlock, Staging},
-    commitment::{
-        ExecutionResultCommitment, encode_result_preimage, execution_result, result_of_preimage,
-    },
+    commitment::{CertifiedResultV1, encode_result_preimage, execution_result, result_of_preimage},
     driver::traits::{Executor, PublicationDeferral, PublicationError},
     lanes,
     network_topology::Topology,
@@ -734,12 +732,12 @@ enum FinishingPhase {
         inputs: iroha_allocation::RetainedPayload<NativeExecutionInputs>,
         refusal: Option<NativeLaneStateProofError>,
     },
-    Ready(iroha_allocation::RetainedPayload<ExecutionResultCommitment>),
+    Ready(iroha_allocation::RetainedPayload<CertifiedResultV1>),
     /// A one-shot deterministic transition failed or unwound; only recovery may release it.
     Consuming,
 }
 impl FinishingPhase {
-    fn ready(&self) -> Option<&iroha_allocation::RetainedPayload<ExecutionResultCommitment>> {
+    fn ready(&self) -> Option<&iroha_allocation::RetainedPayload<CertifiedResultV1>> {
         match self {
             Self::Ready(commitment) => Some(commitment),
             Self::ContextProof { .. } | Self::Consuming => None,
@@ -786,7 +784,7 @@ struct Live<'s> {
     /// Complete original canonical epoch result and its exact source-bound allocation ledger.
     /// Retained for custody through the same Live lifetime and field drop order, even when
     /// shipping execution no longer reads its value after encoding the original preimage.
-    _commitment: iroha_allocation::RetainedPayload<ExecutionResultCommitment>,
+    _commitment: iroha_allocation::RetainedPayload<CertifiedResultV1>,
     applied_config: AppliedConfig,
     committee: Vec<PeerId>,
     events: Vec<EventBox>,
@@ -795,7 +793,7 @@ struct Live<'s> {
 #[cfg(test)]
 impl Live<'_> {
     /// Borrow the retained canonical result for original-custody assertions.
-    fn commitment(&self) -> &iroha_allocation::RetainedPayload<ExecutionResultCommitment> {
+    fn commitment(&self) -> &iroha_allocation::RetainedPayload<CertifiedResultV1> {
         let Self {
             _commitment: commitment,
             ..
@@ -1429,7 +1427,7 @@ impl<'s> Worker<'s> {
         block: &AvailableBody,
         block_hash: Hash32,
         encode: impl FnOnce(
-            &iroha_allocation::RetainedPayload<ExecutionResultCommitment>,
+            &iroha_allocation::RetainedPayload<CertifiedResultV1>,
             &iroha_allocation::AllocationBudget,
         ) -> Result<
             iroha_allocation::ChargedBuffer<u8>,
@@ -1909,6 +1907,10 @@ impl<'s> Worker<'s> {
         }
         self.finishing.as_mut().unwrap().world_cut_refusal = None;
         let original = self.finishing.as_mut().unwrap();
+        let sccp_finality_header = original
+            .overlay
+            .sccp_finality_header()
+            .map_err(PublicationError::RecoveryRequired)?;
         let FinishingPhase::ContextProof { inputs, .. } =
             std::mem::replace(&mut original.phase, FinishingPhase::Consuming)
         else {
@@ -1920,6 +1922,7 @@ impl<'s> Worker<'s> {
             &transition,
             inputs,
             proof,
+            sccp_finality_header,
         )
         .map_err(|error| {
             let reason = format!("original result requires recovery: {error}");
@@ -1992,7 +1995,7 @@ impl<'s> Worker<'s> {
     fn finish_execution_with_encoder(
         &mut self,
         encode: impl FnOnce(
-            &iroha_allocation::RetainedPayload<ExecutionResultCommitment>,
+            &iroha_allocation::RetainedPayload<CertifiedResultV1>,
             &iroha_allocation::AllocationBudget,
         ) -> Result<
             iroha_allocation::ChargedBuffer<u8>,
@@ -2027,7 +2030,11 @@ impl<'s> Worker<'s> {
                 return Err(failure);
             }
         };
-        let result = result_of_preimage(preimage.as_slice());
+        let result = result_of_preimage(preimage.as_slice()).ok_or_else(|| {
+            PublicationError::RecoveryRequired(
+                "original certified result preimage is malformed".into(),
+            )
+        })?;
         let original = self.finishing.take().unwrap();
         let FinishingPhase::Ready(commitment) = original.phase else {
             unreachable!("encoded original result")

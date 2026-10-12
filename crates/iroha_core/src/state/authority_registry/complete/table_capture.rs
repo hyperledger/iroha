@@ -628,19 +628,14 @@ capture_world_table_once!(
 );
 
 capture_world_table_once!(
-    capture_sccp_bridge_keys_once,
-    sccp_bridge_keys,
-    "world.sccp_bridge_keys"
+    capture_sccp_committee_generations_once,
+    sccp_committee_generations,
+    "world.sccp_committee_generations"
 );
 capture_world_table_once!(
-    capture_sccp_bridge_key_owners_once,
-    sccp_bridge_key_owners,
-    "world.sccp_bridge_key_owners"
-);
-capture_world_table_once!(
-    capture_sccp_rosters_once,
-    sccp_rosters,
-    "world.sccp_rosters"
+    capture_sccp_anchor_chunks_once,
+    sccp_anchor_chunks,
+    "world.sccp_anchor_chunks"
 );
 capture_world_table_once!(
     capture_sccp_block_leaves_once,
@@ -656,36 +651,6 @@ capture_world_table_once!(
     capture_sccp_history_leaves_once,
     sccp_history_leaves,
     "world.sccp_history_leaves"
-);
-capture_world_table_once!(
-    capture_sccp_attestation_subjects_once,
-    sccp_attestation_subjects,
-    "world.sccp_attestation_subjects"
-);
-capture_world_table_once!(
-    capture_sccp_attestation_status_once,
-    sccp_attestation_status,
-    "world.sccp_attestation_status"
-);
-capture_world_table_once!(
-    capture_sccp_attestation_signatures_once,
-    sccp_attestation_signatures,
-    "world.sccp_attestation_signatures"
-);
-capture_world_table_once!(
-    capture_sccp_attestation_faults_once,
-    sccp_attestation_faults,
-    "world.sccp_attestation_faults"
-);
-capture_world_table_once!(
-    capture_sccp_member_last_signed_once,
-    sccp_member_last_signed,
-    "world.sccp_member_last_signed"
-);
-capture_world_table_once!(
-    capture_sccp_handoff_stalled_once,
-    sccp_handoff_stalled,
-    "world.sccp_handoff_stalled"
 );
 capture_world_table_once!(
     capture_sccp_outbound_messages_once,
@@ -990,18 +955,11 @@ const TABLE_MATERIALIZERS: &[TableMaterializer] = &[
     native_world::capture_global_beacon_active_session_once::MATERIALIZER,
     native_world::capture_global_beacon_latest_pulse_once::MATERIALIZER,
     native_world::capture_global_beacon_pulses_once::MATERIALIZER,
-    capture_sccp_bridge_keys_once::MATERIALIZER,
-    capture_sccp_bridge_key_owners_once::MATERIALIZER,
-    capture_sccp_rosters_once::MATERIALIZER,
+    capture_sccp_committee_generations_once::MATERIALIZER,
+    capture_sccp_anchor_chunks_once::MATERIALIZER,
     capture_sccp_block_leaves_once::MATERIALIZER,
     capture_sccp_block_commitments_once::MATERIALIZER,
     capture_sccp_history_leaves_once::MATERIALIZER,
-    capture_sccp_attestation_subjects_once::MATERIALIZER,
-    capture_sccp_attestation_status_once::MATERIALIZER,
-    capture_sccp_attestation_signatures_once::MATERIALIZER,
-    capture_sccp_attestation_faults_once::MATERIALIZER,
-    capture_sccp_member_last_signed_once::MATERIALIZER,
-    capture_sccp_handoff_stalled_once::MATERIALIZER,
     capture_sccp_outbound_messages_once::MATERIALIZER,
     capture_sccp_outbound_by_nonce_once::MATERIALIZER,
     capture_sccp_control_messages_once::MATERIALIZER,
@@ -1390,18 +1348,11 @@ mod tests {
             "world.global_beacon_active_session",
             "world.global_beacon_latest_pulse",
             "world.global_beacon_pulses",
-            "world.sccp_bridge_keys",
-            "world.sccp_bridge_key_owners",
-            "world.sccp_rosters",
+            "world.sccp_committee_generations",
+            "world.sccp_anchor_chunks",
             "world.sccp_block_leaves",
             "world.sccp_block_commitments",
             "world.sccp_history_leaves",
-            "world.sccp_attestation_subjects",
-            "world.sccp_attestation_status",
-            "world.sccp_attestation_signatures",
-            "world.sccp_attestation_faults",
-            "world.sccp_member_last_signed",
-            "world.sccp_handoff_stalled",
             "world.sccp_outbound_messages",
             "world.sccp_outbound_by_nonce",
             "world.sccp_control_messages",

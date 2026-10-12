@@ -170,7 +170,7 @@ impl NativeContextArchive {
         original: &mut PreparedNativeContext,
         overlay: &StateBlock<'_>,
         executed: &SignedBlock,
-        result: &RetainedPayload<ExecutionResultCommitment>,
+        result: &RetainedPayload<CertifiedResultV1>,
         witness: &CapturedExecWitness,
     ) -> Result<(), NativeContextArchiveError> {
         // Ordinary no-AMX blocks retain their original capture path unchanged.
@@ -182,11 +182,12 @@ impl NativeContextArchive {
             || !original.bytes.belongs_to(&self.budget)
             || !result.belongs_to(&self.budget)
             || !witness.pool().same_pool(&self.budget)
-            || !witness.matches_original_native_execution(executed, result.get().execution)
+            || !witness
+                .matches_original_native_execution(executed, result.get().commitment().execution)
             || original.height != executed.header().height().get()
             || original.carrier_hash != executed.hash()
             || executed.header() != overlay._curr_block
-            || result.get().schedule.current.network_id != *overlay.network_id()
+            || result.get().commitment().schedule.current.network_id != *overlay.network_id()
         {
             return Err(NativeContextArchiveError::Source(
                 "intent lost its original execution or pool",
@@ -221,7 +222,7 @@ impl NativeContextArchive {
             participant: parent.participant.dataspace,
             height: original.height,
             carrier: original.carrier_hash,
-            ordinary_writes_root: result.get().execution.ordinary_writes_root,
+            ordinary_writes_root: result.get().commitment().execution.ordinary_writes_root,
             records: u64::try_from(records).map_err(|_| norito::Error::LengthMismatch)?,
             authority: 0,
             rows: RowsRef {
@@ -598,6 +599,7 @@ impl IntentProjection {
 #[cfg(test)]
 pub(crate) mod test_helpers {
     use super::*;
+    use iroha_data_model::sumeragi_finality::ExecutionResultCommitment;
     // Rewrite only untrusted scalar claims through the sole canonical codec for adversarial
     // controls. No proof, signature, source selection or production authority is manufactured.
     pub(crate) fn one_row_subset(bytes: &[u8]) -> Vec<u8> {

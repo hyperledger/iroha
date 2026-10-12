@@ -4149,8 +4149,10 @@ def test_prepared_intent_capture_uses_original_witness_and_authenticated_source(
                        "ChargedBuffer::new(length, &self.budget)"]:
         assert re.sub(r"\s+", "", obligation) in re.sub(r"\s+", "", capture)
     assert "core_hash" not in capture and "header.instance" not in capture
-    assert capture.index("witness.matches_original_native_execution") < capture.index("if original.intents_complete {", capture.index("witness.matches_original_native_execution"))
-    assert capture.index("ChargedBuffer::new(length, &self.budget)") < capture.index("write_canonical_to_writer")
+    normalized = re.sub(r"\s+", "", capture)
+    original_binding = normalized.index("witness.matches_original_native_execution")
+    assert original_binding < normalized.index("iforiginal.intents_complete{", original_binding)
+    assert normalized.index("ChargedBuffer::new(length,&self.budget)") < normalized.index("write_canonical_to_writer")
     assert "decode_canonical" not in capture and "AllocationBudget::new" not in capture
     assert "write_element_sequence::<Row, _>" in owner
     assert "rows: RowsRef" in owner

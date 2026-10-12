@@ -21,7 +21,7 @@ use iroha_crypto::{Algorithm, Hash, KeyPair, SignatureOf};
 use iroha_data_model::{
     sumeragi::SumeragiStatus,
     sumeragi_finality::{
-        FinalityError, FinalityValidator, SumeragiFinalityAttestation,
+        FinalityError, FinalityReadError, FinalityValidator, SumeragiFinalityAttestation,
         SumeragiFinalityAttestationBody, SumeragiFinalityBundle, SumeragiFinalityCheckpoint,
         SumeragiFinalityProof, SumeragiFinalityVerifier,
     },
@@ -369,6 +369,15 @@ pub enum AttestationBuildError {
     Signing(String),
 }
 
+// A completed body verdict and an original local read refusal are different outcomes.
+// Reuse the native finality boundary before any formatting, even after caller scopes retire.
+fn attestation_body_read_error(error: FinalityReadError) -> AttestationBuildError {
+    match ProofError::from(error) {
+        ProofError::Portable(error) => AttestationBuildError::InvalidBody(error),
+        error => AttestationBuildError::FinalityProof(error),
+    }
+}
+
 /// Whether the actual driver's public status is internally coherent.
 #[must_use]
 pub fn status_is_consistent(status: &SumeragiStatus) -> bool {
@@ -592,13 +601,14 @@ fn finish_attestation(
         status,
         finality_proof: proofs.tip,
     };
-    body.validate_consistency().map_err(Error::InvalidBody)?;
+    body.validate_consistency()
+        .map_err(attestation_body_read_error)?;
     let signature = SignatureOf::try_from_hash(signer.private_key(), body.signing_hash())
         .map_err(|error| Error::Signing(error.to_string()))?;
     let attestation = SumeragiFinalityAttestation { body, signature };
     if norito::core::decode_limits_active() {
         // An enclosing owner retains the original second body decode and its charges/refusals.
-        attestation.verify().map_err(Error::InvalidBody)?;
+        attestation.verify().map_err(attestation_body_read_error)?;
     } else {
         // This exact immutable body already passed complete consistency checks above. Its
         // move into the statement changes no proof or binding; verify the fresh signature

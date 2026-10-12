@@ -21,9 +21,7 @@ use core::{
     str::FromStr,
 };
 use derive_more::Debug;
-use iroha_config::parameters::actual::{
-    ConfidentialGas, GasLiquidity, GasVolatility, NexusFees, Pipeline,
-};
+use iroha_config::parameters::actual::{ConfidentialGas, NexusFees, Pipeline};
 use iroha_crypto::Hash;
 #[cfg(test)]
 use iroha_data_model::nexus::{
@@ -57,7 +55,6 @@ use iroha_data_model::{
         FeeSponsorProgramLifecycle, FeeSponsorProgramRevision, FeeSponsorProgramRevisionKey,
         FeeSponsorRuleEffect, FeeSponsorRuleSelector, FeeSponsorVaultKey,
     },
-    parameter::CustomParameterId,
     permission::Permission,
     prelude::{Account, Burn, Mint, Register, Transfer, Trigger, Unregister},
     query::{
@@ -4292,7 +4289,7 @@ fn resolve_pipeline_gas_quote_asset(
         if !requested_is_accepted {
             return Err(NexusFeeAdmissionError::rejected(
                 FeeRejectionCode::FeeAssetNotCovered,
-                format!("pipeline gas asset `{requested}` is not accepted by node policy"),
+                format!("pipeline gas asset `{requested}` is not accepted by committed policy"),
             ));
         }
         requested
@@ -4804,7 +4801,7 @@ pub(crate) fn validate_transaction_fee_admission(
     {
         return Ok(());
     }
-    Executor::refresh_gas_from_parameters(state_transaction)?;
+    Executor::refresh_private_fee_policy(state_transaction)?;
     quote_nexus_fee_admission(
         &state_transaction.world,
         &state_transaction.nexus,
@@ -4934,7 +4931,7 @@ fn charge_fees_for_applied_overlay(
             .any(|a| a == gas_asset_id_str)
         {
             return Err(ValidationFail::NotPermitted(format!(
-                "gas asset `{gas_asset_id_str}` is not accepted by node policy"
+                "gas asset `{gas_asset_id_str}` is not accepted by committed policy"
             )));
         }
     }
@@ -5293,20 +5290,16 @@ impl Executor {
         if gas_used == 0 || units_per_gas == 0 {
             return Ok(());
         }
-        let tech_account: AccountId = parse_account_id_literal(
-            &state_transaction.world,
-            &state_transaction.nexus.dataspace_catalog,
+        let tech_account = crate::pipeline_gas_policy::receiver_id(
             &state_transaction.pipeline.gas.tech_account_id,
-            state_transaction.block_unix_timestamp_ms(),
         )
         .map_err(|error| {
-            let error = error.into_attempt_error(|error| ValidationFail::InternalError(error.to_string()));
-            state_transaction.attempt_error_to_validation_fail(error)
-        })?
-        .ok_or_else(|| {
-            ValidationFail::InternalError(
-                "invalid pipeline.gas.tech_account_id; expected canonical I105 account id or on-chain alias"
-                    .to_owned(),
+            state_transaction.attempt_error_to_validation_fail(
+                crate::execution_attempt::norito_decode_attempt_error(error, |error| {
+                    ValidationFail::InternalError(format!(
+                        "invalid committed pipeline gas receiver: {error}"
+                    ))
+                }),
             )
         })?;
         let (asset_definition_id, definition) =
@@ -5587,106 +5580,13 @@ impl Executor {
         });
         Ok(())
     }
-    /// Refresh pipeline.gas snapshot from on-chain custom parameters (genesis/governance updatable).
-    fn refresh_gas_from_parameters(
+    /// Preserve the private-dataspace fee projection used by direct Nexus readers.
+    ///
+    /// Pipeline gas is already frozen from the committed predecessor and must
+    /// never be refreshed from transaction-local parameter writes here.
+    fn refresh_private_fee_policy(
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), ValidationFail> {
-        #[derive(crate::json_macros::JsonDeserialize)]
-        struct GasRateSerde {
-            asset: String,
-            units_per_gas: u64,
-            twap_local_per_xor: Option<String>,
-            liquidity_profile: Option<String>,
-            volatility_class: Option<String>,
-        }
-        let params = state_transaction.world.parameters.get();
-        // Decode the complete governed snapshot before replacing any live value. A malformed
-        // parameter must fail closed without leaving a partially refreshed fee policy behind.
-        let mut tech_account_id = state_transaction.pipeline.gas.tech_account_id.clone();
-        if let Ok(name) = core::str::FromStr::from_str("ivm_gas_tech_account_id")
-            && let Some(custom) = params.custom().get(&CustomParameterId(name))
-        {
-            tech_account_id =
-                custom
-                    .payload()
-                    .try_into_any_norito::<String>()
-                    .map_err(|error| {
-                        ValidationFail::InternalError(format!(
-                            "invalid governed ivm_gas_tech_account_id payload: {error}"
-                        ))
-                    })?;
-        }
-        let mut accepted_assets = state_transaction.pipeline.gas.accepted_assets.clone();
-        if let Ok(name) = core::str::FromStr::from_str("ivm_gas_accepted_assets")
-            && let Some(custom) = params.custom().get(&CustomParameterId(name))
-        {
-            accepted_assets = custom
-                .payload()
-                .try_into_any_norito::<Vec<String>>()
-                .map_err(|error| {
-                    ValidationFail::InternalError(format!(
-                        "invalid governed ivm_gas_accepted_assets payload: {error}"
-                    ))
-                })?;
-        }
-        let mut units_per_gas = state_transaction.pipeline.gas.units_per_gas.clone();
-        if let Ok(name) = core::str::FromStr::from_str("ivm_gas_units_per_gas")
-            && let Some(custom) = params.custom().get(&CustomParameterId(name))
-        {
-            let governed_rates = custom
-                .payload()
-                .try_into_any_norito::<Vec<GasRateSerde>>()
-                .map_err(|error| {
-                    ValidationFail::InternalError(format!(
-                        "invalid governed ivm_gas_units_per_gas payload: {error}"
-                    ))
-                })?;
-            units_per_gas = governed_rates
-                .into_iter()
-                .map(|r| -> Result<iroha_config::parameters::actual::GasRate, ValidationFail> {
-                    let asset = r.asset;
-                    let twap = match r.twap_local_per_xor.as_deref() {
-                        Some(value) => {
-                            let parsed = Numeric::from_str(value).map_err(|error| {
-                                ValidationFail::InternalError(format!(
-                                    "invalid governed ivm_gas_units_per_gas twap `{value}` for asset `{asset}`: {error}"
-                                ))
-                            })?;
-                            if parsed <= Numeric::zero() {
-                                return Err(ValidationFail::InternalError(format!(
-                                    "invalid governed ivm_gas_units_per_gas twap `{value}` for asset `{asset}`: value must be positive"
-                                )));
-                            }
-                            parsed
-                        }
-                        None => Numeric::one(),
-                    };
-                    let liquidity = match r.liquidity_profile.as_deref() {
-                        Some(value) => GasLiquidity::from_str(value).map_err(|()| {
-                            ValidationFail::InternalError(format!(
-                                "invalid governed ivm_gas_units_per_gas liquidity `{value}` for asset `{asset}`"
-                            ))
-                        })?,
-                        None => GasLiquidity::default(),
-                    };
-                    let volatility = match r.volatility_class.as_deref() {
-                        Some(value) => GasVolatility::from_str(value).map_err(|()| {
-                            ValidationFail::InternalError(format!(
-                                "invalid governed ivm_gas_units_per_gas volatility `{value}` for asset `{asset}`"
-                            ))
-                        })?,
-                        None => GasVolatility::default(),
-                    };
-                    Ok(iroha_config::parameters::actual::GasRate {
-                        asset,
-                        units_per_gas: r.units_per_gas,
-                        twap_local_per_xor: twap,
-                        liquidity,
-                        volatility,
-                    })
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-        }
         if !is_initial_genesis_context(state_transaction) {
             state_transaction.nexus.fees =
                 private_fees::effective(&state_transaction.world, &state_transaction.nexus.fees)
@@ -5699,9 +5599,6 @@ impl Executor {
                         }
                     })?;
         }
-        state_transaction.pipeline.gas.tech_account_id = tech_account_id;
-        state_transaction.pipeline.gas.accepted_assets = accepted_assets;
-        state_transaction.pipeline.gas.units_per_gas = units_per_gas;
         Ok(())
     }
     /// Identify a role-11 instruction in the exact outer signed Network entry.
@@ -6898,9 +6795,11 @@ impl Executor {
                     })
             });
         // Process the signed transaction's bounded ZK attachments.
-        if let Some(attachments) = transaction.attachments() {
-            // Canonicalize verification order for determinism
-            let mut list_sorted = attachments.as_slice().to_vec();
+        if transaction.attachments().is_some() {
+            // Canonicalize verification order for determinism.
+            let mut list_sorted = transaction.proof_attachments_v1().map_err(|error| {
+                ValidationFail::NotPermitted(format!("malformed signed attachments: {error}"))
+            })?;
             list_sorted.sort_by(|a, b| {
                 let ah = crate::zk::hash_proof(&a.proof);
                 let bh = crate::zk::hash_proof(&b.proof);
@@ -7126,8 +7025,8 @@ impl Executor {
         state_transaction.sccp_exempt_self_claim = (sccp_class
             == Some(crate::smartcontracts::isi::sccp::admission::SccpExemptClassV1::SelfClaim))
         .then(|| authority.clone());
-        // Quote against the exact governed gas snapshot execution will charge.
-        Self::refresh_gas_from_parameters(state_transaction)?;
+        Self::refresh_private_fee_policy(state_transaction)?;
+        // Quote the predecessor-frozen pipeline fee snapshot shared with block execution.
         let fee_quote = if !skip_nexus_fee {
             Some(
                 quote_nexus_fee_admission(
@@ -7221,7 +7120,7 @@ impl Executor {
                 .any(|a| a == gas_asset_id_str)
             {
                 return Err(ValidationFail::NotPermitted(format!(
-                    "gas asset `{gas_asset_id_str}` is not accepted by node policy"
+                    "gas asset `{gas_asset_id_str}` is not accepted by committed policy"
                 )));
             }
         }
@@ -10128,9 +10027,11 @@ mod tests {
     fn state_for_testing(world: World) -> State {
         // These component fixtures execute on an explicitly committed global root.
         let mut parameters = world.parameters.block();
-        parameters.set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
-            iroha_data_model::block::consensus::SumeragiRootScope::Global,
-        ));
+        parameters
+            .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+                iroha_data_model::block::consensus::SumeragiRootScope::Global,
+            ))
+            .expect("valid fixture parameters");
         parameters.commit();
         State::new_for_testing(
             world,
@@ -10148,9 +10049,11 @@ mod tests {
             ),
             "component root must be selected before State construction"
         );
-        parameters.set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
-            iroha_data_model::block::consensus::SumeragiRootScope::Global,
-        ));
+        parameters
+            .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+                iroha_data_model::block::consensus::SumeragiRootScope::Global,
+            ))
+            .expect("valid fixture parameters");
         parameters.commit();
         world
     }
@@ -15976,9 +15879,14 @@ mod tests {
             .expect("original policy decoder completes")
             .unwrap_or_default();
         parameters.xor_asset_definition_id = fee_asset.clone();
-        state_transaction.world.parameters.get_mut().set_parameter(
-            iroha_data_model::parameter::Parameter::Custom(parameters.into_custom_parameter()),
-        );
+        state_transaction
+            .world
+            .parameters
+            .get_mut()
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                parameters.into_custom_parameter(),
+            ))
+            .expect("valid fixture parameters");
     }
     fn configure_direct_nexus_fee_snapshot(
         state_transaction: &mut StateTransaction<'_, '_>,
@@ -17179,7 +17087,7 @@ mod tests {
         );
     }
     #[test]
-    fn governed_gas_rate_refresh_rejects_malformed_strings_without_partial_update() {
+    fn governed_gas_rate_owner_rejects_malformed_strings_without_partial_update() {
         for (label, twap, liquidity, volatility, expected_error) in [
             (
                 "twap",
@@ -17234,22 +17142,20 @@ mod tests {
             ));
             let mut state_transaction = block.transaction();
             configure_pipeline_fee_snapshot(&mut state_transaction, &tech_account, &gas_asset, 1);
-            state_transaction.world.parameters.get_mut().set_parameter(
-                iroha_data_model::parameter::Parameter::Custom(CustomParameter::new(
-                    parameter_id,
-                    payload,
-                )),
-            );
-            let error = super::Executor::refresh_gas_from_parameters(&mut state_transaction)
+            let original = state_transaction.world.parameters.get().clone();
+            let error = state_transaction
+                .world
+                .parameters
+                .get_mut()
+                .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                    CustomParameter::new(parameter_id, payload),
+                ))
                 .expect_err("malformed governed rate must fail closed");
             assert!(
-                matches!(
-                    error,
-                    ValidationFail::InternalError(reason)
-                        if reason.contains(expected_error)
-                ),
-                "unexpected {label} refresh error"
+                error.to_string().contains(expected_error),
+                "unexpected {label} parameter error: {error}"
             );
+            assert_eq!(state_transaction.world.parameters.get(), &original);
             assert_eq!(
                 state_transaction.pipeline.gas.tech_account_id,
                 tech_account.to_string()
@@ -17354,12 +17260,16 @@ mod tests {
         let mut params = iroha_data_model::parameter::system::SumeragiNposParameters::default();
         params.xor_asset_definition_id = nexus_asset.clone();
         let mut parameter_block = world.parameters.block();
-        parameter_block.set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
-            iroha_data_model::block::consensus::SumeragiRootScope::Global,
-        ));
-        parameter_block.set_parameter(iroha_data_model::parameter::Parameter::Custom(
-            params.into_custom_parameter(),
-        ));
+        parameter_block
+            .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+                iroha_data_model::block::consensus::SumeragiRootScope::Global,
+            ))
+            .expect("valid fixture parameters");
+        parameter_block
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                params.into_custom_parameter(),
+            ))
+            .expect("valid fixture parameters");
         parameter_block.commit();
         nexus.fees.fee_sink_account_id = sink.to_string();
         let mut pipeline = Pipeline::default();

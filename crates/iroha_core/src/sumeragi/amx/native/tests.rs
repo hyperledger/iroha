@@ -105,15 +105,19 @@ fn private_config(global: &CertifiedTestChain, id: DataSpaceId) -> TestChainConf
             .into_custom_parameter()
             .unwrap(),
         ));
-    config.pipeline.gas.tech_account_id = account(&config.genesis_key).to_string();
-    config.pipeline.gas.accepted_assets = vec![fee_asset().canonical_address()];
-    config.pipeline.gas.units_per_gas = vec![iroha_config::parameters::actual::GasRate {
+    let mut gas = iroha_config::parameters::actual::Gas::default();
+    gas.tech_account_id = account(&config.genesis_key).to_string();
+    gas.accepted_assets = vec![fee_asset().canonical_address()];
+    gas.units_per_gas = vec![iroha_config::parameters::actual::GasRate {
         asset: fee_asset().canonical_address(),
         units_per_gas: 1,
         twap_local_per_xor: Numeric::one(),
         liquidity: iroha_config::parameters::actual::GasLiquidity::Tier2,
         volatility: iroha_config::parameters::actual::GasVolatility::Stable,
     }];
+    config
+        .genesis_parameters
+        .extend(crate::pipeline_gas_policy::parameters_for_testing(gas));
     let domain = DomainId::try_new("amx", "private-amx").unwrap();
     config.genesis_instructions = vec![
         Register::account(Account::new(account(&payer()))).into(),
@@ -830,7 +834,6 @@ fn native_amx_enrolled_receiver_records_certified_no_without_monetary_or_mainten
 
 #[test]
 fn native_amx_global_source_requires_signed_parent_real_h2_and_exact_instance() {
-    use crate::sumeragi::commitment::ExecutionResultCommitment;
     use iroha_data_model::block::CommitCertificate;
     let config = global_config();
     let chain_id = config.chain_id.clone();
@@ -911,7 +914,8 @@ fn native_amx_global_source_requires_signed_parent_real_h2_and_exact_instance() 
     let shared_bytes = iroha_data_model::block::SharedSignedBlock::allocation_layout().size();
     let frame_bytes =
         std::alloc::Layout::new::<crate::sumeragi::certified_chain::CommittedBlock>().size();
-    let result_bytes = std::alloc::Layout::new::<ExecutionResultCommitment>().size();
+    let result_bytes =
+        std::alloc::Layout::new::<iroha_data_model::sumeragi_finality::CertifiedResultV1>().size();
     for (prior_slots, requested_slot_bytes) in [
         (shared_bytes, prefix_bytes),
         (shared_bytes + prefix_bytes, frame_bytes),
@@ -1022,7 +1026,13 @@ fn native_amx_global_source_requires_signed_parent_real_h2_and_exact_instance() 
         .is_err()
     );
     let certificate = genesis.commit_certificate().unwrap();
-    let mut result = ExecutionResultCommitment::decode(certificate.result_preimage()).unwrap();
+    let (finality_header, mut result) =
+        iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+            certificate.result_preimage(),
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        )
+        .unwrap()
+        .into_parts();
     result.execution.world_state_root =
         iroha_crypto::Hash::new(b"unsigned AMX genesis R substitution");
     let changed =
@@ -1031,7 +1041,12 @@ fn native_amx_global_source_requires_signed_parent_real_h2_and_exact_instance() 
             .with_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
                 Vec::new(),
                 Vec::new(),
-                result.preimage().unwrap(),
+                iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
+                    finality_header,
+                    result.clone(),
+                )
+                .preimage()
+                .unwrap(),
                 Vec::new(),
             )));
     assert_eq!(
@@ -1140,7 +1155,9 @@ fn native_amx_new_state_cannot_inherit_live_authority_without_certified_replay()
     let source = chain.state().world.sumeragi_amx_participant.view().clone();
     assert!(source.is_authenticated());
     let budget = chain.state().ivm_execution_budget();
-    let world = World::new();
+    // The constructor must strip execution authority even when every retained
+    // graph and the new World use the exact original physical allocation pool.
+    let world = World::try_with_execution_budget([], [], [], &budget).unwrap();
     {
         let mut block = world.try_block(&budget).unwrap();
         *block.sumeragi_amx_participant.get_mut() = source.clone();

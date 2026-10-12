@@ -26,8 +26,8 @@ fn point() -> SccpLcPointV1 {
 
 /// Codec index of every variant, in declaration order. Indices 2 to 9 belonged to the events of
 /// the attestation transport and stay unassigned.
-const CODEC_INDICES: [u32; 18] = [
-    0, 1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+const CODEC_INDICES: [u32; 23] = [
+    0, 1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
 ];
 
 /// One event of every variant, in declaration order, with its JSON tag.
@@ -221,6 +221,45 @@ fn every_event() -> Vec<(SccpEvent, &'static str)> {
             }),
             "governance_enacted",
         ),
+        (
+            SccpEvent::FinalityDegraded(SccpFinalityDegradedV1 {
+                height: 31,
+                reason: SccpFinalityDegradedReasonV1::MissingHeightInputs,
+            }),
+            "finality_degraded",
+        ),
+        (
+            SccpEvent::CommitteeGenerationCreated(SccpCommitteeGenerationCreatedV1 {
+                generation: 3,
+                cause: SccpGenerationCauseV1::KeyChange,
+                committee_root: [23; 32],
+                start_height: 32,
+                deadline_ms: 1_758_604_800_000,
+            }),
+            "committee_generation_created",
+        ),
+        (
+            SccpEvent::CommitteeResync(SccpCommitteeResyncV1 {
+                generation: 4,
+                committee_root: [24; 32],
+                start_height: 33,
+            }),
+            "committee_resync",
+        ),
+        (
+            SccpEvent::GenerationMemberUnslashable(SccpGenerationMemberUnslashableV1 {
+                generation: 4,
+                index: 30,
+            }),
+            "generation_member_unslashable",
+        ),
+        (
+            SccpEvent::GenerationDestinationCleared(SccpGenerationDestinationClearedV1 {
+                generation: 3,
+                lc: 1_758_604_800_001,
+            }),
+            "generation_destination_cleared",
+        ),
     ]
 }
 
@@ -261,7 +300,7 @@ fn sccp_event_rejects_the_retired_attestation_and_roster_tags() {
 
     // The freed indices and the first index above the last variant decode to nothing, whatever
     // payload follows.
-    for index in (2_u32..=9).chain([26, u32::MAX]) {
+    for index in (2_u32..=9).chain([31, u32::MAX]) {
         for filler in [0, 1, 32, 256] {
             let mut encoded = index.encode();
             encoded.extend_from_slice(&vec![0x11; filler]);
@@ -369,6 +408,119 @@ fn enum_payloads_roundtrip_in_every_variant() {
             proposal_id: [1; 32],
         }),
     }));
+}
+
+#[test]
+fn finality_degraded_reasons_are_closed_and_have_explicit_tags() {
+    use norito::codec::DecodeAll as _;
+
+    let reasons = [
+        (
+            SccpFinalityDegradedReasonV1::MissingHeightInputs,
+            "missing_height_inputs",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::InvalidHeightInputs,
+            "invalid_height_inputs",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::MissingCurrentGeneration,
+            "missing_current_generation",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::InconsistentGenerationState,
+            "inconsistent_generation_state",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::MissingParentTip,
+            "missing_parent_tip",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::ArithmeticOverflow,
+            "arithmetic_overflow",
+        ),
+    ];
+    for (index, (reason, tag)) in reasons.into_iter().enumerate() {
+        roundtrip(&reason);
+        assert!(reason.encode().starts_with(&(index as u32).encode()));
+        let event = SccpEvent::FinalityDegraded(SccpFinalityDegradedV1 {
+            height: u64::MAX,
+            reason,
+        });
+        roundtrip(&event);
+        let value = norito::json::to_value(&reason).expect("reason JSON");
+        assert_eq!(
+            value.get("reason").and_then(norito::json::Value::as_str),
+            Some(tag)
+        );
+        assert_rejects_unknown_field(&reason, &[]);
+        assert_rejects_unknown_field(&event, &["payload", "reason"]);
+    }
+    for index in [6_u32, u32::MAX] {
+        assert!(SccpFinalityDegradedReasonV1::decode_all(&mut index.encode().as_slice()).is_err());
+    }
+    for tag in ["allocation_failed", "storage_unavailable", "unknown"] {
+        let json = format!(r#"{{"reason":"{tag}","detail":null}}"#);
+        assert!(norito::json::from_json::<SccpFinalityDegradedReasonV1>(&json).is_err());
+    }
+}
+
+#[test]
+fn generation_event_set_selects_each_native_variant() {
+    let sets = [
+        (SccpEventSet::FinalityDegraded, "finality_degraded"),
+        (
+            SccpEventSet::CommitteeGenerationCreated,
+            "committee_generation_created",
+        ),
+        (SccpEventSet::CommitteeResync, "committee_resync"),
+        (
+            SccpEventSet::GenerationMemberUnslashable,
+            "generation_member_unslashable",
+        ),
+        (
+            SccpEventSet::GenerationDestinationCleared,
+            "generation_destination_cleared",
+        ),
+    ];
+    let events = every_event();
+    for (set, tag) in sets {
+        let matches: Vec<_> = events
+            .iter()
+            .filter(|(event, _)| set.matches(event))
+            .map(|(_, tag)| *tag)
+            .collect();
+        assert_eq!(matches, vec![tag]);
+    }
+}
+
+#[test]
+fn native_generation_event_payload_fields_are_required() {
+    for (event, tag) in every_event().into_iter().skip(18) {
+        let value = norito::json::to_value(&event).expect("event JSON");
+        let fields: Vec<_> = value
+            .get("payload")
+            .and_then(norito::json::Value::as_object)
+            .expect("event payload")
+            .keys()
+            .cloned()
+            .collect();
+        for field in fields {
+            let mut missing = value.clone();
+            missing
+                .as_object_mut()
+                .expect("event")
+                .get_mut("payload")
+                .and_then(norito::json::Value::as_object_mut)
+                .expect("event payload")
+                .remove(&field);
+            let json = norito::json::to_json(&missing).expect("missing-field JSON");
+            assert!(
+                norito::json::from_json::<SccpEvent>(&json).is_err(),
+                "{tag} accepted missing {field}"
+            );
+        }
+    }
 }
 
 #[test]

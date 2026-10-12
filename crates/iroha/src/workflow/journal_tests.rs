@@ -21,6 +21,72 @@ use super::{
 type PlanChange = Box<dyn Fn(&mut WorkflowPlanV1)>;
 type JournalChange = Box<dyn Fn(&mut WorkflowJournalV1)>;
 
+#[test]
+fn journal_decode_refusal_survives_retired_and_equal_foreign_scopes() {
+    let mut journal = WorkflowJournalV1::new(&plan(), &binding(), 7).expect("journal");
+    journal.sequence = 1;
+    let bytes = journal.encode_record().expect("canonical stored record");
+    let limits =
+        |allocation| norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, allocation, 64);
+    let (decoded, usage) = norito::core::with_decode_limits_measured(limits(usize::MAX), || {
+        WorkflowJournalV1::decode_record(&bytes)
+    });
+    assert_eq!(decoded.expect("measured read"), journal);
+    assert!(usage.total_allocated_bytes() > 0);
+    for allocation in [0, usage.total_allocated_bytes() - 1] {
+        let error = norito::with_decode_limits_scope(limits(allocation), || {
+            WorkflowJournalV1::decode_record(&bytes).expect_err("original allocation refusal")
+        });
+        assert_eq!(error.code, WorkflowErrorCode::LocalResourceUnavailable);
+        assert!(error.is_resumable());
+        assert!(
+            error.progress.is_none(),
+            "unread state supplies no progress"
+        );
+        norito::with_decode_limits_scope(limits(allocation), || {
+            assert_eq!(error.code, WorkflowErrorCode::LocalResourceUnavailable);
+            assert!(
+                error.is_resumable(),
+                "a later equal scope changes no verdict"
+            );
+        });
+        assert_eq!(WorkflowJournalV1::decode_record(&bytes).unwrap(), journal);
+    }
+    let mut malformed = bytes;
+    malformed.push(0);
+    let error = WorkflowJournalV1::decode_record(&malformed).expect_err("trailing original bytes");
+    assert_eq!(error.code, WorkflowErrorCode::StorageCorrupted);
+    assert!(!error.is_resumable());
+}
+
+#[test]
+fn cumulative_round_transcripts_must_fit_before_the_plan_starts() {
+    let mut value = plan();
+    value.steps = (0..17)
+        .map(|index| {
+            StepDescriptorV1::offchain_round(
+                format!("round-{index}"),
+                fixture_digest(&format!("round-{index}")),
+                true,
+                1,
+                0,
+            )
+        })
+        .collect();
+    assert!(value.journal_bytes_bound() > MAX_WORKFLOW_JOURNAL_BYTES_V1);
+    assert_eq!(
+        value.validate().expect_err("unstoreable plan").code,
+        WorkflowErrorCode::ResourceLimitExceeded
+    );
+    assert!(WorkflowJournalV1::new(&value, &binding(), 0).is_err());
+    for step in &mut value.steps {
+        step.max_transcript_bytes = 1;
+    }
+    assert!(value.journal_bytes_bound() <= MAX_WORKFLOW_JOURNAL_BYTES_V1);
+    value.validate().expect("bounded transcripts fit");
+    WorkflowJournalV1::new(&value, &binding(), 0).expect("admissible journal");
+}
+
 pub(super) fn binding() -> WorkflowBindingV1 {
     WorkflowBindingV1 {
         network: "fixture-network".to_owned(),
@@ -488,6 +554,46 @@ fn transaction_reducer_persists_identity_before_dispatch_and_drops_bytes_when_cl
 }
 
 #[test]
+fn cancellation_drops_bytes_when_the_in_flight_dispatch_admitted_nothing() {
+    for outcome in [
+        TransactionInputV1::DispatchNotAdmitted,
+        TransactionInputV1::DispatchRefused {
+            detail: "refused".to_owned(),
+        },
+    ] {
+        let mut journal = journal();
+        for input in [
+            TransactionInputV1::OpenAttempt,
+            TransactionInputV1::BuildStarted,
+            TransactionInputV1::PayloadBuilt {
+                payload: b"payload:0#1".to_vec(),
+            },
+            signed("0#1"),
+            TransactionInputV1::DispatchIntent {
+                retransmission_after_exact_absence: false,
+            },
+        ] {
+            journal.apply_transaction(0, input).expect("transition");
+        }
+        assert!(journal.request_cancel());
+        assert_eq!(journal.status, WorkflowStatusV1::Cancelling);
+        journal.apply_transaction(0, outcome).expect("response");
+        assert_eq!(journal.status, WorkflowStatusV1::Cancelled);
+        let bytes = journal.encode_record().expect("record");
+        let retained = WorkflowJournalV1::decode_record(&bytes).expect("read record");
+        let operation = retained.steps[0].transaction.as_ref().expect("transaction");
+        assert!(operation.unsigned_payload.is_none());
+        assert!(operation.signed_transaction.is_none());
+        assert_eq!(operation.current().expect("attempt").possible_admissions, 0);
+        assert!(
+            !bytes
+                .windows(b"signed:0#1".len())
+                .any(|window| window == b"signed:0#1")
+        );
+    }
+}
+
+#[test]
 fn a_refusal_after_a_possible_admission_keeps_the_identity_unknown() {
     let mut journal = journal();
     for input in [
@@ -507,7 +613,7 @@ fn a_refusal_after_a_possible_admission_keeps_the_identity_unknown() {
     }
     let operation = journal.steps[0].transaction.clone().expect("operation");
     assert_eq!(operation.state, TransactionStateV1::Signed);
-    assert_eq!(operation.current().expect("slot").dispatch_ordinal, 1);
+    assert_eq!(operation.current().expect("slot").dispatch_ordinal, 0);
     assert!(operation.signed_transaction.is_some());
 
     for input in [
@@ -555,8 +661,8 @@ fn a_refusal_after_a_possible_admission_keeps_the_identity_unknown() {
 
     // The dispatch bound is separate from the identity bound.
     let mut bounded = operation;
-    assert_eq!(bounded.current().expect("slot").dispatch_ordinal, 3);
-    for _ in 4..MAX_DISPATCHES_PER_IDENTITY_V1 {
+    assert_eq!(bounded.current().expect("slot").dispatch_ordinal, 2);
+    for _ in 3..MAX_DISPATCHES_PER_IDENTITY_V1 {
         bounded
             .apply(
                 TransactionInputV1::DispatchIntent {
@@ -790,8 +896,14 @@ fn round_reducer_requires_canonical_growing_participants_and_exact_custody() {
     );
 
     let mut never_started = RoundRecordV1::new();
+    assert!(
+        never_started
+            .apply(RoundInputV1::Intent { round_id }, &descriptor, true)
+            .is_err(),
+        "cancellation prevents the first start intent"
+    );
     never_started
-        .apply(RoundInputV1::Intent { round_id }, &descriptor, true)
+        .apply(RoundInputV1::Intent { round_id }, &descriptor, false)
         .expect("intent");
     assert!(
         never_started
@@ -1005,8 +1117,11 @@ fn cancellation_never_rolls_back_and_separates_unresolved_from_confirmed() {
         .expect("operation")
         .state = TransactionStateV1::CancelledBeforeSubmission;
     assert_eq!(
-        inconsistent.validate(),
-        Err("a step is cancelled while the workflow is not".to_owned())
+        inconsistent
+            .validate()
+            .expect_err("cancelled step invariant")
+            .detail,
+        "a step is cancelled while the workflow is not"
     );
     // A step that is still planned can be cancelled: it never opened an identity slot.
     let mut untouched = journal();
@@ -1304,6 +1419,109 @@ fn vector_states() -> Vec<(&'static str, WorkflowJournalV1)> {
     ]
 }
 
+// Test-only semantic inputs accompany the binary fixture for independent SDK ports.
+macro_rules! vector_object {
+    ({$($key:literal : $value:expr),* $(,)?}) => {{
+        let mut map = norito::json::Map::new();
+        $(map.insert($key.to_owned(), norito::json::to_value(&$value).expect("fixture value"));)*
+        Value::Object(map)
+    }};
+}
+
+fn vector_step(step: &StepDescriptorV1) -> Value {
+    vector_object!({
+        "label": step.label,
+        "kind": step.kind.id(),
+        "intent_digest": hex::encode(step.intent_digest),
+        "irreversible": step.irreversible,
+        "max_transaction_identities": step.max_transaction_identities,
+        "participants_required": step.participants_required,
+        "custody_handles_required": step.custody_handles_required,
+        "max_transcript_bytes": step.max_transcript_bytes,
+    })
+}
+
+fn vector_identity(identity: &WorkflowIdentityV1) -> Value {
+    vector_object!({
+        "kind": identity.kind.id(),
+        "network": identity.network,
+        "authority": identity.authority,
+        "instance": identity.instance,
+        "driver": vector_object!({
+            "id": identity.driver.id,
+            "schema_version": identity.driver.schema_version,
+        }),
+        "request_context_digest": hex::encode(identity.request_context_digest),
+        "plan_digest": hex::encode(identity.plan_digest),
+    })
+}
+
+fn vector_journal(journal: &WorkflowJournalV1) -> Value {
+    let steps = journal
+        .steps
+        .iter()
+        .map(|step| {
+            let transaction = step.transaction.as_ref().map(|operation| {
+                let attempts = operation.attempts.iter().map(|attempt| {
+                vector_object!({
+                    "ordinal": attempt.ordinal,
+                    "identity": attempt.identity.map(|identity| vector_object!({
+                        "signed_transaction_hash": hex::encode(identity.signed_transaction_hash),
+                        "entrypoint_hash": hex::encode(identity.entrypoint_hash),
+                    })),
+                    "dispatch_ordinal": attempt.dispatch_ordinal,
+                    "possible_admissions": attempt.possible_admissions,
+                    "evidence": attempt.evidence.as_ref().map(|evidence| vector_object!({
+                        "kind": evidence.kind.id(),
+                        "block_height": evidence.block_height,
+                        "detail": evidence.detail,
+                    })),
+                })
+            }).collect::<Vec<_>>();
+                vector_object!({
+                    "state": operation.state.id(),
+                    "attempts": attempts,
+                    "unsigned_payload": operation.unsigned_payload.as_ref().map(hex::encode),
+                    "signed_transaction": operation.signed_transaction.as_ref().map(hex::encode),
+                })
+            });
+            let round = step.round.as_ref().map(|round| {
+                vector_object!({
+                    "state": round.state.id(),
+                    "round_id": round.round_id.map(hex::encode),
+                    "start_ordinal": round.start_ordinal,
+                    "participants": round.participants.iter().map(hex::encode).collect::<Vec<_>>(),
+                    "transcript": round.transcript.as_ref().map(hex::encode),
+                    "transcript_digest": round.transcript_digest.map(hex::encode),
+                    "custody_handles": round.custody_handles.iter().map(|handle| vector_object!({
+                        "label": handle.label,
+                        "reference": hex::encode(&handle.reference),
+                    })).collect::<Vec<_>>(),
+                    "failure": round.failure.map(WorkflowErrorCode::id),
+                })
+            });
+            vector_object!({
+                "descriptor": vector_step(&step.descriptor),
+                "transaction": transaction,
+                "round": round,
+            })
+        })
+        .collect::<Vec<_>>();
+    vector_object!({
+        "version": journal.version,
+        "sequence": journal.sequence,
+        "workflow_id": hex::encode(journal.workflow_id),
+        "identity": vector_identity(&journal.identity),
+        "status": journal.status.id(),
+        "cancel_requested": journal.cancel_requested,
+        "failure_code": journal.failure_code.map(WorkflowErrorCode::id),
+        "failure_step": journal.failure_step,
+        "created_at_ms": journal.created_at_ms,
+        "updated_at_ms": journal.updated_at_ms,
+        "steps": steps,
+    })
+}
+
 fn rendered_vectors() -> Value {
     fn object(entries: Vec<(&str, Value)>) -> Value {
         let mut map = norito::json::Map::new();
@@ -1328,6 +1546,13 @@ fn rendered_vectors() -> Value {
                 ),
                 ("record_digest", text(hex::encode(record_digest(&record)))),
                 ("record_hex", text(hex::encode(&record))),
+                ("journal", vector_journal(&journal)),
+                (
+                    "journal_hex",
+                    text(hex::encode(
+                        norito::encode_canonical(&journal).expect("journal"),
+                    )),
+                ),
                 ("progress", journal.progress().to_json()),
             ])
         })
@@ -1340,12 +1565,22 @@ fn rendered_vectors() -> Value {
         (
             "what",
             text(
-                "Canonical Norito records and digests of the plan in journal_tests.rs::plan(). Digest inputs in the fixture format: digest(text) is the Iroha hash of the UTF-8 text; an intent digest is digest(\"intent:\" + label), the request context digest is digest(\"context:\" + instance), a participant is digest(\"participant:\" + name)."
+                "Canonical Norito records and their complete semantic inputs. All byte arrays are lowercase hexadecimal; optional fields are null when absent. Enum names use state_machine.json. plan_hex, identity_hex and journal_hex are canonical Norito frames, including their headers, before the corresponding digest domain is prepended."
                     .to_owned(),
             ),
         ),
         ("network", text(binding().network)),
         ("authority", text(binding().authority)),
+        ("plan", vector_object!({
+            "kind": plan().kind.id(),
+            "instance": plan().instance,
+            "driver": vector_object!({"id": plan().driver.id, "schema_version": plan().driver.schema_version}),
+            "request_context_digest": hex::encode(plan().request_context_digest),
+            "steps": plan().steps.iter().map(vector_step).collect::<Vec<_>>(),
+        })),
+        ("plan_hex", text(hex::encode(norito::encode_canonical(&plan()).expect("plan")))),
+        ("identity", vector_identity(&identity)),
+        ("identity_hex", text(hex::encode(norito::encode_canonical(&identity).expect("identity")))),
         (
             "plan_digest",
             text(hex::encode(plan().digest().expect("digest"))),
@@ -1389,6 +1624,21 @@ fn canonical_byte_vectors_match_the_tracked_fixture() {
     );
     // The tracked bytes decode to journals whose progress equals the tracked progress.
     let parsed: Value = norito::json::from_str(&tracked).expect("JSON");
+    let root = parsed.as_object().expect("root");
+    let frame =
+        |key| hex::decode(root.get(key).and_then(Value::as_str).expect("frame")).expect("hex");
+    let decoded_plan: WorkflowPlanV1 = norito::decode_canonical(&frame("plan_hex")).expect("plan");
+    assert_eq!(decoded_plan, plan());
+    let decoded_identity: WorkflowIdentityV1 =
+        norito::decode_canonical(&frame("identity_hex")).expect("identity");
+    assert_eq!(
+        decoded_identity,
+        WorkflowIdentityV1::new(&plan(), &binding()).expect("identity")
+    );
+    assert_eq!(
+        Some(&vector_identity(&decoded_identity)),
+        root.get("identity")
+    );
     for record in parsed
         .as_object()
         .and_then(|root| root.get("records"))
@@ -1404,6 +1654,17 @@ fn canonical_byte_vectors_match_the_tracked_fixture() {
         )
         .expect("hex");
         let journal = WorkflowJournalV1::decode_record(&bytes).expect("tracked record decodes");
+        let journal_frame = hex::decode(
+            record
+                .get("journal_hex")
+                .and_then(Value::as_str)
+                .expect("journal frame"),
+        )
+        .expect("hex");
+        let decoded_journal: WorkflowJournalV1 =
+            norito::decode_canonical(&journal_frame).expect("journal");
+        assert_eq!(decoded_journal, journal);
+        assert_eq!(Some(&vector_journal(&journal)), record.get("journal"));
         assert_eq!(Some(&journal.progress().to_json()), record.get("progress"));
         assert_eq!(
             Some(hex::encode(record_digest(&bytes)).as_str()),

@@ -758,12 +758,10 @@ fn genesis_canonical_wire_roundtrip_preserves_digest() {
         decoded.header().confidential_features(),
         genesis.0.header().confidential_features()
     );
-    // The frame carries exactly the versioned payload; that payload alone is not a block wire.
-    let versioned = iroha_version::codec::EncodeVersioned::encode_versioned(&genesis.0);
-    let deframed = iroha_data_model::block::deframe_versioned_signed_block_bytes(framed.as_slice())
-        .expect("deframe canonical block");
-    assert_eq!(deframed.bare_versioned.as_ref(), versioned.as_slice());
-    assert!(iroha_data_model::block::decode_framed_signed_block(&versioned).is_err());
+    // Removing the mandatory header makes this an invalid block wire.
+    let mut headerless = vec![wire.version()];
+    headerless.extend_from_slice(wire.payload());
+    assert!(iroha_data_model::block::decode_framed_signed_block(&headerless).is_err());
 }
 #[test]
 fn programmatic_raw_genesis_rejects_explicit_set_parameter_instructions() {

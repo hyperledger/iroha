@@ -211,9 +211,20 @@ fn frames_without_a_matching_header_preimage_or_certificate_are_refused() {
     );
     // A result preimage that commits another executed block.
     let wrong_wire = with_parts(&original, |_, _, preimage| {
-        let mut commitment = ExecutionResultCommitment::decode(preimage).unwrap();
+        let (finality_header, mut commitment) =
+            iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+                preimage,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            )
+            .unwrap()
+            .into_parts();
         commitment.execution.executed_block_wire_len += 1;
-        *preimage = commitment.preimage().unwrap();
+        *preimage = iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
+            finality_header,
+            commitment.clone(),
+        )
+        .preimage()
+        .unwrap();
     });
     assert_eq!(
         read_frame(wrong_wire, 3).err(),
@@ -261,12 +272,23 @@ fn certificates_that_do_not_certify_the_stored_block_are_refused() {
     certify(Clone::clone(&original)).expect("the stored certificate verifies");
     // A preimage whose `R` is not the certified one (its executed wire is unchanged).
     let other_result = with_parts(&original, |_, _, preimage| {
-        let mut commitment = ExecutionResultCommitment::decode(preimage).unwrap();
+        let (finality_header, mut commitment) =
+            iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+                preimage,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            )
+            .unwrap()
+            .into_parts();
         let schedule::ScheduledSlot::Ready(next) = &mut commitment.schedule.after_next else {
             unreachable!()
         };
         next.params.block_time_ms += 1;
-        *preimage = commitment.preimage().unwrap();
+        *preimage = iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
+            finality_header,
+            commitment.clone(),
+        )
+        .preimage()
+        .unwrap();
     });
     assert_eq!(
         certify(other_result).err(),
@@ -763,14 +785,25 @@ fn pinned_genesis_result_is_unsigned_until_a_real_successor_authenticates_it() {
     let (chain, _) = chain();
     let genesis = frame(&chain, 1);
     let certificate = genesis.commit_certificate().unwrap();
-    let mut result = ExecutionResultCommitment::decode(certificate.result_preimage()).unwrap();
+    let (finality_header, mut result) =
+        iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+            certificate.result_preimage(),
+            iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        )
+        .unwrap()
+        .into_parts();
     result.execution.world_state_root = Hash::new(b"unsigned pinned genesis execution replacement");
     let changed = crate::block::reserve_block_for_tests().initialize(
         genesis.as_ref().clone().with_commit_certificate(Some(
             CommitCertificate::from_untrusted_parts(
                 certificate.consensus_header().to_vec(),
                 certificate.commit_qc().to_vec(),
-                result.preimage().unwrap(),
+                iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
+                    finality_header,
+                    result.clone(),
+                )
+                .preimage()
+                .unwrap(),
                 certificate.availability().to_vec(),
             ),
         )),
@@ -922,9 +955,20 @@ fn borrowed_native_frames_reject_changed_result_even_under_unchanged_header_hash
         .collect::<Vec<_>>();
     let hashes = frames.iter().map(|block| block.hash()).collect::<Vec<_>>();
     frames[1] = with_parts(&frames[1], |_, _, preimage| {
-        let mut result = ExecutionResultCommitment::decode(preimage).unwrap();
+        let (finality_header, mut result) =
+            iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+                preimage,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            )
+            .unwrap()
+            .into_parts();
         result.execution.ordinary_writes_root = Hash::new(b"changed borrowed R");
-        *preimage = result.preimage().unwrap();
+        *preimage = iroha_data_model::sumeragi_finality::CertifiedResultV1::from_parts_unvalidated(
+            finality_header,
+            result.clone(),
+        )
+        .preimage()
+        .unwrap();
     });
     assert_eq!(frames[1].hash(), hashes[1]);
     let reader = CertifiedChain::from_frames(&chain_id, &network, &hashes, &frames).unwrap();
@@ -1076,4 +1120,183 @@ fn signed_genesis_initialization_does_not_repeat_completed_scope_decode() {
     drop(view);
     drop(context);
     assert_eq!(budget.reserved_bytes(), baseline);
+}
+
+/// Every structural consumer keeps the fixed X and checks its exact carrier time.
+#[test]
+fn native_frame_requires_fixed_header_and_exact_block_binding() {
+    let (chain, _) = chain();
+    let original = frame(&chain, 3);
+    let receipt = read_frame(original.clone(), 3).unwrap();
+    assert_eq!(
+        receipt.finality_header().timestamp_ms(),
+        original.header().creation_time_ms
+    );
+    for mutation in 0..4 {
+        let changed = with_parts(&original, |_, _, preimage| {
+            let (header, body) =
+                CertifiedResultV1::decode(preimage, CertifiedResultScope::TairaGlobal)
+                    .unwrap()
+                    .into_parts();
+            if mutation == 0 {
+                *preimage = body.preimage().unwrap();
+            } else if mutation == 1 {
+                preimage[0] ^= 1;
+            } else {
+                let mut fields = header.fields();
+                if mutation == 2 {
+                    fields.timestamp_ms += 1;
+                } else {
+                    fields.network_id[0] ^= 1;
+                }
+                *preimage = CertifiedResultV1::from_parts_unvalidated(
+                    SccpFinalityHeaderV1::from_fields(&fields).unwrap(),
+                    body,
+                )
+                .preimage()
+                .unwrap();
+            }
+        });
+        assert!(
+            matches!(
+                read_frame(changed.clone(), 3),
+                Err(ExecutionAttemptError::Rejected(ChainReadError::Malformed {
+                    height: 3,
+                    ..
+                }))
+            ),
+            "mutation {mutation}"
+        );
+        let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
+        assert!(
+            matches!(
+                read_frame_admitted(changed, 3, &mut EpochValidationScope::new(), &budget),
+                Err(ExecutionAttemptError::Rejected(ChainReadError::Malformed {
+                    height: 3,
+                    ..
+                }))
+            ),
+            "placed mutation {mutation}"
+        );
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+}
+
+/// Scope checking consumes the already retained fixed X, even with no decoder allowance.
+#[test]
+fn authenticated_scope_rejects_active_non_global_without_redecoding_result() {
+    use iroha_data_model::sumeragi_finality::certified_result::{
+        FLAG_ACTIVE, context_committee_root,
+    };
+    use iroha_model_base::topology::DataSpaceId;
+    let (chain, _) = chain();
+    let original = frame(&chain, 3);
+    let changed = with_parts(&original, |_, _, preimage| {
+        let (header, body) = CertifiedResultV1::decode(preimage, CertifiedResultScope::TairaGlobal)
+            .unwrap()
+            .into_parts();
+        let mut fields = header.fields();
+        fields.flags = FLAG_ACTIVE;
+        fields.generation = 1;
+        fields.committee_root = context_committee_root(&body.schedule.current).unwrap();
+        *preimage = CertifiedResultV1::new(
+            SccpFinalityHeaderV1::from_fields(&fields).unwrap(),
+            body,
+            CertifiedResultScope::TairaGlobal,
+        )
+        .unwrap()
+        .preimage()
+        .unwrap();
+    });
+    let retained = read_frame(changed, 3).unwrap();
+    let non_global = SumeragiRootScope::Dataspace {
+        parent_network_id: chain.network_id(),
+        dataspace_id: DataSpaceId::new(7),
+    };
+    let (global, private) =
+        norito::with_decode_limits_scope(norito::DecodeLimits::new(0, 0, 0, 0, 0), || {
+            (
+                check_result_scope(&retained, SumeragiRootScope::Global),
+                check_result_scope(&retained, non_global),
+            )
+        });
+    global.unwrap();
+    assert!(
+        matches!(private, Err(ChainReadError::Malformed { height: 3, reason }) if reason == CertifiedResultError::ActiveOutsideGlobal.to_string())
+    );
+    let id = ChainId::from("sumeragi-certified-test-chain");
+    let prefix = CertifiedPrefix::new(&id, chain.network_id(), frame(&chain, 1)).unwrap();
+    assert_eq!(
+        prefix.root_scope,
+        authenticate_genesis(chain.genesis(), &chain.network_id(), &id)
+            .unwrap()
+            .2
+    );
+}
+
+/// The original private genesis scope survives both prefix constructors; unsigned X cannot widen it.
+#[test]
+fn original_signed_dataspace_scope_refuses_active_genesis_in_both_prefix_owners() {
+    use iroha_data_model::sumeragi_finality::{
+        certified_result::{FLAG_ACTIVE, context_committee_root},
+        test_fixtures::NativeFinalityFixture,
+    };
+    use iroha_model_base::topology::DataSpaceId;
+    let scope = SumeragiRootScope::Dataspace {
+        parent_network_id: NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
+            b"original parent",
+        ))),
+        dataspace_id: DataSpaceId::new(7),
+    };
+    let fixture = NativeFinalityFixture::start_with_scope("private-prefix-scope", scope);
+    let id: ChainId = fixture.chain_id().parse().unwrap();
+    let genesis = crate::block::reserve_block_for_tests().initialize(fixture.genesis().clone());
+    let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
+    let owned = CertifiedPrefix::new(&id, fixture.network_id(), genesis.clone()).unwrap();
+    assert_eq!(owned.root_scope, scope);
+    let admitted =
+        CertifiedPrefix::new_admitted(&id, fixture.network_id(), genesis.clone(), &budget).unwrap();
+    assert_eq!(admitted.as_slice()[0].root_scope, scope);
+    drop(admitted);
+    assert_eq!(budget.reserved_bytes(), 0);
+    let certificate = genesis.commit_certificate().unwrap();
+    let (header, body) = CertifiedResultV1::decode(
+        certificate.result_preimage(),
+        CertifiedResultScope::NonGlobal,
+    )
+    .unwrap()
+    .into_parts();
+    let mut fields = header.fields();
+    fields.flags = FLAG_ACTIVE;
+    fields.generation = 1;
+    fields.committee_root = context_committee_root(&body.schedule.current).unwrap();
+    let preimage = CertifiedResultV1::new(
+        SccpFinalityHeaderV1::from_fields(&fields).unwrap(),
+        body,
+        CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap()
+    .preimage()
+    .unwrap();
+    let changed = crate::block::reserve_block_for_tests().initialize(
+        genesis.as_ref().clone().with_commit_certificate(Some(
+            CommitCertificate::from_untrusted_parts(Vec::new(), Vec::new(), preimage, Vec::new()),
+        )),
+    );
+    assert_eq!(
+        changed.hash(),
+        genesis.hash(),
+        "result preimage is outside the signed genesis body"
+    );
+    assert!(
+        read_frame(changed.clone(), 1).is_ok(),
+        "structural C1–C5 checks confer no scope authority"
+    );
+    assert!(
+        matches!(CertifiedPrefix::new(&id, fixture.network_id(), changed.clone()), Err(ExecutionAttemptError::Rejected(ChainReadError::Malformed { height: 1, reason })) if reason == CertifiedResultError::ActiveOutsideGlobal.to_string())
+    );
+    assert!(
+        matches!(CertifiedPrefix::new_admitted(&id, fixture.network_id(), changed, &budget), Err(ExecutionAttemptError::Rejected(ChainReadError::Malformed { height: 1, reason })) if reason == CertifiedResultError::ActiveOutsideGlobal.to_string())
+    );
+    assert_eq!(budget.reserved_bytes(), 0);
 }

@@ -48,7 +48,7 @@ impl KuraBlockStore {
         norito::verify_exact_canonical_frame(qc, certificate.commit_qc()).map_err(codec)?;
         norito::verify_exact_canonical_frame(body.availability(), certificate.availability())
             .map_err(codec)?;
-        if result_of_preimage(certificate.result_preimage()) != qc.result {
+        if result_of_preimage(certificate.result_preimage()) != Some(qc.result) {
             return Err(invalid("staged result preimage differs from the certified result").into());
         }
         super::execution::validate(executed)?;

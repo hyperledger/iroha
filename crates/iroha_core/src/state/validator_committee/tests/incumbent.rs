@@ -62,7 +62,9 @@ fn incumbent_authority_requires_authenticated_history_even_with_local_metadata()
         let world = World::new();
         if with_metadata {
             let mut parameters = world.parameters.block();
-            parameters.set_parameter(handshake_metadata());
+            parameters
+                .set_parameter(handshake_metadata())
+                .expect("valid fixture parameters");
             parameters.commit();
         }
         let state = state_on(network_id_of(b"uncertified-metadata"), world);

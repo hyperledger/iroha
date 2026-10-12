@@ -568,6 +568,15 @@ pub unsafe extern "system" fn Java_org_hyperledger_iroha_sdk_privacy_PrivacyNati
         expected_network,
     )
 }
+/// Project one typed privacy instruction solely for ordered-intent hashing in Kotlin/JVM.
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_org_hyperledger_iroha_sdk_privacy_PrivacyNativeBridge_nativeSubmitProofIntentProjectionV1(
+    mut env: jni::JNIEnv<'_>,
+    _class: jni::objects::JClass<'_>,
+    archive: jni::objects::JByteArray<'_>,
+) -> jni::sys::jbyteArray {
+    privacy_intent::java_native_submit_proof_intent_projection(&mut env, archive)
+}
 /// Return the canonical exact-12 privacy fixture bundle to the Kotlin/JVM SDK.
 #[unsafe(no_mangle)]
 pub unsafe extern "system" fn Java_org_hyperledger_iroha_sdk_privacy_PrivacyNativeBridge_nativeExact12FixtureBundle(

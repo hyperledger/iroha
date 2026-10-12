@@ -126,11 +126,12 @@ No textual scan sees the following, and the contract does not claim them:
   no limit word, or it returns neither an integer nor an `Option` or `Result`
   of one;
 - a limit computed at run time;
-- a constant of a non-integer type, such as a `Duration` or a range, that its
-  name does not mark;
+- a constant of a non-integer type, such as a `Duration` or a range, or an
+  integer typed through a type alias, that its name does not mark;
 - a literal below 2 or that is no integer;
 - a comparison the scan does not read, for a constant that no name marks as for
-  a literal: one with `==`, `!=`, `cmp` or `partial_cmp`; a `match` pattern; a
+  a literal: one with `==`, `!=`, `cmp` or `partial_cmp`; a `match` pattern;
+  a range test written as a function (`RangeInclusive::contains`); a
   relational operator written without whitespace around it; checked arithmetic
   that refuses by underflow (`limit.checked_sub(64)?`); the receiver of `.take`
   and `.truncate`, which is the collection that is cut (`(0..ROWS).take(n)`);
@@ -251,11 +252,12 @@ no number.
 ## Committed ZK validity policy
 
 Every value that `compute_zk_consensus_policy_hash` binds is chain policy: the
-Halo2 and STARK proof, envelope and batch limits and their enable switches, the
+native PIPA-R and STARK proof and envelope limits, the shared batch limit and
+their enable switches, the
 SCCP proof and verifier-work limits, proof retention, bridge-proof windows, the
 relation-selecting Kaigi verifying-key references and parameter-set
 identifiers, the confidential anchor age, policy-transition windows and
-registry caps, and the verification gas schedule (65 fields). Its source is the
+registry caps, and the verification gas schedule (58 fields). Its source is the
 committed custom parameter `zk_validity_policy_v1`. The type, the protocol
 default and the canonical validation are in
 `iroha_data_model::zk_validity_policy`; `iroha_core::zk_validity_policy` applies
@@ -268,7 +270,7 @@ the genesis block runs under the protocol default, and a proof is judged by the
 policy of the block that executes it (no grandfathering). A payload is
 rejected, identically on every validator, when it is malformed, breaks a
 structural rule (a zero count, a size above the fixed protocol maximum, an
-undefined curve or backend) or is incoherent: a per-proof limit above the
+invalid verifying-key reference) or is incoherent: a per-proof limit above the
 per-transaction limit, a per-transaction limit above the per-block limit, a
 proof limit above its envelope, or retained commitment-tree roots that do not
 cover the admissible anchor age. Limits may shrink while those rules hold;
@@ -279,9 +281,10 @@ A chain that commits none uses the protocol default, so a default chain's
 genesis and World root are unchanged.
 
 A node configuration has no ZK validity key. `[zk]` and `[confidential]` hold
-local resources only (verifier workers, queues, retry and wall-clock budgets,
-FASTPQ prover settings); a file or environment variable that names a removed
-key fails to load with the ordinary unknown-parameter error. Genesis generators
+local resources only (diagnostic workers, queues, retry and wall-clock budgets,
+polynomial-opening bounds and FASTPQ prover settings). A file that names a
+removed validity key fails with an unknown-parameter error; retired environment
+aliases are never read. Genesis generators
 sign the protocol-default confidential policy hash and cannot hash a node
 configuration into a header. The tracked Taira deployment carries its two
 non-default limits (8 MiB per confidential proof, 16 MiB per block) in
@@ -496,7 +499,9 @@ Facts it records about the current tree:
   The only other Kotodama bindings are the AXT builtins of the three AXT
   carriers.
 - World restore verifies no proof. It validates the RAM-LFE policies, the
-  privacy activations and qualification record, the persisted privacy and
+  six AXT counter, incarnation, budget and replay ledgers, the privacy
+  consensus policy at the committed height, privacy activations and the
+  qualification record, the persisted privacy and
   atomic-settlement state, the proof-tag and verifying-key indexes, identifier
   claims, the timed-OVN and Parliament records and the SoraCloud service
   history; State construction rebuilds the proof-status index and validates

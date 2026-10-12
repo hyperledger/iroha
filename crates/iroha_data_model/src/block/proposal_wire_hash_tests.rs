@@ -35,7 +35,7 @@ fn assert_exact_borrowed_proposal_wire(block: &SignedBlock) {
         .expect("valid original proposal")
         .encode_wire()
         .unwrap();
-    assert_eq!(reference[0], block.version());
+    assert_eq!(reference[0], SignedBlock::WIRE_VERSION);
     assert_eq!(
         block.resultless_proposal_wire_len().unwrap(),
         reference.len()

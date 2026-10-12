@@ -14,10 +14,10 @@
  },
  "key_stability": "Primitive ids, role keys, consumer keys, defect ids and workload ids are stable identifiers. A renamed or removed key is a deliberate change that its referring artifacts follow.",
  "review_basis": {
-  "roles": "Each role was written from the named source sites and re-read against them in the repair of 2026-10-05; the check anchors its symbols, literals and, where recorded, the compile status of the item.",
+  "roles": "Current native PIPA-R, relation-specific Poseidon, PGC root binding and retained transcript roles re-read from their named source sites on 2026-10-12. Other roles retain their prior source review; anchored text is not a security proof.",
   "uses": "A consumer use states what the matching lines of sampled files of that consumer do; it is not a statement about every file. Where a role or the producer ledger covers a use, that record is the authority.",
   "producers": "Derived by the checker: every function of the ledger scopes whose own body calls a digest, with the primitives it calls, the domain literals it names and its return type. The role of each producer was assigned by reading the function.",
-  "scan": "Derived from the tree by the checker."
+  "scan": "2026-10-12 reconciliation audited file existence and primitive-name witnesses for each changed file, plus tree-unit primitive-set deltas; digest roles and consumer classifications were reviewed separately."
  },
  "digest_primitives": [
   {
@@ -810,6 +810,7 @@
      "csharp/src/Hyperledger.Iroha.Sdk/Privacy/PrivacyExact12CapabilityManifestV1.cs": ["word-hex-reversed"],
      "csharp/tests/Hyperledger.Iroha.Sdk.Tests/PrivacyExact12CapabilityManifestV1Tests.cs": ["word-hex-reversed"],
      "fixtures/privacy/exact12_typed_fixture_bundle_v1.norito.b64": ["bytes-base64"],
+     "fixtures/zk/signed_attachments_v1/vectors.json": ["word-hex-reversed", "bytes-hex"],
      "javascript/iroha_js/src/norito.js": ["word-hex-reversed", "bytes-hex"],
      "kotlin/core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/privacy/PrivacyExact12CapabilityManifestV1Test.kt": ["word-hex-reversed"],
      "python/iroha_python/src/iroha_python/privacy_exact12.py": ["word-hex-reversed"]
@@ -968,7 +969,7 @@
    },
    "canonical_native": {
     "decision": "changes-with-profile",
-    "security_model": "classical-rom (the relation is Halo2 over Pasta with IPA openings)",
+    "security_model": "classical-rom (the native PIPA-R relation over Pasta with IPA openings)",
     "required_property": "collision resistance: two accounts or calls with one identity would be interchangeable in a proof",
     "note": "The digests are hashed natively and never recomputed in a circuit. Their six words each are public context of the authorization relation, so a 32-byte identity changes the instance layout, the verifying keys and the proof fixtures; the change is made together with the relation.",
     "transcript_seed_check": {
@@ -989,7 +990,7 @@
     "extensions": [".rs", ".kt", ".kts", ".java", ".swift", ".ts", ".js", ".mjs", ".cjs", ".py", ".cs", ".json", ".b64", ".norito", ".toml", ".yaml", ".yml", ".txt", ".tsv"],
     "exclude_prefixes": ["specs/", "scripts/", "docs/", "dist/"],
     "scope_note": "The identity type, the relation context that carries its eighteen words and the account-identity helper.",
-    "type_files": ["crates/iroha_core/src/privacy_release_evidence/kaigi.rs", "crates/iroha_core/src/smartcontracts/isi/kaigi/privacy.rs", "crates/iroha_core/src/smartcontracts/isi/kaigi/privacy/authorization_v1.rs", "crates/iroha_core/tests/kaigi_privacy.rs", "crates/iroha_core_zk/src/kaigi_authorization_v1_tests.rs", "crates/iroha_data_model/src/kaigi/authorization.rs", "crates/iroha_data_model/tests/fixtures/additional_frame_owner_identity_observations.json", "crates/iroha_js_host/src/kaigi_authorization_v1.rs", "crates/kaigi_zk/src/authorization_v1.rs", "crates/kaigi_zk/src/authorization_v1/tests.rs", "crates/kaigi_zk/src/tests.rs", "crates/kaigi_zk/src/usage_v1.rs"],
+    "type_files": ["crates/iroha_core/src/privacy_release_evidence/kaigi.rs", "crates/iroha_core/src/smartcontracts/isi/kaigi/privacy.rs", "crates/iroha_core/src/smartcontracts/isi/kaigi/privacy/authorization_v1.rs", "crates/iroha_core/tests/kaigi_privacy.rs", "crates/iroha_core_zk/src/kaigi_authorization_v1_tests.rs", "crates/iroha_core_zk/src/native_pipa_r.rs", "crates/iroha_data_model/src/kaigi/authorization.rs", "crates/iroha_data_model/tests/fixtures/additional_frame_owner_identity_observations.json", "crates/iroha_js_host/src/kaigi_authorization_v1.rs", "crates/kaigi_zk/src/authorization_v1.rs", "crates/kaigi_zk/src/authorization_v1/tests.rs", "crates/kaigi_zk/src/native.rs", "crates/kaigi_zk/src/tests.rs", "crates/kaigi_zk/src/usage_v1.rs"],
     "sdk_owners": [
      {
       "path": "crates/iroha_data_model/src/kaigi/authorization.rs",
@@ -1015,7 +1016,7 @@
       "note": "Captured schema identity of the identity type; its layout changes with the digest width."
      }
     ],
-    "fixtures_note": "No fixture carries an identity digest value. Proof fixtures of the Kaigi relation commit to the identities through the instance column; they are regenerated with the relation by P.7."
+    "fixtures_note": "The schema-observation fixture records this derived identity type; Kaigi instruction payloads do not embed the identity struct. Proof fixtures bind its eighteen words through the relation instance column and are regenerated with the relation by P.7."
    }
   },
   {
@@ -1029,14 +1030,14 @@
    "sites": [
     {
      "path": "crates/kaigi_zk/src/lib.rs",
-     "symbol": "struct KaigiPoseidonSpec",
+     "symbol": "fn configure_poseidon(",
      "literals": ["const POSEIDON_PARTIAL_ROUNDS: usize = 56;"],
      "compiled": "production"
     }
    ],
    "canonical_native": {
     "decision": "retained-family",
-    "note": "Native-field algebraic hash of a Halo2 relation; a byte-oriented digest cannot replace it."
+    "note": "Native-field algebraic hash constrained by the Kaigi PIPA-R relation; a byte-oriented digest cannot replace it. Its 56-round relation sponge is distinct from the 57-round PIPA-R transcript sponge."
    }
   },
   {
@@ -1131,18 +1132,23 @@
    "family": "in-circuit",
    "primitive": "poseidon",
    "output_bytes": 32,
-   "domain_separation": "Axiom Pasta Poseidon: width 3, rate 2, x^5, 8 full and 57 partial rounds, MDS selector 0 (halo2-base OptimizedPoseidonSpec), with one 64-bit ASCII domain word per use (cfownr03, cfnote03, cfnull03, cfleaf03, cfnode03, cfasst03, cfnet_03). The public-input schema names it axiom_poseidon_t3_r2_rf8_rp57_mds0.",
+   "domain_separation": "Original Pasta Poseidon: width 3, rate 2, x^5, 8 full and 57 partial rounds, first secure Cauchy MDS candidate (selector 0), with one 64-bit ASCII domain word per use (cfownr03, cfnote03, cfnull03, cfleaf03, cfnode03, cfasst03, cfnet_03). The public-input schema names it poseidon_t3_r2_rf8_rp57_mds0.",
    "sites": [
     {
      "path": "crates/iroha_core_zk/src/confidential_v2.rs",
      "symbol": "pub const CONFIDENTIAL_POSEIDON_PARTIAL_ROUNDS_V3: usize = 57;",
-     "literals": ["axiom_poseidon_t3_r2_rf8_rp57_mds0", "b\"cfnull03\"", "b\"cfnote03\"", "b\"cfnode03\""],
+     "literals": ["poseidon_t3_r2_rf8_rp57_mds0", "b\"cfnull03\"", "b\"cfnote03\"", "b\"cfnode03\""],
+     "compiled": "production"
+    },
+    {
+     "path": "crates/iroha_core_zk/src/confidential_native/relation.rs",
+     "symbol": "hash: SpongeConfig<Fp>,",
      "compiled": "production"
     }
    ],
    "canonical_native": {
     "decision": "retained-family",
-    "note": "Native-field algebraic hash of the Halo2 confidential relations. It is the 57-round Axiom parameterization, not the 56-round P128Pow5T3 of the Kaigi relation."
+    "note": "Native-field algebraic hash of the confidential PIPA-R relations, using the pinned 57-round iroha_pasta tables and the native relation gadget; Kaigi instead constrains a 56-round relation sponge."
    }
   },
   {
@@ -1839,7 +1845,7 @@
   {
    "key": "halo2.transcript-blake2b",
    "consumer": "halo2-ipa",
-   "role": "Fiat-Shamir transcript of the Halo2 and native PIPA proofs over Pasta.",
+   "role": "Retained scalar-field BLAKE2b Fiat-Shamir transcript implemented by the native PLONK owner. Current Kaigi, confidential and SoraFS PIPA-R entry points select the separate base-field Poseidon profile.",
    "family": "proof-internal",
    "primitive": "blake2b",
    "output_bytes": 64,
@@ -1853,7 +1859,7 @@
    ],
    "canonical_native": {
     "decision": "retained-family",
-    "note": "Transcript of the Halo2/IPA family; byte-identical to the vendored oracle by test."
+    "note": "Retained explicit BLAKE2b transcript profile; not the selected Fiat-Shamir transcript of current PIPA-R admission."
    }
   },
   {
@@ -1886,7 +1892,7 @@
   {
    "key": "halo2.pasta-poseidon",
    "consumer": "halo2-ipa",
-   "role": "Pasta Poseidon of the Halo2 relations and their native witnesses in the 57-round Axiom parameterization: the confidential relations, the PLONK gadgets and the KAGEMUSHA commitments.",
+   "role": "Pinned Pasta RP57 permutation and native witness sponge shared by native PLONK gadgets, confidential relations, PIPA-R transcripts and KAGEMUSHA commitments. The stable role key also covers retained scalar-field consumers.",
    "family": "in-circuit",
    "primitive": "poseidon",
    "output_bytes": 32,
@@ -1899,17 +1905,13 @@
      "compiled": "production"
     },
     {
-     "path": "crates/iroha_core_zk/src/pasta_native_poseidon.rs",
-     "symbol": "const PARTIAL_ROUNDS: usize = 57;"
-    },
-    {
      "path": "crates/iroha_core_zk/src/confidential_v2.rs",
      "symbol": "pub const CONFIDENTIAL_POSEIDON_PARTIAL_ROUNDS_V3: usize = 57;"
     }
    ],
    "canonical_native": {
     "decision": "retained-family",
-    "note": "Native-field algebraic hash of the Halo2 relations. Two Pasta parameterizations are compiled: this 57-round one and the 56-round P128Pow5T3 of the Kaigi relation and of the SoraFS credential circuit."
+    "note": "Native-field algebraic hash used by current native PLONK/PIPA-R owners and retained scalar-field profiles. The 57-round permutation is distinct from the 56-round relation sponges of Kaigi and SoraFS."
    }
   },
   {
@@ -1945,13 +1947,13 @@
     {
      "path": "crates/sorafs_manifest/src/pop_credentials/zk.rs",
      "symbol": "const PARTIAL_ROUNDS: usize = 56;",
-     "literals": ["pub(super) const POP_MEMBERSHIP_CIRCUIT_ID_V1: &str = \"sorafs-pop-membership-halo2-ipa-pasta-v1\";", "const DOMAIN_HOLDER_COMMITMENT: u64 = 1;"],
+     "literals": ["pub(super) const POP_MEMBERSHIP_CIRCUIT_ID_V1: &str = \"sorafs-pop-membership-pipa-r-v1\";", "const DOMAIN_HOLDER_COMMITMENT: u64 = 1;"],
      "compiled": "production"
     }
    ],
    "canonical_native": {
     "decision": "retained-family",
-    "note": "Native-field algebraic hash of a Halo2 relation outside the Exact12 catalog."
+    "note": "Native-field algebraic hash of a native PIPA-R relation outside the Exact12 catalog; the 56-round circuit sponge is separate from the 57-round transcript sponge."
    }
   },
   {
@@ -2679,16 +2681,22 @@
   {
    "key": "privacy.state-digest-blake3",
    "consumer": "privacy-catalog",
-   "role": "Digests of privacy State invariants such as the PGC pool invariant and the public reserve asset.",
+   "role": "Privacy State digests: PGC encrypted account roots, pool invariants and the public reserve asset identity.",
    "family": "native",
    "primitive": "blake3",
    "output_bytes": 32,
-   "domain_separation": "BLAKE3 over a domain tag (iroha:privacy:pgc-pool-invariant:v1, iroha:privacy:public-reserve-asset:v1) and the canonical fields.",
+   "domain_separation": "BLAKE3 over each domain tag (iroha:privacy:pgc-account-state-root:v1, iroha:privacy:pgc-pool-invariant:v1, iroha:privacy:public-reserve-asset:v1) and its canonical fields.",
    "sites": [
     {
      "path": "crates/iroha_core_privacy/src/privacy_state.rs",
      "symbol": "PRIVACY_PGC_POOL_INVARIANT_DIGEST_DOMAIN_V1",
      "literals": ["b\"iroha:privacy:pgc-pool-invariant:v1\""],
+     "compiled": "production"
+    },
+    {
+     "path": "crates/iroha_core_privacy/src/privacy_state/pgc_account_root.rs",
+     "symbol": "pub fn derive_privacy_pgc_account_state_root_v1(",
+     "literals": ["hasher.update(PRIVACY_PGC_ACCOUNT_STATE_ROOT_DOMAIN_V1);"],
      "compiled": "production"
     }
    ],
@@ -2696,14 +2704,25 @@
     "decision": "already-blake3",
     "note": "Already BLAKE3-256 with its own domain tags; F.5 moves it onto the canonical frame when H.2 freezes it.",
     "transcript_seed_check": {
-     "binds_proof_internals": false,
-     "finding": "The PGC pool invariant digest and the public reserve key are derived and compared by the privacy State owner; the producer ledger lists no proof-engine function that hashes them, and the PGC engine binds its own account root.",
+     "binds_proof_internals": true,
+     "finding": "The account-state root and successor root are fields of the PGC statement. Its canonical statement digest enters TranscriptBindingV1 and the P-256 payment transcript. The pool invariant digest separately authenticates State provenance; a ledger-only producer census cannot prove that the account roots are unbound.",
      "sites": [
       {
-       "path": "crates/iroha_core_privacy/src/privacy_state.rs",
-       "symbol": "PRIVACY_PGC_POOL_INVARIANT_DIGEST_DOMAIN_V1"
+       "path": "crates/iroha_data_model/src/privacy/credentials.rs",
+       "symbol": "pub next_account_state_root: PrivacyRootV1,",
+       "literals": ["pub account_state_root: PrivacyRootV1,"]
+      },
+      {
+       "path": "crates/iroha_core_privacy/src/privacy_verifier.rs",
+       "symbol": "statement_digest: *envelope.statement_digest.as_bytes(),",
+       "literals": ["computed_next_root != statement.next_account_state_root"]
+      },
+      {
+       "path": "crates/iroha_core_privacy/src/privacy_engines/anonymous_pgc/payment.rs",
+       "symbol": "TranscriptV1::new(suite, &statement.transcript_binding)?"
       }
-     ]
+     ],
+     "coordination": "PGC statement framing and the P-256 payment transcript must migrate together when F.5 changes this State digest frame."
     }
    }
   },
@@ -2862,6 +2881,80 @@
     "decision": "retained-family",
     "note": "BN254 algebraic hash; the bn254_poseidon section records its parameter findings for F.5."
    }
+  },
+  {
+   "key": "pipa-r.transcript-poseidon-base",
+   "consumer": "halo2-ipa",
+   "role": "Fiat-Shamir transcript selected by native PIPA-R admission, absorbing points, injectively encoded scalars, the descriptor-bound VK and the complete typed instance frame in the proof curve base field.",
+   "family": "proof-internal",
+   "primitive": "poseidon",
+   "output_bytes": 32,
+   "domain_separation": "Pasta base-field RP57 Poseidon sponge: width 3, rate 2, x^5, 8 full and 57 partial rounds; initial state [2^64,0,0], first absorbed domain pipa-rb1. Point coordinates are base elements; Vesta scalar encoding uses one base element, Pallas uses low-128/high-127 limbs. Challenges use the canonical base-to-scalar reduction. V2 prelude absorbs the VK binding, pipainst tag, column lengths and instance-type tags.",
+   "sites": [
+    {
+     "path": "crates/iroha_plonk/src/transcript/pipa_r.rs",
+     "symbol": "pub struct BasePoseidonHash",
+     "literals": ["Self::with_domain(*b\"pipa-rb1\")", "pub fn absorb_prelude_v2", "pub fn scalar_elements"],
+     "compiled": "production"
+    },
+    {
+     "path": "crates/iroha_plonk/src/keys/keygen.rs",
+     "symbol": "pub fn pipa_r(",
+     "literals": ["transcript: TranscriptV2::KagemushaPoseidonRp57Base,", "instance_mode: InstanceModeV1::Direct,", "proof_suffix: ProofSuffixV1::FoldedGenerator,"],
+     "compiled": "production"
+    },
+    {
+     "path": "crates/kaigi_zk/src/native.rs",
+     "symbol": "KeygenConfigV2::pipa_r(vec![InstanceType::Field])",
+     "compiled": "production"
+    },
+    {
+     "path": "crates/iroha_core_zk/src/confidential_native/backend.rs",
+     "symbol": "KeygenConfigV2::pipa_r(vec![InstanceType::Field])",
+     "compiled": "production"
+    },
+    {
+     "path": "crates/sorafs_manifest/src/pop_credentials/zk.rs",
+     "symbol": "KeygenConfigV2::pipa_r(vec![InstanceType::Field])",
+     "compiled": "production"
+    },
+    {
+     "path": "crates/iroha_plonk/src/transcript/mod.rs",
+     "symbol": "pub const INSTANCE_FRAME_TAG: [u8; 8] = *b\"pipainst\";",
+     "compiled": "production"
+    }
+   ],
+   "canonical_native": {
+    "decision": "retained-family",
+    "note": "Proof-internal field transcript; listing its current parameters does not establish a security level or authorize a digest replacement."
+   }
+  },
+  {
+   "key": "pipa-r.vk-binding-blake2b",
+   "consumer": "halo2-ipa",
+   "role": "Descriptor-bound verifying-key representation absorbed by the explicit PIPA-R transcript; distinct from a BLAKE2b Fiat-Shamir transcript.",
+   "family": "proof-internal",
+   "primitive": "blake2b",
+   "output_bytes": 64,
+   "domain_separation": "BLAKE2b-512 personalized Iroha-PlonkVK-v2 over the descriptor digest then canonical VK bytes, reduced into the proof curve base field for KagemushaPoseidonRp57Base. Retained explicit descriptor V1 uses Iroha-PlonkVK-v1 and scalar profiles reduce to the scalar field.",
+   "sites": [
+    {
+     "path": "crates/iroha_plonk/src/transcript/pipa_r.rs",
+     "symbol": "pub fn derive(",
+     "literals": ["b\"Iroha-PlonkVK-v2\"", "blake2b_personal::<64>(persona, &[digest, vk])", "Self::Base(C::Base::from_uniform_bytes(&wide))"],
+     "compiled": "production"
+    },
+    {
+     "path": "crates/iroha_plonk/src/transcript/pipa_r.rs",
+     "symbol": "pub fn derive_cancellable(",
+     "literals": ["Blake2bPersonal::<64>::new(persona)", "hasher.update(digest);"],
+     "compiled": "production"
+    }
+   ],
+   "canonical_native": {
+    "decision": "retained-family",
+    "note": "Descriptor/VK binding consumed by the field transcript; replacing it changes proof semantics and requires joint profile migration."
+   }
   }
  ],
  "consumers": {
@@ -2928,12 +3021,12 @@
    }
   },
   "kaigi": {
-   "description": "Kaigi authorization and usage: data model, Halo2 relations, Core adapter, SDK wire fixtures.",
+   "description": "Kaigi authorization and usage: data model, native PIPA-R relations, Core adapter and SDK wire fixtures.",
    "uses": {
     "blake2b": {
-     "class": "role",
-     "note": "Halo2 transcript of Kaigi proofs and the note that scalars do not use the ledger hash marker.",
-     "roles": ["halo2.transcript-blake2b"]
+     "class": "ledger-identity",
+     "roles": ["ledger.identity-hash"],
+     "note": "Current matches are the scalar helper comment distinguishing field bytes from ledger digests and operator-auth tests using ledger hashes. The Kaigi proof entry point delegates to the inventoried native PIPA-R transcript."
     },
     "digest384": {
      "class": "role",
@@ -3145,12 +3238,12 @@
    }
   },
   "halo2-ipa": {
-   "description": "Halo2 and native PIPA proof systems over Pasta, IPA helpers, generic Halo2 verification and the Pasta gadgets of iroha_core_zk.",
+   "description": "Native PLONK/PIPA-R systems and Pasta gadgets, retained explicit transcript profiles, standalone IPA helpers and generic native verification.",
    "uses": {
     "blake2b": {
      "class": "role",
-     "note": "Transcripts and hash-to-curve in Rust and Swift.",
-     "roles": ["halo2.transcript-blake2b"]
+     "note": "Retained scalar-field transcript and descriptor/VK bindings; PIPA-R uses the separate base-field Poseidon Fiat-Shamir transcript.",
+     "roles": ["halo2.transcript-blake2b", "pipa-r.vk-binding-blake2b"]
     },
     "digest384": {
      "class": "role",
@@ -3174,7 +3267,7 @@
     "poseidon": {
      "class": "role",
      "note": "Pasta Poseidon gadgets, transcripts and circuits in the 57-round parameterization.",
-     "roles": ["halo2.pasta-poseidon"]
+     "roles": ["halo2.pasta-poseidon", "pipa-r.transcript-poseidon-base"]
     },
     "poseidon2": {
      "class": "label-only",
@@ -3248,10 +3341,6 @@
   "bn254-poseidon": {
    "description": "Canonical BN254 Poseidon owner and its accelerator and SDK bridges.",
    "uses": {
-    "blake2b": {
-     "class": "test-or-tooling",
-     "note": "Only tests, fixtures, benches or tooling of this consumer name it."
-    },
     "poseidon": {
      "class": "role",
      "note": "BN254 owner and bridges, and the Pasta candidate of the same crate.",
@@ -3952,16 +4041,12 @@
    }
   },
   "kagemusha": {
-   "description": "KAGEMUSHA offline monetary-authority circuits and helpers inside the proof and primitive-owner crates. The product is outside the ZK delivery plan; its files are listed because they share the Halo2, Pasta Poseidon and BN254 owners that F.5 changes.",
+   "description": "KAGEMUSHA offline monetary-authority helpers inside the proof-owner crates, outside this delivery plan. Current owners share native Pasta/PLONK arithmetic and digests; this inventory does not qualify the separate product policy.",
    "uses": {
     "blake2b": {
      "class": "proof-internal",
-     "note": "Halo2 BLAKE2b transcript readers and writers of the recursion circuits.",
-     "roles": ["halo2.transcript-blake2b"]
-    },
-    "hkdf": {
-     "class": "kdf-or-mac",
-     "note": "X25519, HKDF-SHA256 and XChaCha20-Poly1305 envelope of the wallet."
+     "note": "Native recursion/VK binding and explicit transcript-profile tests; product entry points are not inferred from primitive-name census.",
+     "roles": ["halo2.transcript-blake2b", "pipa-r.vk-binding-blake2b"]
     },
     "iroha-hash": {
      "class": "ledger-identity",
@@ -3970,16 +4055,12 @@
     },
     "poseidon": {
      "class": "in-circuit",
-     "note": "Paired field-native Poseidon commitments and the Poseidon transcript of the recursion, in the 57-round Axiom parameterization; one module imports the BN254 helper owner.",
-     "roles": ["halo2.pasta-poseidon", "bn254-poseidon.native-helpers"]
+     "note": "Paired field-native Poseidon commitments, native circuit gadgets and base-field recursion transcripts using pinned RP57 tables.",
+     "roles": ["halo2.pasta-poseidon", "bn254-poseidon.native-helpers", "pipa-r.transcript-poseidon-base"]
     },
     "sha2-256": {
      "class": "in-circuit",
      "note": "Pasta SHA-256 gadget of the attestation relations and SHA-256 statement digests of the sender wire."
-    },
-    "sha2-512": {
-     "class": "standard-internal",
-     "note": "SHA-512 used by the mint finality module for signature hashing."
     }
    }
   },
@@ -4640,7 +4721,6 @@
    "crates/iroha_config/tests/fastpq_queue_overrides.rs": ["poseidon"],
    "crates/iroha_config/tests/zk_validity_env_independence.rs": ["pedersen", "poseidon"],
    "crates/iroha_core/benches/crypto_hotpaths.rs": ["iroha-hash", "poseidon"],
-   "crates/iroha_core/benches/zk_poseidon.rs": ["blake2b", "poseidon"],
    "crates/iroha_core/src/bin/fastpq_fixture_capture.rs": ["iroha-hash"],
    "crates/iroha_core/src/bin/privacy_exact12_action_driver.rs": ["iroha-hash", "sha2-256"],
    "crates/iroha_core/src/block/axt_anchored_spend_admission_tests.rs": ["iroha-hash"],
@@ -4683,7 +4763,7 @@
    "crates/iroha_core/src/pipeline/zk_lane/snapshot_custody_tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/privacy.rs": ["iroha-hash"],
    "crates/iroha_core/src/privacy_release_evidence.rs": ["iroha-hash", "sha2-256"],
-   "crates/iroha_core/src/privacy_release_evidence/kaigi.rs": ["blake2b", "iroha-hash"],
+   "crates/iroha_core/src/privacy_release_evidence/kaigi.rs": ["iroha-hash"],
    "crates/iroha_core/src/privacy_release_evidence/network_actions.rs": ["sha2-256"],
    "crates/iroha_core/src/privacy_release_evidence/tests.rs": ["digest384", "keccak", "poseidon", "sha2-256"],
    "crates/iroha_core/src/privacy_release_evidence/vega.rs": ["sha2-256"],
@@ -4698,11 +4778,11 @@
    "crates/iroha_core/src/smartcontracts/isi/asset/privacy_economic_invariant_tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/smartcontracts/isi/asset/privacy_public_reserve_tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/smartcontracts/isi/escrow.rs": ["iroha-hash", "poseidon"],
-   "crates/iroha_core/src/smartcontracts/isi/identifier.rs": ["iroha-hash", "poseidon"],
+   "crates/iroha_core/src/smartcontracts/isi/identifier.rs": ["hkdf", "iroha-hash", "poseidon", "sha3"],
    "crates/iroha_core/src/smartcontracts/isi/kaigi.rs": ["iroha-hash"],
    "crates/iroha_core/src/smartcontracts/isi/kaigi/privacy.rs": ["iroha-hash", "poseidon"],
    "crates/iroha_core/src/smartcontracts/isi/kaigi/privacy/authorization_v1.rs": ["iroha-hash"],
-   "crates/iroha_core/src/smartcontracts/isi/kaigi/privacy/proof_fixture_v1.rs": ["blake2b", "iroha-hash"],
+   "crates/iroha_core/src/smartcontracts/isi/kaigi/privacy/proof_fixture_v1.rs": ["iroha-hash"],
    "crates/iroha_core/src/smartcontracts/isi/mod.rs": ["iroha-hash", "pedersen", "poseidon"],
    "crates/iroha_core/src/smartcontracts/isi/privacy.rs": ["iroha-hash", "sha2-256"],
    "crates/iroha_core/src/smartcontracts/isi/privacy/governance_authorization.rs": ["iroha-hash"],
@@ -4719,12 +4799,15 @@
    "crates/iroha_core/src/smartcontracts/isi/world_validation_fee_tests.rs": ["iroha-hash", "poseidon"],
    "crates/iroha_core/src/smartcontracts/ivm/cache.rs": ["iroha-hash"],
    "crates/iroha_core/src/smartcontracts/ivm/host.rs": ["blake2b", "iroha-hash", "keccak", "poseidon", "sha2-256", "sm3"],
+   "crates/iroha_core/src/smartcontracts/ivm/host/contract_calls.rs": ["iroha-hash"],
+   "crates/iroha_core/src/smartcontracts/ivm/host/contract_event.rs": ["iroha-hash"],
    "crates/iroha_core/src/smartcontracts/ivm/host/core_codec_and_contract_tests.rs": ["iroha-hash"],
+   "crates/iroha_core/src/smartcontracts/ivm/host/native_event_tests.rs": ["iroha-hash"],
+   "crates/iroha_core/src/smartcontracts/ivm/host/native_events.rs": ["iroha-hash"],
    "crates/iroha_core/src/smartcontracts/ivm/host/nested_contract_state_and_rollback_tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/smartcontracts/ivm/host/pointer_abi_and_sm_tests.rs": ["sm3"],
    "crates/iroha_core/src/smartcontracts/ivm/host/tlv_transport.rs": ["iroha-hash"],
    "crates/iroha_core/src/smartcontracts/ivm/host/zk_verification_tests.rs": ["poseidon"],
-   "crates/iroha_core/src/smartcontracts/ivm/return_value.rs": ["iroha-hash"],
    "crates/iroha_core/src/soracloud_runtime.rs": ["iroha-hash"],
    "crates/iroha_core/src/state.rs": ["blake2b", "iroha-hash", "lthash", "pedersen", "poseidon", "sha2-256"],
    "crates/iroha_core/src/state/authority_registry.rs": ["lthash"],
@@ -4745,8 +4828,10 @@
    "crates/iroha_core/src/state/authority_registry/complete/transaction_membership.rs": ["iroha-hash"],
    "crates/iroha_core/src/state/authority_registry/complete/transaction_membership_tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/state/authority_registry/crypto_policy.rs": ["blake2b", "sm3"],
+   "crates/iroha_core/src/state/authority_registry/grouped_ownership/asset_definitions.rs": ["iroha-hash"],
    "crates/iroha_core/src/state/authority_registry/grouped_ownership/asset_definitions/test_support.rs": ["iroha-hash"],
    "crates/iroha_core/src/state/authority_registry/grouped_ownership/asset_definitions/work_tests.rs": ["iroha-hash", "pedersen", "poseidon"],
+   "crates/iroha_core/src/state/authority_registry/grouped_ownership/assets.rs": ["iroha-hash"],
    "crates/iroha_core/src/state/authority_registry/grouped_ownership/confidential_policies/tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/state/authority_registry/grouped_ownership/contract_subjects/tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/state/authority_registry/grouped_ownership/escrows/test_support.rs": ["iroha-hash"],
@@ -4758,6 +4843,7 @@
    "crates/iroha_core/src/state/authority_registry/leaf/frame.rs": ["iroha-hash"],
    "crates/iroha_core/src/state/authority_registry/leaf/literal_identity_tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/state/authority_registry/leaf/paired.rs": ["iroha-hash"],
+   "crates/iroha_core/src/state/authority_registry/leaf/paired/retained_semantic.rs": ["iroha-hash"],
    "crates/iroha_core/src/state/authority_registry/leaf/paired/staging/tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/state/authority_registry/leaf/paired/typed_tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/state/authority_registry/leaf/selection.rs": ["iroha-hash"],
@@ -4814,15 +4900,13 @@
    "crates/iroha_core/tests/fastpq_transfer_batch.rs": ["iroha-hash", "poseidon"],
    "crates/iroha_core/tests/gov_zk_ballot.rs": ["blake2b"],
    "crates/iroha_core/tests/ivm_corehost_axt.rs": ["iroha-hash"],
-   "crates/iroha_core/tests/ivm_corehost_halo2_enabled_vendor_ok.rs": ["blake2b", "iroha-hash", "sha2-256"],
    "crates/iroha_core/tests/ivm_corehost_zk_gate.rs": ["iroha-hash"],
    "crates/iroha_core/tests/ivm_host_mapping.rs": ["iroha-hash", "poseidon"],
-   "crates/iroha_core/tests/kaigi_privacy.rs": ["blake2b", "iroha-hash"],
+   "crates/iroha_core/tests/kaigi_privacy.rs": ["iroha-hash"],
    "crates/iroha_core/tests/zk_ledger_scaffold.rs": ["iroha-hash", "pedersen", "poseidon"],
    "crates/iroha_core/tests/zk_proof_retention.rs": ["iroha-hash"],
    "crates/iroha_core/tests/zk_roots_get_cap.rs": ["iroha-hash", "pedersen", "poseidon"],
    "crates/iroha_core/tests/zk_stark.rs": ["blake2b", "digest384", "iroha-hash", "poseidon", "poseidon2"],
-   "crates/iroha_core/tests/zk_testkit.rs": ["blake2b", "iroha-hash"],
    "crates/iroha_core/tests/zk_verify_vendor_e2e.rs": ["blake2b", "iroha-hash"],
    "crates/iroha_core/tests/zk_vk_circuit_index.rs": ["iroha-hash"],
    "crates/iroha_core/tests/zk_vote_get_tally.rs": ["iroha-hash"],
@@ -5018,323 +5102,80 @@
    "crates/iroha_core_privacy/tests/state_commitment_candidates_measurement.rs": ["blake2b", "blake3", "digest384", "poseidon", "poseidon2", "rescue", "sha2-256"],
    "crates/iroha_core_timed_ovn/src/tle.rs": ["pedersen", "sha2-256"],
    "crates/iroha_core_zk/examples/confidential_redemption.rs": ["iroha-hash"],
-   "crates/iroha_core_zk/src/app_attest_der_gadget.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/bin/kagemusha_wallet_artifacts.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/bin/kagemusha_wallet_artifacts/tests.rs": ["sha2-256"],
    "crates/iroha_core_zk/src/confidential/tests.rs": ["iroha-hash"],
+   "crates/iroha_core_zk/src/confidential_hash_tests.rs": ["poseidon"],
+   "crates/iroha_core_zk/src/confidential_native/captured.rs": ["poseidon"],
+   "crates/iroha_core_zk/src/confidential_native/relation.rs": ["poseidon"],
    "crates/iroha_core_zk/src/confidential_v2.rs": ["blake3", "iroha-hash", "poseidon"],
-   "crates/iroha_core_zk/src/confidential_v2_builder_tests.rs": ["poseidon"],
    "crates/iroha_core_zk/src/confidential_v2_tests.rs": ["iroha-hash", "poseidon"],
-   "crates/iroha_core_zk/src/g3_proof_scaling_measurement_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/halo2_backend.rs": ["blake2b", "sha2-256"],
-   "crates/iroha_core_zk/src/halo2_backend_01_tests.rs": ["blake2b"],
-   "crates/iroha_core_zk/src/halo2_backend_02_tests.rs": ["blake2b", "poseidon"],
-   "crates/iroha_core_zk/src/halo2_backend_03_tests.rs": ["blake2b", "iroha-hash", "poseidon"],
    "crates/iroha_core_zk/src/ivm_proof_identity/tests.rs": ["iroha-hash"],
-   "crates/iroha_core_zk/src/kagemusha_p256_curve_gadget.rs": ["iroha-hash", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_sender_wire.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_crypto.rs": ["hkdf", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_poseidon.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/accumulation.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/app_attest_assertion_cbor.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/app_attest_assertion_fold.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/app_attest_state_guard_stage.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/apple_compact_credential_id.rs": ["iroha-hash", "poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/apple_governed_policy_opening.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/artifact_resource_preflight.rs": ["blake2b", "poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/artifacts.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/artifacts/stored_capture.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/artifacts/stored_capture_tests.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/artifacts/stored_key.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/artifacts/stored_key_tests.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/bootstrap_statement_binding.rs": ["iroha-hash", "poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/bootstrap_statement_binding_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/canonical_field_stream.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/canonical_field_stream_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/canonical_preimage.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/canonical_preimage_bounded_frame_tests.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/canonical_preimage_prefix_crc_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/canonical_preimage_stream.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/canonical_preimage_stream_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/canonical_selected_stream.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/carrier_binding.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/carrier_rlc.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/carrier_rlc/streaming.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/composite.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/deferred_claim_fold_transcript.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/deferred_claim_fold_transcript_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/deferred_parent.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/deferred_parent_proof_bytes.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/deferred_parent_proof_bytes_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/deferred_parent_protocol_identity_tests.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/deferred_parent_rotation_inventory_tests.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/generation.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/generation_lookup_recovery_tests.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/generation_mint_transport_tests.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/guard_bundle.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/guard_verifier.rs": ["iroha-hash", "poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/hardware_transactions.rs": ["iroha-hash", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/keymint_one_use_head_stage.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/mint_authority.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/mint_authority_generation.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/mint_authority_generation_tests.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/mint_authorization.rs": ["iroha-hash", "poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/mint_authorization_canonical_tests.rs": ["iroha-hash", "poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/mint_finality.rs": ["iroha-hash", "poseidon", "sha2-256", "sha2-512"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/mint_hash_claim_fold.rs": ["blake2b", "poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/mint_hash_claim_fold/bounded_claim_roots_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/mint_hash_claim_fold/rlc_streaming_proof_tests.rs": ["blake2b", "poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/mint_hash_claim_fold/rlc_streaming_tests.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/mint_hash_claim_global_inventory.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/mint_hash_claim_global_inventory_tests.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/mint_hash_claim_inventory_proof.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/mint_hash_claim_inventory_proof_tests.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/mint_hash_shard.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/mint_helper.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/mint_helper/bootstrap_gates_tests.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/mint_helper/epoch_authorization.rs": ["iroha-hash", "poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/mint_transport_decider.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/mod.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/native_backend.rs": ["iroha-hash", "poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_active_mint_state_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_active_receive_state_tests.rs": ["iroha-hash", "poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_active_send_state_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_active_send_terminal_tests.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_active_state_bootstrap.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_active_state_qualification_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_app_guard_binding.rs": ["iroha-hash", "poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_apple_original.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_apple_original_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_approval_proof_binding.rs": ["iroha-hash", "poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_cash_candidate_verifier.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_cash_commit_originals.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_cash_commit_wrapper.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_cash_guard_verifier.rs": ["iroha-hash", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_cash_opening.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_cash_terminal_guard_verifier.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_cash_terminal_guard_verifier_tests.rs": ["iroha-hash", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_cash_terminal_math.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_cash_terminal_verifier.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_cash_terminal_verifier_tests.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_credential_union.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_credential_union_stream_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_finalized_mint_generation.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_guard_circuit.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_guard_composition.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_guard_composition_tests.rs": ["iroha-hash", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_guard_data_binding.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_guard_generation.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_guard_recursive_consumer.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_guard_verifier.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_incoming_candidate_verifier.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_incoming_commit_admission.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_incoming_guard_verifier.rs": ["iroha-hash", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_incoming_preparation_binding.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_incoming_preparation_binding_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_incoming_reservation_admission.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_incoming_source_originals.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_incoming_terminal_binding.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_incoming_terminal_binding_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_incoming_terminal_guard_verifier.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_integrity_binding.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_integrity_binding/tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_integrity_interval_tests.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_integrity_stream.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_integrity_stream_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_integrity_union.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_issuer_config.rs": ["blake2b", "poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_issuer_equation.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_lineage_bundle_admission.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_lineage_commit_admission.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_lineage_proof_admission.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_lineage_received_output_admission.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_lineage_state_original.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_mint_circuit.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_mint_full_canonical_consumer.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_mint_full_canonical_consumer_tests.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_mint_genuine_qualification_tests.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_mint_public.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_mint_public_artifact_tests.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_mint_relation.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_mint_relation_tests.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_mint_request_budget.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_mint_verifier.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_parent_canonical_stream.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_platform_equation.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_platform_union.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_poseidon_schedule.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_poseidon_schedule_tests.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_prepared_intent.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_proof_transcript.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_proof_transcript_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_receiver_request_opening.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_receiver_request_opening_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_recursive_key_planner_tests.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_redeem_output_opening.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_redeem_output_opening_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_send_output_opening.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_send_output_opening_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_signed_message_equation_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_state_artifact_tests.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_state_mint_active_bindings.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_state_mint_active_bindings_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_state_mint_consumer.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_state_prepared_binding.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_state_prepared_binding_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_state_receive_consumer.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_state_reserved.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_state_subject_binding.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_terminal_subject_binding.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_zero_bootstrap_fixture.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_zero_bootstrap_qualification_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/production_ordinary_auxiliaries.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/production_ordinary_bootstrap_inputs.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/production_ordinary_cash_terminal.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/production_ordinary_guard.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/production_ordinary_incoming_auxiliaries.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/production_ordinary_incoming_state.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/production_ordinary_mint.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/production_ordinary_outgoing_auxiliaries.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/production_ordinary_outgoing_state.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/production_ordinary_padding.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/production_ordinary_preparation_reservation.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/production_ordinary_state.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/production_terminal.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/provider_policy_root.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/real_handoff_qualification_tests.rs": ["iroha-hash", "poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/real_payment_corridor.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/real_payment_corridor/state_milestone.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/real_payment_corridor/state_milestone/handoff_release.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/real_payment_corridor/state_milestone/peer_stage.rs": ["iroha-hash"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/real_payment_corridor/state_milestone/recovery_checkpoint/tests.rs": ["iroha-hash"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/real_payment_corridor/state_milestone/terminal.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/real_payment_corridor/state_milestone/terminal_semantic_fixture.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/real_payment_corridor/state_milestone/wrapper.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/relation.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/state_checkpoint.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/state_relation.rs": ["iroha-hash", "poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/terminal_authorization.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/terminal_body_commitment.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/terminal_credential_validity_tests.rs": ["iroha-hash", "poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/terminal_durable_commitments.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/terminal_prepared_send_sha_plan_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/terminal_reciprocal_audit_tests.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/terminal_semantic_pipeline.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/terminal_semantic_pipeline_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/terminal_sha_inventory.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/terminal_sha_inventory_tests.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/testnet_mint_journal.rs": ["iroha-hash"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/testnet_observation.rs": ["iroha-hash"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/tests.rs": ["iroha-hash", "poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/transition_statement_flat.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/transport_decider.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_recursion/typed_sha_consumer.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/authenticated_core_device_commit_tests.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/authenticated_core_redemption_finality.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/authenticated_ordinary_bootstrap_owner.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/authenticated_ordinary_cash_owner.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/authenticated_ordinary_current_publication.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/authenticated_ordinary_logical_journal.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/bootstrap_checkpoint.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/candidate_lifecycle.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/commitments.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/coordinator_operation_store_tests.rs": ["iroha-hash", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/disk_history_store_tests.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/handoff_verification.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/hardware_evidence_bootstrap.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/history_mint_attempt_tests.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/mint_fold_private_inputs.rs": ["iroha-hash"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/mint_inbox.rs": ["iroha-hash", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/mint_inbox_operations.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/mod.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/one_use_key_ratchet.rs": ["iroha-hash", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_app_identity.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_app_identity/http_proof.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_app_identity/issuer_preparation.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_app_identity/issuer_preparation_tests.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_app_identity/journal.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_app_identity/possession_journal.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_app_identity/preparation_reservation.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_app_identity/preparation_reservation/current_control.rs": ["iroha-hash", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_app_identity/preparation_reservation/finalized_mint_source.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_app_identity/preparation_reservation/integrity_refresh.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_app_identity/preparation_reservation/lineage_cas.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_app_identity/preparation_reservation/lineage_cas/account_signing.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_app_identity/preparation_reservation/lineage_cas/effect_capture.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_app_identity/preparation_reservation/lineage_cas/incoming.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_app_identity/preparation_reservation/lineage_cas/received_assertion.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_app_identity/retail_enrollment_journal.rs": ["iroha-hash", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_bootstrap_platform_attempt.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_bootstrap_platform_attempt_tests.rs": ["iroha-hash", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_cash_lineage_transport.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_cash_owner_tests.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_cash_platform_preparation.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_cash_platform_preparation_tests.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_cash_state_commit.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_cash_terminal_owner.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_incoming_capacity.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_incoming_native_driver.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_incoming_owner.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_incoming_preparation.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_incoming_preview.rs": ["iroha-hash", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_incoming_preview_tests.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_incoming_reservation_owner.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_incoming_state_commit.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_incoming_terminal.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_logical_historical_custody.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_mint_capture.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_mint_funding.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_native_clock.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_native_clock/selection_original.rs": ["iroha-hash"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_native_clock/service_finalized_mint_source.rs": ["iroha-hash", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_native_clock/service_incoming_reservation_assertion.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_native_clock/service_received_commit_assertion.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_native_clock/service_received_source.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_native_clock_tests.rs": ["iroha-hash"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_outgoing_native_driver.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_outgoing_proof_operands.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_outgoing_reservation_owner.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_received_credit_opening.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_received_source_inbox.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_receiver_request_factory.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_receiver_request_factory_tests.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/ordinary_send_credit_factory.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/outgoing_operation_index.rs": ["iroha-hash", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/private_journal.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/private_journal_single_record_tests.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/receive_fold.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/receive_fold_operation.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/recovery_journal_bundle_tests.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/recovery_metadata.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/redemption_release.rs": ["iroha-hash", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/response_evidence_archive.rs": ["iroha-hash", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/sparse_merkle.rs": ["poseidon"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/sparse_merkle_store.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/tests.rs": ["iroha-hash", "sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_v1_test_fixtures.rs": ["iroha-hash"],
-   "crates/iroha_core_zk/src/kagemusha_wallet_advance_v1.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/platform.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/lib.rs": ["blake2b", "digest384", "iroha-hash", "pedersen", "poseidon", "poseidon2", "sha2-256", "sha2-512"],
-   "crates/iroha_core_zk/src/pasta_cycle_loader.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_core_zk/src/pasta_dense_msm_streaming_tests.rs": ["blake2b"],
-   "crates/iroha_core_zk/src/pasta_native_poseidon.rs": ["blake2b", "poseidon"],
-   "crates/iroha_core_zk/src/pasta_native_poseidon_monotone_tests.rs": ["blake2b", "poseidon"],
-   "crates/iroha_core_zk/src/pasta_native_poseidon_transcript_tests.rs": ["blake2b", "poseidon"],
-   "crates/iroha_core_zk/src/pasta_sha256.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/pasta_sha256_bounded_tests.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/pasta_sha256_table8.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/pasta_sha256_table8/table8.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/pasta_sha256_table8/table8/compression.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/pasta_sha256_table8/table8/compression/compression_gates.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/pasta_sha256_table8/table8/compression/compression_util.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/pasta_sha256_table8/table8/compression/subregion_digest.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/pasta_sha256_table8/table8/compression/subregion_initial.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/pasta_sha256_table8/table8/compression/subregion_main.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/pasta_sha256_table8/table8/message_schedule.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/pasta_sha256_table8/table8/message_schedule/schedule_util.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/pasta_sha256_table8/table8/message_schedule/subregion1.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/pasta_sha256_table8/table8/message_schedule/subregion2.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/pasta_sha256_table8/table8/message_schedule/subregion3.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/pasta_sha256_table8/table8/spread_table.rs": ["sha2-256"],
-   "crates/iroha_core_zk/src/prover_golden_tests.rs": ["poseidon", "sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_advance_v1.rs": ["poseidon", "sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/advance_tests.rs": ["poseidon"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/platform.rs": ["poseidon", "sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1.rs": ["poseidon", "sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/compiler.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/compiler/full_catalog.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/compiler/full_catalog/acceptance.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/compiler/full_catalog/acquisition_tests.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/compiler/full_catalog/diagnostic.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/compiler/full_catalog/reuse.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/compiler/full_catalog/transport.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/compiler/pack.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/compiler/pack/transport.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/compiler/reuse.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/compiler/tests.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/directory.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/finality.rs": ["iroha-hash"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/sigma_tests.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/stream_tests.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/tests.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/tests.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/credential.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/issuer_worker.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/issuer_worker_configuration.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/issuer_worker_configuration_tests.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/issuer_worker_protocol.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/issuer_worker_protocol_tests.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/issuer_worker_tests.rs": ["iroha-hash", "sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/owner.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/tests.rs": ["iroha-hash", "sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/tests/native_exchange.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/tests/native_exchange/load.rs": ["iroha-hash", "sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/tests/native_exchange/network_settlement.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/tests/native_exchange/proof_negative.rs": ["poseidon"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/tests/native_exchange/settlement.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/tests/native_exchange/setup.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_intake_v1/tests.rs": ["iroha-hash"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_preparation_v1/archive/evidence.rs": ["poseidon"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_preparation_v1/archive/tests.rs": ["poseidon"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_preparation_v1/incoming_statement.rs": ["poseidon"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_preparation_v1/load/native_finality_tests.rs": ["iroha-hash"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_preparation_v1/load/native_finality_tests/selected_epoch.rs": ["iroha-hash"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_preparation_v1/monetary/incoming_original.rs": ["poseidon"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_preparation_v1/tests.rs": ["iroha-hash"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_proofs_v1.rs": ["poseidon"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_proofs_v1/tests.rs": ["iroha-hash"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_registration_v1.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_registration_v1/builder.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_registration_v1/native_tests.rs": ["iroha-hash"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_registration_v1/tests.rs": ["iroha-hash", "sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/fee_claims/tests.rs": ["iroha-hash"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/lifecycle/tests.rs": ["iroha-hash"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/activation/confirmation.rs": ["iroha-hash"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/activation/confirmation/tests.rs": ["iroha-hash"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/epochs/tests/later_epochs.rs": ["iroha-hash"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/ledger/tests.rs": ["iroha-hash"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/ledger_producer.rs": ["iroha-hash"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/ledger_producer/unload_session.rs": ["iroha-hash"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_worker.rs": ["sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_worker/incoming.rs": ["poseidon"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_worker/incoming/soft_omega_differential.rs": ["blake2b", "poseidon", "sha2-256"],
+   "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_worker/incoming_inputs.rs": ["poseidon"],
+   "crates/iroha_core_zk/src/lib.rs": ["blake2b", "digest384", "iroha-hash", "poseidon", "poseidon2", "sha2-256", "sha2-512"],
+   "crates/iroha_core_zk/src/native_pipa_r_tests.rs": ["iroha-hash"],
    "crates/iroha_core_zk/src/ram_lfe_poseidon.rs": ["poseidon"],
    "crates/iroha_core_zk/src/ram_lfe_poseidon_tests.rs": ["poseidon"],
    "crates/iroha_core_zk/src/ram_lfe_word.rs": ["blake2b", "blake3"],
@@ -5344,8 +5185,6 @@
    "crates/iroha_core_zk/src/stark/frame_identity_tests.rs": ["digest384", "poseidon"],
    "crates/iroha_core_zk/src/stark/tests.rs": ["digest384", "poseidon", "poseidon2", "sha2-256"],
    "crates/iroha_core_zk/src/strict_verifying_key_preparation_tests.rs": ["iroha-hash", "poseidon"],
-   "crates/iroha_core_zk/src/verification.rs": ["poseidon"],
-   "crates/iroha_core_zk/tests/kagemusha_recovery_storage.rs": ["iroha-hash"],
    "crates/iroha_crypto/benches/sm_perf.rs": ["sha2-256", "sm3"],
    "crates/iroha_crypto/examples/compute_shielded_golden.rs": ["iroha-hash"],
    "crates/iroha_crypto/src/bin/sm_perf_check.rs": ["sha2-256", "sm3"],
@@ -5379,12 +5218,12 @@
    "crates/iroha_crypto/src/hash_native_candidate_tests.rs": ["blake2b", "blake3", "digest384", "iroha-hash", "poseidon", "sha3", "shake"],
    "crates/iroha_crypto/src/hybrid.rs": ["hkdf", "sha3"],
    "crates/iroha_crypto/src/hybrid/fixed_owner_tests.rs": ["hkdf", "sha3"],
-   "crates/iroha_crypto/src/kagemusha.rs": ["hkdf", "sha2-256"],
    "crates/iroha_crypto/src/kex/mod.rs": ["sha2-256"],
    "crates/iroha_crypto/src/kex/x25519.rs": ["hkdf", "sha2-256"],
    "crates/iroha_crypto/src/lib.rs": ["blake2b", "hkdf", "iroha-hash", "sha2-256", "sha2-512", "shake", "sm3"],
    "crates/iroha_crypto/src/lib_tests.rs": ["iroha-hash"],
    "crates/iroha_crypto/src/merkle.rs": ["blake2b", "iroha-hash", "sha2-256"],
+   "crates/iroha_crypto/src/merkle/application_allocation.rs": ["iroha-hash"],
    "crates/iroha_crypto/src/merkle/borrowed_serialization_tests.rs": ["iroha-hash", "sha2-256"],
    "crates/iroha_crypto/src/merkle/checked_json_cleanup_tests.rs": ["iroha-hash"],
    "crates/iroha_crypto/src/merkle/proof_siblings.rs": ["iroha-hash"],
@@ -5417,6 +5256,7 @@
    "crates/iroha_crypto/src/ram_lfe/class_tests.rs": ["blake3", "iroha-hash"],
    "crates/iroha_crypto/src/ram_lfe/initialization.rs": ["blake3", "iroha-hash"],
    "crates/iroha_crypto/src/ram_lfe/initialization_tests.rs": ["blake2b", "blake3", "iroha-hash"],
+   "crates/iroha_crypto/src/ram_lfe/normal_form_tests.rs": ["iroha-hash"],
    "crates/iroha_crypto/src/ram_lfe/phone_control.rs": ["blake2b", "digest384", "iroha-hash"],
    "crates/iroha_crypto/src/ram_lfe/phone_control_tests.rs": ["blake2b", "digest384", "iroha-hash", "sha2-512"],
    "crates/iroha_crypto/src/ram_lfe/policy_secret.rs": ["blake2b", "blake3", "hkdf", "sha3"],
@@ -5426,6 +5266,9 @@
    "crates/iroha_crypto/src/ram_lfe/specification_tests.rs": ["hkdf", "sha3"],
    "crates/iroha_crypto/src/rng.rs": ["sha2-256"],
    "crates/iroha_crypto/src/signature/admission.rs": ["sha2-256", "sha2-512"],
+   "crates/iroha_crypto/src/signature/bls/consensus.rs": ["sha2-256"],
+   "crates/iroha_crypto/src/signature/bls/consensus/tests.rs": ["sha2-256"],
+   "crates/iroha_crypto/src/signature/bls/consensus/tests/python_reference.rs": ["sha2-256"],
    "crates/iroha_crypto/src/signature/bls/ethereum.rs": ["sha2-256"],
    "crates/iroha_crypto/src/signature/bls/implementation.rs": ["blake2b", "hkdf", "sha2-256"],
    "crates/iroha_crypto/src/signature/bls/uncached.rs": ["sha2-256"],
@@ -5559,12 +5402,10 @@
    "crates/iroha_data_model/src/soracloud/tests/provenance.rs": ["iroha-hash"],
    "crates/iroha_data_model/src/soracloud/tests/runtime_state_validation.rs": ["iroha-hash"],
    "crates/iroha_data_model/src/soranet/privacy_metrics.rs": ["blake3"],
-   "crates/iroha_data_model/src/sumeragi/epoch.rs": ["iroha-hash", "poseidon"],
    "crates/iroha_data_model/src/testing/axt.rs": ["iroha-hash", "poseidon", "poseidon2"],
    "crates/iroha_data_model/src/zk.rs": ["digest384", "iroha-hash", "poseidon", "poseidon2", "sha2-256", "sha2-512"],
    "crates/iroha_data_model/src/zk_validity_policy.rs": ["pedersen", "poseidon"],
    "crates/iroha_data_model/tests/axt_envelope_fixture.rs": ["iroha-hash"],
-   "crates/iroha_data_model/tests/axt_policy_vectors.rs": ["iroha-hash"],
    "crates/iroha_data_model/tests/join_kaigi_decode.rs": ["iroha-hash"],
    "crates/iroha_data_model/tests/kaigi_events_roundtrip.rs": ["iroha-hash"],
    "crates/iroha_data_model/tests/manual_frame_identity/protocol.rs": ["digest384", "poseidon"],
@@ -5584,7 +5425,6 @@
    "crates/iroha_fhe/tests/vectors/bgv_reference.py": ["blake3"],
    "crates/iroha_js_codec/src/verifying_key_instruction_tests.rs": ["poseidon"],
    "crates/iroha_js_host/src/kaigi_authorization_v1.rs": ["iroha-hash"],
-   "crates/iroha_js_host/src/kaigi_proof_v1.rs": ["blake2b"],
    "crates/iroha_js_host/src/lib.rs": ["blake2b", "blake3", "iroha-hash", "poseidon", "sha3"],
    "crates/iroha_kagami/src/privacy_bootstrap.rs": ["sha2-256"],
    "crates/iroha_kagami/src/privacy_bootstrap/release.rs": ["blake3", "iroha-hash", "sha2-256"],
@@ -5592,67 +5432,122 @@
    "crates/iroha_p2p/src/peer_tests.rs": ["pedersen", "poseidon"],
    "crates/iroha_p2p/tests/integration/p2p_consensus_caps.rs": ["pedersen", "poseidon"],
    "crates/iroha_pasta/src/curve/hash_to_curve.rs": ["blake2b"],
+   "crates/iroha_pasta/src/curve/mod.rs": ["poseidon"],
    "crates/iroha_pasta/src/lib.rs": ["poseidon"],
+   "crates/iroha_pasta/src/msm/batch_cap_experiment.rs": ["sha2-256"],
    "crates/iroha_pasta/src/poseidon/grain.rs": ["poseidon"],
    "crates/iroha_pasta/src/poseidon/mod.rs": ["poseidon"],
-   "crates/iroha_pasta/tests/cross_impl_encoding.rs": ["poseidon"],
    "crates/iroha_pasta/tests/params_parity.rs": ["sha2-256"],
    "crates/iroha_pasta/tests/poseidon_kat.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_plonk/build.rs": ["poseidon"],
+   "crates/iroha_plonk/src/cancellation_integration_tests.rs": ["blake2b"],
+   "crates/iroha_plonk/src/captured_goldens.rs": ["blake2b", "poseidon", "sha2-256"],
    "crates/iroha_plonk/src/cs/descriptor.rs": ["blake2b", "poseidon", "sha2-256"],
+   "crates/iroha_plonk/src/cs/descriptor_v2.rs": ["blake2b", "poseidon"],
    "crates/iroha_plonk/src/cs/permutation.rs": ["blake2b"],
+   "crates/iroha_plonk/src/keys/keygen.rs": ["blake2b", "poseidon"],
+   "crates/iroha_plonk/src/keys/keygen/rebuild.rs": ["sha2-256"],
+   "crates/iroha_plonk/src/keys/keygen/rebuild/tests.rs": ["blake2b"],
    "crates/iroha_plonk/src/keys/mod.rs": ["blake2b"],
+   "crates/iroha_plonk/src/keys/source_fingerprint.rs": ["sha2-256"],
+   "crates/iroha_plonk/src/keys/source_fingerprint/tests.rs": ["blake2b"],
    "crates/iroha_plonk/src/keys/tests.rs": ["blake2b", "poseidon"],
-   "crates/iroha_plonk/src/keys/vk.rs": ["blake2b"],
+   "crates/iroha_plonk/src/keys/vk.rs": ["blake2b", "poseidon"],
    "crates/iroha_plonk/src/lib.rs": ["blake2b", "poseidon"],
    "crates/iroha_plonk/src/pcs/ipa/accumulator.rs": ["blake2b"],
    "crates/iroha_plonk/src/pcs/ipa/mod.rs": ["pedersen", "sha2-256"],
    "crates/iroha_plonk/src/pcs/ipa/prover.rs": ["blake2b"],
    "crates/iroha_plonk/src/pcs/ipa/verifier.rs": ["blake2b", "poseidon"],
    "crates/iroha_plonk/src/pcs/multiopen/soundness_tests.rs": ["blake2b", "poseidon"],
+   "crates/iroha_plonk/src/pipa_r_tests.rs": ["blake2b", "poseidon"],
+   "crates/iroha_plonk/src/protocol/schedule.rs": ["poseidon"],
+   "crates/iroha_plonk/src/prover/cancellation_tests.rs": ["poseidon"],
+   "crates/iroha_plonk/src/prover/fixed_only_tests.rs": ["poseidon"],
+   "crates/iroha_plonk/src/prover/lookup.rs": ["blake2b"],
+   "crates/iroha_plonk/src/prover/lookup/bounded_tests.rs": ["poseidon"],
    "crates/iroha_plonk/src/prover/mod.rs": ["blake2b", "poseidon"],
+   "crates/iroha_plonk/src/prover/quotient/tile_experiment.rs": ["sha2-256"],
    "crates/iroha_plonk/src/prover/tests.rs": ["blake2b", "poseidon"],
    "crates/iroha_plonk/src/test_circuits.rs": ["blake2b", "poseidon"],
    "crates/iroha_plonk/src/transcript/blake2b.rs": ["blake2b"],
    "crates/iroha_plonk/src/transcript/kagemusha_poseidon.rs": ["poseidon"],
    "crates/iroha_plonk/src/transcript/kat_tests.rs": ["blake2b", "poseidon"],
    "crates/iroha_plonk/src/transcript/mod.rs": ["blake2b", "poseidon"],
+   "crates/iroha_plonk/src/transcript/pipa_r.rs": ["blake2b", "poseidon"],
    "crates/iroha_plonk/src/verifier.rs": ["blake2b", "poseidon"],
+   "crates/iroha_plonk/src/verifier/captured_succinct_tests.rs": ["poseidon", "sha2-256"],
    "crates/iroha_plonk/src/verifier/tests.rs": ["poseidon"],
    "crates/iroha_plonk/tests/golden_shapes.rs": ["blake2b"],
    "crates/iroha_plonk/tests/pinned_params.rs": ["sha2-256"],
+   "crates/iroha_plonk/tests/pipa_r_reference.py": ["poseidon"],
    "crates/iroha_plonk/tests/prove_verify.rs": ["blake2b", "poseidon"],
-   "crates/iroha_plonk_gadgets/src/lib.rs": ["poseidon"],
+   "crates/iroha_plonk_gadgets/src/arith.rs": ["poseidon"],
+   "crates/iroha_plonk_gadgets/src/blake2b.rs": ["blake2b"],
+   "crates/iroha_plonk_gadgets/src/blake2b/tests.rs": ["blake2b"],
+   "crates/iroha_plonk_gadgets/src/bls12_381/hash_to_field.rs": ["sha2-256"],
+   "crates/iroha_plonk_gadgets/src/bls12_381/hash_to_field/tests.rs": ["sha2-256"],
+   "crates/iroha_plonk_gadgets/src/bls12_381/pairing/miller_program_tests.rs": ["sha2-256"],
+   "crates/iroha_plonk_gadgets/src/bytes/mod.rs": ["poseidon"],
+   "crates/iroha_plonk_gadgets/src/bytes/packing.rs": ["poseidon"],
+   "crates/iroha_plonk_gadgets/src/bytes/tests.rs": ["poseidon"],
+   "crates/iroha_plonk_gadgets/src/bytes/variable.rs": ["poseidon"],
+   "crates/iroha_plonk_gadgets/src/bytes/variable_tests.rs": ["poseidon"],
+   "crates/iroha_plonk_gadgets/src/ecc/tests.rs": ["blake2b", "poseidon"],
+   "crates/iroha_plonk_gadgets/src/ff/mod.rs": ["sha2-256"],
+   "crates/iroha_plonk_gadgets/src/ff/tests.rs": ["poseidon", "sha2-256"],
+   "crates/iroha_plonk_gadgets/src/imt.rs": ["poseidon"],
+   "crates/iroha_plonk_gadgets/src/lib.rs": ["blake2b", "poseidon", "sha2-256"],
+   "crates/iroha_plonk_gadgets/src/merkle.rs": ["blake2b"],
+   "crates/iroha_plonk_gadgets/src/merkle/tests.rs": ["blake2b", "iroha-hash"],
+   "crates/iroha_plonk_gadgets/src/p256/mod.rs": ["poseidon", "sha2-256"],
+   "crates/iroha_plonk_gadgets/src/p256/native.rs": ["sha2-256"],
+   "crates/iroha_plonk_gadgets/src/p256/tests.rs": ["poseidon", "sha2-256"],
+   "crates/iroha_plonk_gadgets/src/phase.rs": ["poseidon"],
    "crates/iroha_plonk_gadgets/src/poseidon/mod.rs": ["poseidon"],
    "crates/iroha_plonk_gadgets/src/poseidon/pow5.rs": ["poseidon"],
    "crates/iroha_plonk_gadgets/src/poseidon/sponge.rs": ["poseidon"],
+   "crates/iroha_plonk_gadgets/src/pow5_fq/duplex.rs": ["poseidon"],
+   "crates/iroha_plonk_gadgets/src/pow5_fq/mod.rs": ["poseidon"],
+   "crates/iroha_plonk_gadgets/src/pow5_fq/vectors.rs": ["poseidon", "sha2-256"],
+   "crates/iroha_plonk_gadgets/src/q_leaf/mod.rs": ["sha2-256"],
+   "crates/iroha_plonk_gadgets/src/q_leaf/tests.rs": ["sha2-256"],
+   "crates/iroha_plonk_gadgets/src/range/secondary.rs": ["poseidon"],
+   "crates/iroha_plonk_gadgets/src/range/secondary/schedule_tests.rs": ["poseidon"],
+   "crates/iroha_plonk_gadgets/src/range/secondary/tests.rs": ["poseidon"],
+   "crates/iroha_plonk_gadgets/src/sha256/chip.rs": ["sha2-256"],
+   "crates/iroha_plonk_gadgets/src/sha256/mod.rs": ["poseidon", "sha2-256"],
+   "crates/iroha_plonk_gadgets/src/sha256/native.rs": ["sha2-256"],
+   "crates/iroha_plonk_gadgets/src/sha256/spec.rs": ["sha2-256"],
+   "crates/iroha_plonk_gadgets/src/sha256/tests.rs": ["sha2-256"],
    "crates/iroha_plonk_gadgets/src/statement.rs": ["poseidon", "sha2-256"],
+   "crates/iroha_plonk_gadgets/src/table.rs": ["sha2-256"],
+   "crates/iroha_plonk_gadgets/src/word_hash.rs": ["poseidon"],
    "crates/iroha_plonk_gadgets/tests/common/mod.rs": ["poseidon"],
    "crates/iroha_plonk_gadgets/tests/digest_parity.rs": ["poseidon"],
    "crates/iroha_plonk_gadgets/tests/glue_tamper.rs": ["poseidon"],
+   "crates/iroha_plonk_gadgets/tests/imt.rs": ["poseidon"],
+   "crates/iroha_plonk_gadgets/tests/m3_gates.rs": ["blake2b", "poseidon", "sha2-256"],
+   "crates/iroha_plonk_gadgets/tests/m3_gates/advice_schedule.rs": ["poseidon", "sha2-256"],
+   "crates/iroha_plonk_gadgets/tests/m3_gates/export_descriptors.rs": ["poseidon", "sha2-256"],
+   "crates/iroha_plonk_gadgets/tests/pow5_fq_lane.rs": ["poseidon"],
    "crates/iroha_plonk_gadgets/tests/pow5_tamper.rs": ["poseidon"],
    "crates/iroha_plonk_gadgets/tests/real_proofs.rs": ["blake2b", "poseidon"],
+   "crates/iroha_plonk_gadgets/tests/sha256.rs": ["blake2b", "poseidon", "sha2-256"],
+   "crates/iroha_plonk_gadgets/tests/shared_arithmetic_constants.rs": ["poseidon"],
+   "crates/iroha_plonk_gadgets/tests/shared_poseidon_rounds.rs": ["blake2b", "poseidon"],
    "crates/iroha_plonk_gadgets/tests/statement_digest.rs": ["poseidon"],
    "crates/iroha_plonk_gadgets/tests/u128_tamper.rs": ["poseidon"],
-   "crates/iroha_plonk_oracle/src/convert.rs": ["poseidon"],
-   "crates/iroha_plonk_oracle/src/export.rs": ["blake2b", "poseidon"],
-   "crates/iroha_plonk_oracle/src/export/tests.rs": ["blake2b", "poseidon"],
-   "crates/iroha_plonk_oracle/src/lib.rs": ["blake2b", "poseidon", "sha2-256"],
-   "crates/iroha_plonk_oracle/src/vendored.rs": ["blake2b"],
-   "crates/iroha_plonk_oracle/tests/native_prover_kats.rs": ["blake2b", "poseidon", "sha2-256"],
-   "crates/iroha_plonk_oracle/tests/pasta_parity/fold.rs": ["blake2b"],
-   "crates/iroha_plonk_oracle/tests/pasta_parity/main.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_plonk_oracle/tests/pasta_parity/params.rs": ["sha2-256"],
-   "crates/iroha_plonk_oracle/tests/pasta_parity/poseidon.rs": ["poseidon"],
-   "crates/iroha_plonk_oracle/tests/vendored_goldens.rs": ["blake2b", "poseidon", "sha2-256"],
-   "crates/iroha_plonk_oracle/tests/vendored_goldens/cases.rs": ["blake2b", "poseidon", "sha2-256"],
-   "crates/iroha_plonk_oracle/tests/vendored_goldens/deviation_registry.rs": ["blake2b", "poseidon"],
-   "crates/iroha_plonk_oracle/tests/vendored_goldens/export_parity.rs": ["blake2b", "sha2-256"],
-   "crates/iroha_plonk_oracle/tests/vendored_goldens/kagemusha_parity.rs": ["poseidon", "sha2-256"],
-   "crates/iroha_plonk_oracle/tests/vendored_goldens/kagemusha_vendored.rs": ["poseidon"],
-   "crates/iroha_plonk_oracle/tests/vendored_goldens/proof_parity.rs": ["sha2-256"],
-   "crates/iroha_plonk_oracle/tests/vendored_goldens/timing.rs": ["sha2-256"],
-   "crates/iroha_plonk_oracle/tests/vendored_goldens/verdict_parity.rs": ["blake2b", "poseidon", "sha2-256"],
+   "crates/iroha_plonk_gadgets/tests/word_hash.rs": ["poseidon"],
+   "crates/iroha_plonk_recursion/src/accumulation.rs": ["poseidon"],
+   "crates/iroha_plonk_recursion/src/operation.rs": ["poseidon"],
+   "crates/iroha_plonk_recursion/src/tests.rs": ["poseidon", "sha2-256"],
+   "crates/iroha_plonk_recursion/src/transcript.rs": ["poseidon"],
+   "crates/iroha_plonk_recursion/src/verifier/compact.rs": ["blake2b", "poseidon"],
+   "crates/iroha_plonk_recursion/src/verifier/mod.rs": ["poseidon"],
+   "crates/iroha_plonk_recursion/src/verifier/tests.rs": ["blake2b", "poseidon"],
+   "crates/iroha_plonk_recursion/tests/accumulation_circuit.rs": ["poseidon"],
+   "crates/iroha_plonk_recursion/tests/codec.rs": ["poseidon"],
+   "crates/iroha_plonk_recursion/tests/compact_components.rs": ["blake2b", "poseidon"],
+   "crates/iroha_plonk_recursion/tests/transcript.rs": ["poseidon"],
    "crates/iroha_telemetry/src/metrics.rs": ["blake3", "poseidon"],
    "crates/iroha_telemetry/src/privacy.rs": ["blake3"],
    "crates/iroha_torii/src/openapi/tests/privacy_release_qualification.rs": ["iroha-hash"],
@@ -5914,6 +5809,7 @@
    "crates/ivm/cuda/sha256_leaves.cu": ["sha2-256"],
    "crates/ivm/cuda/sha256_pairs_reduce.cu": ["sha2-256"],
    "crates/ivm/cuda/sha3.cu": ["keccak"],
+   "crates/ivm/docs/examples/20_commit_reveal.ko": ["blake2b"],
    "crates/ivm/examples/conditional_transfer.rs": ["iroha-hash"],
    "crates/ivm/examples/koto_dex_demo.rs": ["iroha-hash"],
    "crates/ivm/examples/koto_lending_demo.rs": ["iroha-hash"],
@@ -5961,6 +5857,7 @@
    "crates/ivm/src/host/tests/quantity_pointer_tests.rs": ["iroha-hash", "sha2-256"],
    "crates/ivm/src/iso20022.rs": ["sha2-256"],
    "crates/ivm/src/ivm.rs": ["blake2s", "iroha-hash", "pedersen", "poseidon", "poseidon2", "sha2-256"],
+   "crates/ivm/src/ivm/diagnostic.rs": ["iroha-hash"],
    "crates/ivm/src/ivm/input_cursor.rs": ["iroha-hash"],
    "crates/ivm/src/ivm/literal_table/tests.rs": ["iroha-hash"],
    "crates/ivm/src/ivm/register_logging/batch_tests.rs": ["iroha-hash"],
@@ -5971,11 +5868,13 @@
    "crates/ivm/src/ivm/trace_logging/change_counts/tests.rs": ["blake2s", "sha2-256"],
    "crates/ivm/src/ivm_cache.rs": ["sha2-256"],
    "crates/ivm/src/json.rs": ["iroha-hash"],
-   "crates/ivm/src/koto_test_return.rs": ["iroha-hash"],
    "crates/ivm/src/lib.rs": ["keccak", "pedersen", "poseidon", "poseidon2", "sha2-256"],
    "crates/ivm/src/memory.rs": ["iroha-hash", "sha2-256"],
    "crates/ivm/src/merkle_utils.rs": ["iroha-hash", "sha2-256"],
    "crates/ivm/src/mock_wsv.rs": ["blake2b", "iroha-hash", "keccak", "poseidon", "sha2-256", "sm3"],
+   "crates/ivm/src/mock_wsv/contract_call_tests.rs": ["iroha-hash"],
+   "crates/ivm/src/mock_wsv/contract_calls.rs": ["iroha-hash"],
+   "crates/ivm/src/mock_wsv/contract_permission_tests.rs": ["iroha-hash"],
    "crates/ivm/src/numeric_gas.rs": ["iroha-hash"],
    "crates/ivm/src/numeric_tlv.rs": ["iroha-hash"],
    "crates/ivm/src/pedersen.rs": ["pedersen"],
@@ -5997,6 +5896,10 @@
    "crates/ivm/src/signature.rs": ["sha2-256", "sha2-512"],
    "crates/ivm/src/state_scan.rs": ["iroha-hash"],
    "crates/ivm/src/state_value.rs": ["iroha-hash"],
+   "crates/ivm/src/value_record.rs": ["iroha-hash"],
+   "crates/ivm/src/value_record/capture.rs": ["iroha-hash"],
+   "crates/ivm/src/value_record/materialize_tests.rs": ["iroha-hash"],
+   "crates/ivm/src/value_utilities.rs": ["iroha-hash"],
    "crates/ivm/src/vector.rs": ["blake2s", "keccak", "sha2-256"],
    "crates/ivm/src/vector/metal_ed25519_cost.rs": ["sha2-512"],
    "crates/ivm/src/vector/metal_merkle.rs": ["sha2-256"],
@@ -6024,6 +5927,7 @@
    "crates/ivm/src/vector/sha256_cpu/context/tests.rs": ["sha2-256"],
    "crates/ivm/src/vector/sha256_cpu/tests.rs": ["sha2-256"],
    "crates/ivm/src/vector/sha256_cpu/x86.rs": ["sha2-256"],
+   "crates/ivm/src/vrf.rs": ["iroha-hash"],
    "crates/ivm/src/zk.rs": ["iroha-hash", "sha2-256"],
    "crates/ivm/src/zk/cycle_roots.rs": ["iroha-hash"],
    "crates/ivm/src/zk/cycle_roots/tests.rs": ["iroha-hash"],
@@ -6145,12 +6049,12 @@
    "crates/ivm/tests/zk_verify_batch_gating.rs": ["iroha-hash"],
    "crates/ivm/tests/zk_verify_batch_syscall.rs": ["iroha-hash"],
    "crates/ivm/tests/zk_verify_gating.rs": ["iroha-hash"],
-   "crates/ivm/tests/zk_verify_gating_maxk.rs": ["iroha-hash"],
    "crates/ivm/tests/zk_verify_goldilocks.rs": ["iroha-hash"],
    "crates/ivm/tests/zk_verify_pointer_type.rs": ["iroha-hash"],
    "crates/ivm/tests/zk_verify_positive_matrix.rs": ["iroha-hash"],
    "crates/ivm/tests/zk_verify_syscall.rs": ["iroha-hash"],
    "crates/ivm_abi/src/axt.rs": ["iroha-hash", "poseidon2"],
+   "crates/ivm_abi/src/contract_call.rs": ["iroha-hash"],
    "crates/ivm_abi/src/encoding.rs": ["poseidon", "poseidon2"],
    "crates/ivm_abi/src/instruction.rs": ["blake2s", "poseidon", "poseidon2", "sha2-256"],
    "crates/ivm_abi/src/metadata.rs": ["iroha-hash"],
@@ -6163,14 +6067,16 @@
    "crates/ivm_abi/src/syscalls.rs": ["blake2b", "iroha-hash", "keccak", "pedersen", "sha2-256", "sha3", "sm3"],
    "crates/ivm_abi/src/syscalls/access_profile_tests.rs": ["sha2-256"],
    "crates/ivm_abi/src/syscalls_doc_gen.rs": ["blake2b", "keccak", "pedersen"],
+   "crates/ivm_abi/tests/axt_policy_vectors.rs": ["iroha-hash"],
+   "crates/ivm_abi/tests/norito_pointer_abi_roundtrip.rs": ["iroha-hash"],
    "crates/ivm_artifact_admission/src/policy.rs": ["poseidon"],
    "crates/kaigi_zk/src/authorization_v1.rs": ["poseidon"],
-   "crates/kaigi_zk/src/authorization_v1/tests.rs": ["blake2b", "poseidon"],
+   "crates/kaigi_zk/src/authorization_v1/tests.rs": ["poseidon"],
    "crates/kaigi_zk/src/lib.rs": ["poseidon"],
    "crates/kaigi_zk/src/relation_v1.rs": ["poseidon"],
    "crates/kaigi_zk/src/tests.rs": ["iroha-hash", "poseidon"],
    "crates/kaigi_zk/src/usage_v1.rs": ["poseidon"],
-   "crates/kaigi_zk/src/usage_v1/tests.rs": ["blake2b", "poseidon"],
+   "crates/kaigi_zk/src/usage_v1/tests.rs": ["poseidon"],
    "crates/kotodama_lang/src/compiler.rs": ["blake2b", "iroha-hash", "keccak", "poseidon", "poseidon2", "sha2-256", "sm3"],
    "crates/kotodama_lang/src/compiler/tests.rs": ["blake2b", "iroha-hash", "keccak", "poseidon", "poseidon2", "sha2-256", "sm3"],
    "crates/kotodama_lang/src/ir.rs": ["blake2b", "keccak", "poseidon", "poseidon2", "sha2-256", "sha3", "sm3"],
@@ -6179,7 +6085,7 @@
    "crates/kotodama_lang/src/semantic.rs": ["blake2b", "keccak", "poseidon", "poseidon2", "sha2-256", "sm3"],
    "crates/kotodama_lang/src/ssa.rs": ["blake2b", "keccak", "poseidon", "poseidon2", "sha2-256", "sm3"],
    "crates/kotodama_surface/src/builtins.rs": ["blake2b", "keccak", "poseidon", "poseidon2", "sha2-256", "sm3"],
-   "crates/sorafs_manifest/src/pop_credentials/zk.rs": ["blake2b", "blake3", "poseidon"],
+   "crates/sorafs_manifest/src/pop_credentials/zk.rs": ["blake3", "poseidon"],
    "crates/sorafs_node/src/governance/tests/runtime_and_privacy_publication.rs": ["blake3"],
    "crates/sorafs_node/src/governance/tests/runtime_and_privacy_publication_continued.rs": ["blake3"],
    "crates/soranet_pq/src/ffi.rs": ["sha3"],
@@ -6197,7 +6103,6 @@
    "csharp/src/Hyperledger.Iroha.Sdk/Privacy/PrivacyExact12CapabilityManifestV1.cs": ["sha2-256"],
    "csharp/src/Hyperledger.Iroha.Sdk/Zk/VerifierBackendRegistryLabels.cs": ["poseidon"],
    "csharp/src/Hyperledger.Iroha.Sdk/Zk/VerifyingKeyBackendTag.cs": ["poseidon"],
-   "csharp/tests/Hyperledger.Iroha.Sdk.Tests/ConfidentialProverTests.cs": ["poseidon"],
    "csharp/tests/Hyperledger.Iroha.Sdk.Tests/KaigiV1Tests.cs": ["sha2-256"],
    "csharp/tests/Hyperledger.Iroha.Sdk.Tests/PrivacyExact12CapabilityManifestV1Tests.cs": ["sha2-256"],
    "csharp/tests/Hyperledger.Iroha.Sdk.Tests/PrivacyNativeTests.cs": ["sha2-256"],
@@ -6226,7 +6131,7 @@
    "javascript/iroha_js/scripts/refresh-axt-fixtures.mjs": ["poseidon"],
    "javascript/iroha_js/src/axt.js": ["poseidon"],
    "javascript/iroha_js/src/blockProofTypes.d.ts": ["poseidon"],
-   "javascript/iroha_js/src/norito.js": ["blake2b", "blake3", "iroha-hash", "poseidon", "sha2-256"],
+   "javascript/iroha_js/src/norito.js": ["blake2b", "blake3", "iroha-hash", "poseidon"],
    "javascript/iroha_js/src/privacyCapabilities.js": ["sha3"],
    "javascript/iroha_js/src/privacyExact12Network.js": ["digest384"],
    "javascript/iroha_js/src/verifyingKeyClient.js": ["iroha-hash", "poseidon", "sha2-256"],
@@ -6239,6 +6144,8 @@
    "javascript/iroha_js/test/privacyExact12CapabilityManifest.test.js": ["poseidon", "sha3"],
    "javascript/iroha_js/test/toriiClient.ramLfe.test.js": ["hkdf", "sha3"],
    "javascript/iroha_js/test/toriiVerifyingKey.test.js": ["blake2b", "iroha-hash", "poseidon", "poseidon2", "sha2-256", "sha2-512"],
+   "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/RamLfeExecuteResponse.kt": ["hkdf"],
+   "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/RamLfeJsonParser.kt": ["hkdf"],
    "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/RamLfeWireTags.kt": ["hkdf", "sha3"],
    "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/instructions/CastZkBallotInstruction.kt": ["blake2b"],
    "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/zk/VerifyingKeyBackendTag.kt": ["poseidon"],
@@ -6247,7 +6154,8 @@
    "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/privacy/ConfidentialNote.kt": ["hkdf", "sha2-256"],
    "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/privacy/PrivacyExact12FixtureCodecV1.kt": ["sha2-256"],
    "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/privacy/PrivacyIdsV1.kt": ["sha3"],
-   "kotlin/core-jvm/src/test/java/org/hyperledger/iroha/sdk/client/RamLfeExecuteJavaConsumerTest.java": ["sha3"],
+   "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt": ["pedersen", "poseidon"],
+   "kotlin/core-jvm/src/test/java/org/hyperledger/iroha/sdk/client/RamLfeExecuteJavaConsumerTest.java": ["hkdf", "sha3"],
    "kotlin/core-jvm/src/test/java/org/hyperledger/iroha/sdk/core/model/VerifyingKeyRegistryJavaConsumerTest.java": ["poseidon"],
    "kotlin/core-jvm/src/test/java/org/hyperledger/iroha/sdk/gpu/AcceleratorsJavaConsumerTest.java": ["poseidon", "poseidon2"],
    "kotlin/core-jvm/src/test/java/org/hyperledger/iroha/sdk/gpu/AcceleratorsNativeBindingTest.java": ["poseidon", "poseidon2"],
@@ -6259,6 +6167,7 @@
    "kotlin/core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/client/RamLfeWireTagsTest.kt": ["hkdf", "sha3"],
    "kotlin/core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/core/model/instructions/VerifyingKeyInstructionBuildersTest.kt": ["poseidon", "sha2-512"],
    "kotlin/core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/core/model/zk/VerifyingKeyBackendTagTest.kt": ["poseidon", "poseidon2", "sha2-256", "sha2-512"],
+   "kotlin/core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/privacy/ConfidentialProverTests.kt": ["poseidon"],
    "kotlin/core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/privacy/PrivacyNativeBridgeTest.kt": ["sha2-256", "sha3"],
    "kotlin/core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/privacy/PrivacyOuterSuiteIdsTest.kt": ["poseidon", "sha3"],
    "python/iroha_python/examples/confidential_redemption.py": ["blake2b"],
@@ -6291,16 +6200,16 @@
    "python/iroha_torii_client/tests/kaigi_relay_auth_test.py": ["blake2b"]
   },
   "tree_units": {
-   "IrohaSwift#other": ["blake2b", "blake2s", "blake3", "hkdf", "hmac", "iroha-hash", "sha2-256"],
+   "IrohaSwift#other": ["blake2b", "blake2s", "blake3", "hkdf", "hmac", "iroha-hash", "sha2-256", "sha3"],
    "benchmarks#other": ["sha2-256"],
    "ci#other": ["sha2-256"],
-   "contracts#other": ["keccak"],
-   "crates/connect_norito_bridge#other": ["blake2b", "blake3", "hkdf", "iroha-hash", "sha2-256", "sha3"],
-   "crates/iroha#other": ["blake2b", "blake3", "iroha-hash", "sha2-256", "sha3"],
+   "contracts#other": ["hkdf", "hmac", "keccak", "sha2-256"],
+   "crates/connect_norito_bridge#other": ["blake2b", "blake3", "hkdf", "iroha-hash", "keccak", "sha2-256", "sha3"],
+   "crates/iroha#other": ["blake2b", "blake3", "hkdf", "iroha-hash", "sha2-256", "sha3"],
    "crates/iroha_cli#other": ["blake2b", "blake3", "hkdf", "iroha-hash", "keccak", "scrypt", "sha1", "sha2-256", "sha3", "sm3"],
    "crates/iroha_config#other": ["argon2", "blake2b", "blake3", "iroha-hash", "scrypt", "sha2-256", "sm3"],
    "crates/iroha_contract_deploy#other": ["iroha-hash"],
-   "crates/iroha_core#other": ["blake2b", "blake3", "hkdf", "iroha-hash", "lthash", "sha2-256", "sha3"],
+   "crates/iroha_core#other": ["blake2b", "blake3", "hkdf", "iroha-hash", "keccak", "lthash", "sha2-256", "sha3"],
    "crates/iroha_core_timed_ovn#other": ["iroha-hash", "sha2-256"],
    "crates/iroha_data_model#other": ["blake2b", "blake3", "hkdf", "hmac", "iroha-hash", "keccak", "lthash", "sha2-256", "sha3", "sm3"],
    "crates/iroha_deploy#other": ["blake3", "iroha-hash", "scrypt", "sha2-256"],
@@ -6315,9 +6224,9 @@
    "crates/iroha_operation_journal#other": ["sha2-256"],
    "crates/iroha_p2p#other": ["argon2", "blake2b", "iroha-hash", "sha2-256", "sha2-512", "sm3"],
    "crates/iroha_primitives#other": ["blake3", "sha2-256"],
-   "crates/iroha_sccp#other": ["hmac", "iroha-hash", "keccak", "sha2-256", "sha2-512"],
+   "crates/iroha_sccp#other": ["blake2b", "hkdf", "hmac", "iroha-hash", "keccak", "sha2-256", "sha2-512"],
    "crates/iroha_sccp_rpc#other": ["keccak", "sha2-256"],
-   "crates/iroha_sccp_wallet#other": ["iroha-hash", "keccak", "sha2-256"],
+   "crates/iroha_sccp_wallet#other": ["iroha-hash", "keccak"],
    "crates/iroha_schema_gen#other": ["iroha-hash"],
    "crates/iroha_storage_client#other": ["blake3", "iroha-hash", "sha3"],
    "crates/iroha_sumeragi#other": ["sha2-256"],
@@ -6326,13 +6235,14 @@
    "crates/iroha_test_network#other": ["iroha-hash", "sha2-256"],
    "crates/iroha_test_samples#other": ["iroha-hash"],
    "crates/iroha_torii#other": ["blake2b", "blake3", "hkdf", "hmac", "iroha-hash", "scrypt", "sha1", "sha2-256", "sha2-512", "sha3", "sm3"],
-   "crates/iroha_torii_shared#other": ["argon2", "blake2b", "blake3", "hkdf", "hmac", "iroha-hash", "sha2-256"],
+   "crates/iroha_torii_shared#other": ["argon2", "blake2b", "blake3", "hkdf", "hmac", "iroha-hash", "sha2-256", "sha3"],
    "crates/iroha_wallet#other": ["iroha-hash", "scrypt", "sha2-256"],
    "crates/irohad#other": ["blake3", "iroha-hash", "sha2-256", "sha3"],
    "crates/ivm_artifact_admission#other": ["iroha-hash"],
    "crates/izanami#other": ["iroha-hash", "sha3"],
    "crates/kotodama_lang#other": ["blake2b", "iroha-hash", "keccak", "sha2-256", "sm3"],
-   "crates/kotodama_toolchain#other": ["iroha-hash"],
+   "crates/kotodama_surface#other": ["blake2b", "keccak", "sha2-256", "sm3"],
+   "crates/kotodama_toolchain#other": ["iroha-hash", "sha2-256"],
    "crates/musubi#other": ["blake3", "iroha-hash", "sha2-256", "sha3"],
    "crates/norito#other": ["blake3", "hkdf", "sha2-256", "sha3"],
    "crates/sm3_neon#other": ["sm3"],
@@ -6349,15 +6259,15 @@
    "integration_tests#other": ["argon2", "blake3", "iroha-hash", "sha2-256", "sha3"],
    "java#other": ["argon2", "blake2b", "blake2s", "blake3", "hkdf", "hmac", "iroha-hash", "lthash", "pbkdf2", "sha2-256", "sha3"],
    "javascript#other": ["argon2", "blake2b", "blake3", "hkdf", "iroha-hash", "md5", "sha1", "sha2-256", "sha2-512", "sha3", "sm3"],
-   "kagemusha": ["blake2b", "hkdf", "iroha-hash", "poseidon", "sha2-256"],
+   "kagemusha": ["blake2b", "iroha-hash", "poseidon", "sha2-256"],
    "kotlin#other": ["argon2", "blake2b", "blake2s", "blake3", "hkdf", "hmac", "iroha-hash", "sha1", "sha2-256", "sha3"],
    "mochi#other": ["iroha-hash", "sha2-256"],
    "pytests#other": ["blake2b", "blake3", "keccak", "poseidon", "scrypt", "sha1", "sha2-256", "sha2-512", "sha3"],
-   "python#other": ["blake2b", "blake3", "hkdf", "hmac", "iroha-hash", "scrypt", "sha1", "sha2-256", "sha3", "sm3"],
+   "python#other": ["blake2b", "blake3", "hkdf", "hmac", "iroha-hash", "scrypt", "sha2-256", "sha2-512", "sha3", "sm3"],
    "scripts#other": ["anemoi", "argon2", "blake2b", "blake2s", "blake3", "digest384", "hkdf", "hmac", "iroha-hash", "keccak", "md5", "monolith", "poseidon", "poseidon2", "rescue", "sha1", "sha2-256", "sha2-512", "sha3", "shake", "sm3", "streebog", "tip5"],
    "state-candidates": ["blake2b", "blake3", "digest384", "iroha-hash", "poseidon", "poseidon2", "rescue", "sha2-256"],
    "tools#other": ["argon2", "blake2b", "blake3", "hkdf", "iroha-hash", "sha1", "sha2-256", "sha2-512", "sha3"],
-   "vendor": ["blake2b", "keccak", "pedersen", "poseidon", "sha2-256", "sha2-512", "shake", "sm3"],
+   "vendor": ["keccak", "pedersen", "sha2-256", "shake", "sm3"],
    "xtask#other": ["blake2b", "blake3", "digest384", "hkdf", "iroha-hash", "md5", "poseidon", "poseidon2", "sha2-256", "sha3", "sm3"]
   },
   "oversized_files": []
@@ -7510,6 +7420,11 @@
     "family": "SHA-256 record identities and evidence digests of the privacy model",
     "roles": ["privacy.record-digest-sha256", "privacy.evidence-digest-sha256"],
     "reason": "Not named by REQ-063. Some are recomputed inside a relation and keep its hash; the evidence digests are metadata that the plan keeps out of transaction truth. F.5 reviews the record digests one by one."
+   },
+   {
+    "id": "native-pipa-r",
+    "roles": ["pipa-r.transcript-poseidon-base", "pipa-r.vk-binding-blake2b"],
+    "reason": "The native PIPA-R proof transcript is a base-field algebraic sponge with an explicit descriptor/VK binding. These are proof-internal semantics, distinct from an external byte commitment and from retained scalar-field transcript profiles."
    }
   ],
   "exploratory_measurements": [
@@ -7536,7 +7451,8 @@
     "reading": "On this run the six-lane digest costs about 6,000 times the candidate at 64 bytes and about 1,900 times at 4,096 bytes. A 384-bit sponge costs about 2 to 4 times the candidate (SHA3-384: 248 against 77 ns at 64 bytes, 8,855 against 2,430 ns at 4,096 bytes); the SHAKE256 reader figure at 64 bytes is higher for the reason stated under conditions. The byte-oriented digests are within a small factor of each other, so the choice among them rests on the security requirement, not on native cost.",
     "not_covered": "Other platforms and SDK runtimes, percentiles, multi-threading, the canonical frame encoding cost and every in-circuit cost.",
     "profile_identities": {},
-    "profile_binding": "none: taken before the freeze on bare primitives without the canonical frame; it describes no frozen profile and cannot be reused as a measurement of one"
+    "measurement_scope": "bare-primitives",
+    "scope_note": "Taken before the freeze on bare primitives without the canonical frame; it describes no frozen profile and cannot be reused as a measurement of one."
    }
   ],
   "consumer_readings": {
@@ -7573,7 +7489,8 @@
    {
     "role": "privacy.state-digest-blake3",
     "change": "Moves from its own domain tags onto the canonical frame.",
-    "wire": "The digests of the PGC pool invariant and public reserve key change."
+    "wire": "The PGC account roots, pool-invariant digest and public reserve key change; the account roots are inside proof-bound statements.",
+    "coordination": "PGC account-root producer, typed statement and P-256 payment transcript migrate together; pool-invariant and reserve-key digests also update State provenance."
    },
    {
     "role": "privacy.statement-digest-blake3",
@@ -7732,7 +7649,6 @@
    "crates/iroha_core/benches/crypto_hotpaths.rs": ["PoseidonByteHasher", "hash2_u64", "hash6_u64", "iroha_zkp_halo2::poseidon"],
    "crates/iroha_core/src/fastpq/mod.rs": ["iroha_zkp_halo2::poseidon"],
    "crates/iroha_core_privacy/src/privacy_engines/outer_hash_experiment.rs": ["poseidon6"],
-   "crates/iroha_core_zk/src/kagemusha_v1_state/mod.rs": ["iroha_zkp_halo2::poseidon"],
    "crates/iroha_data_model/src/bin/axt_fixtures.rs": ["bn254_poseidon_params_width3", "bn254_poseidon_params_width6", "iroha_zkp_poseidon::poseidon"],
    "crates/iroha_data_model/src/nexus/axt.rs": ["iroha_zkp_poseidon::poseidon"],
    "crates/iroha_zkp_halo2/src/lib.rs": ["iroha_zkp_poseidon::poseidon"],
@@ -8354,10 +8270,10 @@
     "kind": "product-role",
     "label": "exploratory",
     "flow": "proof and verification",
-    "question": "What the Halo2/PIPA family costs for Kaigi and confidential relations, and how much of it is transcript and Pasta Poseidon.",
+    "question": "What current native PIPA-R Kaigi and confidential relations cost, separating the RP57 base-field transcript, descriptor/VK binding and relation-specific RP56/RP57 sponges.",
     "backend_consumers": ["halo2-ipa"],
     "primitives": ["blake2b", "poseidon"],
-    "roles": ["halo2.transcript-blake2b", "halo2.pasta-poseidon", "kaigi.relation-poseidon", "confidential.note-poseidon", "halo2.pasta-poseidon-rp56-candidate", "sorafs.pop-credential-poseidon"],
+    "roles": ["pipa-r.transcript-poseidon-base", "pipa-r.vk-binding-blake2b", "halo2.pasta-poseidon", "kaigi.relation-poseidon", "confidential.note-poseidon", "sorafs.pop-credential-poseidon"],
     "shapes": {
      "relations": ["Kaigi authorization", "Kaigi usage", "confidential transfer 2x2", "confidential unshield"],
      "kaigi_identity_bytes": [48, 32],
@@ -8365,8 +8281,8 @@
     },
     "measured": ["proving and verification time by phase", "proof and verifying-key bytes", "rows and Poseidon invocations"],
     "phases": ["prove_flow", "witness_build", "commit", "transcript", "ipa_open", "verify_flow", "verify"],
-    "profiles": ["retained.halo2.transcript-blake2b", "retained.halo2.pasta-poseidon", "retained.kaigi.relation-poseidon", "retained.confidential.note-poseidon", "retained.halo2.pasta-poseidon-rp56-candidate", "retained.sorafs.pop-credential-poseidon"],
-    "profile_set_identity": "81b4c7d08487ed24f72760f325356df42942c4b68d53848ef572741a15e56eab"
+    "profiles": ["retained.pipa-r.transcript-poseidon-base", "retained.pipa-r.vk-binding-blake2b", "retained.halo2.pasta-poseidon", "retained.kaigi.relation-poseidon", "retained.confidential.note-poseidon", "retained.sorafs.pop-credential-poseidon"],
+    "profile_set_identity": "2f903bbfde3c1682bde0f67e4c406e1b95f5e468bc8eb101f3bb296ab1e924ec"
    },
    {
     "id": "h1.family.bulletproofs",
@@ -8444,6 +8360,7 @@
       "workload": "h1.transcript.candidates",
       "label": "exploratory",
       "qualification": false,
+      "measurement_scope": "workload-profiles",
       "profile_identities": {
        "fastpq.transcript.q77.v1": "b1b3be0bc1b548e32fa6f949500c0de43c8f7412a5586623c4d3f1ca705f945b"
       },
@@ -9740,7 +9657,7 @@
     "name": "retained.confidential.note-poseidon",
     "kind": "in-circuit-digest",
     "status": "retained",
-    "identity": "e51e6901e001f3432ba1543645e2fa1f918a22dd0c17da670fe38248e34e98df",
+    "identity": "b4f8899375d881e467e858602b34aad3bd0c1e15084612e630029d60e018c94f",
     "role": "confidential.note-poseidon",
     "parameters": [
      {
@@ -9771,7 +9688,7 @@
      {
       "key": "domain_separation",
       "type": "text",
-      "value": "Axiom Pasta Poseidon: width 3, rate 2, x^5, 8 full and 57 partial rounds, MDS selector 0 (halo2-base OptimizedPoseidonSpec), with one 64-bit ASCII domain word per use (cfownr03, cfnote03, cfnull03, cfleaf03, cfnode03, cfasst03, cfnet_03). The public-input schema names it axiom_poseidon_t3_r2_rf8_rp57_mds0."
+      "value": "Original Pasta Poseidon: width 3, rate 2, x^5, 8 full and 57 partial rounds, first secure Cauchy MDS candidate (selector 0), with one 64-bit ASCII domain word per use (cfownr03, cfnote03, cfnull03, cfleaf03, cfnode03, cfasst03, cfnet_03). The public-input schema names it poseidon_t3_r2_rf8_rp57_mds0."
      }
     ]
    },
@@ -11178,6 +11095,84 @@
       "value": "SHA-256 of canonical Norito bytes or of a framed list; the producer ledger lists each function."
      }
     ]
+   },
+   {
+    "name": "retained.pipa-r.transcript-poseidon-base",
+    "kind": "transcript",
+    "status": "retained",
+    "identity": "5605a984a713b14409e49c1a0673d9fd05915ab519851951c5f86e9826a470a6",
+    "role": "pipa-r.transcript-poseidon-base",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "pipa-r.transcript-poseidon-base"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "poseidon"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "Original Poseidon (Hades) permutations: BN254 x^5 widths 3 and 6 (56 partial rounds), Pasta x^5 width 3 in two parameterizations (57 partial rounds for the Axiom tables, 56 for P128Pow5T3), Goldilocks x^7 width 3 (57 partial rounds)"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "Pasta base-field RP57 Poseidon sponge: width 3, rate 2, x^5, 8 full and 57 partial rounds; initial state [2^64,0,0], first absorbed domain pipa-rb1. Point coordinates are base elements; Vesta scalar encoding uses one base element, Pallas uses low-128/high-127 limbs. Challenges use the canonical base-to-scalar reduction. V2 prelude absorbs the VK binding, pipainst tag, column lengths and instance-type tags."
+     }
+    ]
+   },
+   {
+    "name": "retained.pipa-r.vk-binding-blake2b",
+    "kind": "transcript",
+    "status": "retained",
+    "identity": "3d9439dcc1f3f1c98336d4feab6ee425d8d25d235ddf38773414a7ee9fabcc89",
+    "role": "pipa-r.vk-binding-blake2b",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "pipa-r.vk-binding-blake2b"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "blake2b"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "BLAKE2b (RFC 7693), 256-bit and 512-bit outputs"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 64
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "BLAKE2b-512 personalized Iroha-PlonkVK-v2 over the descriptor digest then canonical VK bytes, reduced into the proof curve base field for KagemushaPoseidonRp57Base. Retained explicit descriptor V1 uses Iroha-PlonkVK-v1 and scalar profiles reduce to the scalar field."
+     }
+    ]
    }
   ],
   "not_frozen": [
@@ -11496,6 +11491,14 @@
    "bn254-poseidon.native-helpers": {
     "disposition": "frozen-profile",
     "profiles": ["bn254.poseidon.x5-t3.v1", "bn254.poseidon.x5-t6.v1"]
+   },
+   "pipa-r.transcript-poseidon-base": {
+    "disposition": "retained",
+    "profiles": ["retained.pipa-r.transcript-poseidon-base"]
+   },
+   "pipa-r.vk-binding-blake2b": {
+    "disposition": "retained",
+    "profiles": ["retained.pipa-r.vk-binding-blake2b"]
    }
   },
   "defect_dispositions": [
@@ -11758,7 +11761,7 @@
    "engines_note": "One entry per engine of specs/fastpq/shared_backend_inventory.json. H.2 deletes no engine: each implementation is removed when its actual callers migrate, with its behavioural coverage and without a compatibility branch."
   },
   "measurement_binding": {
-   "rule": "Every workload names the profiles it depends on (`profiles`) and the selections it still waits for (`profiles_not_frozen`). Every recorded measurement names the identity of each profile it measured (`profile_identities`). A measurement that names an identity other than the current one of that profile is inapplicable: the check fails until it is re-measured or moved to `inapplicable_measurements` with the identity it was taken under. A measurement taken on no frozen profile says so in `profile_binding`.",
+   "rule": "Every workload names the profiles it depends on (`profiles`) and the selections it still waits for (`profiles_not_frozen`). A measurement inside a workload has `measurement_scope: workload-profiles` and names the exact complete workload profile set in `profile_identities`; an omitted identity cannot evade invalidation. Only the canonical-native candidate comparison section accepts `measurement_scope: bare-primitives`, with an empty identity map and an explanatory `scope_note`; that comparison describes no frozen frame profile. The owning section fixes the scope, never a measurement's free-text explanation. A measurement that names an identity other than the current one of that profile is inapplicable: the check fails until it is re-measured or moved to `inapplicable_measurements` with the identity it was taken under.",
    "final_measurements": "H.3 measures only workloads whose `profiles_not_frozen` is empty, and binds each record to these identities through the profile field of the measurement identity.",
    "harness_field": "A workload's `profile_set_identity` is the SHA3-256 of `iroha:semantic-profile-set:v1`, a zero byte, the profile count as a u32 little-endian and the 32-byte identities of its `profiles` in order (fastpq_isi::semantic_profile::semantic_profile_set_id_v1). A measurement record of crates/iroha_measurement names it in the `profile` field of its identity as `semantic=<profile_set_identity>+<build profile>`, which is within the identity text grammar of crates/iroha_measurement/src/text.rs.",
    "no_reviewer_token": "Invalidation is a comparison of identities by the check. No signature, approval or runtime switch is involved.",

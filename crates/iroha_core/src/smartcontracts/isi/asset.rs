@@ -4822,9 +4822,9 @@ pub mod isi {
             &record.leg,
         )
         .map_err(|error| {
-            if let iroha_data_model::sumeragi_amx::AmxError::Resource(resource) = &error {
+            if let Some(resource) = crate::sumeragi::amx::classified_decode_refusal(&error) {
                 state_transaction.arm_local_storage_refusal(
-                    crate::state::StateStorageAdmissionError::AmxDecode(*resource),
+                    crate::state::StateStorageAdmissionError::AmxDecode(resource),
                 );
             }
             InstructionExecutionError::InvariantViolation(error.to_string().into())

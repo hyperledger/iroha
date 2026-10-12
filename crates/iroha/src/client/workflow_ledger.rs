@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use iroha_crypto::Hash;
-use iroha_version::codec::{DecodeVersioned as _, EncodeVersioned as _};
+use iroha_version::codec::DecodeVersioned as _;
 
 use super::{
     AccountClient, HashOf, PipelineTransactionStatusResponse, PreflightFailure, PreparedDispatch,
@@ -89,11 +89,34 @@ fn decode_signed(signed_transaction: &[u8]) -> Result<SignedTransaction, StepFai
         )
     };
     let transaction =
-        SignedTransaction::decode_all_versioned(signed_transaction).map_err(|_| non_canonical())?;
-    if transaction.encode_versioned().as_slice() != signed_transaction {
-        return Err(non_canonical());
-    }
+        SignedTransaction::decode_all_versioned(signed_transaction).map_err(|error| {
+            if error.is_local_resource_refusal() {
+                StepFailure::new(
+                    WorkflowErrorCode::LocalResourceUnavailable,
+                    "the original signed-transaction read could not finish within local resources",
+                )
+            } else {
+                non_canonical()
+            }
+        })?;
+    // The canonical reader already compares the exact fallible V1 encoding.
     Ok(transaction)
+}
+
+fn decode_unsigned(unsigned_payload: &[u8]) -> Result<TransactionPayload, StepFailure> {
+    norito::core::classify_decode_attempt(|| norito::decode_canonical(unsigned_payload)).map_err(
+        |error| match error.kind() {
+            norito::core::DecodeAttemptErrorKind::Allocator
+            | norito::core::DecodeAttemptErrorKind::EnclosingLimit => StepFailure::new(
+                WorkflowErrorCode::LocalResourceUnavailable,
+                "the original unsigned-payload decoder could not finish within local resources",
+            ),
+            norito::core::DecodeAttemptErrorKind::Invalid => StepFailure::new(
+                WorkflowErrorCode::NonCanonicalEncoding,
+                format!("unsigned payload is not a canonical transaction payload: {error}"),
+            ),
+        },
+    )
 }
 
 pub(super) fn signing_failure(error: &SdkError) -> StepFailure {
@@ -170,19 +193,27 @@ impl WorkflowAccount for AccountWorkflowContext {
         unsigned_payload: &'a [u8],
     ) -> WorkflowFuture<'a, Result<SignedStepTransaction, StepFailure>> {
         Box::pin(async move {
-            let payload: TransactionPayload =
-                norito::decode_canonical(unsigned_payload).map_err(|error| {
-                    StepFailure::new(
-                        WorkflowErrorCode::NonCanonicalEncoding,
-                        format!("unsigned payload is not a canonical transaction payload: {error}"),
-                    )
-                })?;
+            let payload = decode_unsigned(unsigned_payload)?;
             let transaction = self
                 .account
                 .sign_transaction(payload)
                 .map_err(|error| signing_failure(&error))?;
             Ok(SignedStepTransaction {
-                signed_transaction: transaction.encode_versioned(),
+                signed_transaction: norito::core::classify_decode_attempt(|| {
+                    transaction.encode_wire_v1()
+                })
+                .map_err(|error| {
+                    let code = match error.kind() {
+                        norito::core::DecodeAttemptErrorKind::Allocator
+                        | norito::core::DecodeAttemptErrorKind::EnclosingLimit => {
+                            WorkflowErrorCode::LocalResourceUnavailable
+                        }
+                        norito::core::DecodeAttemptErrorKind::Invalid => {
+                            WorkflowErrorCode::InvalidInput
+                        }
+                    };
+                    StepFailure::new(code, format!("signed transaction encoding failed: {error}"))
+                })?,
                 identity: identity_of(&transaction),
             })
         })
@@ -221,7 +252,8 @@ impl WorkflowLedger for AccountWorkflowContext {
                 },
                 PreparedDispatch::NotDispatched { cause, report } => DispatchOutcome::NotAdmitted {
                     code: match cause {
-                        PreflightFailure::CompatibilityProbe => {
+                        PreflightFailure::CompatibilityProbe
+                        | PreflightFailure::LocalResourceRefusal => {
                             WorkflowErrorCode::LocalResourceUnavailable
                         }
                         PreflightFailure::IncompatibleNode => {

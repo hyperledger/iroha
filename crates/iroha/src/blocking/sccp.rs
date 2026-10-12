@@ -10,7 +10,7 @@ use iroha_sccp::api::{
     SccpCapabilitiesV1, SccpControlPageV1, SccpControlProofBundleV1,
     SccpGovernanceProposalDetailV1, SccpHistoryPathViewV1, SccpLcCheckpointCoverV1,
     SccpLightClientDetailV1, SccpMessageProofBundleV1, SccpMessageStatusV1, SccpOutboundPageV1,
-    SccpRecentMessagesV1, SccpRosterViewV1, SccpRotationChainV1,
+    SccpRecentMessagesV1,
 };
 
 /// Blocking SCCP reads backed by the asynchronous SCCP capability.
@@ -216,30 +216,5 @@ impl Sccp<'_> {
             control_nonce,
             attestation,
         ))?
-    }
-
-    /// Read the current roster generation.
-    ///
-    /// # Errors
-    /// Returns the asynchronous operation error or a typed runtime rejection.
-    pub fn current_roster(&self) -> Result<SccpRosterViewV1> {
-        self.runtime.block_on(self.inner.current_roster())?
-    }
-
-    /// Read one roster generation.
-    ///
-    /// # Errors
-    /// Returns the asynchronous operation error or a typed runtime rejection.
-    pub fn roster(&self, generation: u64) -> Result<SccpRosterViewV1> {
-        self.runtime.block_on(self.inner.roster(generation))?
-    }
-
-    /// Read the catch-up rotation chain.
-    ///
-    /// # Errors
-    /// Returns the asynchronous operation error or a typed runtime rejection.
-    pub fn rotations(&self, after_generation: u64, limit: usize) -> Result<SccpRotationChainV1> {
-        self.runtime
-            .block_on(self.inner.rotations(after_generation, limit))?
     }
 }

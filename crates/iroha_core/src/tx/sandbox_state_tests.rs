@@ -601,9 +601,12 @@ impl Sandbox {
     #[must_use]
     pub fn with_max_execution_depth(self, depth: u8) -> Self {
         let mut world = self.state.world.block();
-        world.parameters.set_parameter(Parameter::SmartContract(
-            iroha_data_model::parameter::SmartContractParameter::ExecutionDepth(depth),
-        ));
+        world
+            .parameters
+            .set_parameter(Parameter::SmartContract(
+                iroha_data_model::parameter::SmartContractParameter::ExecutionDepth(depth),
+            ))
+            .expect("valid fixture parameters");
         world.commit();
         self
     }

@@ -10643,7 +10643,12 @@
     {"path": "artifacts/openapi/versions/current/torii.json", "kind": "source_anchor", "literals": ["hkdf-sha3-512-prf-v1"]},
     {"path": "crates/iroha_torii/assets/openapi/torii.json", "kind": "source_anchor", "literals": ["hkdf-sha3-512-prf-v1"]},
     {"path": "crates/iroha/src/client/authority_originals/tests.rs", "kind": "test", "literals": ["HkdfSha3_512PrfV1"], "test_only": true},
-    {"path": "crates/iroha_core/src/state/world_state_snapshot/authority_originals/tests.rs", "kind": "test", "literals": ["HkdfSha3_512PrfV1"], "test_only": true},
+    {
+     "path": "crates/iroha_core/src/state/world_state_snapshot/authority_originals/tests.rs",
+     "kind": "test",
+     "literals": ["HkdfSha3_512PrfV1"],
+     "test_only": true
+    },
     {"path": "crates/iroha_torii_shared/src/authority_originals/tests.rs", "kind": "test", "literals": ["HkdfSha3_512PrfV1"], "test_only": true},
     {"path": "scripts/tests/ledger_scoped_originals_openapi_test.py", "kind": "test", "literals": ["hkdf-sha3-512-prf-v1"], "test_only": true},
     {
@@ -10812,6 +10817,12 @@
      "note": "Task T.1's history inventory anchors the HKDF dispatch arm of evaluate_commitment; its check fails when R.6 removes the backend, so R.6 updates the anchor in the same change."
     },
     {
+     "path": "specs/zk_resource_contract.json",
+     "kind": "source_anchor",
+     "literals": ["crates/iroha_data_model/src/identifier/hkdf_v1.rs"],
+     "note": "Task F.2 records the authenticated-owner plaintext PRF input-length comparison in the identifier helper. This is a source inventory reference, not another implementation or encrypted-evaluation evidence; R.6 updates it when retiring that backend."
+    },
+    {
      "path": "specs/universal_accounts_guide.md",
      "kind": "documentation",
      "literals": ["hkdf-sha3-512-prf-v1"],
@@ -10847,9 +10858,9 @@
      "kind": "test",
      "literals": ["HkdfSha3_512PrfV1"],
      "note": "Drift test of task F.1's inventory checker: it removes the backend variant in memory and expects the check to fail.",
-      "test_only": true
-     },
-     {
+     "test_only": true
+    },
+    {
      "path": "crates/iroha_core/src/smartcontracts/isi/identifier.rs",
      "kind": "policy_branch",
      "symbols": [
@@ -11387,7 +11398,6 @@
    "path": "crates/iroha_measurement/fixtures/consumers.json",
    "kind": "source_checked_inventory",
    "evidence": {"path": "crates/iroha_measurement/tests/layering.rs", "literal": "consumers.json"}
-
   },
   {
    "path": "fixtures/soracloud/identifier_owner_execute_v1.json",
@@ -11727,7 +11737,12 @@
     {"path": "crates/iroha_crypto/src/ram_lfe/initialization.rs", "patterns": ["bfv", "fhe", "ram_lfe"]},
     {"path": "crates/iroha_crypto/src/ram_lfe/initialization_tests.rs", "patterns": ["bfv", "ram_lfe"], "cfg": ["test"], "test_only": true},
     {"path": "crates/iroha_crypto/src/ram_lfe/normal_form.rs", "patterns": ["fhe", "ram_lfe"]},
-    {"path": "crates/iroha_crypto/src/ram_lfe/normal_form_tests.rs", "patterns": ["bfv", "bgv", "fhe", "ram_lfe", "rns"], "cfg": ["test"], "test_only": true},
+    {
+     "path": "crates/iroha_crypto/src/ram_lfe/normal_form_tests.rs",
+     "patterns": ["bfv", "bgv", "fhe", "ram_lfe", "rns"],
+     "cfg": ["test"],
+     "test_only": true
+    },
     {"path": "crates/iroha_crypto/src/ram_lfe/phone_control.rs", "patterns": ["ram_lfe"]},
     {"path": "crates/iroha_crypto/src/ram_lfe/phone_control_tests.rs", "patterns": ["ram_lfe"], "cfg": ["test"], "test_only": true},
     {
@@ -14126,7 +14141,7 @@
     },
     {"path": "scripts/tests/check_zk_primitive_workloads_test.py", "patterns": ["mkhe", "ram_lfe", "rns"], "test_only": true},
     {"path": "scripts/tests/check_zk_resource_contract_test.py", "patterns": ["bgv", "fhe", "ram_lfe"], "test_only": true},
-    {"path": "scripts/tests/check_zk_runtime_validity_test.py", "patterns": ["fhe"], "test_only": true},
+    {"path": "scripts/tests/check_zk_runtime_validity_test.py", "patterns": ["fhe", "ram_lfe"], "test_only": true},
     {"path": "scripts/tests/large_static_contract_asset_compaction_test.py", "patterns": ["fhe"], "test_only": true},
     {"path": "scripts/tests/openapi_contract_call_test.py", "patterns": ["bfv", "ram_lfe"], "test_only": true},
     {"path": "scripts/tests/release_feature_graph_test.py", "patterns": ["bfv"], "test_only": true},
@@ -14172,7 +14187,7 @@
      "path": "specs/zk_primitive_workloads.json",
      "patterns": ["basis_conversion", "bfv", "bgv", "fhe", "hkdf", "hkdf_ram_lfe", "mkhe", "ram_lfe", "rns"]
     },
-    {"path": "specs/zk_resource_contract.json", "patterns": ["bfv", "bgv", "fhe", "ram_lfe", "rns"]},
+    {"path": "specs/zk_resource_contract.json", "patterns": ["bfv", "bgv", "fhe", "hkdf", "ram_lfe", "rns"]},
     {"path": "specs/zk_runtime_validity_census.json", "patterns": ["bfv", "bgv", "fhe", "mkhe", "ntt", "ram_lfe", "rns"]}
    ]
   },
@@ -14248,86 +14263,38 @@
     {"path": "specs/fhe_bgv_lattice_estimator_output.txt", "patterns": ["bgv", "fhe", "rns"]}
    ]
   },
-{
- "id": "native.ownership_and_sccp_references",
- "component": "shared",
- "role": "consumer",
- "tasks": [
-  "R.6"
- ],
- "summary": "Retained RAM-LFE authority originals and their tests, plus independent SCCP BLS KeyGen references. SCCP HKDF does not implement RAM-LFE.",
- "files": [
   {
-   "path": "crates/iroha/src/client/authority_originals/tests.rs",
-   "patterns": [
-    "hkdf",
-    "hkdf_ram_lfe",
-    "ram_lfe"
-   ],
-   "test_only": true
-  },
-  {
-   "path": "crates/iroha_core/src/state/world_state_snapshot/authority_originals/tests.rs",
-   "patterns": [
-    "hkdf",
-    "hkdf_ram_lfe",
-    "ram_lfe"
-   ],
-   "test_only": true
-  },
-  {
-   "path": "crates/iroha_torii_shared/src/authority_originals/tests.rs",
-   "patterns": [
-    "hkdf",
-    "hkdf_ram_lfe",
-    "ram_lfe"
-   ],
-   "test_only": true
-  },
-  {
-   "path": "scripts/tests/ledger_scoped_originals_openapi_test.py",
-   "patterns": [
-    "bfv",
-    "hkdf",
-    "hkdf_ram_lfe",
-    "ram_lfe"
-   ],
-   "test_only": true
-  },
-  {
-   "path": "crates/iroha_core/src/state/world_state_snapshot/authority_originals.rs",
-   "patterns": [
-    "ram_lfe"
+   "id": "native.ownership_and_sccp_references",
+   "component": "shared",
+   "role": "consumer",
+   "tasks": ["R.6"],
+   "summary": "Retained RAM-LFE authority originals and their tests, plus independent SCCP BLS KeyGen references. SCCP HKDF does not implement RAM-LFE.",
+   "files": [
+    {
+     "path": "crates/iroha/src/client/authority_originals/tests.rs",
+     "patterns": ["hkdf", "hkdf_ram_lfe", "ram_lfe"],
+     "cfg": ["test"],
+     "test_only": true
+    },
+    {
+     "path": "crates/iroha_core/src/state/world_state_snapshot/authority_originals/tests.rs",
+     "patterns": ["hkdf", "hkdf_ram_lfe", "ram_lfe"],
+     "cfg": ["test"],
+     "test_only": true
+    },
+    {
+     "path": "crates/iroha_torii_shared/src/authority_originals/tests.rs",
+     "patterns": ["hkdf", "hkdf_ram_lfe", "ram_lfe"],
+     "cfg": ["test"],
+     "test_only": true
+    },
+    {"path": "scripts/tests/ledger_scoped_originals_openapi_test.py", "patterns": ["bfv", "hkdf", "hkdf_ram_lfe", "ram_lfe"], "test_only": true},
+    {"path": "crates/iroha_core/src/state/world_state_snapshot/authority_originals.rs", "patterns": ["ram_lfe"]},
+    {"path": "crates/iroha_torii_shared/src/authority_originals.rs", "patterns": ["ram_lfe"]},
+    {"path": "contracts/evm/sccp/test/sccp_v1_model.js", "patterns": ["hkdf"], "test_only": true},
+    {"path": "crates/iroha_sccp/tests/reference_support/bls_support.rs", "patterns": ["hkdf"], "test_only": true},
+    {"path": "scripts/sccp_reference/bls_sig.py", "patterns": ["hkdf"]}
    ]
-  },
-  {
-   "path": "crates/iroha_torii_shared/src/authority_originals.rs",
-   "patterns": [
-    "ram_lfe"
-   ]
-  },
-  {
-   "path": "contracts/evm/sccp/test/sccp_v1_model.js",
-   "patterns": [
-    "hkdf"
-   ],
-   "test_only": true
-  },
-  {
-   "path": "crates/iroha_sccp/tests/reference_support/bls_support.rs",
-   "patterns": [
-    "hkdf"
-   ],
-   "test_only": true
-  },
-  {
-   "path": "scripts/sccp_reference/bls_sig.py",
-   "patterns": [
-    "hkdf"
-   ],
-   "test_only": true
   }
- ]
-}
  ]
 }

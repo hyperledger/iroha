@@ -157,7 +157,11 @@ resumable. Terminal evidence is stored before the next step starts.
 - **The same bytes.** Off by default. A call may authorize it
   (`retransmit_identical_bytes`). Then, after a fresh exact-absence read, the
   exact persisted bytes are dispatched once in that call, within the bound of 8
-  dispatches per identity. The identity does not change, so the ledger's
+  counted dispatches per identity. A proven non-admission releases its count
+  only when no earlier dispatch may have admitted the bytes. Such an identity
+  stays dispatchable after any number of backpressure or preflight failures;
+  uncertain submissions and their retransmissions keep consuming the bound.
+  The identity does not change, so the ledger's
   duplicate protection applies.
 - **A new transaction.** Only after the previous identity is closed
   (state-resolved rejection or expiry, or a validated refusal of its only
@@ -179,6 +183,11 @@ under that identity (`WorkflowDriver::recover_round`): the driver returns the
 original transcript and custody references if the round completed outside the
 process, reports the participants it has, reports a terminal failure, or
 proves that nothing started. A restart never creates a fresh round.
+Before restarting a never-started round, the engine persists a new
+`round_restart_intent`, saturating-incrementing `start_ordinal` under compare-and-swap.
+If cancellation won during recovery, the stale runner reloads and performs
+only read-only recovery; it does not restart the round. Neither first-start
+nor restart intent is valid while cancelling.
 
 The engine checks every report:
 
@@ -201,16 +210,20 @@ drivers.
 ## 6. Cancellation
 
 Cancellation is one compare-and-swap of the journal. It is serialized with
-dispatch and round intents: whichever stores first wins, and a runner that
-loses stores nothing further and starts no effect.
+dispatch and round intents: whichever stores first wins. A runner that loses
+starts no effect from its stale state; it reloads the winner and reconciles.
 
 | Current step | Result |
 |---|---|
 | No dispatch can have been admitted, no round started | `cancelled`. A transaction step becomes `cancelled_before_submission` and its payload or signed bytes are dropped; a step whose identity is already closed stays `rejected`. |
 | `submitting`, `outcome_unknown`, `pending`, `round_started`, `round_waiting` | `cancelling`. The step is not changed. |
 
-A `cancelling` or `cancelled` workflow never builds, signs, dispatches or
-starts a round. While `cancelling`, only read-only reconciliation runs; it may
+A cancellation stored before a dispatch or round intent prevents that effect.
+An intent stored first may take effect after cancellation and must be reconciled.
+A build or signature already in flight is discarded if cancellation wins
+before its result is stored. After observing `cancelling` or `cancelled`, the
+runner starts no build, signature, dispatch or round. While `cancelling`,
+only read-only reconciliation runs; it may
 stay unresolved indefinitely. When the step resolves the workflow becomes
 `cancelled`, with that step's actual outcome reported. If the step was the last
 and it committed, the workflow is `completed`. `CancelledBeforeSubmission`
@@ -248,6 +261,43 @@ Storage rules:
 - The digest detects damage. It does not detect a rollback to an older valid
   record.
 
+### Canonical field layout
+
+The following fields are encoded in the listed order using the canonical
+Norito framing in [`norito.md`](../norito.md). `Digest32` is `[u8; 32]`,
+`Bytes` is `Vec<u8>`, and `String` is UTF-8. Enums use their zero-based order
+in the corresponding vocabulary of `state_machine.json`. An optional field
+uses Norito's `Option<T>`; an empty vector and an absent option differ.
+
+| Type | Ordered fields and types |
+|---|---|
+| `DriverIdentityV1` | `id: String`, `schema_version: u32` |
+| `StepDescriptorV1` | `label: String`, `kind: StepKindV1`, `intent_digest: Digest32`, `irreversible: bool`, `max_transaction_identities: u8`, `participants_required: u32`, `custody_handles_required: u32`, `max_transcript_bytes: u32` |
+| `WorkflowPlanV1` | `kind: WorkflowKindV1`, `instance: String`, `driver: DriverIdentityV1`, `request_context_digest: Digest32`, `steps: Vec<StepDescriptorV1>` |
+| `WorkflowIdentityV1` | `kind: WorkflowKindV1`, `network: String`, `authority: String`, `instance: String`, `driver: DriverIdentityV1`, `request_context_digest: Digest32`, `plan_digest: Digest32` |
+| `TransactionIdentityV1` | `signed_transaction_hash: Digest32`, `entrypoint_hash: Digest32` |
+| `AttemptEvidenceV1` | `kind: AttemptEvidenceKindV1`, `block_height: Option<u64>`, `detail: String` |
+| `TransactionAttemptV1` | `ordinal: u8`, `identity: Option<TransactionIdentityV1>`, `dispatch_ordinal: u8`, `possible_admissions: u8`, `evidence: Option<AttemptEvidenceV1>` |
+| `TransactionOperationV1` | `state: TransactionStateV1`, `attempts: Vec<TransactionAttemptV1>`, `unsigned_payload: Option<Bytes>`, `signed_transaction: Option<Bytes>` |
+| `CustodyHandleV1` | `label: String`, `reference: Bytes` |
+| `RoundRecordV1` | `state: RoundStateV1`, `round_id: Option<Digest32>`, `start_ordinal: u32`, `participants: Vec<Digest32>`, `transcript: Option<Bytes>`, `transcript_digest: Option<Digest32>`, `custody_handles: Vec<CustodyHandleV1>`, `failure: Option<WorkflowErrorCode>` |
+| `StepRecordV1` | `descriptor: StepDescriptorV1`, `transaction: Option<TransactionOperationV1>`, `round: Option<RoundRecordV1>` |
+| `WorkflowJournalV1` | `version: u16`, `sequence: u64`, `workflow_id: Digest32`, `identity: WorkflowIdentityV1`, `status: WorkflowStatusV1`, `cancel_requested: bool`, `failure_code: Option<WorkflowErrorCode>`, `failure_step: Option<u32>`, `created_at_ms: u64`, `updated_at_ms: u64`, `steps: Vec<StepRecordV1>` |
+| `WorkflowJournalRecordV1` | `journal: WorkflowJournalV1`, `digest: Digest32` |
+
+`vectors.json` supplies the complete semantic plan, identity and journals,
+with byte arrays represented as lowercase hexadecimal strings. Its
+`plan_hex`, `identity_hex` and per-record `journal_hex` contain the canonical
+Norito frames, including headers, used in the respective digest inputs.
+Prepend `iroha:durable-workflow:plan:v1\0`,
+`iroha:durable-workflow:id:v1\0` or
+`iroha:durable-workflow:journal:v1\0`, respectively, then apply the Iroha hash
+(Blake2b-256 with the least significant bit of the last byte set). Here `\0`
+denotes one zero byte. The stored record embeds the journal digest; its
+compare-and-swap digest instead hashes `iroha:durable-workflow:record:v1\0`
+followed by the full `record_hex` frame. The Python guard recomputes these
+digests independently of the Rust generator.
+
 ## 8. Errors
 
 The shared operation codes: `InvalidInput`, `NonCanonicalEncoding`,
@@ -270,7 +320,7 @@ when no trustworthy journal could be read.
 | Label bytes | 64 |
 | Binding string bytes | 256 |
 | Transaction identities per step | 8 |
-| Dispatches per identity | 8 |
+| Counted dispatches per identity (section 4.3) | 8 |
 | Transaction bytes (payload or signed) | 10,485,760 |
 | Round transcript bytes | 1,048,576 |
 | Round participants | 1,024 |
@@ -281,6 +331,11 @@ when no trustworthy journal could be read.
 
 These are client-side bounds of the journal. They do not change what the
 ledger accepts.
+Before creating a journal, the client computes the worst-case record over
+every reachable step prefix. A plan exceeding the record bound is refused
+before any effect. Each round declares `max_transcript_bytes` (at most
+1,048,576); smaller bounds allow longer round sequences without assuming
+completed transcripts can be discarded.
 
 ## 10. Fixtures and checks
 

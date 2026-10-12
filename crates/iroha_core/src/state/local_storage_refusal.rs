@@ -20,6 +20,13 @@ impl StateTransaction<'_, '_> {
 }
 
 impl StateBlock<'_> {
+    /// Keep the first post-execution local refusal even when the caller catches it.
+    pub(crate) fn arm_local_storage_refusal(&mut self, error: StateStorageAdmissionError) {
+        if self.local_storage_refusal.is_none() {
+            self.local_storage_refusal = Some(error);
+        }
+    }
+
     /// Borrow the original refusal through child discard, without taking or clearing it.
     pub(crate) fn require_storage_admission(&self) -> Result<(), StateStorageAdmissionError> {
         match self.local_storage_refusal.as_ref() {
@@ -72,6 +79,11 @@ mod tests {
         );
         transaction.apply();
         drop(occupied);
+        block.arm_local_storage_refusal(StateStorageAdmissionError::SccpAnchor(
+            crate::smartcontracts::isi::sccp::anchor::SccpAnchorLocalError::Invariant(
+                "later source error",
+            ),
+        ));
         assert_eq!(block.require_storage_admission(), Err(expected));
         assert!(matches!(
             block.commit_world_overlay_for_testing(),

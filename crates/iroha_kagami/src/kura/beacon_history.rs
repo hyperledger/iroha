@@ -16,7 +16,7 @@ use iroha_data_model::{
         InstructionBox,
         consensus_keys::{ApplyThresholdKeyLifecycleCertificateV1, ThresholdKeyLifecycleActionV1},
     },
-    sumeragi_finality::ExecutionResultCommitment,
+    sumeragi_finality::{CertifiedResultScope, CertifiedResultV1},
     transaction::{Executable, ExecutableBatchItem, signed::TransactionEntrypoint},
 };
 use norito::json::{self, Value};
@@ -332,8 +332,17 @@ fn project_native_pulse(block: &SignedBlock, projection: &mut Projection) -> Res
         projection.gap("native_result_preimage_unavailable");
         return Ok(());
     };
-    let commitment = ExecutionResultCommitment::decode(certificate.result_preimage())
-        .map_err(|error| eyre!("invalid canonical native result preimage: {error}"))?;
+    // This read-only projection has no authenticated genesis scope. Permit either form
+    // structurally; no active header is promoted to finality or replay authority here.
+    let certified = CertifiedResultV1::decode(
+        certificate.result_preimage(),
+        CertifiedResultScope::TairaGlobal,
+    )?;
+    certified.check_block(
+        block.header().height().get(),
+        block.header().creation_time_ms,
+    )?;
+    let commitment = certified.commitment();
     let (wire_len, wire_hash) = block.executed_block_wire_identity()?;
     if commitment.height != block.header().height().get()
         || commitment.execution.executed_block_wire_len != wire_len
@@ -1085,6 +1094,49 @@ mod tests {
             .expect("pulse from native result preimage");
         assert_eq!(pulse["pulse_height"].as_u64(), Some(9));
         assert_eq!(pulse["pulse_signature_verified"].as_bool(), Some(false));
+        let original = pulse_block.commit_certificate().unwrap();
+        let decoded = CertifiedResultV1::decode(
+            original.result_preimage(),
+            CertifiedResultScope::TairaGlobal,
+        )
+        .unwrap();
+        let (header, body) = decoded.into_parts();
+        let wrong_time = iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+            body.schedule.current.network_id.as_bytes().to_owned(),
+            header.height(),
+            header.timestamp_ms() + 1,
+        )
+        .unwrap();
+        let changed =
+            CertifiedResultV1::new(wrong_time, body, CertifiedResultScope::NonGlobal).unwrap();
+        let mut wrong_time_block = pulse_block.as_ref().clone();
+        wrong_time_block.set_commit_certificate(Some(
+            iroha_data_model::block::CommitCertificate::from_untrusted_parts(
+                original.consensus_header().to_vec(),
+                original.commit_qc().to_vec(),
+                changed.preimage().unwrap(),
+                original.availability().to_vec(),
+            ),
+        ));
+        assert!(matches!(
+            project_native_pulse(&wrong_time_block, &mut Projection::default())
+                .unwrap_err()
+                .downcast_ref::<iroha_data_model::sumeragi_finality::CertifiedResultError>(),
+            Some(iroha_data_model::sumeragi_finality::CertifiedResultError::BlockMismatch)
+        ));
+        let resource = norito::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 128),
+            || project_native_pulse(&pulse_block, &mut Projection::default()),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            resource.downcast_ref::<iroha_data_model::sumeragi_finality::CertifiedResultError>(),
+            Some(
+                iroha_data_model::sumeragi_finality::CertifiedResultError::Body(
+                    iroha_data_model::sumeragi_finality::CommitmentError::Resource(_)
+                )
+            )
+        ));
         let mut foreign = chain.committed(8).block().as_ref().clone();
         foreign.set_commit_certificate(pulse_block.commit_certificate().cloned());
         assert!(project_native_pulse(&foreign, &mut Projection::default()).is_err());

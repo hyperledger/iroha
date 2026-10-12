@@ -780,10 +780,6 @@ pub const VM_ERROR_PRODUCERS: &[ProducerFile] = &[
         PrepareRejection: [InvalidMetadata],
     ),
     producer!(
-        "crates/ivm_artifact_admission/src/admitted_program.rs",
-        PrepareRejection: [InvalidMetadata],
-    ),
-    producer!(
         "crates/ivm_artifact_admission/src/decoded.rs",
         LocalDeferral: [AllocationDeferred, ExecutionDeferred],
     ),

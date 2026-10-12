@@ -178,16 +178,17 @@ fn taira_profile_nexus_collections_deserialize_without_runtime_inputs() {
         .with_toml_source(TomlSource::inline(nexus))
         .read_and_complete::<Nexus>()
         .expect("Taira Nexus schema must load without runtime signing inputs");
-    assert_eq!(nexus.lane_count.get(), 7);
-    assert_eq!(nexus.lane_catalog.len(), 7);
+    assert_eq!(nexus.lane_count.get(), 8);
+    assert_eq!(nexus.lane_catalog.len(), 8);
     for (lane, (index, alias, teu_capacity)) in nexus.lane_catalog.iter().zip([
-        (0, "core", Some(50_000_000)),
+        (0, "core", None),
         (1, "governance", None),
         (2, "zk", None),
-        (3, "dpn", Some(25_000_000)),
-        (4, "external-poc", Some(25_000_000)),
-        (5, "boi-mobile", Some(25_000_000)),
-        (6, "cbsi", Some(25_000_000)),
+        (3, "dpn", None),
+        (4, "is2", None),
+        (5, "bpng", None),
+        (6, "cbsi", None),
+        (7, "is", None),
     ]) {
         assert_eq!(lane.index, Some(index));
         assert_eq!(lane.alias.as_deref(), Some(alias));
@@ -203,8 +204,16 @@ fn taira_profile_nexus_collections_deserialize_without_runtime_inputs() {
                 .is_none()
         );
     }
-    assert_eq!(nexus.dataspace_catalog.len(), 5);
-    assert_eq!(nexus.routing_policy.rules.len(), 19);
+    assert_eq!(nexus.dataspace_catalog.len(), 6);
+    assert_eq!(
+        nexus
+            .dataspace_catalog
+            .iter()
+            .map(|dataspace| dataspace.alias.as_deref())
+            .collect::<Vec<_>>(),
+        ["universal", "dpn", "is2", "bpng", "cbsi", "is"].map(Some),
+    );
+    assert_eq!(nexus.routing_policy.rules.len(), 6);
     assert_eq!(
         nexus.governance.modules["parliament"].params,
         BTreeMap::from([

@@ -48,8 +48,9 @@ by the listed Rust tests, which read this inventory and the pinned fixture.
 The ABI carrier check reads the listed carriers only: it does not search the
 tree for another file that states the hash, and in a text carrier it counts the
 declared hash without knowing which other fields could state one. A test-only
-reference is matched as written: `decode_exact_versioned::<SignedBlock>` is
-seen, the same call with an inferred type is not.
+reference is matched as written; calls with an inferred type are not detected.
+SignedBlock instead has no Version implementation, so the compiler closes that
+inference path; the guard pins its framed version and rejects reintroduced traits.
 
 `--report` prints every open finding as `path:line` at the current source.
 `--test-commands` prints one `cargo test` command per package and target that
@@ -413,6 +414,11 @@ def load_inventory(root: Path) -> tuple[dict, list[str]]:
             errors.append(f"{INVENTORY}: `{key}` must be a {kind.__name__}")
     if errors:
         return {}, errors
+    for entry in inventory["history_wire"]:
+        if entry.get("kind") not in {"versioned-payload", "canonical-frame"}:
+            errors.append(f"{INVENTORY}: history wire kind must be versioned-payload or canonical-frame")
+    if errors:
+        return {}, errors
     for key in (
         "history_wire",
         "replay_tests",
@@ -569,7 +575,12 @@ def check_sources(root: Path, inventory: dict) -> list[str]:
         [piece.encode() for piece in re.split(r"\s+|::", entry["needle"]) if piece]
         for entry, _ in references
     ]
-    listed = {(entry["path"], entry["type"]): entry for entry in inventory["history_wire"]}
+    listed = {
+        (entry["path"], entry["type"]): entry
+        for entry in inventory["history_wire"]
+        if entry["kind"] == "versioned-payload"
+    }
+    errors += framed_wire_errors(root, inventory["history_wire"])
     test_only = {(entry["path"], entry["type"]) for entry in inventory["test_only_version_impls"]}
     seen: set[tuple[str, str]] = set()
     for relative in inventory["retired_identifier_roots"]:
@@ -610,6 +621,46 @@ def check_sources(root: Path, inventory: dict) -> list[str]:
             errors += retired_impl_errors(relative, text, retired_impls)
     for key in sorted((set(listed) | test_only) - seen):
         errors.append(f"{key[0]}: listed `Version` implementation for {key[1]} does not exist")
+    return errors
+
+
+def framed_wire_errors(root: Path, entries: list[dict]) -> list[str]:
+    """Pin an unconditional module-level owner without granting headerless codec traits."""
+    errors: list[str] = []
+    for entry in entries:
+        if entry["kind"] != "canonical-frame":
+            continue
+        relative, target, expected = entry["path"], entry["type"], entry["version"]
+        try:
+            source = blank_rust_literals((root / relative).read_text(encoding="utf-8"))
+        except OSError:
+            errors.append(f"{relative}: canonical frame source is missing")
+            continue
+        values = []
+        file_gated = any(
+            source[:attr.start()].count("{") == source[:attr.start()].count("}")
+            for attr in re.finditer(r"#!\s*\[\s*cfg(?:_attr)?\b", source)
+        )
+        for found in re.finditer(r"\bimpl\s+" + re.escape(target) + r"\s*\{", source):
+            if file_gated or is_test_path(relative):
+                continue
+            before = source[:found.start()]
+            if before.count("{") != before.count("}"):
+                continue
+            if any(re.search(r"\bcfg(?:_attr)?\b", attr)
+                   for attr in function_attributes(source, found.start())):
+                continue
+            body = source[found.end() : matching_close(source, found.end() - 1)]
+            for constant in re.finditer(r"\bpub\s+const\s+WIRE_VERSION\s*:\s*u8\s*=\s*(\d+)\s*;", body):
+                preceding = body[:constant.start()]
+                if preceding.count("{") != preceding.count("}"):
+                    continue
+                if any(re.search(r"\bcfg(?:_attr)?\b", attr)
+                       for attr in function_attributes(body, constant.start())):
+                    continue
+                values.append(constant.group(1))
+        if values != [str(expected)]:
+            errors.append(f"{relative}: {target}::WIRE_VERSION must be the single literal {expected}")
     return errors
 
 

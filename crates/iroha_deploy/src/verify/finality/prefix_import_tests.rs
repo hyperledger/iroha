@@ -159,9 +159,26 @@ fn prefix_import_preserves_active_owner_work_and_allocation_refusal() {
             .with(|| Prefix::new(&checkpoint))
             .err()
             .expect("same caller resource refusal");
+        let (
+            FinalityError::DecodeResource(actual_error),
+            FinalityError::DecodeResource(expected_error),
+        ) = (actual_error, expected_error)
+        else {
+            panic!("original decoder refusal required at allocation cap {cap}")
+        };
+        // The two real budgets have distinct opaque identities. Compare the observed
+        // locality and exact resource fields without pretending they share an owner.
         assert_eq!(
-            format!("{actual_error:?}"),
-            format!("{expected_error:?}"),
+            actual_error.kind(),
+            norito::core::DecodeAttemptErrorKind::EnclosingLimit
+        );
+        assert_eq!(
+            expected_error.kind(),
+            norito::core::DecodeAttemptErrorKind::EnclosingLimit
+        );
+        assert_eq!(
+            actual_error.into_error().decode_resource_error(),
+            expected_error.into_error().decode_resource_error(),
             "prefix refusal differs at allocation cap {cap}"
         );
         assert_eq!(

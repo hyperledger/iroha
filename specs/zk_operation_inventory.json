@@ -7,8 +7,8 @@
  "not_a_readiness_claim": "An entry describes what the tree contains. `presence: registered` says only that a type and wire id exist. Verification, state effects and delivery are recorded separately, and no operation is recorded as delivered: none has its one-call SDK operation in the six families, Kotodama binding and four-validator flow. This file qualifies no cryptography and grants no runtime permission.",
  "consumed_by": ["A.1", "I.1", "P.1", "S.1", "S.2"],
  "observed": {
-  "base_commit": "d651d51715fd16881b34d75384c4b9ea95cbd229",
-  "note": "Observed on the working tree of 2026-10-05 while tasks C.3, G.2, F.4, H.1, BH.2 and BH.3 were editing it. Re-run the checker after merging; `--refresh` recomputes the scanned parts."
+  "base_commit": "6043d97c4003da4bbb3fc772d9a0548b3f456b16",
+  "note": "Reviewed live source on 2026-10-12 after merge resolution. Native PIPA-R registry, signed HKDF consumers, retired SCCP tag, SDK declarations, moved digest owners and exact census deltas reconciled individually. Presence and source-test reach do not establish product readiness."
  },
  "status_vocabulary": {
   "presence": {
@@ -148,7 +148,7 @@
    "title": "Typed generic proof verification and verifying-key registry",
    "requirements": ["REQ-016", "REQ-061", "REQ-062"],
    "owner_tasks": ["B.2", "B.3", "P.1", "I.3"],
-   "summary": "`VerifyProof` checks an OpenVerify envelope against a registered verifying key. Halo2 keys must equal the compiled circuit key; a generic STARK key only gives the public-input binding relation. A recorded result confers no authorization."
+   "summary": "`VerifyProof` checks an OpenVerify envelope against a registered verifying key. Native PIPA-R keys must equal the compiled circuit key; a generic STARK key only gives the public-input binding relation. A recorded result confers no authorization."
   },
   {
    "id": "fastpq_ordinary_effects",
@@ -309,7 +309,7 @@
    "title": "RAM-LFE programs, identifier claims and openings",
    "requirements": ["REQ-023", "REQ-032", "REQ-111"],
    "owner_tasks": ["R.12", "R.5", "R.8", "R.6", "R.10", "R.7", "R.9"],
-   "summary": "Policy instructions and a signed-receipt identifier claim exist. Proof mode is refused, both BFV backends are refused and the accepted HKDF backend has no consumer."
+   "summary": "Signed HKDF policies, owner-opening receipts and identifier claims have current consumers. Proof mode and both diagnostic BFV backends are refused; no encrypted execution or opening relation is compiled. Phone claims still require a pinned canonicality attestor, which does not prove phone control."
   },
   {
    "id": "soracloud_fhe",
@@ -338,8 +338,8 @@
    "test_evidence": "default"
   },
   {
-   "id": "halo2.confidential_transfer",
-   "family": "Halo2 IPA over Pasta",
+   "id": "native_pipa_r.confidential_transfer",
+   "family": "Native PIPA-R over Pasta",
    "status": "implemented",
    "guarantee": "Ownership, membership, range and conservation for a 2x2 confidential transfer; note commitments stay public and linkable.",
    "verifier": {"path": "crates/iroha_core_zk/src/verification.rs", "symbol": "pub fn verify_for_relation("},
@@ -347,7 +347,7 @@
     {"path": "crates/iroha_core_zk/src/confidential/tests.rs", "test": "canonical_wallet_proves_transfer_full_redemption_and_private_change"},
     {
      "path": "crates/iroha_core_zk/src/verification/tests.rs",
-     "test": "every_admitted_halo2_circuit_has_one_explicit_relation",
+     "test": "every_admitted_native_circuit_has_one_explicit_relation",
      "covers": "The circuit-to-relation table; no proof is verified."
     }
    ],
@@ -356,8 +356,8 @@
    "owner_tasks": ["P.9"]
   },
   {
-   "id": "halo2.confidential_full_unshield",
-   "family": "Halo2 IPA over Pasta",
+   "id": "native_pipa_r.confidential_full_unshield",
+   "family": "Native PIPA-R over Pasta",
    "status": "implemented",
    "guarantee": "Ownership, membership, range and conservation for complete redemption of one note.",
    "verifier": {"path": "crates/iroha_core_zk/src/verification.rs", "symbol": "pub fn verify_for_relation("},
@@ -365,7 +365,7 @@
     {"path": "crates/iroha_core_zk/src/confidential/tests.rs", "test": "canonical_wallet_proves_transfer_full_redemption_and_private_change"},
     {
      "path": "crates/iroha_core_zk/src/verification/tests.rs",
-     "test": "every_admitted_halo2_circuit_has_one_explicit_relation",
+     "test": "every_admitted_native_circuit_has_one_explicit_relation",
      "covers": "The circuit-to-relation table; no proof is verified."
     }
    ],
@@ -374,8 +374,8 @@
    "owner_tasks": ["P.9"]
   },
   {
-   "id": "halo2.confidential_change_unshield",
-   "family": "Halo2 IPA over Pasta",
+   "id": "native_pipa_r.confidential_change_unshield",
+   "family": "Native PIPA-R over Pasta",
    "status": "implemented",
    "guarantee": "Ownership, membership, range and conservation for redemption with private change.",
    "verifier": {"path": "crates/iroha_core_zk/src/verification.rs", "symbol": "pub fn verify_for_relation("},
@@ -383,7 +383,7 @@
     {"path": "crates/iroha_core_zk/src/confidential/tests.rs", "test": "canonical_wallet_proves_transfer_full_redemption_and_private_change"},
     {
      "path": "crates/iroha_core_zk/src/verification/tests.rs",
-     "test": "every_admitted_halo2_circuit_has_one_explicit_relation",
+     "test": "every_admitted_native_circuit_has_one_explicit_relation",
      "covers": "The circuit-to-relation table; no proof is verified."
     }
    ],
@@ -392,8 +392,8 @@
    "owner_tasks": ["P.9"]
   },
   {
-   "id": "halo2.kaigi_authorization",
-   "family": "Halo2 IPA over Pasta",
+   "id": "native_pipa_r.kaigi_authorization",
+   "family": "Native PIPA-R over Pasta",
    "status": "implemented",
    "guarantee": "Kaigi authorization bound to the public network, call, subject, role and sequence (31 instance rows).",
    "verifier": {"path": "crates/iroha_core/src/smartcontracts/isi/kaigi/privacy.rs", "symbol": "pub fn verify_authorization("},
@@ -421,8 +421,8 @@
    "owner_tasks": ["P.7"]
   },
   {
-   "id": "halo2.kaigi_usage",
-   "family": "Halo2 IPA over Pasta",
+   "id": "native_pipa_r.kaigi_usage",
+   "family": "Native PIPA-R over Pasta",
    "status": "implemented",
    "guarantee": "Kaigi usage bound to the public call, host, segment and billed tuple (25 instance rows).",
    "verifier": {"path": "crates/iroha_core/src/smartcontracts/isi/kaigi/privacy.rs", "symbol": "pub fn verify_usage_commitment("},
@@ -686,7 +686,7 @@
     {"path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs", "test": "signed_diagnostic_bfv_policies_and_receipts_are_unavailable"}
    ],
    "test_evidence": "default",
-   "test_note": "The cited tests call the stateless receipt validator that holds the signature check. They show receipts rejected (expiry, refused BFV policy); no test in the tree shows a signed receipt accepted, because registration refuses the only backend the validator accepts.",
+   "test_note": "The cited tests reach the current stateless validator and establish refusal of expired receipts and insecure BFV policies. Signed HKDF receipts are supported by its source path; these tests do not establish successful end-to-end admission or encrypted execution.",
    "references": [
     {"inventory": "fhe", "key": "current_state/signed_mode_and_receipt_attestations_exist"}
    ],
@@ -845,10 +845,6 @@
    "defi": {"scope": "out", "reason": "DeFi instruction box; no proof relation."},
    "endorsement": {"scope": "out", "reason": "Domain endorsement committees; signatures."},
    "escrow": {"scope": "out", "reason": "Escrow; no proof relation."},
-   "kagemusha_v1": {
-    "scope": "out",
-    "reason": "KAGEMUSHA offline monetary authority. Its Halo2/PIPA relations and policy are owned by the separate KAGEMUSHA design, not by this plan; A.1 only tests mixed KAGEMUSHA blocks."
-   },
    "ministry": {"scope": "out", "reason": "Ministry agenda; no proof relation."},
    "musubi": {"scope": "out", "reason": "Package registry; signatures and attestations."},
    "nft_market": {"scope": "out", "reason": "NFT market; no proof relation."},
@@ -880,7 +876,15 @@
     "scope": "out",
     "reason": "AMX two-phase commit records carry consensus record proofs (specs/sumeragi.md section 11), not a ZK or FHE relation. AXT is a different mechanism (product `axt`)."
    },
-   "vpn": {"scope": "out", "reason": "VPN leases; no proof relation."}
+   "vpn": {"scope": "out", "reason": "VPN leases; no proof relation."},
+   "kagemusha_wallet": {
+    "scope": "out",
+    "reason": "KAGEMUSHA offline monetary-authority wallet ledger and proof package are owned by the separate KAGEMUSHA design; A.1 only tests mixed KAGEMUSHA blocks."
+   },
+   "register_dataspace_asset_definition": {
+    "scope": "out",
+    "reason": "Registers an ordinary asset definition under an explicit dataspace home after namespace-owner authority checks; carries no proof and calls no proof verifier."
+   }
   },
   "tripwire": {
    "what": "Nets for instructions outside the classed families: a type whose name has a family word, and a handler that calls a proof verifier, directly or through functions of its file `helper_depth` levels deep. Each hit is an operation or an exclusion with a reason. Handlers written for a macro variable have no literal type; their files are listed under `macro_generated` with the verifier calls of the whole file. Inside the classed families the same scan requires an operation whose handler calls a verifier to record a verification.",
@@ -969,7 +973,9 @@
    "routes": ["game.capabilities"],
    "sdk": {
     "rust": [],
-    "kotlin_java_android": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
     "swift": [],
     "javascript": [
      {"path": "javascript/iroha_js/game.d.ts", "via": ["type_name"]},
@@ -1015,7 +1021,9 @@
    "routes": ["game.verifications.get"],
    "sdk": {
     "rust": [],
-    "kotlin_java_android": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
     "swift": [],
     "javascript": [
      {"path": "javascript/iroha_js/game.d.ts", "via": ["type_name"]},
@@ -1077,7 +1085,9 @@
     "rust": [
      {"path": "crates/iroha_cli/src/execution_finality.rs", "via": ["type_name"]}
     ],
-    "kotlin_java_android": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
     "swift": [],
     "javascript": [
      {"path": "javascript/iroha_js/game.d.ts", "via": ["type_name"]},
@@ -1361,7 +1371,8 @@
       "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/instructions/RegisterVerifyingKeyInstruction.kt",
       "via": ["type_name"]
      },
-     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/zk/VerifyingKeyRecordDescription.kt", "via": ["type_name"]}
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/zk/VerifyingKeyRecordDescription.kt", "via": ["type_name"]},
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
     ],
     "swift": [
      {"path": "IrohaSwift/Sources/IrohaSwift/ToriiClient.swift", "via": ["type_name", "wire_id"]}
@@ -1376,10 +1387,10 @@
     ]
    },
    "tests": [
-    {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "test": "register_vk_accepts_and_stores_canonical_compiled_halo2_key"},
+    {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "test": "register_vk_accepts_and_stores_canonical_compiled_native_key"},
     {
      "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
-     "test": "register_vk_rejects_parseable_halo2_key_relabelled_as_confidential_transfer"
+     "test": "register_vk_rejects_parseable_native_key_relabelled_as_confidential_transfer"
     }
    ],
    "status": {
@@ -1432,7 +1443,8 @@
       "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/instructions/UpdateVerifyingKeyInstruction.kt",
       "via": ["type_name"]
      },
-     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/zk/VerifyingKeyRecordDescription.kt", "via": ["type_name"]}
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/zk/VerifyingKeyRecordDescription.kt", "via": ["type_name"]},
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
     ],
     "swift": [
      {"path": "IrohaSwift/Sources/IrohaSwift/ToriiClient.swift", "via": ["type_name", "wire_id"]}
@@ -1447,7 +1459,7 @@
     ]
    },
    "tests": [
-    {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "test": "update_vk_rejects_parseable_halo2_key_relabelled_as_same_circuit"},
+    {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "test": "update_vk_rejects_parseable_native_key_relabelled_as_same_circuit"},
     {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "test": "update_vk_rejects_circuit_identity_change_without_rewriting_index"}
    ],
    "status": {
@@ -1501,7 +1513,7 @@
     "missing": "Canonical class-bound V1 policy replacing the backend tags (R.6, R.12); one-call and prepared SDK operation in the six SDK families, Kotodama binding, canonical fixtures, four-validator flow, cold restart and current-genesis replay"
    },
    "owner_tasks": ["R.12", "R.5", "R.8", "R.6", "R.10", "R.7", "R.9"],
-   "note": "Stores a policy only for the HKDF backend in Signed mode. Proof mode and both BFV backends are refused, and no consumer accepts an HKDF policy, so a stored policy has no effect.",
+   "note": "Stores only a Signed HKDF policy, consumed by current signed owner-receipt and identifier-claim paths. Proof mode and both diagnostic BFV backends are refused. HKDF is a plaintext keyed PRF and supplies no encrypted evaluation guarantee.",
    "native_bridges": []
   },
   {
@@ -1635,7 +1647,6 @@
    },
    "relation": "ram_lfe.signed_receipt",
    "verifier": {"path": "crates/iroha_core/src/smartcontracts/isi/identifier.rs", "symbol": "fn validate_program_receipt("},
-   "refusal": {"path": "crates/iroha_core/src/smartcontracts/isi/identifier.rs", "symbol": "uses unsupported backend {} for identifier claims"},
    "authority": [
     {"path": "crates/iroha_core/src/smartcontracts/isi/identifier.rs", "symbol": "ensure_policy_authorized"}
    ],
@@ -1668,16 +1679,16 @@
     }
    ],
    "test_evidence": "none",
-   "test_note": "No test executes the claim handler with a signed receipt: the receipt path accepts only the BFV programmed backend, which registration refuses, so a signed claim cannot be built.",
+   "test_note": "The cited test establishes only proof-mode refusal. The current handler accepts a context-bound signed HKDF receipt with the original bounded owner opening; this inventory does not claim a passing claim-handler integration test.",
    "status": {
     "presence": "registered",
     "verification": "signature_only",
-    "state_effects": "unreachable",
+    "state_effects": "implemented",
     "delivery": "not_delivered",
-    "missing": "Canonical class-bound V1 policy replacing the backend tags (R.6, R.12); one-call and prepared SDK operation in the six SDK families, Kotodama binding, canonical fixtures, four-validator flow, cold restart and current-genesis replay"
+    "missing": "Private phone-control credential relation and replacement of the current canonicality-attestor gate (R.1, R.2, R.4, R.5); canonical class-bound V1 policy and encrypted execution/opening relations (R.6, R.8, R.12); complete six-SDK delivery, Kotodama binding, four-validator flow, cold restart and current-genesis replay"
    },
-   "owner_tasks": ["R.12", "R.5", "R.8", "R.6", "R.10", "R.7", "R.9"],
-   "note": "Admits an identifier claim from a resolver-signed receipt. The receipt path accepts only the BFV programmed backend, which registration refuses, so no claim is reachable. Opening and phone canonicality rest on signatures.",
+   "owner_tasks": ["R.12", "R.5", "R.8", "R.6", "R.10", "R.7", "R.9", "R.1", "R.2", "R.4"],
+   "note": "The live handler checks current network, policy, owner, Signed HKDF metadata, original bounded opening, output binding and resolver signature before applying the claim. Phone claims additionally require a pinned canonicality-attestor signature; this is an unresolved gate, not evidence of phone control. Execution and opening correctness are not privately proved.",
    "native_bridges": [
     {"path": "crates/connect_norito_bridge/src/lib.rs", "via": ["type_name"]}
    ]
@@ -1723,11 +1734,11 @@
    },
    "handler": {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "symbol": "impl Execute for zk::VerifyProof"},
    "relations": [
-    "halo2.confidential_transfer",
-    "halo2.confidential_full_unshield",
-    "halo2.confidential_change_unshield",
-    "halo2.kaigi_authorization",
-    "halo2.kaigi_usage"
+    "native_pipa_r.confidential_transfer",
+    "native_pipa_r.confidential_full_unshield",
+    "native_pipa_r.confidential_change_unshield",
+    "native_pipa_r.kaigi_authorization",
+    "native_pipa_r.kaigi_usage"
    ],
    "verifier": {"path": "crates/iroha_core_zk/src/lib.rs", "symbol": "pub fn verify_backend_with_timing_guardrails("},
    "verifier_path": [
@@ -1748,7 +1759,9 @@
    ],
    "sdk": {
     "rust": [],
-    "kotlin_java_android": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
     "swift": [],
     "javascript": [],
     "python": [
@@ -1809,7 +1822,9 @@
     "rust": [
      {"path": "crates/iroha_cli/src/zk.rs", "via": ["type_name"]}
     ],
-    "kotlin_java_android": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
     "swift": [],
     "javascript": [],
     "python": [],
@@ -1842,7 +1857,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "tests": [
     {
      "path": "crates/iroha_core_privacy/src/privacy_profiles_tests.rs",
@@ -1878,7 +1902,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -1908,7 +1941,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -1935,7 +1977,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -1962,7 +2013,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -1992,7 +2052,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -2019,7 +2088,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -2046,7 +2124,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -2075,7 +2162,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "tests": [
     {"path": "crates/iroha_core/src/smartcontracts/isi/privacy.rs", "test": "successful_pgc_bootstrap_is_atomic_and_double_bootstrap_rejects"},
     {"path": "crates/iroha_core/src/smartcontracts/isi/privacy.rs", "test": "altered_pgc_bootstrap_fields_and_proof_leave_all_state_unchanged"}
@@ -2108,7 +2204,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -2136,7 +2241,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "tests": [
     {"path": "crates/iroha_core/src/smartcontracts/isi/privacy.rs", "test": "zk_ace_policy_governance_has_no_compiled_activation_to_substitute"}
    ],
@@ -2167,7 +2281,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "tests": [
     {"path": "crates/iroha_core/src/smartcontracts/isi/privacy.rs", "test": "zk_ace_policy_governance_has_no_compiled_activation_to_substitute"}
    ],
@@ -2198,7 +2321,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "tests": [
     {"path": "crates/iroha_core/src/smartcontracts/isi/privacy.rs", "test": "zk_ace_policy_governance_has_no_compiled_activation_to_substitute"}
    ],
@@ -2228,7 +2360,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "tests": [
     {
      "path": "crates/iroha_core/src/smartcontracts/isi/privacy.rs",
@@ -2261,7 +2402,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "tests": [
     {
      "path": "crates/iroha_core/src/smartcontracts/isi/privacy.rs",
@@ -2294,7 +2444,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "tests": [
     {
      "path": "crates/iroha_core/src/smartcontracts/isi/privacy.rs",
@@ -2328,7 +2487,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -2356,7 +2524,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -2384,7 +2561,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -2411,7 +2597,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -2438,7 +2633,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -2465,7 +2669,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -2492,7 +2705,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -2519,7 +2741,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -2546,7 +2777,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -2573,7 +2813,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -2600,7 +2849,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -2627,7 +2885,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -2678,7 +2945,10 @@
     "kotlin_java_android": [
      {"path": "java/iroha_android/src/main/java/org/hyperledger/iroha/android/model/InstructionBox.java", "via": ["wire_id"]},
      {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/InstructionBox.kt", "via": ["wire_id"]},
-     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/privacy/PrivacyExact12FixtureCodecV1.kt", "via": ["wire_id"]}
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/privacy/PrivacyCapabilitiesV1.kt", "via": ["type_name"]},
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/privacy/PrivacyExact12FixtureCodecV1.kt", "via": ["wire_id"]},
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]},
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/TransactionPayloadAdapter.kt", "via": ["wire_id"]}
     ],
     "swift": [
      {"path": "IrohaSwift/Sources/IrohaSwift/PrivacyExact12CapabilityManifestV1.swift", "via": ["type_name"]},
@@ -2735,7 +3005,8 @@
    "note": "One envelope, one handler, one dispatch and one state executor for the thirteen roles of the twelve protocols (exact12.roles, exact12.single_route). The handler first requires a registered activation and the all-twelve qualification record, so no role's effects are reachable on a chain without that record. Five roles of four protocols are refused by the typed dispatch registry.",
    "native_bridges": [
     {"path": "crates/connect_norito_bridge/src/platform_jni.rs", "via": ["type_name"]},
-    {"path": "crates/connect_norito_bridge/src/platform_jni/part_2.rs", "via": ["type_name"]}
+    {"path": "crates/connect_norito_bridge/src/platform_jni/part_2.rs", "via": ["type_name"]},
+    {"path": "crates/connect_norito_bridge/src/platform_jni/privacy_intent.rs", "via": ["type_name"]}
    ]
   },
   {
@@ -2753,7 +3024,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "tests": [
     {"path": "crates/iroha_core/src/private_settlement/state.rs", "test": "pool_bootstrap_rejects_ungoverned_or_zero_origins"}
    ],
@@ -2782,7 +3062,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -2825,7 +3114,9 @@
     "rust": [
      {"path": "crates/iroha/src/client/private_settlement.rs", "via": ["type_name"]}
     ],
-    "kotlin_java_android": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
     "swift": [],
     "javascript": [],
     "python": [],
@@ -2866,7 +3157,9 @@
     "rust": [
      {"path": "crates/iroha/src/client/private_settlement.rs", "via": ["type_name"]}
     ],
-    "kotlin_java_android": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
     "swift": [],
     "javascript": [],
     "python": [],
@@ -2909,7 +3202,9 @@
     "rust": [
      {"path": "crates/iroha/src/client/private_settlement.rs", "via": ["type_name"]}
     ],
-    "kotlin_java_android": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
+    ],
     "swift": [],
     "javascript": [],
     "python": [],
@@ -2941,7 +3236,7 @@
     "defined_in": {"path": "crates/iroha_data_model/src/isi/kaigi.rs", "symbol": "pub struct CreateKaigi"}
    },
    "handler": {"path": "crates/iroha_core/src/smartcontracts/isi/kaigi.rs", "symbol": "impl Execute for CreateKaigi"},
-   "relation": "halo2.kaigi_authorization",
+   "relation": "native_pipa_r.kaigi_authorization",
    "authority": [
     {
      "path": "crates/iroha_core/src/smartcontracts/isi/kaigi.rs",
@@ -2992,7 +3287,8 @@
      {
       "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/instructions/KaigiWirePayloadEncoderV1.kt",
       "via": ["type_name"]
-     }
+     },
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
     ],
     "swift": [
      {"path": "IrohaSwift/Sources/IrohaSwift/KaigiInstructionsV1.swift", "via": ["type_name", "wire_id"]}
@@ -3051,7 +3347,7 @@
     "defined_in": {"path": "crates/iroha_data_model/src/isi/kaigi.rs", "symbol": "pub struct JoinKaigi"}
    },
    "handler": {"path": "crates/iroha_core/src/smartcontracts/isi/kaigi.rs", "symbol": "impl Execute for JoinKaigi"},
-   "relation": "halo2.kaigi_authorization",
+   "relation": "native_pipa_r.kaigi_authorization",
    "authority": [
     {
      "path": "crates/iroha_core/src/smartcontracts/isi/kaigi.rs",
@@ -3101,7 +3397,8 @@
      {
       "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/instructions/KaigiWirePayloadEncoderV1.kt",
       "via": ["type_name"]
-     }
+     },
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
     ],
     "swift": [
      {"path": "IrohaSwift/Sources/IrohaSwift/KaigiInstructionsV1.swift", "via": ["type_name", "wire_id"]}
@@ -3156,7 +3453,7 @@
     "defined_in": {"path": "crates/iroha_data_model/src/isi/kaigi.rs", "symbol": "pub struct LeaveKaigi"}
    },
    "handler": {"path": "crates/iroha_core/src/smartcontracts/isi/kaigi.rs", "symbol": "impl Execute for LeaveKaigi"},
-   "relation": "halo2.kaigi_authorization",
+   "relation": "native_pipa_r.kaigi_authorization",
    "authority": [
     {
      "path": "crates/iroha_core/src/smartcontracts/isi/kaigi.rs",
@@ -3196,7 +3493,8 @@
       "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/instructions/KaigiWirePayloadEncoderV1.kt",
       "via": ["type_name"]
      },
-     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/instructions/LeaveKaigiInstruction.kt", "via": ["type_name"]}
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/instructions/LeaveKaigiInstruction.kt", "via": ["type_name"]},
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
     ],
     "swift": [
      {"path": "IrohaSwift/Sources/IrohaSwift/KaigiInstructionsV1.swift", "via": ["type_name", "wire_id"]}
@@ -3249,7 +3547,7 @@
     "defined_in": {"path": "crates/iroha_data_model/src/isi/kaigi.rs", "symbol": "pub struct EndKaigi"}
    },
    "handler": {"path": "crates/iroha_core/src/smartcontracts/isi/kaigi.rs", "symbol": "impl Execute for EndKaigi"},
-   "relation": "halo2.kaigi_authorization",
+   "relation": "native_pipa_r.kaigi_authorization",
    "authority": [
     {
      "path": "crates/iroha_core/src/smartcontracts/isi/kaigi.rs",
@@ -3291,7 +3589,8 @@
      {
       "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/instructions/KaigiWirePayloadEncoderV1.kt",
       "via": ["type_name"]
-     }
+     },
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
     ],
     "swift": [
      {"path": "IrohaSwift/Sources/IrohaSwift/KaigiInstructionsV1.swift", "via": ["type_name", "wire_id"]}
@@ -3349,7 +3648,7 @@
     "defined_in": {"path": "crates/iroha_data_model/src/isi/kaigi.rs", "symbol": "pub struct RecordKaigiUsage"}
    },
    "handler": {"path": "crates/iroha_core/src/smartcontracts/isi/kaigi.rs", "symbol": "impl Execute for RecordKaigiUsage"},
-   "relation": "halo2.kaigi_usage",
+   "relation": "native_pipa_r.kaigi_usage",
    "authority": [
     {
      "path": "crates/iroha_core/src/smartcontracts/isi/kaigi.rs",
@@ -3392,7 +3691,8 @@
      {
       "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/instructions/RecordKaigiUsageInstruction.kt",
       "via": ["type_name"]
-     }
+     },
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
     ],
     "swift": [
      {"path": "IrohaSwift/Sources/IrohaSwift/KaigiInstructionsV1.swift", "via": ["type_name", "wire_id"]}
@@ -3489,7 +3789,8 @@
      {
       "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/instructions/SetKaigiRelayManifestInstruction.kt",
       "via": ["type_name"]
-     }
+     },
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
     ],
     "swift": [
      {"path": "IrohaSwift/Sources/IrohaSwift/KaigiInstructionsV1.swift", "via": ["type_name", "wire_id"]}
@@ -3546,7 +3847,8 @@
      {
       "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/instructions/RegisterKaigiRelayInstruction.kt",
       "via": ["type_name"]
-     }
+     },
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
     ],
     "swift": [
      {"path": "IrohaSwift/Sources/IrohaSwift/KaigiInstructionsV1.swift", "via": ["type_name", "wire_id"]}
@@ -3607,7 +3909,8 @@
      {
       "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/instructions/UnregisterKaigiRelayInstruction.kt",
       "via": ["type_name"]
-     }
+     },
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
     ],
     "swift": [
      {"path": "IrohaSwift/Sources/IrohaSwift/KaigiInstructionsV1.swift", "via": ["type_name", "wire_id"]}
@@ -3683,7 +3986,8 @@
      {
       "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/instructions/ReportKaigiRelayHealthInstruction.kt",
       "via": ["type_name"]
-     }
+     },
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
     ],
     "swift": [
      {"path": "IrohaSwift/Sources/IrohaSwift/KaigiInstructionsV1.swift", "via": ["type_name", "wire_id"]}
@@ -3736,7 +4040,8 @@
       "path": "java/iroha_android/src/main/java/org/hyperledger/iroha/android/model/instructions/RegisterZkAssetInstruction.java",
       "via": ["type_name"]
      },
-     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/instructions/ZkAssetInstructions.kt", "via": ["type_name"]}
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/instructions/ZkAssetInstructions.kt", "via": ["type_name"]},
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
     ],
     "swift": [],
     "javascript": [
@@ -3868,7 +4173,9 @@
    "routes": [],
    "sdk": {
     "rust": [],
-    "kotlin_java_android": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
     "swift": [],
     "javascript": [
      {"path": "javascript/iroha_js/src/instructionBuilders.js", "via": ["type_name"]},
@@ -3930,7 +4237,9 @@
    "routes": ["zk.vote.tally"],
    "sdk": {
     "rust": [],
-    "kotlin_java_android": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
     "swift": [],
     "javascript": [
      {"path": "javascript/iroha_js/src/instructionBuilders.js", "via": ["type_name"]},
@@ -3983,7 +4292,9 @@
    "routes": [],
    "sdk": {
     "rust": [],
-    "kotlin_java_android": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
     "swift": [],
     "javascript": [
      {"path": "javascript/iroha_js/src/instructionBuilders.js", "via": ["type_name"]},
@@ -4025,7 +4336,16 @@
    "authority_note": "None: refused for every caller before any record is written.",
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "tests": [
     {
      "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
@@ -4060,7 +4380,9 @@
     "rust": [
      {"path": "crates/iroha_cli/src/bridge.rs", "via": ["type_name"]}
     ],
-    "kotlin_java_android": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
     "swift": [],
     "javascript": [],
     "python": [],
@@ -4094,7 +4416,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -4120,7 +4451,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -4146,7 +4486,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -4172,7 +4521,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -4211,7 +4569,8 @@
     ],
     "kotlin_java_android": [
      {"path": "java/iroha_android/src/main/java/org/hyperledger/iroha/android/client/ParliamentApiV1.java", "via": ["wire_id"]},
-     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/ParliamentApiV1.kt", "via": ["wire_id"]}
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/ParliamentApiV1.kt", "via": ["wire_id"]},
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
     ],
     "swift": [
      {"path": "IrohaSwift/Sources/IrohaSwift/ToriiParliamentAPIV1.swift", "via": ["wire_id"]}
@@ -4304,7 +4663,8 @@
     ],
     "kotlin_java_android": [
      {"path": "java/iroha_android/src/main/java/org/hyperledger/iroha/android/client/ParliamentApiV1.java", "via": ["wire_id"]},
-     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/ParliamentApiV1.kt", "via": ["wire_id"]}
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/ParliamentApiV1.kt", "via": ["wire_id"]},
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
     ],
     "swift": [
      {"path": "IrohaSwift/Sources/IrohaSwift/ToriiParliamentAPIV1.swift", "via": ["wire_id"]}
@@ -4386,7 +4746,8 @@
       "path": "java/iroha_android/src/main/java/org/hyperledger/iroha/android/model/instructions/CastZkBallotInstruction.java",
       "via": ["type_name"]
      },
-     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/instructions/CastZkBallotInstruction.kt", "via": ["type_name"]}
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/instructions/CastZkBallotInstruction.kt", "via": ["type_name"]},
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
     ],
     "swift": [],
     "javascript": [
@@ -4438,12 +4799,36 @@
      "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
      "symbol": "fn execute_plain_ballot_position(",
      "scope": "file",
-     "what": "The shared plain-ballot executor that holds the citizen and lock-owner checks."
+     "what": "The shared plain-ballot executor that holds the exact scoped permission, citizen and lock-owner checks."
     },
     {
      "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
      "symbol": "execute_plain_ballot_position",
-     "what": "Delegate: the citizen and lock-owner checks of a plain ballot position."
+     "what": "Delegate: the exact scoped permission, citizen and lock-owner checks of a plain ballot position."
+    },
+    {
+     "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
+     "symbol": "ensure_exact_governance_ballot_permission( authority, &ballot.referendum_id, state_transaction, )?;",
+     "what": "Require the signer's exact CanSubmitGovernanceBallot permission for this ballot referendum before executing its position.",
+     "scope": "file"
+    },
+    {
+     "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
+     "symbol": "let required: Permission = CanSubmitGovernanceBallot { referendum_id: referendum_id.to_owned(), } .into();",
+     "what": "The required CanSubmitGovernanceBallot token binds the original referendum_id, not a different referendum or an unscoped permission.",
+     "scope": "file"
+    },
+    {
+     "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
+     "symbol": "ensure_citizen_for_ballot(authority, &ballot.referendum_id, state_transaction)?;",
+     "what": "Apply the configured citizenship-bond requirement to the original signer and referendum.",
+     "scope": "file"
+    },
+    {
+     "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
+     "symbol": "if ballot.owner != *authority {",
+     "what": "The shared plain-ballot position owner must equal the signer for both cast and conviction update.",
+     "scope": "file"
     }
    ],
    "kotodama": {"binding": "none"},
@@ -4460,13 +4845,15 @@
      {
       "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/instructions/CastPlainBallotInstruction.kt",
       "via": ["type_name"]
-     }
+     },
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
     ],
     "swift": [],
     "javascript": [
      {"path": "javascript/iroha_js/src/instructionBuilders.js", "via": ["type_name"]},
      {"path": "javascript/iroha_js/src/norito.js", "via": ["type_name"]},
      {"path": "javascript/iroha_js/src/noritoGovernanceBoundary.js", "via": ["type_name"]},
+     {"path": "javascript/iroha_js/src/noritoValueCodecs.js", "via": ["type_name"]},
      {"path": "javascript/iroha_js/src/transaction.js", "via": ["type_name"]}
     ],
     "python": [],
@@ -4510,19 +4897,43 @@
      "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
      "symbol": "fn execute_plain_ballot_position(",
      "scope": "file",
-     "what": "The shared plain-ballot executor that holds the citizen and lock-owner checks."
+     "what": "The shared plain-ballot executor that holds the exact scoped permission, citizen and lock-owner checks."
     },
     {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "symbol": "!= *authority", "what": "`owner` must equal the signer."},
     {
      "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
      "symbol": "execute_plain_ballot_position",
-     "what": "Delegate: the citizen and lock-owner checks of a plain ballot position."
+     "what": "Delegate: the exact scoped permission, citizen and lock-owner checks of a plain ballot position."
     },
     {
      "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
      "symbol": "\"owner must equal authority\".into(),",
      "scope": "file",
      "what": "The rejection of a conviction update whose `owner` is not the signer."
+    },
+    {
+     "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
+     "symbol": "ensure_exact_governance_ballot_permission( authority, &ballot.referendum_id, state_transaction, )?;",
+     "what": "Require the signer's exact CanSubmitGovernanceBallot permission for this ballot referendum before executing its position.",
+     "scope": "file"
+    },
+    {
+     "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
+     "symbol": "let required: Permission = CanSubmitGovernanceBallot { referendum_id: referendum_id.to_owned(), } .into();",
+     "what": "The required CanSubmitGovernanceBallot token binds the original referendum_id, not a different referendum or an unscoped permission.",
+     "scope": "file"
+    },
+    {
+     "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
+     "symbol": "ensure_citizen_for_ballot(authority, &ballot.referendum_id, state_transaction)?;",
+     "what": "Apply the configured citizenship-bond requirement to the original signer and referendum.",
+     "scope": "file"
+    },
+    {
+     "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
+     "symbol": "if ballot.owner != *authority {",
+     "what": "The shared plain-ballot position owner must equal the signer for both cast and conviction update.",
+     "scope": "file"
     }
    ],
    "kotodama": {"binding": "none"},
@@ -4533,13 +4944,15 @@
      {
       "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/instructions/UpdatePlainConvictionInstruction.kt",
       "via": ["type_name", "wire_id"]
-     }
+     },
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
     ],
     "swift": [],
     "javascript": [
      {"path": "javascript/iroha_js/src/instructionBuilders.js", "via": ["type_name"]},
      {"path": "javascript/iroha_js/src/norito.js", "via": ["type_name"]},
      {"path": "javascript/iroha_js/src/noritoGovernanceBoundary.js", "via": ["type_name"]},
+     {"path": "javascript/iroha_js/src/noritoValueCodecs.js", "via": ["type_name"]},
      {"path": "javascript/iroha_js/src/transaction.js", "via": ["type_name"]}
     ],
     "python": [],
@@ -4801,7 +5214,7 @@
    "role": "absent",
    "isi": null,
    "carrier": {"kind": "absent", "registry_pattern": "^(Shield|Unshield|ZkTransfer|ConfidentialTransfer|ConfidentialShield|ConfidentialUnshield)"},
-   "relations": ["halo2.confidential_transfer", "halo2.confidential_full_unshield", "halo2.confidential_change_unshield"],
+   "relations": ["native_pipa_r.confidential_transfer", "native_pipa_r.confidential_full_unshield", "native_pipa_r.confidential_change_unshield"],
    "kotodama": {"binding": "none"},
    "routes": ["zk.merkle_path.build"],
    "status": {
@@ -4812,7 +5225,7 @@
     "missing": "Shield, transfer and unshield instructions with amount, authority and conservation effects (P.9); one-call and prepared SDK operation in the six SDK families, Kotodama binding, canonical fixtures, four-validator flow, cold restart and current-genesis replay"
    },
    "owner_tasks": ["P.9"],
-   "note": "The three Halo2 relations are compiled and reachable only through generic `VerifyProof`, which records a result and moves no value. SDKs and the Norito bridge build these proofs."
+   "note": "The three native PIPA-R relations are compiled and reachable only through generic `VerifyProof`, which records a result and moves no value. SDKs and the Norito bridge build these proofs."
   },
   {
    "id": "private_settlement.committee_leg_validation",
@@ -4862,7 +5275,7 @@
   {
    "id": "ram_lfe.execute",
    "product": "ram_lfe",
-   "role": "refused",
+   "role": "proof_verification",
    "isi": null,
    "carrier": {
     "kind": "torii_route",
@@ -4870,19 +5283,25 @@
      {"path": "crates/iroha_torii/src/lib.rs", "symbol": "async fn handler_ram_lfe_execute("}
     ]
    },
-   "relation": "ram_lfe.execution",
+   "relation": "ram_lfe.signed_receipt",
    "refusal": {"path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs", "symbol": "Err(PROOF_RELATION_UNAVAILABLE.to_owned())"},
    "kotodama": {"binding": "none"},
    "routes": ["application.ram_lfe_programs_by_program_id_execute_post", "application.ram_lfe_receipts_verify_post"],
    "status": {
     "presence": "carrier",
-    "verification": "refused",
+    "verification": "signature_only",
     "state_effects": "none",
     "delivery": "not_delivered",
-    "missing": "Native execution/result instruction with the genuine execution relation for the affine, bounded and refresh classes (R.12, R.7, R.9); one-call and prepared SDK operation in the six SDK families, Kotodama binding, canonical fixtures, four-validator flow, cold restart and current-genesis replay"
+    "missing": "Genuine class-bound encrypted execution replacing the plaintext HKDF owner PRF (R.6), and a native execution/result instruction with the affine, bounded and refresh relations (R.12, R.7, R.9); complete SDK delivery, Kotodama binding, four-validator flow, cold restart and current-genesis replay"
    },
-   "owner_tasks": ["R.12", "R.3", "R.7", "R.9"],
-   "note": "Execution is a Torii compute route that returns a receipt; there is no execution or result instruction. The resolver refuses encrypted input and every backend."
+   "owner_tasks": ["R.12", "R.3", "R.7", "R.9", "R.6"],
+   "note": "The execute route authenticates the current owner and returns a signed HKDF owner-PRF receipt; the receipt-verification route calls the pinned-policy Core signature validator. Neither moves ledger state or proves hidden execution. Encrypted execution remains unavailable and proof mode still hits the recorded refusal.",
+   "verifier": {"path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs", "symbol": "pub fn validate_execution_receipt_at("},
+   "verifier_path": [
+    {"path": "crates/iroha_torii/src/lib.rs", "symbol": "async fn handler_ram_lfe_receipt_verify("}
+   ],
+   "test_evidence": "none",
+   "test_note": "The authenticated owner-PRF route and stateless receipt-verification path are source-mapped here; no Torii/Core execution of this carrier was run in this inventory reconciliation. Signature verification is not proof of encrypted execution."
   },
   {
    "id": "ram_lfe.opening",
@@ -6095,7 +6514,6 @@
    "path": "crates/iroha_core_zk/src/verification.rs",
    "symbol": "fn compiled_relation(backend: &str, circuit: &str) -> Option<ProofRelation> {"
   },
-  "halo2_circuits": {"path": "crates/iroha_core_zk/src/lib.rs", "constant": "HALO2_IPA_PRODUCTION_CIRCUIT_IDS_V1"},
   "execution_adapters": {
    "what": "The closed list of compiled execution-proof adapters. Registration resolves this list; no caller uploads a relation.",
    "source": {"path": "crates/iroha_core_privacy/src/execution_proofs/registry.rs", "enum": "CompiledAdapterV1"},
@@ -6124,38 +6542,73 @@
    },
    {
     "variant": "ConfidentialTransfer",
-    "relation": "halo2.confidential_transfer",
-    "circuits": ["halo2/pasta/ipa/confidential-transfer-2x2-merkle16-axiom-poseidon-v3"],
+    "relation": "native_pipa_r.confidential_transfer",
+    "circuits": ["pipa-r/pasta/confidential-transfer-v1"],
     "consumers": ["zk::VerifyProof"],
-    "note": "No value-moving instruction consumes it."
+    "note": "No value-moving instruction consumes it.",
+    "circuit_source": {
+     "path": "crates/iroha_core_zk/src/confidential_v2.rs",
+     "constant": "CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID",
+     "selector": "confidential",
+     "kind": "Transfer"
+    }
    },
    {
     "variant": "ConfidentialFullUnshield",
-    "relation": "halo2.confidential_full_unshield",
-    "circuits": ["halo2/pasta/ipa/confidential-unshield-full-merkle16-axiom-poseidon-v3"],
+    "relation": "native_pipa_r.confidential_full_unshield",
+    "circuits": ["pipa-r/pasta/confidential-unshield-full-v1"],
     "consumers": ["zk::VerifyProof", "zk::RegisterZkAsset"],
-    "note": "The asset record pins the canonical unshield key."
+    "note": "The asset record pins the canonical unshield key.",
+    "circuit_source": {
+     "path": "crates/iroha_core_zk/src/confidential_v2.rs",
+     "constant": "CONFIDENTIAL_UNSHIELD_V2_CIRCUIT_ID",
+     "selector": "confidential",
+     "kind": "Full"
+    }
    },
    {
     "variant": "ConfidentialChangeUnshield",
-    "relation": "halo2.confidential_change_unshield",
-    "circuits": ["halo2/pasta/ipa/confidential-unshield-change-merkle16-axiom-poseidon-v4"],
+    "relation": "native_pipa_r.confidential_change_unshield",
+    "circuits": ["pipa-r/pasta/confidential-unshield-change-v1"],
     "consumers": ["zk::VerifyProof", "zk::RegisterZkAsset"],
-    "note": "The asset record pins the canonical unshield key."
+    "note": "The asset record pins the canonical unshield key.",
+    "circuit_source": {
+     "path": "crates/iroha_core_zk/src/confidential_v2.rs",
+     "constant": "CONFIDENTIAL_UNSHIELD_V3_CIRCUIT_ID",
+     "selector": "confidential",
+     "kind": "Change"
+    }
    },
    {
     "variant": "KaigiAuthorization",
-    "relation": "halo2.kaigi_authorization",
-    "circuits": ["halo2/pasta/ipa/kaigi-authorization-v1"],
-    "consumers": ["kaigi::JoinKaigi", "kaigi::LeaveKaigi", "zk::VerifyProof"]
+    "relation": "native_pipa_r.kaigi_authorization",
+    "circuits": ["pipa-r/pasta/kaigi-authorization-v1"],
+    "consumers": ["kaigi::JoinKaigi", "kaigi::LeaveKaigi", "zk::VerifyProof"],
+    "circuit_source": {
+     "path": "crates/kaigi_zk/src/authorization_v1.rs",
+     "constant": "KAIGI_AUTHORIZATION_CIRCUIT_ID_V1",
+     "selector": "kaigi",
+     "kind": "Authorization"
+    }
    },
    {
     "variant": "KaigiUsage",
-    "relation": "halo2.kaigi_usage",
-    "circuits": ["halo2/pasta/ipa/kaigi-usage-v1"],
-    "consumers": ["kaigi::RecordKaigiUsage", "zk::VerifyProof"]
+    "relation": "native_pipa_r.kaigi_usage",
+    "circuits": ["pipa-r/pasta/kaigi-usage-v1"],
+    "consumers": ["kaigi::RecordKaigiUsage", "zk::VerifyProof"],
+    "circuit_source": {"path": "crates/kaigi_zk/src/usage_v1.rs", "constant": "KAIGI_USAGE_CIRCUIT_ID_V1", "selector": "kaigi", "kind": "Usage"}
    }
-  ]
+  ],
+  "native_circuits": {
+   "source": {"path": "crates/iroha_core_zk/src/native_pipa_r.rs", "enum": "NativeRelationV1"},
+   "constant": "ALL",
+   "variants": ["KaigiAuthorization", "KaigiUsage", "ConfidentialTransfer", "ConfidentialFullUnshield", "ConfidentialChangeUnshield"],
+   "what": "The closed native enum and its admission list map one-to-one to the typed generic relations and these literal circuit identities; no retired Halo2 registry remains.",
+   "kind_dispatch": {
+    "kaigi": {"path": "crates/kaigi_zk/src/native.rs", "owner": "KaigiRelation", "constant_prefix": ""},
+    "confidential": {"path": "crates/iroha_core_zk/src/confidential_native/mod.rs", "owner": "Kind", "constant_prefix": "super::"}
+   }
+  }
  },
  "ram_lfe": {
   "what": "General RAM-LFE classes, backends, verification modes, attestations and openings. Facts already recorded by the C.1 inventory are referenced, not repeated.",
@@ -6218,17 +6671,23 @@
      "variant": "HkdfSha3_512PrfV1",
      "tag": "hkdf-sha3-512-prf-v1",
      "production_support": "accepted",
-     "effect": "none: Core registers and activates a Signed HKDF policy, and every consumer rejects the backend (identifier claims, stateless receipts, Torii encrypted execution). It is a plaintext keyed PRF, not encrypted evaluation.",
+     "effect": "Signed owner receipts and identifier claims consume HKDF policies with pinned metadata, signatures and the original bounded lease. This is a plaintext keyed PRF, not encrypted evaluation.",
      "evidence": [
       {"path": "crates/iroha_crypto/src/ram_lfe.rs", "symbol": "Self::HkdfSha3_512PrfV1 => Ok(()),"},
       {"path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs", "symbol": "RamLfeBackend::HkdfSha3_512PrfV1 => {}"},
-      {"path": "crates/iroha_core/src/smartcontracts/isi/identifier.rs", "symbol": "uses unsupported backend {} for identifier claims"},
-      {"path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs", "symbol": "uses unsupported backend {} for stateless receipt verification"}
+      {"path": "crates/iroha_core/src/smartcontracts/isi/identifier.rs", "symbol": "execution.backend != RamLfeBackend::HkdfSha3_512PrfV1"},
+      {
+       "path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs",
+       "symbol": "iroha_data_model::identifier::hkdf_identifier_execution_metadata_v1("
+      }
      ],
      "references": [
       {"inventory": "fhe", "key": "hkdf/ram_lfe_backend"}
      ],
-     "retire": {"owner_task": "R.6", "why": "No-effect backend; the class-bound V1 policy replaces the backend tag without an alias."}
+     "retire": {
+      "owner_task": "R.6",
+      "why": "This plaintext PRF does not implement the planned class-bound encrypted RAM-LFE execution relation; no alias may present it as that relation."
+     }
     },
     {
      "variant": "BfvAffineV1",
@@ -6692,16 +7151,6 @@
      "evidence": [
       {"path": "crates/iroha_core/src/smartcontracts/ivm/host.rs", "symbol": "ivm::syscalls::SMARTCONTRACT_INSTRUCTION_TAG_SUBMIT_BALLOT => {"}
      ]
-    },
-    {
-     "name": "RECORD_SCCP_MESSAGE",
-     "value": 2,
-     "instruction": "sccp::RecordSccpMessage",
-     "host": "denied",
-     "evidence": [
-      {"path": "crates/iroha_core/src/smartcontracts/ivm/host.rs", "symbol": "_ => Err(ivm::VMError::PermissionDenied),"}
-     ],
-     "note": "The constant remains in the ABI text; the host denies every tag other than SubmitBallot."
     }
    ],
    "unbound": "Apart from this bridge, the only operations with a Kotodama binding are the three AXT carriers (`axt.envelope`, `axt.ds_proof`, `axt.anchored_spend`, through the AXT builtins). Every other operation of this inventory has none (`kotodama.binding: none`).",
@@ -9233,7 +9682,7 @@
    ],
    "validity_inputs": [
     {
-     "what": "The Halo2 and STARK enable switches. They are committed policy values and remain availability switches: a backend whose switch is off is refused.",
+     "what": "The native IPA and STARK enable switches. They are committed policy values and remain availability switches: a backend whose switch is off is refused.",
      "source": "committed_policy",
      "site": {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "symbol": "&& !state_transaction.zk.stark.enabled"},
      "owner_task": "F.4",
@@ -9341,7 +9790,7 @@
     {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "symbol": "impl Execute for verifying_keys::RegisterVerifyingKey"},
     {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "symbol": "impl Execute for verifying_keys::UpdateVerifyingKey"},
     {"path": "crates/iroha_core_zk/src/lib.rs", "symbol": "pub fn validate_and_prepare_verifying_key_record_v1("},
-    {"path": "crates/iroha_core_zk/src/lib.rs", "symbol": "pub(crate) fn validate_builtin_halo2_ipa_verifying_key_v1("},
+    {"path": "crates/iroha_core_zk/src/native_pipa_r.rs", "symbol": "pub fn validate_key("},
     {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "symbol": "fn validate_soracloud_fhe_stark_verifying_key_record("},
     {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "symbol": "fn ensure_open_verify_circuit_id_is_admitted_v1("}
    ],
@@ -9362,7 +9811,7 @@
    "tests": [
     {
      "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
-     "test": "register_vk_rejects_parseable_halo2_key_relabelled_as_confidential_transfer"
+     "test": "register_vk_rejects_parseable_native_key_relabelled_as_confidential_transfer"
     },
     {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "test": "register_vk_reserves_every_exact12_privacy_circuit_label"},
     {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "test": "register_vk_rejects_soracloud_bootstrap_metadata_drift"}
@@ -9443,7 +9892,7 @@
    ]
   },
   "restore": {
-   "what": "World restore re-validates, for the products of this plan: RAM-LFE program policies; the privacy activations and the all-twelve qualification record; the persisted privacy state (PGC accounts, nullifiers, commitments, roots) and its public reserve dependencies; the persisted atomic-settlement state; the proof-tag and verifying-key indexes; identifier claims; the timed-OVN and Parliament records; and the SoraCloud service history, which pins FHE policy records to their admission events. State construction rebuilds the proof-status index and validates standalone election state and the rebuilt Kaigi indexes. Restore verifies no proof. A verifying-key record's content is validated when a proof is dispatched or the host hydrates it; restore validates only the circuit-and-version index over the records. Authenticated checkpoint restore does not exist (plan: first-release rules).",
+   "what": "World restore re-validates, for the products of this plan: RAM-LFE program policies; the six AXT counter, incarnation, budget and replay ledgers; the privacy consensus policy at the committed height; the privacy activations and the all-twelve qualification record; the persisted privacy state (PGC accounts, nullifiers, commitments, roots) and its public reserve dependencies; the persisted atomic-settlement state; the proof-tag and verifying-key indexes; identifier claims; the timed-OVN and Parliament records; and the SoraCloud service history, which pins FHE policy records to their admission events. State construction rebuilds the proof-status index and validates standalone election state and the rebuilt Kaigi indexes. Restore verifies no proof. A verifying-key record's content is validated when a proof is dispatched or the host hydrates it; restore validates only the circuit-and-version index over the records. Authenticated checkpoint restore does not exist (plan: first-release rules).",
    "sites": [
     {"path": "crates/iroha_core/src/state/deserialize_core.rs", "symbol": "pub(super) fn validate_ram_lfe_program_policies("},
     {
@@ -9519,6 +9968,144 @@
      "path": "crates/iroha_core/src/state.rs",
      "symbol": "pub fn validate_restored_governance(",
      "note": "Governance parameters and the restored standalone PLAIN ballot corpus, checked when the node installs its governance settings."
+    },
+    {
+     "path": "crates/iroha_core/src/state/deserialize_world.rs",
+     "symbol": "record .validate() .map_err(|error| json::Error::InvalidField { field: \"world.axt_handle_counters\"",
+     "what": "Validate each permanent counter record.",
+     "state_field": "world.axt_handle_counters"
+    },
+    {
+     "path": "crates/iroha_core/src/state/deserialize_world.rs",
+     "symbol": "if policy.manifest_root != [0; 32] && counter.is_none() {",
+     "what": "Every active policy has a permanent counter ratchet.",
+     "state_field": "world.axt_handle_counters"
+    },
+    {
+     "path": "crates/iroha_core/src/state/deserialize_world.rs",
+     "symbol": "if policy.next_handle_counter != expected {",
+     "what": "Policy next counter equals its permanent ratchet.",
+     "state_field": "world.axt_handle_counters"
+    },
+    {
+     "path": "crates/iroha_core/src/state/deserialize_world.rs",
+     "symbol": "if policy.active_handle_era != expected_generation {",
+     "what": "Policy active era equals its permanent authorization generation.",
+     "state_field": "world.axt_handle_counters"
+    },
+    {
+     "path": "crates/iroha_core/src/state/deserialize_world.rs",
+     "symbol": "counters .get(&key.asset_dsid) .ok_or_else(|| json::Error::InvalidField { field: \"world.axt_handle_counters\"",
+     "what": "Each replay key has its dataspace counter ratchet.",
+     "state_field": "world.axt_handle_counters"
+    },
+    {
+     "path": "crates/iroha_core/src/state/deserialize_world.rs",
+     "symbol": "if counter.next() <= key.sub_nonce {",
+     "what": "Replay sub-nonce is strictly below the permanent next counter.",
+     "state_field": "world.axt_handle_counters"
+    },
+    {
+     "path": "crates/iroha_core/src/state/deserialize_world.rs",
+     "symbol": "if counter.authorization_generation() < key.handle_era {",
+     "what": "Replay era does not exceed the permanent authorization generation.",
+     "state_field": "world.axt_handle_counters"
+    },
+    {
+     "path": "crates/iroha_core/src/state/deserialize_world.rs",
+     "symbol": "counters.get(&key.asset_dsid()).ok_or_else(|| { json::Error::InvalidField { field: \"world.axt_handle_counters\"",
+     "what": "Each budget family has its dataspace counter ratchet.",
+     "state_field": "world.axt_handle_counters"
+    },
+    {
+     "path": "crates/iroha_core/src/state/deserialize_world.rs",
+     "symbol": "if counter.next() <= AxtHandleCounterRecord::initial(0).next() {",
+     "what": "A retained budget family requires an advanced counter ratchet.",
+     "state_field": "world.axt_handle_counters"
+    },
+    {
+     "path": "crates/iroha_core/src/state/deserialize_world.rs",
+     "symbol": "if key.authorization_generation() > counter.authorization_generation() {",
+     "what": "Budget generation does not exceed the permanent authorization generation.",
+     "state_field": "world.axt_handle_counters"
+    },
+    {
+     "path": "crates/iroha_core/src/state/deserialize_world.rs",
+     "symbol": "if nonces.iter().count() != transfers.iter().count() {",
+     "what": "Source transfers and consumed issuer nonces have the same cardinality.",
+     "state_field": "world.axt_source_transfer_replay_ledger"
+    },
+    {
+     "path": "crates/iroha_core/src/state/deserialize_world.rs",
+     "symbol": "key.validate().map_err(|error| json::Error::InvalidField { field: \"world.axt_source_transfer_replay_ledger\"",
+     "what": "Validate each source-transfer replay key.",
+     "state_field": "world.axt_source_transfer_replay_ledger"
+    },
+    {
+     "path": "crates/iroha_core/src/state/deserialize_world.rs",
+     "symbol": "record .issuer_nonce .validate() .map_err(|error| json::Error::InvalidField { field: \"world.axt_source_transfer_replay_ledger\"",
+     "what": "Validate the durable issuer nonce bound to each source transfer.",
+     "state_field": "world.axt_source_transfer_replay_ledger"
+    },
+    {
+     "path": "crates/iroha_core/src/state/deserialize_world.rs",
+     "symbol": "if record.consumed_slot == 0 || key.network_id != record.issuer_nonce.issuer_context.network_id || key.dataspace_id != record.issuer_nonce.issuer_context.asset_dsid || nonces.get(&record.issuer_nonce) != Some(&record.consumed_slot) || !referenced_nonces.insert(record.issuer_nonce) {",
+     "what": "Require nonzero consumed slot, matching network/dataspace/nonce slot and unique nonce ownership.",
+     "state_field": "world.axt_source_transfer_replay_ledger"
+    },
+    {
+     "path": "crates/iroha_core/src/state/deserialize_world.rs",
+     "symbol": "incarnation .validate() .map_err(|error| json::Error::InvalidField { field: \"world.axt_asset_incarnations\"",
+     "what": "Validate every asset incarnation.",
+     "state_field": "world.axt_asset_incarnations"
+    },
+    {
+     "path": "crates/iroha_core/src/state/deserialize_world.rs",
+     "symbol": "if definitions.get(asset_definition_id).is_none() {",
+     "what": "Every incarnation refers to an existing asset definition.",
+     "state_field": "world.axt_asset_incarnations"
+    },
+    {
+     "path": "crates/iroha_core/src/state/deserialize_world.rs",
+     "symbol": "if incarnations.get(asset_definition_id).is_none() {",
+     "what": "Every registered asset definition has its incarnation.",
+     "state_field": "world.axt_asset_incarnations"
+    },
+    {
+     "path": "crates/iroha_core/src/state/deserialize_world.rs",
+     "symbol": "record .validate_for_key(key) .map_err(|error| json::Error::InvalidField { field: \"world.axt_replay_ledger\"",
+     "what": "Validate each replay record against its exact key.",
+     "state_field": "world.axt_replay_ledger"
+    },
+    {
+     "path": "crates/iroha_core/src/state/deserialize_world.rs",
+     "symbol": "budget_ledger.get(&record.budget_key).ok_or_else(|| { json::Error::InvalidField { field: \"world.axt_replay_ledger\"",
+     "what": "Each replay record refers to a retained permanent budget family.",
+     "state_field": "world.axt_replay_ledger"
+    },
+    {
+     "path": "crates/iroha_core/src/state/deserialize_world.rs",
+     "symbol": "budget_record .validate_for_key(&record.budget_key) .map_err(|error| json::Error::InvalidField { field: \"world.axt_replay_ledger\"",
+     "what": "Validate the referenced budget evidence against the replay record's budget key.",
+     "state_field": "world.axt_replay_ledger"
+    },
+    {
+     "path": "crates/iroha_core/src/state/deserialize_world.rs",
+     "symbol": "record .validate_for_key(key) .map_err(|error| json::Error::InvalidField { field: \"world.axt_handle_budget_ledger\"",
+     "what": "Validate every permanent budget record against its key.",
+     "state_field": "world.axt_handle_budget_ledger"
+    },
+    {
+     "path": "crates/iroha_core/src/state/deserialize_world.rs",
+     "symbol": "key.validate().map_err(|error| json::Error::InvalidField { field: \"world.axt_spend_nonce_ledger\"",
+     "what": "Validate each consumed anchored-spend issuer nonce key.",
+     "state_field": "world.axt_spend_nonce_ledger"
+    },
+    {
+     "path": "crates/iroha_core/src/state/deserialize_core.rs",
+     "symbol": "world .privacy_consensus_policy .view() .get() .validate_at_committed_height(committed_height)",
+     "what": "Validate the exact privacy consensus policy against the committed State height.",
+     "state_field": "world.privacy_consensus_policy"
     }
    ],
    "tests": [
@@ -9544,7 +10131,14 @@
     }
    ],
    "references": [
-    {"inventory": "state", "key": "fields/world.ram_lfe_program_policies"}
+    {"inventory": "state", "key": "fields/world.ram_lfe_program_policies"},
+    {"inventory": "state", "key": "fields/world.axt_handle_counters"},
+    {"inventory": "state", "key": "fields/world.axt_source_transfer_replay_ledger"},
+    {"inventory": "state", "key": "fields/world.axt_asset_incarnations"},
+    {"inventory": "state", "key": "fields/world.axt_replay_ledger"},
+    {"inventory": "state", "key": "fields/world.axt_handle_budget_ledger"},
+    {"inventory": "state", "key": "fields/world.axt_spend_nonce_ledger"},
+    {"inventory": "state", "key": "fields/world.privacy_consensus_policy"}
    ]
   },
   "excluded": [
@@ -9600,7 +10194,7 @@
      "id": "generic_backend",
      "needle": "verify_backend",
      "pattern": "\\bverify_backend\\s*\\(",
-     "what": "The backend verifier of the generic Halo2 and STARK envelopes."
+     "what": "The backend verifier of the generic native PIPA-R and STARK envelopes."
     },
     {
      "id": "generic_backend_guardrails",
@@ -9709,9 +10303,9 @@
     {
      "id": "restore_validator",
      "needle": "validate_",
-     "pattern": "(?<!fn )\\b(validate_[a-z0-9_]*(?:privacy|private_settlement|proof|verifying_key|identifier|ram_lfe|tle_|parliament|standalone_governance|program_polic|soracloud|ballot|election|kaigi|confidential|zk|fhe|nullifier|shield)[a-z0-9_]*)\\s*\\(",
+     "pattern": "(?<!fn )\\b(validate_[a-z0-9_]*(?:axt|privacy|private_settlement|proof|verifying_key|identifier|ram_lfe|tle_|parliament|standalone_governance|program_polic|soracloud|ballot|election|kaigi|confidential|zk|fhe|nullifier|shield)[a-z0-9_]*)\\s*\\(",
      "roots": ["crates/iroha_core/src/state/deserialize_world.rs", "crates/iroha_core/src/state/deserialize_core.rs"],
-     "what": "A restore-time validator whose name carries a family word of this plan."
+     "what": "A restore-time validator whose name carries a family word of this plan, including AXT."
     },
     {
      "id": "restore_rebuild",
@@ -9725,6 +10319,20 @@
      "needle": "proof_status_restore::rebuild",
      "pattern": "\\bproof_status_restore::rebuild\\s*\\(",
      "what": "Rebuild of the proof-status index when State is constructed."
+    },
+    {
+     "id": "restore_key_validation",
+     "needle": "validate_for_key",
+     "pattern": "\\.\\s*(validate_for_key)\\s*\\(",
+     "roots": ["crates/iroha_core/src/state/deserialize_world.rs", "crates/iroha_core/src/state/deserialize_core.rs"],
+     "what": "Restore-time key/record consistency calls, even though their method names contain no product family."
+    },
+    {
+     "id": "restore_committed_height_validation",
+     "needle": "validate_at_committed_height",
+     "pattern": "\\.\\s*(validate_at_committed_height)\\s*\\(",
+     "roots": ["crates/iroha_core/src/state/deserialize_world.rs", "crates/iroha_core/src/state/deserialize_core.rs"],
+     "what": "Restore-time committed-height policy validation, even though the method name contains no product family."
     }
    ],
    "occurrences": [
@@ -9866,11 +10474,25 @@
     {
      "token": "ram_lfe_receipt",
      "path": "crates/iroha_core/src/smartcontracts/isi/identifier.rs",
-     "count": 5,
+     "count": 4,
      "route": "direct_protocol_instructions"
     },
-    {"token": "ram_lfe_receipt", "path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs", "count": 3, "route": "definition"},
+    {"token": "ram_lfe_receipt", "path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs", "count": 2, "route": "definition"},
     {"token": "ram_lfe_receipt", "path": "crates/iroha_torii/src/lib.rs", "count": 1, "route": "torii"},
+    {
+     "token": "restore_committed_height_validation",
+     "name": "validate_at_committed_height",
+     "path": "crates/iroha_core/src/state/deserialize_core.rs",
+     "count": 1,
+     "route": "restore"
+    },
+    {
+     "token": "restore_key_validation",
+     "name": "validate_for_key",
+     "path": "crates/iroha_core/src/state/deserialize_world.rs",
+     "count": 3,
+     "route": "restore"
+    },
     {
      "token": "restore_rebuild",
      "name": "validate_election_state_for_restore_v1",
@@ -10144,7 +10766,7 @@
       "role": "authorization relation",
       "algorithm": "Poseidon over the Pasta scalar field",
       "path": "crates/kaigi_zk/src/lib.rs",
-      "symbol": "struct KaigiPoseidonSpec;"
+      "symbol": "fn configure_poseidon(meta: &mut ConstraintSystem<Scalar>) -> KaigiPoseidonConfig {"
      }
     ],
     "owner_tasks": ["F.5", "H.1", "P.7"],
@@ -10164,7 +10786,7 @@
       "symbol": "b\"poseidon-x7-goldilocks-digest384-sparse-depth256-v1\";"
      }
     ],
-    "in_circuit": {"none": "The spentness tree is a native State structure; the Halo2 circuits use the note tree."},
+    "in_circuit": {"none": "The spentness tree is a native State structure; the native confidential circuits use the note tree."},
     "references": [
      {"inventory": "state", "key": "roots/confidential_spentness_checkpoint_root"},
      {"inventory": "primitive", "key": "digest_roles/confidential.spentness-tree"}
@@ -10204,9 +10826,12 @@
      "crates/iroha_core_zk/src/lib.rs",
      "crates/iroha_core_zk/src/verification.rs",
      "crates/iroha_core_zk/src/stark.rs",
-     "crates/iroha_core_zk/src/stark"
+     "crates/iroha_core_zk/src/stark",
+     "crates/iroha_core_zk/src/native_pipa_r.rs",
+     "crates/iroha_plonk/src/transcript/pipa_r.rs",
+     "crates/iroha_pasta/src/poseidon"
     ],
-    "census": {"blake2b": 2, "iroha_hash": 1, "pedersen": 8, "poseidon": 12, "sha2_256": 3},
+    "census": {"blake2b": 1, "iroha_hash": 1, "poseidon": 46, "sha2_256": 3},
     "native": [
      {
       "role": "proof id and verifying-key commitment",
@@ -10218,7 +10843,13 @@
       "role": "public-input schema hash",
       "algorithm": "Iroha Blake2b-256 Hash",
       "path": "crates/iroha_core_zk/src/lib.rs",
-      "symbol": ".map(|schema| iroha_crypto::Hash::new(schema).into())"
+      "symbol": "iroha_crypto::Hash::new(native_pipa_r::public_schema(kind)).into();"
+     },
+     {
+      "role": "native PIPA-R transcript and descriptor-bound verifier representation",
+      "algorithm": "Pasta base-field Poseidon transcript; Blake2b-derived descriptor/key binding",
+      "path": "crates/iroha_plonk/src/transcript/pipa_r.rs",
+      "symbol": "pub enum TranscriptRepr<C: PastaCurve> {"
      }
     ],
     "in_circuit": [
@@ -10229,11 +10860,7 @@
       "symbol": "pub const ZK_BACKEND_STARK_FRI_V1: &str = \"stark/fri/poseidon-x7-goldilocks-6x64-v1\";"
      }
     ],
-    "primitive_roles": [
-     {"inventory": "primitive", "key": "digest_roles/halo2.transcript-blake2b"},
-     {"inventory": "primitive", "key": "digest_roles/halo2.ipa-transcript-sha3"},
-     {"inventory": "primitive", "key": "digest_roles/halo2.pasta-poseidon"}
-    ]
+    "primitive_roles": ["pipa-r.transcript-poseidon-base", "pipa-r.vk-binding-blake2b", "halo2.pasta-poseidon"]
    },
    {
     "product": "fastpq_ordinary_effects",
@@ -10566,9 +11193,10 @@
      "crates/iroha_core_zk/src/confidential.rs",
      "crates/iroha_core_zk/src/confidential_v2.rs",
      "crates/iroha_core_zk/src/confidential",
-     "crates/iroha_data_model/src/confidential"
+     "crates/iroha_data_model/src/confidential",
+     "crates/iroha_core_zk/src/confidential_native"
     ],
-    "census": {"blake3": 1, "poseidon": 96},
+    "census": {"blake3": 1, "poseidon": 32},
     "native": [
      {
       "role": "spentness tree",
@@ -10580,7 +11208,7 @@
     "in_circuit": [
      {
       "role": "note, nullifier and Merkle hashes",
-      "algorithm": "Axiom Poseidon t3 over Pasta",
+      "algorithm": "Fixed t3 Poseidon over Pasta in the native relation",
       "path": "crates/iroha_core_zk/src/confidential_v2.rs",
       "symbol": "pub const CONFIDENTIAL_POSEIDON_NULLIFIER_DOMAIN_V3: u64 = u64::from_le_bytes(*b\"cfnull03\");"
      }
@@ -10632,7 +11260,7 @@
      "crates/iroha_core/src/smartcontracts/isi/kaigi.rs",
      "crates/iroha_data_model/src/kaigi"
     ],
-    "census": {"blake2b": 1, "iroha_hash": 1, "poseidon": 45},
+    "census": {"blake2b": 1, "iroha_hash": 1, "poseidon": 41},
     "native": [
      {
       "role": "roster root",
@@ -10646,7 +11274,7 @@
       "role": "authorization and usage relations",
       "algorithm": "Poseidon over the Pasta scalar field",
       "path": "crates/kaigi_zk/src/lib.rs",
-      "symbol": "struct KaigiPoseidonSpec;"
+      "symbol": "fn configure_poseidon(meta: &mut ConstraintSystem<Scalar>) -> KaigiPoseidonConfig {"
      }
     ],
     "primitive_roles": [
@@ -10728,7 +11356,7 @@
    {
     "product": "ram_lfe",
     "owner_paths": ["crates/iroha_crypto/src/ram_lfe.rs", "crates/iroha_crypto/src/ram_lfe"],
-    "census": {"blake2b": 5, "blake3": 2, "hkdf": 4, "iroha_hash": 2, "sha3_512": 3},
+    "census": {"blake2b": 7, "blake3": 2, "hkdf": 4, "iroha_hash": 2, "sha3_512": 3},
     "native": [
      {
       "role": "receipt associated data and output hashes",
@@ -10770,34 +11398,37 @@
   "what": "Every site where an uploaded verifying key, a source or executable hash, catalog membership, node configuration or a Cargo feature selects which proof is accepted or what it establishes. `chooses_guarantee: false` means a substituted value is rejected (by the named tests) and cannot change the statement a proof establishes; an identity that is still a build or source hash, or still gates availability, is an open defect with its owning task. `chooses_guarantee: true` sites are open defects.",
   "sites": [
    {
-    "id": "generic.halo2_uploaded_key",
+    "id": "generic.native_uploaded_key",
     "selector": "uploaded_key",
     "chooses_guarantee": false,
-    "what": "A registered Halo2 verifying key must equal the key compiled for its circuit, and the circuit must be in the closed production list. An uploaded key cannot be relabelled as another circuit.",
-    "site": {"path": "crates/iroha_core_zk/src/lib.rs", "symbol": "validate_builtin_halo2_ipa_verifying_key_v1(backend, circuit_id, vk)?;"},
+    "what": "A registered native PIPA-R key must equal the descriptor and key compiled for its circuit, and the circuit must belong to the closed NativeRelationV1 registry. Uploaded material cannot be relabelled as another relation.",
+    "site": {"path": "crates/iroha_core_zk/src/lib.rs", "symbol": "pub(crate) fn validate_and_prepare_verifying_key_material_v1("},
     "operations": ["verifying_keys::RegisterVerifyingKey", "verifying_keys::UpdateVerifyingKey", "zk::VerifyProof"],
     "rejection_tests": [
      {
       "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
-      "test": "register_vk_rejects_parseable_halo2_key_relabelled_as_confidential_transfer",
+      "test": "register_vk_rejects_parseable_native_key_relabelled_as_confidential_transfer",
       "reaches": [
        {"path": "crates/iroha_core_zk/src/lib.rs", "symbol": "pub fn validate_and_prepare_verifying_key_record_v1("}
       ]
      },
      {
       "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
-      "test": "update_vk_rejects_parseable_halo2_key_relabelled_as_same_circuit",
+      "test": "update_vk_rejects_parseable_native_key_relabelled_as_same_circuit",
       "reaches": [
        {"path": "crates/iroha_core_zk/src/lib.rs", "symbol": "pub fn validate_and_prepare_verifying_key_record_v1("}
       ]
      },
      {
       "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
-      "test": "world_open_verify_admission_reserves_privacy_and_rejects_unregistered_halo2_circuits",
-      "covers": "The closed list of admitted Halo2 circuit ids at registration (`ensure_open_verify_circuit_id_is_admitted_v1`), in front of the key check."
+      "test": "world_open_verify_admission_reserves_privacy_and_rejects_unregistered_native_circuits",
+      "covers": "The closed native circuit registry at registration (ensure_open_verify_circuit_id_is_admitted_v1), before key validation."
      }
     ],
-    "test_evidence": "default"
+    "test_evidence": "default",
+    "guards": [
+     {"path": "crates/iroha_core_zk/src/native_pipa_r.rs", "symbol": "pub fn validate_key("}
+    ]
    },
    {
     "id": "generic.stark_uploaded_key",
@@ -10910,10 +11541,10 @@
     "id": "ram_lfe.uploaded_verifier_metadata",
     "selector": "uploaded_key",
     "chooses_guarantee": false,
-    "what": "A proof-mode RAM-LFE policy publishes its own verifier description in its public parameters. The receipt verifier refuses before reading it, so no uploaded description selects a relation.",
-    "site": {"path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs", "symbol": "public_parameters.proof_verifier.as_ref().ok_or_else(|| {"},
+    "what": "The old proof-mode schema can carry verifier metadata, but current policy registration and stateless validation refuse proof mode before reading it. The proof boundary unconditionally refuses; metadata cannot select a relation.",
+    "site": {"path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs", "symbol": "pub(crate) fn verify_execution_proof("},
     "guards": [
-     {"path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs", "symbol": "pub(crate) fn verify_execution_proof("}
+     {"path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs", "symbol": "pub(crate) fn validate_program_policy("}
     ],
     "operations": ["ram_lfe::RegisterRamLfeProgramPolicy", "identifier::ClaimIdentifier"],
     "rejection_tests": [
@@ -11351,7 +11982,7 @@
     {
      "token": "exact12_qualification",
      "path": "crates/iroha_core/src/state/authority_registry/world.rs",
-     "count": 2,
+     "count": 3,
      "site": "exact12.qualification_singleton"
     },
     {
@@ -11388,7 +12019,7 @@
     {
      "token": "execution_profile_registry",
      "path": "crates/iroha_core/src/state/authority_registry/world.rs",
-     "count": 2,
+     "count": 3,
      "site": "race.source_hash_profile"
     },
     {
@@ -11428,7 +12059,7 @@
     },
     {"token": "purpose_bound_verify", "path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "count": 4, "site": "voting.election_keys"},
     {"token": "purpose_bound_verify", "path": "crates/iroha_core/src/zk_guardrails.rs", "count": 1, "site": "generic.verify_proof_registry_key"},
-    {"token": "purpose_bound_verify", "path": "crates/iroha_core_zk/src/confidential_v2.rs", "count": 1, "site": "generic.halo2_uploaded_key"},
+    {"token": "purpose_bound_verify", "path": "crates/iroha_core_zk/src/confidential_v2.rs", "count": 1, "site": "generic.native_uploaded_key"},
     {"token": "purpose_bound_verify", "path": "crates/iroha_core_zk/src/verification.rs", "count": 2, "site": "generic.stark_uploaded_key"},
     {"token": "purpose_bound_verify", "path": "crates/iroha_torii/src/zk_prover.rs", "count": 1, "site": "torii.attachment_report_worker"},
     {
@@ -11438,18 +12069,6 @@
      "site": "exact12.qualification_singleton"
     },
     {"token": "qualified_activation", "path": "crates/iroha_core/src/state.rs", "count": 1, "site": "exact12.qualification_singleton"},
-    {
-     "token": "ram_lfe_uploaded_verifier",
-     "path": "crates/iroha_core/src/smartcontracts/isi/identifier.rs",
-     "count": 1,
-     "site": "ram_lfe.uploaded_verifier_metadata"
-    },
-    {
-     "token": "ram_lfe_uploaded_verifier",
-     "path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs",
-     "count": 1,
-     "site": "ram_lfe.uploaded_verifier_metadata"
-    },
     {"token": "ram_lfe_uploaded_verifier", "path": "crates/iroha_torii/src/lib.rs", "count": 4, "site": "ram_lfe.uploaded_verifier_metadata"},
     {
      "token": "ram_lfe_uploaded_verifier",
@@ -11461,15 +12080,15 @@
      "token": "strict_key_preparation",
      "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
      "count": 3,
-     "site": "generic.halo2_uploaded_key"
+     "site": "generic.native_uploaded_key"
     },
     {
      "token": "strict_key_preparation",
      "path": "crates/iroha_core/src/smartcontracts/ivm/host.rs",
      "count": 1,
-     "site": "generic.halo2_uploaded_key"
+     "site": "generic.native_uploaded_key"
     },
-    {"token": "strict_key_preparation", "path": "crates/iroha_core_zk/src/lib.rs", "count": 1, "site": "generic.halo2_uploaded_key"},
+    {"token": "strict_key_preparation", "path": "crates/iroha_core_zk/src/lib.rs", "count": 1, "site": "generic.native_uploaded_key"},
     {
      "token": "verifying_key_registry_read",
      "path": "crates/iroha_core/src/executor.rs",
@@ -11837,7 +12456,6 @@
      "write_moderation_ballots_executor_bundle"
     ]
    },
-   {"family": "rust", "path": "crates/iroha_cli/src/contracts.rs", "product": "generic_proof", "symbols": ["set_external_vk_bytes"]},
    {
     "family": "rust",
     "path": "crates/iroha_cli/src/gov/parliament.rs",
@@ -12151,16 +12769,14 @@
     "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/HttpClientTransport.kt",
     "product": "ram_lfe",
     "symbols": [
-     "buildIdentifierResolvePayload",
-     "buildIdentifierResolveRequest",
-     "buildRamLfeExecutePayload",
-     "buildRamLfeExecuteRequest",
      "buildRamLfeReceiptVerifyPayload",
      "executeRamLfeProgram",
      "getIdentifierClaimByReceiptHash",
      "issueIdentifierClaimReceipt",
      "listIdentifierPolicies",
      "listRamLfeProgramPolicies",
+     "prepareIdentifierClaim",
+     "requireIdentifierReceiptScope",
      "resolveIdentifier",
      "verifyRamLfeReceipt"
     ]
@@ -12193,6 +12809,12 @@
     "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/connect/ConnectCrypto.kt",
     "product": "soracloud_fhe",
     "symbols": ["decryptCiphertext"]
+   },
+   {
+    "family": "kotlin_java_android",
+    "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/Executable.kt",
+    "product": "ivm_proof",
+    "symbols": ["ivmProved"]
    },
    {
     "family": "kotlin_java_android",
@@ -12313,9 +12935,15 @@
    },
    {
     "family": "kotlin_java_android",
+    "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/NoritoJavaCodecAdapter.kt",
+    "product": "generic_proof",
+    "symbols": ["withProofAttachments"]
+   },
+   {
+    "family": "kotlin_java_android",
     "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/TransactionPayloadAdapter.kt",
     "product": "generic_proof",
-    "symbols": ["decodeProofAttachmentPayload", "encodeProofAttachmentPayload"]
+    "symbols": ["decodeProofAttachmentPayload", "encodeProofAttachmentPayload", "preflightProofAttachments", "withProofAttachments"]
    },
    {
     "family": "swift",
@@ -12367,7 +12995,7 @@
     "family": "swift",
     "path": "IrohaSwift/Sources/IrohaSwift/NativeBridge.swift",
     "product": "confidential_assets",
-    "symbols": ["encodeConfidentialPayload", "encodeRegisterZkAsset"]
+    "symbols": ["encodeRegisterZkAsset"]
    },
    {
     "family": "swift",
@@ -12475,14 +13103,15 @@
     "path": "IrohaSwift/Sources/IrohaSwift/ToriiClient.swift",
     "product": "ram_lfe",
     "symbols": [
-     "buildIdentifierResolveRequest",
-     "buildRamLfeExecuteRequest",
+     "decodeCurrentIdentifierReceipt",
      "exactRamLfeTag",
      "executeRamLfeProgram",
      "getIdentifierClaimByReceiptHash",
      "issueIdentifierClaimReceipt",
      "listIdentifierPolicies",
      "listRamLfeProgramPolicies",
+     "prepareIdentifierClaim",
+     "requireIdentifierReceiptScope",
      "resolveIdentifier",
      "verifyRamLfeReceipt"
     ]
@@ -12519,6 +13148,7 @@
      "issueIdentifierClaimReceipt",
      "listIdentifierPolicies",
      "listRamLfeProgramPolicies",
+     "prepareIdentifierClaim",
      "resolveIdentifier",
      "verifyRamLfeReceipt"
     ]
@@ -12701,6 +13331,7 @@
      "issueIdentifierClaimReceipt",
      "listIdentifierPolicies",
      "listRamLfeProgramPolicies",
+     "prepareIdentifierClaimReceipt",
      "resolveIdentifier",
      "verifyIdentifierResolutionReceipt",
      "verifyRamLfeReceipt"
@@ -13016,7 +13647,7 @@
     "family": "javascript",
     "path": "javascript/iroha_js/src/norito.js",
     "product": "voting",
-    "symbols": ["exactFinalizeElectionTallyJson", "exactPublicPlainBallotJson", "isPublicPlainBallotInstruction", "parsePublicPlainBallotInstructionJson"]
+    "symbols": ["exactFinalizeElectionTallyJson", "exactPublicPlainBallotJson", "parsePublicPlainBallotInstructionJson"]
    },
    {
     "family": "javascript",
@@ -13041,6 +13672,12 @@
     "path": "javascript/iroha_js/src/noritoGovernanceBoundary.js",
     "product": "voting",
     "symbols": ["normalizeGovernanceBallotDirection", "validateCastPlainBallotPayload", "validateCastZkBallotPayload"]
+   },
+   {
+    "family": "javascript",
+    "path": "javascript/iroha_js/src/noritoValueCodecs.js",
+    "product": "voting",
+    "symbols": ["isPublicPlainBallotInstruction"]
    },
    {
     "family": "javascript",
@@ -13230,6 +13867,7 @@
      "normalizeRamLfeProgramProfile",
      "normalizeRamLfeProofVerifierMetadata",
      "normalizeRamLfeReceiptVerifyResponse",
+     "prepareIdentifierClaimReceipt",
      "requireExactRamLfeBackend",
      "requireExactRamLfeTag",
      "requireExactRamLfeVerificationMode",

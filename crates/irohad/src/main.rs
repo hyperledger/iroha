@@ -32,6 +32,7 @@ pub mod runtime_provider_registry;
 #[cfg(unix)]
 #[path = "sccp_keeper.rs"]
 mod sccp_keeper;
+mod sccp_staking_policy;
 /// Embedded Soracloud runtime-manager reconciliation.
 #[path = "soracloud_runtime.rs"]
 mod soracloud_runtime;
@@ -1105,29 +1106,34 @@ fn refresh_block_count_after_snapshot_load(
     block_count.0 = durable_height;
     Ok(())
 }
-fn apply_state_runtime_config_before_snapshot_auth(state: &mut State, config: &Config) {
+fn apply_state_runtime_config_before_snapshot_auth(
+    state: &mut State,
+    config: &Config,
+) -> Result<(), iroha_core::pipeline_validity_policy::PipelineValidityPolicyError> {
     // These fields are process-local execution policy and do not touch Kura-owned geometry.
     // Settlement must be installed before replay because historical
     // transitions resolve their deterministic execution state through
     // `State::settlement`. This ordering is replay correctness, not a
     // node-readiness gate.
-    state.set_crypto(config.crypto.clone());
     install_node_pipeline_config(state, config)?;
+    state.set_crypto(config.crypto.clone());
     state.set_oracle(config.oracle.clone());
     state.set_fraud_monitoring(config.fraud_monitoring.clone());
     state.set_gov(config.gov.clone());
     state.content = config.content.clone();
     state.set_settlement(config.settlement);
+    Ok(())
 }
-/// Install the node's own pipeline settings: local resources and the fee policy.
+/// Install the node's local pipeline resources; validity and fees are committed.
 ///
 /// Execution limits are committed chain policy
 /// (`iroha_core::pipeline_validity_policy`). The node configuration schema holds
 /// no such key, so nothing is ignored when the settings come from a file.
-fn install_node_pipeline_config(state: &mut State, config: &Config) -> Result<(), String> {
-    let ignored = state
-        .install_node_pipeline(config.pipeline.clone())
-        .map_err(|error| error.to_string())?;
+fn install_node_pipeline_config(
+    state: &mut State,
+    config: &Config,
+) -> Result<(), iroha_core::pipeline_validity_policy::PipelineValidityPolicyError> {
+    let ignored = state.install_node_pipeline(config.pipeline.clone())?;
     if !ignored.is_empty() {
         // Unreachable from a configuration file; a settings value built by hand
         // (a tool or a test) may still hold such values.
@@ -1174,6 +1180,13 @@ fn apply_state_geometry_config_before_kura_replay(
                 report.attach("failed to restore snapshot Nexus lane storage at startup")
             })?;
     }
+    sccp_staking_policy::validate(&state.world_view(), &policies.nexus.staking)
+        .map_err(|error| Report::new(error).change_context(StartError::InitKura))
+        .map_err(|report| {
+            report.attach(
+                "SCCP staking policy does not cover current and retained committee liability",
+            )
+        })?;
     state
         .set_nexus_from_config(policies.nexus.clone())
         .map_err(|err| Report::new(err).change_context(StartError::InitKura))
@@ -2767,7 +2780,8 @@ impl Iroha {
                     ))
                 })?;
         } else {
-            apply_state_runtime_config_before_snapshot_auth(&mut state, &config);
+            apply_state_runtime_config_before_snapshot_auth(&mut state, &config)
+                .map_err(|error| Report::new(error).change_context(StartError::InitKura))?;
         }
         let startup_lane_policies = if emergency_fast {
             None
@@ -2835,7 +2849,7 @@ impl Iroha {
                     report.attach("failed to restore effective Nexus tiered lane geometry")
                 })?;
             install_node_pipeline_config(&mut state, &config)
-                .map_err(|reason| Report::new(StartError::InitKura).attach(reason))?;
+                .map_err(|error| Report::new(error).change_context(StartError::InitKura))?;
             state.set_oracle(config.oracle.clone());
             state.set_fraud_monitoring(config.fraud_monitoring.clone());
             state.set_gov(config.gov.clone());
@@ -8799,7 +8813,8 @@ fn validate_genesis_execution_offline(
         ))
     })?;
     install_zk_config_before_kura_replay(&mut state, config).change_context(MainError::Config)?;
-    apply_state_runtime_config_before_snapshot_auth(&mut state, config);
+    apply_state_runtime_config_before_snapshot_auth(&mut state, config)
+        .map_err(|error| Report::new(error).change_context(MainError::Config))?;
     let baseline = freeze_lane_manifests_for_startup_replay(&config.nexus)
         .map_err(|error| Report::new(error).change_context(MainError::Config))?;
     let startup_policies =
@@ -10184,7 +10199,7 @@ mod tests {
                 .contains("ifemergency_fast{state.validate_restored_governance(&config.gov)")
         );
         assert!(compact_source.contains(
-            "}else{apply_state_runtime_config_before_snapshot_auth(&mutstate,&config);}"
+            "}else{apply_state_runtime_config_before_snapshot_auth(&mutstate,&config).map_err(|error|Report::new(error).change_context(StartError::InitKura))?;}"
         ));
         assert!(compact_source.contains(
             "letevents_buffer_capacity=ifemergency_fast{1}else{config.torii.events_buffer_capacity.get()};"
@@ -10824,12 +10839,17 @@ mod tests {
             config.zk.sccp.max_proof_bytes_per_proof =
                 std::num::NonZeroU64::new(11).expect("nonzero byte cap");
             config.settlement.router.epsilon_bps = 17;
+            config.pipeline.ivm_execution_max_bytes = 1024;
             let kura = Kura::blank_kura_for_testing();
             let query = LiveQueryStore::start_test();
             let mut state = State::new_for_testing(World::new(), kura, query);
+            let original_execution_budget = state.ivm_execution_budget();
             install_zk_config_before_kura_replay(&mut state, &config)
                 .expect("fresh state accepts actual ZK configuration");
-            apply_state_runtime_config_before_snapshot_auth(&mut state, &config);
+            apply_state_runtime_config_before_snapshot_auth(&mut state, &config)
+                .expect("fresh state accepts runtime configuration");
+            assert!(original_execution_budget.same_pool(&state.ivm_execution_budget()));
+            assert_eq!(original_execution_budget.limit_bytes(), 1024);
             let installed = state.zk_snapshot();
             // The node configuration cannot change a validity value: the protocol
             // default (or the committed `zk_validity_policy_v1`) decides it.
@@ -11224,7 +11244,8 @@ mod tests {
             )
             .expect("genesis state");
             install_zk_config_before_kura_replay(&mut state, config).expect("genesis ZK policy");
-            apply_state_runtime_config_before_snapshot_auth(&mut state, config);
+            apply_state_runtime_config_before_snapshot_auth(&mut state, config)
+                .expect("genesis runtime configuration");
             let baseline = freeze_lane_manifests_for_startup_replay(&config.nexus)
                 .expect("genesis lane manifests");
             let policies = install_lane_policies_for_startup_replay(

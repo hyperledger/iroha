@@ -430,15 +430,20 @@ fn fee_quote_prices_a_proof_instruction_with_the_committed_gas_schedule() {
         .expect("a policy that differs in gas is valid");
     {
         let mut parameters = world.parameters.block();
-        parameters.set_parameter(Parameter::Custom(policy.clone().into_custom_parameter()));
+        parameters
+            .set_parameter(Parameter::Custom(policy.clone().into_custom_parameter()))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
-    let fixture = crate::zk::test_utils::halo2_fixture_envelope("halo2/ipa:fee-quote", [0u8; 32]);
-    let proof_box = fixture.proof_box("halo2/ipa");
+    let fixture = crate::zk::test_utils::native_framing_fixture_envelope(
+        crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID,
+        [0u8; 32],
+    );
+    let proof_box = fixture.proof_box("pipa-r/pasta");
     let attachment = ProofAttachment::new_ref(
         proof_box.backend.clone(),
         proof_box,
-        VerifyingKeyId::new("halo2/ipa", "vk-fee-quote"),
+        VerifyingKeyId::new("pipa-r/pasta", "vk-fee-quote"),
     );
     let proof_bytes = attachment.proof.bytes.len() as u64;
     let delta = 19 + 2 * proof_bytes;

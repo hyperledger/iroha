@@ -3426,7 +3426,7 @@ fn zk_ams_prepared_release_material_v1(
             .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?
             != expected_proof_bytes
             || u32::try_from(
-                norito::to_bytes(&submission.envelope.statement)
+                norito::encode_canonical(&submission.envelope.statement)
                     .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?
                     .len(),
             )
@@ -3435,7 +3435,7 @@ fn zk_ams_prepared_release_material_v1(
         {
             return Err(PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant);
         }
-        let encoded_envelope = norito::to_bytes(&submission.envelope)
+        let encoded_envelope = norito::encode_canonical(&submission.envelope)
             .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?;
         if u32::try_from(encoded_envelope.len())
             .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?
@@ -3507,7 +3507,7 @@ fn zk_ams_prepared_release_material_v1(
         ) => proof.as_bytes(),
         _ => return Err(PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant),
     };
-    let signed_envelope = norito::to_bytes(&signed_submission.envelope)
+    let signed_envelope = norito::encode_canonical(&signed_submission.envelope)
         .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?;
     if signed_proof != proof.as_slice()
         || u32::try_from(signed_envelope.len())

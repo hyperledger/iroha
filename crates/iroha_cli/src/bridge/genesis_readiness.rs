@@ -78,6 +78,30 @@ fn parse_challenge(value: &str) -> Result<[u8; 32]> {
     Ok(challenge)
 }
 
+fn genesis_execution_hash(block: &iroha::data_model::block::SignedBlock) -> Result<String> {
+    use iroha::data_model::sumeragi_finality::{
+        CertifiedResultScope, CertifiedResultV1, result_of_preimage,
+    };
+    let certificate = block
+        .commit_certificate()
+        .ok_or_else(|| eyre::eyre!("verified genesis certificate missing"))?;
+    // The readiness client already authenticated this genesis and its scope. Recheck the
+    // complete structural carrier and C5 before rendering its exact signed result hash.
+    let certified = CertifiedResultV1::decode(
+        certificate.result_preimage(),
+        CertifiedResultScope::TairaGlobal,
+    )?;
+    certified.check_block(
+        block.header().height().get(),
+        block.header().creation_time_ms,
+    )?;
+    Ok(hex::encode(
+        result_of_preimage(certificate.result_preimage())
+            .ok_or_else(|| eyre::eyre!("verified genesis result preimage is malformed"))?
+            .0,
+    ))
+}
+
 fn report(
     args: &Args,
     network_id: NetworkId,
@@ -89,15 +113,7 @@ fn report(
             let block = iroha::data_model::block::decode_framed_signed_block(
                 &attestation.body.finality_proof.block_wire,
             )?;
-            let certificate = block
-                .commit_certificate()
-                .ok_or_else(|| eyre::eyre!("verified genesis certificate missing"))?;
-            let execution_hash = hex::encode(
-                iroha::data_model::sumeragi_finality::result_of_preimage(
-                    certificate.result_preimage(),
-                )
-                .0,
-            );
+            let execution_hash = genesis_execution_hash(&block)?;
             let bytes = norito::to_bytes(attestation.as_ref())?;
             ensure!(
                 bytes.len() <= MAX_ATTESTATION_BYTES,
@@ -253,6 +269,62 @@ mod tests {
         ] {
             assert!(parse_challenge(&value).is_err(), "{value:?}");
         }
+    }
+    #[test]
+    fn reported_genesis_hash_requires_the_complete_certified_result_and_original_time() {
+        use iroha_data_model::{
+            block::{CommitCertificate, decode_framed_signed_block},
+            sumeragi_finality::{
+                CertifiedResultError, CertifiedResultScope, CertifiedResultV1,
+                SccpFinalityHeaderV1, certified_result::X_LEN,
+                test_fixtures::NativeFinalityFixture,
+            },
+        };
+        let fixture = NativeFinalityFixture::new();
+        let mut block = decode_framed_signed_block(&fixture.genesis_proof().block_wire).unwrap();
+        let original = block.commit_certificate().unwrap().clone();
+        let certified =
+            CertifiedResultV1::decode(original.result_preimage(), CertifiedResultScope::NonGlobal)
+                .unwrap();
+        assert_eq!(
+            genesis_execution_hash(&block).unwrap(),
+            hex::encode(certified.result().unwrap().0)
+        );
+        for bytes in [
+            original.result_preimage()[X_LEN..].to_vec(),
+            original.result_preimage()[..original.result_preimage().len() - 1].to_vec(),
+        ] {
+            block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
+                Vec::new(),
+                Vec::new(),
+                bytes,
+                Vec::new(),
+            )));
+            assert!(genesis_execution_hash(&block).is_err());
+        }
+        let (header, body) = certified.into_parts();
+        let wrong_time = SccpFinalityHeaderV1::inactive(
+            body.schedule.current.network_id.as_bytes().to_owned(),
+            header.height(),
+            header.timestamp_ms() + 1,
+        )
+        .unwrap();
+        let changed =
+            CertifiedResultV1::new(wrong_time, body, CertifiedResultScope::NonGlobal).unwrap();
+        block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
+            Vec::new(),
+            Vec::new(),
+            changed.preimage().unwrap(),
+            Vec::new(),
+        )));
+        assert!(matches!(
+            genesis_execution_hash(&block)
+                .unwrap_err()
+                .downcast_ref::<CertifiedResultError>(),
+            Some(CertifiedResultError::BlockMismatch)
+        ));
+        block.set_commit_certificate(None);
+        assert!(genesis_execution_hash(&block).is_err());
     }
     #[test]
     fn cli_requires_finite_timeout_and_all_independent_anchors() {

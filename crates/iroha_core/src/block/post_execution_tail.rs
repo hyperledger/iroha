@@ -21,11 +21,11 @@ impl ValidBlock {
         )?;
         // Monetary fees have already executed as signed scoped asset effects.
         // Native output metadata has no synthetic conversion or relay receipt owner.
-        // SCCP commitments, history, rosters, subjects and pruning are World writes of this
+        // SCCP commitments, history, native generations and pruning are World writes of this
         // block after all of its transactions (`specs/sccp.md` §4.5), with the authenticated
         // consensus inputs of its height.
         let sccp_inputs = Self::sccp_height_inputs(block, state, sccp_height);
-        crate::smartcontracts::isi::sccp::hook::finalize_block(
+        let sccp_finality_header = crate::smartcontracts::isi::sccp::hook::finalize_block(
             state,
             &block.header(),
             sccp_inputs.as_ref(),
@@ -34,12 +34,13 @@ impl ValidBlock {
             Self::validated_committed_fragment_count(state, advertised_fragments)?;
         Ok(crate::state::ExecutionOutputSealMetadata {
             committed_fragment_count,
+            sccp_finality_header,
         })
     }
 
     /// Derive the consensus inputs of the height `state` executes for the SCCP post-execution
-    /// hook (`specs/sccp.md` §4.3.2), or `None` when SCCP does not exist or the inputs cannot
-    /// be derived (SCCP roster derivation then fails closed; block execution is unaffected).
+    /// hook (`specs/sccp.md` §4.2.2), or `None` when SCCP does not exist or the inputs cannot
+    /// be derived (SCCP finality then degrades; block execution is unaffected).
     ///
     /// Read the authenticated native schedule after the output-seal finalizer advanced it.
     /// Unauthenticated component executions never infer committee authority from their writes.
@@ -65,7 +66,7 @@ impl ValidBlock {
             .map_err(|error| {
                 iroha_logger::warn!(
                     %error,
-                    "SCCP: the scheduled height inputs are unavailable; roster derivation fails closed"
+                    "SCCP: the scheduled height inputs are unavailable; native generation finality degrades"
                 );
             })
             .ok(),

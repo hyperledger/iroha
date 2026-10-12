@@ -25,16 +25,32 @@ pub(crate) fn genesis_fixture(
     length: u64,
     duplicate_npos: bool,
 ) -> SignedBlock {
+    genesis_fixture_with_scope(
+        mode,
+        length,
+        duplicate_npos,
+        iroha_data_model::block::consensus::SumeragiRootScope::Global,
+    )
+}
+
+pub(crate) fn genesis_fixture_with_scope(
+    mode: SumeragiConsensusMode,
+    length: u64,
+    duplicate_npos: bool,
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
+) -> SignedBlock {
     let mut voters = (1_u8..=4)
         .map(|seed| KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal))
         .collect::<Vec<_>>();
     voters.sort_by(|a, b| a.public_key().cmp(b.public_key()));
+    let mut context = SumeragiGenesisContextParameters::recommended();
+    context.root_scope = root_scope;
     let metadata = ConsensusHandshakeMetadata {
         mode,
         block_cadence_ms: NonZeroU64::new(1000).unwrap(),
         wire_protocol_version: u32::from(iroha_data_model::sumeragi::PROTOCOL_VERSION),
         consensus_fingerprint: ConsensusFingerprint::new([0x71; 32]),
-        sumeragi_context: SumeragiGenesisContextParameters::recommended(),
+        sumeragi_context: context,
     };
     let mut instructions = voters
         .iter()

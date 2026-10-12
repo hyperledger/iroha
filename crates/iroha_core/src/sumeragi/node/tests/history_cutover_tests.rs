@@ -19,9 +19,7 @@ use iroha_config::{
     },
 };
 use iroha_config_base::WithOrigin;
-use iroha_data_model::block::{
-    SharedSignedBlock, decode_framed_signed_block, deframe_versioned_signed_block_bytes,
-};
+use iroha_data_model::block::{SharedSignedBlock, decode_framed_signed_block};
 use norito::json::Value;
 use sha2::{Digest as _, Sha256};
 
@@ -406,8 +404,8 @@ fn stored_block_wire_is_exactly_the_framed_first_release_layout() {
         .encode_wire()
         .expect("canonical genesis frame");
     assert_eq!(
-        <SignedBlock as iroha_version::Version>::supported_versions(),
-        1..2,
+        SignedBlock::WIRE_VERSION,
+        1,
         "exactly one block wire version"
     );
     assert_eq!(frame[0], 1);
@@ -423,10 +421,8 @@ fn stored_block_wire_is_exactly_the_framed_first_release_layout() {
             "block wire version {version} has no decoder"
         );
     }
-    let bare = deframe_versioned_signed_block_bytes(&frame)
-        .expect("a framed block")
-        .bare_versioned
-        .into_owned();
+    let mut bare = vec![frame[0]];
+    bare.extend_from_slice(&frame[1 + norito::core::Header::SIZE..]);
     assert!(
         decode_framed_signed_block(&bare).is_err(),
         "a headerless payload is not a stored block"

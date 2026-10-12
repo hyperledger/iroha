@@ -25207,10 +25207,14 @@ seiyaku DurableOwner {
     fn from_state_hydrates_zk_snapshots() {
         let mut world = World::new();
         let mut parameters = world.parameters.block();
-        parameters.get_mut().smart_contract.max_output_items =
+        let mut original = (**parameters.get()).clone();
+        original.smart_contract.max_output_items =
             NonZeroU64::new(23).expect("non-zero item limit");
-        parameters.get_mut().smart_contract.max_output_bytes =
+        original.smart_contract.max_output_bytes =
             NonZeroU64::new(65_536).expect("non-zero byte limit");
+        parameters
+            .replace(original)
+            .expect("valid fixture parameters");
         parameters.commit();
         let asset_def_id: AssetDefinitionId =
             iroha_data_model::asset::AssetDefinitionId::derive_from_components(

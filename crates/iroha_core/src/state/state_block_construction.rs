@@ -84,7 +84,7 @@ impl State {
         // policy above; the installed value supplies local resources.
         pipeline = Some(crate::pipeline_validity_policy::effective_pipeline(
             self.pipeline.clone(),
-            acquired.world.parameters(),
+            acquired.world.parameters.get(),
         ));
         oracle = Some(self.oracle.clone());
         crypto = Some(self.crypto());
@@ -180,6 +180,7 @@ impl State {
                 .into_fields();
             let block = StateBlock::from_fields(StateBlockFields {
                 local_storage_refusal: None,
+                sccp_begin_failure: None,
                 _ivm_refunds: pipeline_ivm_prepared_cache
                     .as_ref()
                     .expect("prepared State input")

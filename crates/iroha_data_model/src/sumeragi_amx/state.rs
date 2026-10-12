@@ -195,6 +195,11 @@ impl SumeragiAmxState {
         }
         for entry in &self.dataspaces {
             entry.tracker.validate()?;
+            if entry.tracker.result_scope
+                != crate::sumeragi_finality::CertifiedResultScope::NonGlobal
+            {
+                return Err(rejected("participant tracker must name a non-global root"));
+            }
         }
         for entry in &self.transactions {
             entry.begin.validate()?;
@@ -237,6 +242,9 @@ impl SumeragiAmxState {
         tracker: AmxForeignInstanceV1,
     ) -> Result<(), AmxError> {
         tracker.validate()?;
+        if tracker.result_scope != crate::sumeragi_finality::CertifiedResultScope::NonGlobal {
+            return Err(rejected("participant tracker must name a non-global root"));
+        }
         let Err(index) = self
             .dataspaces
             .binary_search_by_key(&dataspace, |entry| entry.dataspace)

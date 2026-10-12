@@ -42,6 +42,24 @@ class NoritoJavaCodecAdapter @JvmOverloads constructor(
         }
     }
 
+    /** Canonical proof-free frame committed by each action's ordered intent. */
+    fun orderedIntentProjection(payload: TransactionPayload): ByteArray = adapter.orderedIntentProjection(payload)
+
+    /** BLAKE3 domain-separated digest of the proof-free ordered intent. */
+    fun orderedIntentDigest(payload: TransactionPayload): org.hyperledger.iroha.sdk.core.model.OrderedIntentDigestV1 =
+        adapter.orderedIntentDigest(payload)
+
+    /** Rebind statements after changing independent intent fields, before regenerating proofs. */
+    fun bindAttachmentStatements(payload: TransactionPayload): TransactionPayload = adapter.bindAttachmentStatements(payload)
+
+    /** Replace carriers with canonical signed occurrences and bind their derived statements. */
+    fun withProofAttachments(payload: TransactionPayload, proofs: List<org.hyperledger.iroha.sdk.core.model.instructions.ProofAttachment>): TransactionPayload =
+        adapter.withProofAttachments(payload, proofs)
+
+    /** Replace carriers with the single canonical proof of this proved IVM executable. */
+    fun withIvmExecutionProof(payload: TransactionPayload, proof: org.hyperledger.iroha.sdk.core.model.instructions.ProofAttachment): TransactionPayload =
+        adapter.withIvmExecutionProof(payload, proof)
+
     override fun schemaName(): String = schemaName
 
     companion object {

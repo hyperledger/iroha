@@ -3704,16 +3704,14 @@ impl Nts {
 }
 /// User-level configuration container for `Pipeline`.
 ///
-/// Local resources of this node and, until its committed source exists, the
-/// fee policy `gas`. The execution limits of the pipeline (overlay size, IVM
+/// Local resources of this node. Fee policy comes from the committed
+/// pipeline gas parameters. The execution limits of the pipeline (overlay size, IVM
 /// cycle and decoded-program bounds, the quarantine lane, query limits, the AMX
 /// budget model and the access-set derivation mode) are committed chain policy:
 /// the `pipeline_validity_policy_v1` parameter
 /// (`iroha_data_model::pipeline_validity_policy`). They are not keys of this
 /// schema, so a configuration that names one fails to load.
-// TODO(F.4): `gas` is validity-affecting fee policy still read from node
-// configuration; it moves to a committed fee policy with F.3.
-#[derive(Debug, ReadConfig)]
+#[derive(Debug, Clone, Copy, ReadConfig)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct Pipeline {
     /// Enable caching of derived access sets for IVM manifest hints.
@@ -3819,9 +3817,6 @@ pub struct Pipeline {
         default = "defaults::pipeline::IVM_PROVER_THREADS"
     )]
     pub ivm_prover_threads: usize,
-    /// Gas-fee configuration (accepted assets, conversion, and tech account).
-    #[config(nested)]
-    pub gas: Gas,
     /// Default cursor mode for server-facing query endpoints: "ephemeral" or "stored".
     #[config(
         env = "PIPELINE_QUERY_DEFAULT_CURSOR_MODE",
@@ -4471,7 +4466,7 @@ impl Oracle {
     }
 }
 impl Pipeline {
-    fn parse(self, emitter: &mut Emitter<ParseError>) -> actual::Pipeline {
+    fn parse(self, _emitter: &mut Emitter<ParseError>) -> actual::Pipeline {
         // Execution limits are committed chain policy
         // (`pipeline_validity_policy_v1`); the settings value a node builds
         // holds their protocol defaults.
@@ -4498,7 +4493,7 @@ impl Pipeline {
             overlay_max_instructions: defaults::pipeline::OVERLAY_MAX_INSTRUCTIONS,
             overlay_max_bytes: defaults::pipeline::OVERLAY_MAX_BYTES,
             overlay_chunk_instructions: defaults::pipeline::OVERLAY_CHUNK_INSTRUCTIONS,
-            gas: self.gas.parse(emitter),
+            gas: actual::Gas::default(),
             ivm_max_cycles_upper_bound: defaults::pipeline::IVM_MAX_CYCLES_UPPER_BOUND,
             ivm_max_decoded_instructions: defaults::pipeline::IVM_MAX_DECODED_INSTRUCTIONS,
             ivm_max_decoded_bytes: defaults::pipeline::IVM_MAX_DECODED_BYTES,
@@ -4573,14 +4568,30 @@ mod pipeline_tests {
             ivm_cache_max_bytes: defaults::pipeline::IVM_CACHE_MAX_BYTES,
             ivm_execution_max_bytes: defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
             ivm_prover_threads: defaults::pipeline::IVM_PROVER_THREADS,
-            gas: Gas {
-                tech_account_id: defaults::pipeline::GAS_TECH_ACCOUNT_ID.to_string(),
-                accepted_assets: Vec::new(),
-                units_per_gas: Vec::new(),
-            },
             query_default_cursor_mode: QueryCursorMode::Ephemeral,
         }
     }
+    #[test]
+    fn pipeline_gas_is_not_node_configuration() {
+        use iroha_config_base::{read::ConfigReader, toml::TomlSource};
+        for source in [
+            "[gas]\ntech_account_id = \"local\"",
+            "[gas]\naccepted_assets = []",
+            "[[gas.units_per_gas]]\nasset = \"local\"\nunits_per_gas = 1",
+        ] {
+            let table: toml::Table = toml::from_str(source).unwrap();
+            let error = ConfigReader::new()
+                .with_toml_source(TomlSource::inline(table))
+                .read_and_complete::<Pipeline>()
+                .expect_err("fee policy is committed, not node configuration");
+            assert!(format!("{error:?}").contains("unknown parameter"));
+        }
+        let mut emitter = Emitter::new();
+        let parsed = pipeline_with_debug(false, false).parse(&mut emitter);
+        emitter.into_result().unwrap();
+        assert_eq!(parsed.gas, actual::Gas::default());
+    }
+
     #[test]
     fn pipeline_parse_maps_debug_flags() {
         let mut emitter = Emitter::new();
@@ -5609,139 +5620,6 @@ impl DiagnosticTrace {
             retry_ring_cap: self.retry_ring_cap,
             retry_max_attempts: self.retry_max_attempts,
             retry_tick_ms: self.retry_tick_ms,
-        }
-    }
-}
-/// User-level configuration container for `Gas`.
-#[derive(Debug, ReadConfig, Clone, norito::JsonDeserialize)]
-pub struct Gas {
-    /// System-owned technical account that receives gas fee transfers.
-    #[config(
-        env = "PIPELINE_GAS_TECH_ACCOUNT_ID",
-        default = "defaults::pipeline::GAS_TECH_ACCOUNT_ID.to_string()"
-    )]
-    pub tech_account_id: String,
-    /// Allowlist of accepted gas assets (Asset IDs strings, e.g., "asset:gas/G_exit@ivm.core/v2").
-    #[config(default)]
-    pub accepted_assets: Vec<String>,
-    /// Deterministic conversion: minimal asset units per one gas unit for each accepted asset.
-    #[config(default)]
-    #[allow(clippy::struct_field_names)]
-    pub units_per_gas: Vec<GasRate>,
-}
-impl Gas {
-    fn parse(self, emitter: &mut Emitter<ParseError>) -> actual::Gas {
-        actual::Gas {
-            tech_account_id: self.tech_account_id,
-            accepted_assets: self.accepted_assets,
-            units_per_gas: self
-                .units_per_gas
-                .into_iter()
-                .filter_map(|r| {
-                    let asset = r.asset;
-                    let twap = r.twap_local_per_xor.as_deref().map_or_else(
-                        || Some(Numeric::one()),
-                        |value| match Numeric::from_str(value) {
-                            Ok(parsed) if parsed > Numeric::zero() => Some(parsed),
-                            Ok(_) => {
-                                emitter.emit(
-                                    Report::new(ParseError::InvalidPipelineConfig).attach(format!(
-                                        "pipeline.gas.units_per_gas twap `{value}` for asset `{asset}` must be positive"
-                                    )),
-                                );
-                                None
-                            }
-                            Err(error) => {
-                                emitter.emit(
-                                    Report::new(ParseError::InvalidPipelineConfig).attach(format!(
-                                        "invalid pipeline.gas.units_per_gas twap `{value}` for asset `{asset}`: {error}"
-                                    )),
-                                );
-                                None
-                            }
-                        },
-                    );
-                    let liquidity = r.liquidity_profile.as_deref().map_or_else(
-                        || Some(actual::GasLiquidity::default()),
-                        |value| actual::GasLiquidity::from_str(value).map_or_else(
-                            |()| {
-                                emitter.emit(
-                                    Report::new(ParseError::InvalidPipelineConfig).attach(format!(
-                                        "invalid pipeline.gas.units_per_gas liquidity `{value}` for asset `{asset}`; expected exactly `tier1`, `tier2`, or `tier3`"
-                                    )),
-                                );
-                                None
-                            }, Some),
-                    );
-                    let volatility = r.volatility_class.as_deref().map_or_else(
-                        || Some(actual::GasVolatility::default()),
-                        |value| actual::GasVolatility::from_str(value).map_or_else(
-                            |()| {
-                                emitter.emit(
-                                    Report::new(ParseError::InvalidPipelineConfig).attach(format!(
-                                        "invalid pipeline.gas.units_per_gas volatility `{value}` for asset `{asset}`; expected exactly `stable`, `elevated`, or `dislocated`"
-                                    )),
-                                );
-                                None
-                            }, Some),
-                    );
-                    let (Some(twap), Some(liquidity), Some(volatility)) =
-                        (twap, liquidity, volatility)
-                    else {
-                        return None;
-                    };
-                    Some(actual::GasRate {
-                        asset,
-                        units_per_gas: r.units_per_gas,
-                        twap_local_per_xor: twap,
-                        liquidity,
-                        volatility,
-                    })
-                })
-                .collect(),
-        }
-    }
-}
-/// User-level configuration container for `GasRate`.
-#[derive(Debug, ReadConfig, Clone, norito::JsonDeserialize)]
-pub struct GasRate {
-    /// Asset ID string (must be present in accepted_assets)
-    pub asset: String,
-    /// Asset minimal units per one gas unit (deterministic integer mapping)
-    pub units_per_gas: u64,
-    /// Override for the TWAP in local units per XOR.
-    pub twap_local_per_xor: Option<String>,
-    /// Override for the liquidity profile (`tier1`, `tier2`, `tier3`).
-    pub liquidity_profile: Option<String>,
-    /// Override for the volatility bucket (`stable`, `elevated`, `dislocated`).
-    pub volatility_class: Option<String>,
-}
-#[cfg(test)]
-mod gas_parse_error_tests {
-    use super::*;
-
-    #[test]
-    fn invalid_gas_rate_labels_emit_errors_without_unwinding() {
-        for (twap, liquidity, volatility) in [
-            (Some("invalid"), Some("tier1"), Some("stable")),
-            (Some("1"), Some("deep"), Some("stable")),
-            (Some("1"), Some("tier1"), Some("calm")),
-        ] {
-            let gas = Gas {
-                tech_account_id: "system".to_owned(),
-                accepted_assets: vec!["xor#universal".to_owned()],
-                units_per_gas: vec![GasRate {
-                    asset: "xor#universal".to_owned(),
-                    units_per_gas: 1,
-                    twap_local_per_xor: twap.map(str::to_owned),
-                    liquidity_profile: liquidity.map(str::to_owned),
-                    volatility_class: volatility.map(str::to_owned),
-                }],
-            };
-            let mut emitter = Emitter::new();
-            let parsed = gas.parse(&mut emitter);
-            assert!(parsed.units_per_gas.is_empty());
-            assert!(emitter.into_result().is_err());
         }
     }
 }
@@ -7863,7 +7741,9 @@ pub struct Network {
     pub low_priority_burst: Option<NonZeroU32>,
     /// Low-priority per-peer bytes/sec budget. If unset, no byte rate limiting.
     pub low_priority_bytes_per_sec: Option<NonZeroU32>,
-    /// Low-priority per-peer bytes burst.
+    /// Low-priority per-peer burst in complete canonical plaintext-frame bytes.
+    /// If unset, P2P admits at least one maximum eligible Low-priority topic frame while
+    /// preserving the configured byte rate. An explicit smaller burst is rejected at startup.
     pub low_priority_bytes_burst: Option<NonZeroU32>,
     /// Require peer keys to appear in `allow_keys`; a non-empty `allow_cidrs`
     /// independently restricts inbound addresses in either mode.
@@ -34242,33 +34122,15 @@ mod configuration_regression_tests {
     }
 
     #[test]
-    fn pipa_r_file_policy_defaults_and_explicit_caps_parse_exactly() {
-        use iroha_config_base::{read::ConfigReader, toml::TomlSource};
-        let defaults = ConfigReader::new()
-            .with_toml_source(TomlSource::inline(toml::Table::new()))
-            .read_and_complete::<PipaR>()
-            .unwrap()
-            .parse();
-        assert!(defaults.enabled);
+    fn pipa_r_defaults_match_committed_policy() {
+        let actual = actual::PipaR::default();
+        let policy = iroha_data_model::zk_validity_policy::ZkValidityPolicyV1::protocol_default();
+        assert_eq!(actual.enabled, policy.pipa_r.enabled);
         assert_eq!(
-            defaults.max_envelope_bytes,
-            defaults::zk::pipa_r::MAX_ENVELOPE_BYTES
+            actual.max_envelope_bytes as u64,
+            policy.pipa_r.max_envelope_bytes
         );
-        assert_eq!(
-            defaults.max_proof_bytes,
-            defaults::zk::pipa_r::MAX_PROOF_BYTES
-        );
-        let table = "enabled = false\nmax_envelope_bytes = 999\nmax_proof_bytes = 777\n"
-            .parse::<toml::Table>()
-            .unwrap();
-        let configured = ConfigReader::new()
-            .with_toml_source(TomlSource::inline(table))
-            .read_and_complete::<PipaR>()
-            .unwrap()
-            .parse();
-        assert!(!configured.enabled);
-        assert_eq!(configured.max_envelope_bytes, 999);
-        assert_eq!(configured.max_proof_bytes, 777);
+        assert_eq!(actual.max_proof_bytes as u64, policy.pipa_r.max_proof_bytes);
     }
 
     #[test]

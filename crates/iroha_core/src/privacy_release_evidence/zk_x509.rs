@@ -1460,9 +1460,9 @@ fn verify_zk_x509_release_production_envelope_with_mutations_v1<
     )
     .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::ProductionEnvelopeRejected)?;
     mutate_envelope(&mut envelope);
-    let expected_encoded_action_bytes = norito::to_bytes(&envelope)
+    let expected_encoded_action_bytes = norito::canonical_frame_len(&envelope)
         .ok()
-        .and_then(|encoded| u64::try_from(encoded.len()).ok())
+        .and_then(|length| u64::try_from(length).ok())
         .ok_or(PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?;
     let limits = PrivacyConsensusLimitsV1::taira_default();
     let effects = verify_privacy_envelope_v1(

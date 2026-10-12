@@ -1,7 +1,8 @@
 //! Production cryptography of the Sumeragi driver (`specs/sumeragi.md` §1, §3.4, §12.1): the
 //! chain hash `H` is [`iroha_crypto::Hash`] (32 bytes, least significant bit set, DECISIONS #4),
-//! signatures are BLS-normal (48-byte G1 keys, 96-byte G2 signatures), and the node signs with its
-//! key pair.
+//! signatures are BLS-normal (48-byte G1 keys, 96-byte G2 signatures). Consensus preimages
+//! use the dedicated allowlisted SHA-256/RFC 9380 suite; generic account and attestation
+//! signatures never enter this relation.
 //!
 //! Aggregate verification is rogue-key safe only for keys whose proof of possession (`PoP`)
 //! verified. [`BlsCrypto`] therefore verifies a committee key's `PoP` once, when the height
@@ -12,9 +13,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use iroha_crypto::{
-    Algorithm, BlsNormalAggregateScratch, BlsNormalPopVerifiedKey, Hash, KeyPair, PrivateKey,
-    PublicKey as IrohaPublicKey, Signature as IrohaSignature, bls_normal_aggregate_signatures,
-    verify_bls_normal_signature_borrowed,
+    Algorithm, BlsNormalPopVerifiedKey, Hash, KeyPair, PrivateKey, PublicKey as IrohaPublicKey,
+    bls::consensus::{self, ConsensusAggregateScratch, ConsensusDigest},
 };
 use iroha_sumeragi::{
     crypto::{Crypto, Signer},
@@ -73,7 +73,7 @@ pub struct BlsCrypto {
     // Request readers admit this exact backing before a boolean relation can
     // run. Ordinary node instances keep independent per-call scratch, retaining
     // their existing ability to verify certificates in parallel.
-    aggregate_scratch: Option<Mutex<BlsNormalAggregateScratch>>,
+    aggregate_scratch: Option<Mutex<ConsensusAggregateScratch>>,
 }
 
 impl BlsCrypto {
@@ -88,19 +88,19 @@ impl BlsCrypto {
     /// crypto owner's lifetime. This constructor does not fund the admitted-key
     /// map, credentials or other caller-owned authority graphs.
     #[must_use]
-    pub(crate) fn with_aggregate_scratch(scratch: BlsNormalAggregateScratch) -> Self {
+    pub(crate) fn with_aggregate_scratch(scratch: ConsensusAggregateScratch) -> Self {
         Self {
             admitted: RwLock::new(HashMap::new()),
             aggregate_scratch: Some(Mutex::new(scratch)),
         }
     }
 
-    fn with_scratch(&self, verify: impl FnOnce(&mut BlsNormalAggregateScratch) -> bool) -> bool {
+    fn with_scratch(&self, verify: impl FnOnce(&mut ConsensusAggregateScratch) -> bool) -> bool {
         if let Some(scratch) = &self.aggregate_scratch {
             verify(&mut scratch.lock())
         } else {
             let mut scratch =
-                BlsNormalAggregateScratch::new(|_| Ok::<_, core::convert::Infallible>(()))
+                ConsensusAggregateScratch::new(|_| Ok::<_, core::convert::Infallible>(()))
                     .unwrap_or_else(|never| match never {});
             verify(&mut scratch)
         }
@@ -201,16 +201,24 @@ impl Crypto for BlsCrypto {
     }
 
     fn verify(&self, pk: &PublicKey, msg: &[u8], sig: &Signature) -> bool {
-        verify_bls_normal_signature_borrowed(pk.as_bytes(), &sig.0, msg).is_ok()
+        let Some(digest) = ConsensusDigest::from_preimage(msg) else {
+            return false;
+        };
+        let Ok(key) = <&[u8; consensus::PUBLIC_KEY_LEN]>::try_from(pk.as_bytes()) else {
+            return false;
+        };
+        // One signature needs KeyValidate, not a PoP aggregate credential. Its caller
+        // still authenticates the signer's authority for this statement and height.
+        self.with_scratch(|scratch| {
+            scratch.verify_fast_aggregate_committed(&[*key], &digest, &sig.0)
+        })
     }
 
     fn aggregate(&self, sigs: &[Signature]) -> AggregateSignature {
-        let payloads: Vec<&[u8]> = sigs.iter().map(|sig| &sig.0[..]).collect();
         // The core aggregates verified signatures only; a failure (none, or a malformed one)
         // gives the all-zero aggregate, which never verifies.
-        bls_normal_aggregate_signatures(&payloads)
+        consensus::aggregate(sigs.iter().map(|sig| &sig.0))
             .ok()
-            .and_then(|bytes| <[u8; SIGNATURE_LEN]>::try_from(bytes).ok())
             .map_or_else(
                 || {
                     iroha_logger::error!(count = sigs.len(), "BLS aggregation failed");
@@ -221,6 +229,9 @@ impl Crypto for BlsCrypto {
     }
 
     fn verify_aggregate(&self, pks: &[&PublicKey], msg: &[u8], agg: &AggregateSignature) -> bool {
+        let Some(digest) = ConsensusDigest::from_preimage(msg) else {
+            return false;
+        };
         let admitted = self.admitted.read();
         if pks.iter().any(|key| !admitted.contains_key(*key)) {
             return false;
@@ -229,9 +240,7 @@ impl Crypto for BlsCrypto {
             let keys = pks
                 .iter()
                 .filter_map(|key| admitted.get(*key).map(AsRef::as_ref));
-            scratch
-                .verify(core::iter::once((keys, msg)), &agg.0)
-                .is_ok()
+            scratch.verify_fast_aggregate(keys, &digest, &agg.0)
         })
     }
 
@@ -241,25 +250,25 @@ impl Crypto for BlsCrypto {
         agg: &AggregateSignature,
     ) -> bool {
         let admitted = self.admitted.read();
-        if groups
-            .iter()
-            .any(|(keys, _)| keys.iter().any(|key| !admitted.contains_key(*key)))
-        {
+        if groups.iter().any(|(keys, msg)| {
+            ConsensusDigest::from_preimage(msg).is_none()
+                || keys.iter().any(|key| !admitted.contains_key(*key))
+        }) {
             return false;
         }
         self.with_scratch(|scratch| {
-            scratch
-                .verify(
-                    groups.iter().map(|(keys, message)| {
-                        (
-                            keys.iter()
-                                .filter_map(|key| admitted.get(*key).map(AsRef::as_ref)),
-                            message.as_slice(),
-                        )
-                    }),
-                    &agg.0,
-                )
-                .is_ok()
+            scratch.verify_aggregate_multi(
+                groups.iter().filter_map(|(keys, message)| {
+                    // The complete immutable input was checked above. No invalid
+                    // message can be omitted from the aggregate relation.
+                    Some((
+                        keys.iter()
+                            .filter_map(|key| admitted.get(*key).map(AsRef::as_ref)),
+                        ConsensusDigest::from_preimage(message)?,
+                    ))
+                }),
+                &agg.0,
+            )
         })
     }
 }
@@ -298,18 +307,25 @@ impl Signer for KeyPairSigner {
     }
 
     fn sign(&self, preimage: &[u8]) -> Signature {
-        // Signing with a valid BLS-normal key does not fail; if it ever does, the all-zero
-        // signature is sent, which every verifier rejects (the message is lost, like a drop).
-        IrohaSignature::try_new(&self.private, preimage)
+        #[cfg(all(test, sumeragi_core_mutation = "HC225"))]
+        return iroha_crypto::Signature::try_new(&self.private, preimage)
             .ok()
-            .and_then(|sig| <[u8; SIGNATURE_LEN]>::try_from(sig.payload()).ok())
-            .map_or_else(
-                || {
-                    iroha_logger::error!("BLS signing failed");
-                    Signature([0; SIGNATURE_LEN])
-                },
-                Signature,
-            )
+            .and_then(|signature| <[u8; SIGNATURE_LEN]>::try_from(signature.payload()).ok())
+            .map_or(Signature([0; SIGNATURE_LEN]), Signature);
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC225")))]
+        {
+            // A refused preimage or signing failure yields the existing all-zero failure
+            // sentinel. Every verifier rejects it; no alternate suite is attempted.
+            consensus::sign_preimage(&self.private, preimage)
+                .ok()
+                .map_or_else(
+                    || {
+                        iroha_logger::error!("BLS signing failed");
+                        Signature([0; SIGNATURE_LEN])
+                    },
+                    Signature,
+                )
+        }
     }
 }
 
@@ -332,6 +348,18 @@ mod tests {
 
     fn key_pair(seed: u8) -> KeyPair {
         KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal)
+    }
+
+    fn commit_preimage(marker: u8) -> Vec<u8> {
+        iroha_sumeragi::preimage::vote_preimage(
+            VoteKind::Commit,
+            &I,
+            &EPOCH,
+            7,
+            3,
+            &Hash32([1; 32]),
+            &Hash32([marker; 32]),
+        )
     }
 
     fn pop(key_pair: &KeyPair) -> Vec<u8> {
@@ -443,16 +471,18 @@ mod tests {
             .map(|seed| KeyPairSigner::new(&key_pair(seed)).unwrap())
             .collect::<Vec<_>>();
         let crypto = BlsCrypto::new();
-        let sig = signers[0].sign(b"preimage");
-        assert_eq!(sig, signers[0].sign(b"preimage"), "deterministic");
-        assert!(crypto.verify(signers[0].public_key(), b"preimage", &sig));
-        assert!(!crypto.verify(signers[0].public_key(), b"other", &sig));
-        assert!(!crypto.verify(signers[1].public_key(), b"preimage", &sig));
+        let original = commit_preimage(1);
+        let other = commit_preimage(2);
+        let sig = signers[0].sign(&original);
+        assert_eq!(sig, signers[0].sign(&original), "deterministic");
+        assert!(crypto.verify(signers[0].public_key(), &original, &sig));
+        assert!(!crypto.verify(signers[0].public_key(), &other, &sig));
+        assert!(!crypto.verify(signers[1].public_key(), &original, &sig));
         let junk = PublicKey::new(vec![7; 48]).unwrap();
-        assert!(!crypto.verify(&junk, b"preimage", &sig));
+        assert!(!crypto.verify(&junk, &original, &sig));
         assert!(!crypto.verify(
             signers[0].public_key(),
-            b"preimage",
+            &original,
             &Signature([0xFF; SIGNATURE_LEN])
         ));
         assert!(format!("{:?}", signers[0]).contains("KeyPairSigner"));
@@ -467,27 +497,74 @@ mod tests {
         let signers = (1..=3)
             .map(|seed| KeyPairSigner::new(&key_pair(seed)).unwrap())
             .collect::<Vec<_>>();
-        let sigs: Vec<Signature> = signers.iter().map(|s| s.sign(b"m")).collect();
+        let original = commit_preimage(1);
+        let other = commit_preimage(2);
+        let sigs: Vec<Signature> = signers.iter().map(|s| s.sign(&original)).collect();
         let fresh = BlsCrypto::new();
         let agg = fresh.aggregate(&sigs);
         let keys: Vec<&PublicKey> = signers.iter().map(Signer::public_key).collect();
-        assert!(!fresh.verify_aggregate(&keys, b"m", &agg), "not admitted");
+        assert!(
+            !fresh.verify_aggregate(&keys, &original, &agg),
+            "not admitted"
+        );
         let kps: Vec<KeyPair> = (1..=3).map(key_pair).collect();
         for kp in &kps[..2] {
             fresh.admit(kp.public_key(), &pop(kp)).unwrap();
         }
         assert!(fresh.is_admitted(&keys[0]) && !fresh.is_admitted(&keys[2]));
         assert!(
-            !fresh.verify_aggregate(&keys, b"m", &agg),
+            !fresh.verify_aggregate(&keys, &original, &agg),
             "one not admitted"
         );
         fresh.admit(kps[2].public_key(), &pop(&kps[2])).unwrap();
         assert_eq!(fresh.admitted_len(), 3);
-        assert!(fresh.verify_aggregate(&keys, b"m", &agg));
-        assert!(!fresh.verify_aggregate(&keys, b"n", &agg));
-        assert!(!fresh.verify_aggregate(&keys[..2], b"m", &agg));
+        assert!(fresh.verify_aggregate(&keys, &original, &agg));
+        assert!(!fresh.verify_aggregate(&keys, &other, &agg));
+        assert!(!fresh.verify_aggregate(&keys[..2], &original, &agg));
         assert_eq!(fresh.aggregate(&[]), AggregateSignature([0; SIGNATURE_LEN]));
-        assert!(!fresh.verify_aggregate(&keys, b"m", &fresh.aggregate(&[])));
+        assert!(!fresh.verify_aggregate(&keys, &original, &fresh.aggregate(&[])));
+    }
+
+    #[test]
+    fn production_consensus_suite_refuses_generic_and_nonallowlisted_signatures() {
+        let pair = key_pair(1);
+        let signer = KeyPairSigner::new(&pair).unwrap();
+        let crypto = BlsCrypto::new();
+        let key = crypto.admit(pair.public_key(), &pop(&pair)).unwrap();
+        let preimage = commit_preimage(3);
+        let digest = ConsensusDigest::from_preimage(&preimage).unwrap();
+        let signature = signer.sign(&preimage);
+        assert_eq!(
+            signature.0,
+            consensus::sign(pair.private_key(), &digest).unwrap()
+        );
+        let generic = iroha_crypto::Signature::try_new(pair.private_key(), &preimage).unwrap();
+        let generic = Signature(generic.payload().try_into().unwrap());
+        assert!(!crypto.verify(&key, &preimage, &generic));
+        assert!(!crypto.verify_aggregate(&[&key], &preimage, &AggregateSignature(generic.0)));
+        assert!(
+            iroha_crypto::Signature::from_bytes(&signature.0)
+                .verify(pair.public_key(), &preimage)
+                .is_err()
+        );
+        let mut unsupported = preimage.clone();
+        unsupported[iroha_sumeragi::preimage::TAG_SIG.len()] = 0x06;
+        for invalid in [
+            unsupported.as_slice(),
+            &preimage[..preimage.len() - 1],
+            b"unscoped",
+        ] {
+            assert_eq!(signer.sign(invalid), Signature([0; SIGNATURE_LEN]));
+            assert!(!crypto.verify(&key, invalid, &signature));
+            assert!(!crypto.verify_aggregate(&[&key], invalid, &AggregateSignature(signature.0)));
+            let groups = [
+                (vec![&key], preimage.clone()),
+                (vec![&key], invalid.to_vec()),
+            ];
+            assert!(!crypto.verify_aggregate_multi(&groups, &AggregateSignature(signature.0)));
+        }
+        let repeated = [(vec![&key], preimage.clone()), (vec![&key], preimage)];
+        assert!(!crypto.verify_aggregate_multi(&repeated, &AggregateSignature(signature.0)));
     }
 
     /// A proof of possession is verified at admission; a bad one admits nothing.
@@ -798,15 +875,17 @@ mod tests {
     #[test]
     fn borrowed_and_prepaid_crypto_preserve_parallel_and_reused_signature_verdicts() {
         let (signers, crypto, _) = validators(4);
-        let scratch = BlsNormalAggregateScratch::new(|_| Ok::<_, ()>(())).unwrap();
+        let scratch = ConsensusAggregateScratch::new(|_| Ok::<_, ()>(())).unwrap();
         let prepaid = BlsCrypto::with_aggregate_scratch(scratch);
         for seed in 1..=4 {
             let pair = key_pair(seed);
             prepaid.admit(pair.public_key(), &pop(&pair)).unwrap();
         }
         let keys: Vec<_> = signers.iter().map(Signer::public_key).collect();
-        let first = b"first source certificate";
-        let second = b"second source certificate";
+        let first_message = commit_preimage(1);
+        let second_message = commit_preimage(2);
+        let first = first_message.as_slice();
+        let second = second_message.as_slice();
         let first_signatures: Vec<_> = signers.iter().map(|signer| signer.sign(first)).collect();
         let second_signatures: Vec<_> = signers.iter().map(|signer| signer.sign(second)).collect();
         let first_aggregate = crypto.aggregate(&first_signatures);

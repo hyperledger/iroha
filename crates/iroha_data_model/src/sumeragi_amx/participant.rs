@@ -61,14 +61,14 @@ pub trait AmxEscrow {
 
 /// A rejected AMX proof/transition or an unchanged escrow operation to retry at the host.
 /// This runtime error is not a wire value and does not change the AMX record layout.
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum AmxParticipantError<E> {
     /// The protocol input or participant state rejected the requested transition.
     #[error(transparent)]
     Protocol(AmxError),
     /// A local proof decoder refused before changing escrow or participant state.
     #[error("local AMX participant decoder resource refusal: {0}")]
-    Resource(norito::core::DecodeResourceError),
+    Resource(#[source] norito::core::DecodeAttemptError),
     /// The host refused without changing escrow or participant state.
     #[error("AMX escrow operation failed: {0}")]
     Escrow(E),
@@ -212,6 +212,9 @@ impl AmxParticipantStateV1 {
     /// The first violated invariant.
     pub fn validate(&self) -> Result<(), AmxError> {
         self.global.validate()?;
+        if self.global.result_scope != crate::sumeragi_finality::CertifiedResultScope::TairaGlobal {
+            return Err(rejected("coordinator tracker must name the global root"));
+        }
         if self.prepared.len() > MAX_AMX_PENDING || self.held.len() > MAX_AMX_PENDING {
             return Err(rejected("participant state exceeds its bounds"));
         }

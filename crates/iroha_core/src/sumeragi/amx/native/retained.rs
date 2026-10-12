@@ -46,21 +46,27 @@ pub enum GraphError {
 }
 impl From<iroha_data_model::sumeragi_amx::AmxError> for GraphError {
     fn from(error: iroha_data_model::sumeragi_amx::AmxError) -> Self {
-        match error {
-            iroha_data_model::sumeragi_amx::AmxError::Resource(resource) => Self::Codec(resource),
-            invalid => Self::Invalid(invalid.to_string()),
+        match crate::sumeragi::amx::classified_decode_refusal(&error) {
+            Some(resource) => Self::Codec(resource),
+            None => Self::Invalid(error.to_string()),
         }
     }
 }
-fn codec_clone_error(error: norito::core::Error) -> GraphError {
-    match error {
-        norito::core::Error::AllocationFailed { bytes } => GraphError::Allocator {
-            bytes: usize::try_from(bytes).unwrap_or(usize::MAX),
+fn codec_clone_error(error: norito::core::DecodeAttemptError) -> GraphError {
+    match error.kind() {
+        norito::core::DecodeAttemptErrorKind::Allocator => GraphError::Allocator {
+            bytes: match error.error().decode_resource_error() {
+                Some(norito::core::DecodeResourceError::AllocationFailed { bytes }) => {
+                    usize::try_from(bytes).unwrap_or(usize::MAX)
+                }
+                _ => return GraphError::Invalid(error.to_string()),
+            },
         },
-        invalid => invalid.decode_resource_error().map_or_else(
-            || GraphError::Invalid(invalid.to_string()),
-            GraphError::Codec,
-        ),
+        norito::core::DecodeAttemptErrorKind::EnclosingLimit => error
+            .error()
+            .decode_resource_error()
+            .map_or_else(|| GraphError::Invalid(error.to_string()), GraphError::Codec),
+        norito::core::DecodeAttemptErrorKind::Invalid => GraphError::Invalid(error.to_string()),
     }
 }
 fn quantity_clone_error(error: iroha_primitives::bigint::BigIntAdmissionCloneError) -> GraphError {
@@ -74,6 +80,42 @@ fn quantity_clone_error(error: iroha_primitives::bigint::BigIntAdmissionCloneErr
             AllocationRefusal::DemandOverflow.into()
         }
         invalid => GraphError::Invalid(invalid.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod codec_refusal_tests {
+    use super::*;
+
+    #[test]
+    fn clone_refusal_projection_preserves_original_scope_and_intrinsic_rejection() {
+        let limit = || norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 8, 64);
+        let original = norito::with_decode_limits_scope(limit(), || {
+            norito::core::classify_decode_attempt(|| norito::core::reserve_decode_allocation(9))
+        })
+        .unwrap_err();
+        let expected = original.error().decode_resource_error().unwrap();
+        assert_eq!(codec_clone_error(original), GraphError::Codec(expected));
+        let intrinsic = norito::with_decode_limits_scope(limit(), || {
+            norito::core::classify_decode_attempt(|| {
+                norito::with_decode_limits_scope(limit(), || {
+                    norito::core::reserve_decode_allocation(9)
+                })
+            })
+        })
+        .unwrap_err();
+        assert!(matches!(
+            codec_clone_error(intrinsic),
+            GraphError::Invalid(_)
+        ));
+        let allocator = norito::core::classify_decode_attempt(|| {
+            Err::<(), _>(norito::Error::AllocationFailed { bytes: 57 })
+        })
+        .unwrap_err();
+        assert_eq!(
+            codec_clone_error(allocator),
+            GraphError::Allocator { bytes: 57 }
+        );
     }
 }
 impl From<ChargedBufferError> for GraphError {
@@ -119,6 +161,8 @@ impl RetainedGlobalSource {
             return Ok(Self {
                 value: AmxForeignInstanceV1 {
                     instance,
+                    result_scope:
+                        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
                     current: context.clone(),
                     previous: None,
                 },
@@ -132,6 +176,8 @@ impl RetainedGlobalSource {
             let current = construction.context(context, budget)?;
             let value = AmxForeignInstanceV1 {
                 instance,
+                result_scope:
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
                 current,
                 previous: None,
             };
@@ -263,6 +309,7 @@ impl RetainedNativeAmx {
             .transpose()?;
         let global = AmxForeignInstanceV1 {
             instance: global.instance,
+            result_scope: global.result_scope,
             current,
             previous,
         };
@@ -568,7 +615,8 @@ impl Construction {
             })
             .map_err(|error| GraphError::Invalid(error.to_string()))?;
         result?;
-        source.try_clone_for_admission().map_err(codec_clone_error)
+        norito::core::classify_decode_attempt(|| source.try_clone_for_admission())
+            .map_err(codec_clone_error)
     }
     fn quantity(&mut self, source: &Quantity) -> Result<Quantity, GraphError> {
         let layout = source
@@ -784,6 +832,7 @@ impl Candidate {
             dataspace: source.participant.dataspace,
             global: AmxForeignInstanceV1 {
                 instance: source.participant.global.instance,
+                result_scope: source.participant.global.result_scope,
                 current,
                 previous,
             },

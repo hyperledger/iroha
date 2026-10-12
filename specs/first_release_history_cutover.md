@@ -35,22 +35,23 @@ refuses the retired helper and the retired `DecodeVersioned` implementation
 anywhere in the source (`retired_identifiers`, `retired_impls`). A test that
 needs another frame assembles it locally and asserts its rejection.
 
-Two residual forms are open findings, not accepted wire:
+`SignedBlock` exposes only its canonical standalone frame. It implements neither
+`Version` nor the generic versioned codec traits, so an inferred-type
+`decode_exact_versioned` call cannot compile for a block. `WIRE_VERSION` pins the
+single framed version without opening that generic codec. The inventory checks
+this constant and rejects reintroduced trait implementations and the removed
+header-stripping carrier/helper. Tests build headerless malformed inputs locally
+and verify their rejection; nested Norito fields retain their declared payload
+serialization inside their enclosing frame.
 
-- `SignedBlock` still has a headerless versioned form (T1-A16).
-  `EncodeVersioned` emits it, and the generic
-  `iroha_version::codec::decode_exact_versioned` decodes it for any type that
-  implements `Version` and `DecodeFromSlice`. Storage, distribution and genesis
-  loading use neither. The guard refuses the explicit call
-  `decode_exact_versioned::<SignedBlock>` in production source
-  (`test_only_references`); it cannot see a call whose type is inferred.
-- Norito's `[u8; N]` leaf decoder accepts N packed bytes besides the emitted
-  array of N length-prefixed elements (T1-A17). A headerless or inline decode
-  therefore reads two byte strings as one value. The frame decoders compare the
-  source with the canonical encoding and refuse the packed one:
-  `framed_block_rejects_packed_confidential_digest_hash_arrays` shows that for
-  the two hashes of a block header's confidential digest, in the ordinary and
-  in the prepared decoder.
+Norito's generic `[u8; N]` leaf decoder accepts only the emitted array of N
+length-prefixed elements. It rejects an N-byte truncation both directly and
+inside an `Option`, under ordinary and compact length flags; the inventory
+names the Norito regression test. Explicit raw fixed-width field helpers keep
+their separate declared layout. The block regression
+`framed_block_rejects_packed_confidential_digest_hash_arrays` also rejects packed
+replacements for the two hashes of a confidential digest through the ordinary
+and prepared frame decoders.
 
 Retired on-disk artifacts are refused by name and never opened. The inventory
 (`retired_store_artifacts`) lists every refusal with its function, its call
@@ -88,6 +89,19 @@ day of the capture and are not compared with the current sources.
 the candidate build, and `iroha3d --check-config --json` prints the values peers
 and the signed genesis bind. They are read-only diagnostics an operator may run
 before installing a binary. They are not a deployment prerequisite.
+
+## Native result and State cutover
+
+The 2026-10-12 native SCCP generation/anchor State layout and the sole
+`CertifiedResultV1` fixed `X || body` result replace the preceding first-release
+layout directly. Native consensus signatures use SHA-256 of the exact allowlisted
+preimage and the dedicated `DST_SIG` suite. These changes declare `fresh_genesis`
+for both `state_layout` and `execution_root`. The four-validator exporter creates
+new canonical frames and pins their actual World root and execution tip; the
+native-finality exporter pins the matching result envelope. Previous history is
+not claimed to replay, and no old-layout or alternate-suite verifier remains.
+This local artifact cutover authorizes no live reset and does not establish
+SCCP destination-launch readiness.
 
 ## Deliberately incompatible change
 
@@ -138,7 +152,8 @@ deployments made under another `abi_hash` no longer replay, so a history that
 contains any also needs a fresh genesis. Batch ABI changes per cutover.
 
 The ABI V1 hash is recorded in the inventory (`declared_abi_cutover`). The guard
-fails until the golden in `crates/ivm/tests/abi_hash_versions.rs`, every
+fails until the shared golden in
+`crates/iroha_data_model/tests/fixtures/abi_v1_hash.rs`, every
 regeneration target of the `abi` surface that states how it `carries` the hash,
 and the inventory agree, so a regenerated hash is always a declared cutover with
 its listed carriers. How a carrier is read depends on its form:

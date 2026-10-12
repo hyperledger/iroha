@@ -1178,7 +1178,26 @@ fn validate_exact_direct_privacy_submission_v1<'a>(
         .first_submission
         .expect("a non-zero direct submission count stores its first submission"))
 }
+impl SubmitPrivacyProofV1 {
+    /// Canonical normalized instruction bytes used only inside an ordered-intent preimage.
+    ///
+    /// The projection clears generated proof/digest fields and is not an admissible instruction.
+    /// It grants no construction, proof-verification, or governed-artifact authority.
+    ///
+    /// # Errors
+    /// Returns an error when canonical Norito encoding fails.
+    pub fn ordered_intent_projection_bytes_v1(&self) -> Result<Vec<u8>, norito::Error> {
+        norito::encode_canonical(&normalized_privacy_submission_for_intent_v1(self))
+    }
+}
+
 fn normalize_privacy_submission_for_intent_v1(submission: &SubmitPrivacyProofV1) -> InstructionBox {
+    normalized_privacy_submission_for_intent_v1(submission).into()
+}
+
+fn normalized_privacy_submission_for_intent_v1(
+    submission: &SubmitPrivacyProofV1,
+) -> SubmitPrivacyProofV1 {
     let mut normalized = submission.clone();
     normalized.envelope.proof.bytes_mut().bytes.clear();
     normalized
@@ -1203,7 +1222,7 @@ fn normalize_privacy_submission_for_intent_v1(submission: &SubmitPrivacyProofV1)
         statement.action_digest = crate::privacy::PrivacyActionDigestV1::new([0; 32]);
     }
     normalized.envelope.statement_digest = PrivacyStatementDigestV1::new([0; 32]);
-    normalized.into()
+    normalized
 }
 fn normalize_privacy_executable_for_intent_v1(
     executable: &Executable,
@@ -1950,8 +1969,9 @@ impl iroha_version::codec::EncodeVersioned for SignedTransaction {
 impl iroha_version::codec::DecodeVersioned for SignedTransaction {
     fn decode_all_versioned(input: &[u8]) -> iroha_version::error::Result<Self> {
         let transaction: Self = iroha_version::codec::decode_exact_versioned(input)?;
-        let canonical = transaction
-            .encode_wire_v1()
+        // Observe the actual checked writer while its original enclosing allowance
+        // is live; returned numeric fields cannot recover this provenance later.
+        let canonical = norito::core::classify_decode_attempt(|| transaction.encode_wire_v1())
             .map_err(iroha_version::error::Error::from)?;
         if canonical.as_slice() != input {
             return Err(iroha_version::error::Error::from(
@@ -1993,8 +2013,9 @@ impl iroha_version::codec::EncodeVersioned for TransactionEntrypoint {
 impl iroha_version::codec::DecodeVersioned for TransactionEntrypoint {
     fn decode_all_versioned(input: &[u8]) -> iroha_version::error::Result<Self> {
         let entrypoint: Self = iroha_version::codec::decode_exact_versioned(input)?;
-        let canonical = entrypoint
-            .encode_wire_v1()
+        // Observe the actual checked writer while its original enclosing allowance
+        // is live; returned numeric fields cannot recover this provenance later.
+        let canonical = norito::core::classify_decode_attempt(|| entrypoint.encode_wire_v1())
             .map_err(iroha_version::error::Error::from)?;
         if canonical.as_slice() != input {
             return Err(iroha_version::error::Error::from(

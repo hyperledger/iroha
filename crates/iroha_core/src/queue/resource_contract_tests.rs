@@ -54,11 +54,13 @@ fn resource_contract_state(max_block_bytes: u32) -> State {
     let world = world_with_test_domains();
     {
         let mut parameters = world.parameters.block();
-        parameters.set_parameter(iroha_data_model::parameter::Parameter::Sumeragi(
-            iroha_data_model::parameter::system::SumeragiParameter::MaxBlockBytes(
-                std::num::NonZeroU32::new(max_block_bytes).expect("nonzero payload limit"),
-            ),
-        ));
+        parameters
+            .set_parameter(iroha_data_model::parameter::Parameter::Sumeragi(
+                iroha_data_model::parameter::system::SumeragiParameter::MaxBlockBytes(
+                    std::num::NonZeroU32::new(max_block_bytes).expect("nonzero payload limit"),
+                ),
+            ))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
     let mut state = State::new(
@@ -371,7 +373,8 @@ fn includable_bound_follows_the_route_and_an_unreadable_policy_defers() {
         world
             .parameters
             .get_mut()
-            .set_parameter(Parameter::Custom(policy.into_custom_parameter()));
+            .set_parameter(Parameter::Custom(policy.into_custom_parameter()))
+            .expect("valid fixture parameters");
         world.commit();
     }
     assert_eq!(check(&state), Err(ExecutionAttemptError::Rejected(never)));
@@ -657,9 +660,11 @@ fn committed_zk_policy_state(
     let world = world_with_test_domains();
     {
         let mut parameters = world.parameters.block();
-        parameters.set_parameter(iroha_data_model::parameter::Parameter::Custom(
-            policy.clone().into_custom_parameter(),
-        ));
+        parameters
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                policy.clone().into_custom_parameter(),
+            ))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
     let mut state = State::new(
@@ -704,17 +709,24 @@ fn queue_admission_prices_a_proof_instruction_with_the_committed_gas_schedule() 
     divergent.gas.proof_base = 1;
     divergent.gas.per_proof_byte = 1_000;
 
-    let fixture =
-        crate::zk::test_utils::halo2_fixture_envelope("halo2/ipa:queue-admission", [0u8; 32]);
-    let proof_box = fixture.proof_box("halo2/ipa");
+    let fixture = crate::zk::test_utils::native_framing_fixture_envelope(
+        crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID,
+        [0u8; 32],
+    );
+    let proof_box = fixture.proof_box("pipa-r/pasta");
     let attachment = ProofAttachment::new_ref(
         proof_box.backend.clone(),
         proof_box,
-        VerifyingKeyId::new("halo2/ipa", "vk-queue-admission"),
+        VerifyingKeyId::new("pipa-r/pasta", "vk-queue-admission"),
     );
     let proof_bytes = attachment.proof.bytes.len() as u64;
-    // Public inputs are 32-byte field elements.
-    let public_inputs = (fixture.public_inputs.len() / 32) as u64;
+    // The outer field identifies the schema; the native proof owns the public column.
+    let envelope: iroha_data_model::zk::OpenVerifyEnvelope =
+        norito::decode_canonical(&fixture.proof_bytes).expect("native outer frame");
+    let proof: iroha_data_model::zk::NativePipaRProofV1 =
+        norito::decode_canonical(&envelope.proof_bytes).expect("native public column");
+    let public_inputs = proof.public_inputs.len() as u64;
+    assert_eq!(public_inputs, 9);
     let instruction: InstructionBox = VerifyProof::new(attachment).into();
     let delta = 17 + 5 * public_inputs + 3 * proof_bytes;
     assert_eq!(

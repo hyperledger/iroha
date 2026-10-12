@@ -126,6 +126,32 @@ class Mutations(unittest.TestCase):
         self.assert_problem("an effect after concurrent cancellation caused `round_start:0`")
 
     # ---- state machine
+    def test_round_restarts_require_a_live_workflow(self) -> None:
+        def change(machine):
+            for row in machine["round_transitions"]:
+                if row["event"] == "round_restart_intent":
+                    row["guard"] = "always"
+        self.tree.edit("state_machine.json", change)
+        self.assert_problem("round start and restart intents need guard `not_cancelling`")
+
+    def test_round_reset_requires_cancellation(self) -> None:
+        def change(machine):
+            for row in machine["round_transitions"]:
+                if row["event"] == "round_not_started":
+                    row["guard"] = "always"
+        self.tree.edit("state_machine.json", change)
+        self.assert_problem("a never-started round is reset only `while_cancelling`")
+
+    def test_round_guard_must_be_declared(self) -> None:
+        self.tree.edit("state_machine.json", lambda machine:
+                       machine["round_transitions"][0].update(guard="unknown"))
+        self.assert_problem("uses an unknown guard")
+
+    def test_round_transcript_bound_is_checked(self) -> None:
+        self.scenario("round_transcript_over_declared_bound_is_refused.json", lambda value:
+                      value["plan"]["steps"][0].update(max_transcript_bytes=0))
+        self.assert_problem("round transcript bound is out of range")
+
     def test_state_that_may_commit_must_not_be_cancellable(self) -> None:
         def change(machine):
             machine["transaction_transitions"].append(
@@ -297,6 +323,32 @@ class Mutations(unittest.TestCase):
         self.assert_problem("an unreadable journal must cause no external effect")
 
     # ---- vectors and specification
+    def test_every_digest_preimage_is_checked(self) -> None:
+        for key in ("plan", "identity", "journal"):
+            with self.subTest(key=key):
+                def change(vectors):
+                    owner = vectors["records"][0] if key == "journal" else vectors
+                    owner[key + "_hex"] = "00"
+
+                self.tree.edit("vectors.json", change)
+                self.assert_problem(key + "_hex does not reproduce")
+
+    def test_semantic_vector_inputs_cannot_be_omitted(self) -> None:
+        def change(vectors):
+            vectors.pop("plan")
+            vectors.pop("identity")
+            vectors["records"][0].pop("journal")
+
+        self.tree.edit("vectors.json", change)
+        for key in ("plan", "identity", "journal"):
+            self.assert_problem(key + " semantic input is missing")
+
+    def test_malformed_digest_preimage_is_reported(self) -> None:
+        for value in (None, [], "not hex"):
+            with self.subTest(value=value):
+                self.tree.edit("vectors.json", lambda vectors: vectors.update(plan_hex=value))
+                self.assert_problem("plan_hex is not hexadecimal")
+
     def test_record_digest_is_recomputed(self) -> None:
         def change(vectors):
             record = vectors["records"][0]

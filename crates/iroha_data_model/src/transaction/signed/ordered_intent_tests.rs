@@ -5,6 +5,10 @@ use crate::{
     Level,
     account::AccountId,
     isi::Log,
+    privacy::{
+        PrivacyStatementDigestV1, PrivacyStatementV1, PrivacyTransactionIntentDigestV1,
+        PrivacyVegaDeviceAuthenticationDigestV1,
+    },
     proof::{ProofBox, VerifyingKeyId},
     transaction::{
         IvmBytecode, IvmProved, TransactionDomain,
@@ -1173,6 +1177,116 @@ fn ceiling_vector() -> norito::json::Value {
     ])
 }
 
+/// All protocol-tagged privacy instructions, using the same typed normalizer as admission.
+fn privacy_intent_vectors() -> Vec<norito::json::Value> {
+    let bundle = crate::privacy::privacy_exact12_fixture_bundle_v1().expect("exact12 fixture");
+    let mut rows = Vec::new();
+    for (index, row) in bundle.rows.into_iter().enumerate() {
+        let instruction =
+            norito::decode_canonical::<SubmitPrivacyProofV1>(&row.submit_proof_instruction_norito)
+                .expect("typed instruction");
+        let projection = instruction
+            .ordered_intent_projection_bytes_v1()
+            .expect("instruction projection");
+        let mut generated = instruction.clone();
+        generated.envelope.proof.bytes_mut().bytes = vec![0x91, 0x92, 0x93];
+        generated
+            .envelope
+            .statement
+            .context_mut()
+            .transaction_intent_digest = PrivacyTransactionIntentDigestV1::new([0xA1; 32]);
+        generated.envelope.statement_digest = PrivacyStatementDigestV1::new([0xA2; 32]);
+        match &mut generated.envelope.statement {
+            PrivacyStatementV1::ZkAcePqAuthorizationV1(statement) => {
+                statement.replay_nullifier =
+                    crate::privacy::PrivacyZkAceReplayNullifierV1::new([17; 6])
+                        .expect("canonical nullifier")
+            }
+            PrivacyStatementV1::VegaExistingCredentialZkV1(statement) => {
+                statement.device_authentication_digest =
+                    PrivacyVegaDeviceAuthenticationDigestV1::new([0xA3; 32])
+            }
+            PrivacyStatementV1::IrohaIvmPrivateNoteStarkV1(statement) => {
+                statement.action_digest = crate::privacy::PrivacyActionDigestV1::new([0xA4; 32])
+            }
+            _ => {}
+        }
+        assert_eq!(
+            generated
+                .ordered_intent_projection_bytes_v1()
+                .expect("generated projection"),
+            projection
+        );
+        let generated_frame = norito::encode_canonical(&generated).expect("generated frame");
+        let mut independent = instruction.clone();
+        independent.envelope.statement.context_mut().action_index += 1;
+        assert_ne!(
+            independent
+                .ordered_intent_projection_bytes_v1()
+                .expect("independent projection"),
+            projection
+        );
+        let independent_frame = norito::encode_canonical(&independent).expect("independent frame");
+        let direct = TransactionBuilder::decode_payload(&row.unsigned_transaction_payload_norito)
+            .expect("fixture payload")
+            .into_payload()
+            .expect("ordinary payload");
+        let batch = builder(Executable::Batch(
+            vec![
+                ExecutableBatchItem::Instruction(log("before")),
+                ExecutableBatchItem::Instruction(instruction.into()),
+                ExecutableBatchItem::ContractCall(contract_call()),
+            ]
+            .into(),
+        ))
+        .into_payload()
+        .expect("batch payload");
+        for (kind, payload) in [("direct", direct), ("batch", batch)] {
+            rows.push(json_object(vec![
+                ("name", json_value(&format!("privacy_{index}_{kind}"))),
+                (
+                    "generated_fields_changed_frame_hex",
+                    json_value(&hex::encode(&generated_frame)),
+                ),
+                (
+                    "independent_context_changed_frame_hex",
+                    json_value(&hex::encode(&independent_frame)),
+                ),
+                (
+                    "instruction_frame_hex",
+                    json_value(&hex::encode(&row.submit_proof_instruction_norito)),
+                ),
+                (
+                    "instruction_projection_hex",
+                    json_value(&hex::encode(&projection)),
+                ),
+                (
+                    "payload_hex",
+                    json_value(&hex::encode(payload_bytes(&payload))),
+                ),
+                (
+                    "ordered_intent_projection_hex",
+                    json_value(&hex::encode(
+                        payload
+                            .ordered_intent_projection_bytes_v1()
+                            .expect("projection"),
+                    )),
+                ),
+                (
+                    "ordered_intent_digest_hex",
+                    json_value(&hex::encode(
+                        payload
+                            .ordered_intent_digest_v1()
+                            .expect("digest")
+                            .as_bytes(),
+                    )),
+                ),
+            ]));
+        }
+    }
+    rows
+}
+
 /// The complete shared vector set, deterministically generated.
 fn signed_attachment_vectors() -> String {
     use crate::transaction::signed_attachments::{
@@ -1190,6 +1304,69 @@ fn signed_attachment_vectors() -> String {
         .into_payload()
         .expect("payload");
     let mixed = fixture_payload();
+    let mut optional_carrier = attachment("vk_optional", vec![4, 5, 6]);
+    optional_carrier.vk_commitment = Some([0x31; 32]);
+    optional_carrier.envelope_hash = Some(Hash::new(&optional_carrier.proof.bytes).into());
+    let optional_carrier = builder(instructions())
+        .with_proof_attachments([optional_carrier])
+        .expect("optional carrier")
+        .into_payload()
+        .expect("optional carrier payload");
+    let mut lane_carrier = attachment("vk_lane", vec![7, 8, 9]);
+    lane_carrier.lane_privacy = Some(
+        crate::nexus::LanePrivacyProof::merkle_from_raw_path(
+            iroha_crypto::privacy::LaneCommitmentId::new(3),
+            [0x44; 32],
+            1,
+            vec![Some([0x55; 32]), Some([0x66; 32])],
+        )
+        .expect("lane privacy witness"),
+    );
+    let lane_carrier = builder(instructions())
+        .with_proof_attachments([lane_carrier])
+        .expect("lane carrier")
+        .into_payload()
+        .expect("lane carrier payload");
+    let mut contract = contract_action(0, vec![proof_slot(vec![0xC1; 9])]);
+    contract.invocation = ActionInvocationBindingV1::Contract {
+        root_index: 0,
+        call_path: vec![2, 4],
+    };
+    let contract_subject = builder(Executable::ContractCall(contract_call()))
+        .with_attachment_plan(single(contract))
+        .expect("contract subject plan")
+        .into_payload()
+        .expect("contract subject payload");
+    let mut account_action = direct_action(0, vec![proof_slot(vec![0xC2; 9])]);
+    account_action.authority = ActionAuthorityBindingV1::Account(other_account());
+    let account_bound = builder(instructions())
+        .with_attachment_plan(single(account_action))
+        .expect("account plan")
+        .into_payload()
+        .expect("account payload");
+
+    let proved_executable = Executable::IvmProved(IvmProved {
+        bytecode: IvmBytecode::from_compiled(vec![1, 2, 3, 4]),
+        overlay: vec![log("effect")].into(),
+        events_commitment: Hash::new(b"events"),
+        gas_policy_commitment: Hash::new(b"gas"),
+    });
+    let execution_carrier = || {
+        PlannedActionV1::ivm_proved_execution(&attachment("ivm_v1", vec![1, 2, 3]))
+            .expect("execution carrier")
+    };
+    let proved = builder(proved_executable.clone())
+        .with_attachment_plan(single(execution_carrier()))
+        .expect("execution plan")
+        .into_payload()
+        .expect("proved payload");
+    let wrong_execution_target = with_plan(instructions(), single(execution_carrier()));
+    let mut duplicate_execution_plan = single(execution_carrier());
+    duplicate_execution_plan.push_action(
+        PlannedActionV1::ivm_proved_execution(&attachment("ivm_other", vec![4, 5, 6]))
+            .expect("second execution carrier"),
+    );
+    let duplicate_execution = with_plan(proved_executable, duplicate_execution_plan);
 
     let mut lifted = mixed.clone();
     lifted.nonce = NonZeroU32::new(8);
@@ -1249,6 +1426,11 @@ fn signed_attachment_vectors() -> String {
             &mutate_attachments(&mixed, |_, occurrences| occurrences[2].bytes[0] ^= 1),
         ),
         rejected_vector("stale_statement_binding", &lifted),
+        rejected_vector(
+            "execution_carrier_wrong_executable",
+            &wrong_execution_target,
+        ),
+        rejected_vector("duplicate_execution_carrier", &duplicate_execution),
     ];
 
     let vectors = json_object(vec![
@@ -1339,6 +1521,14 @@ fn signed_attachment_vectors() -> String {
             norito::json::Value::Array(vec![
                 accepted_vector("transaction_proof_carrier", &carrier),
                 accepted_vector(
+                    "transaction_proof_carrier_optional_hashes",
+                    &optional_carrier,
+                ),
+                accepted_vector("transaction_proof_carrier_lane_privacy", &lane_carrier),
+                accepted_vector("contract_subject_nested_invocation", &contract_subject),
+                accepted_vector("explicit_account_direct_invocation", &account_bound),
+                accepted_vector("ivm_proved_execution_carrier", &proved),
+                accepted_vector(
                     "carrier_then_direct_native_action_with_proof_and_key",
                     &mixed,
                 ),
@@ -1346,6 +1536,27 @@ fn signed_attachment_vectors() -> String {
         ),
         ("rejected", norito::json::Value::Array(rejected_vectors)),
         ("ceiling", ceiling_vector()),
+        (
+            "privacy_intents",
+            norito::json::Value::Array(privacy_intent_vectors()),
+        ),
+        (
+            "privacy_frame_limits",
+            json_object(vec![
+                (
+                    "envelope_bytes",
+                    json_value(&crate::privacy::TAIRA_PRIVACY_MAX_ACTION_BYTES_V1),
+                ),
+                (
+                    "submit_frame_bytes",
+                    json_value(&SubmitPrivacyProofV1::canonical_frame_byte_limit_v1()),
+                ),
+                (
+                    "block_privacy_bytes",
+                    json_value(&crate::privacy::TAIRA_PRIVACY_MAX_BYTES_PER_BLOCK_V1),
+                ),
+            ]),
+        ),
     ]);
     let mut text = norito::json::to_string_pretty(&vectors).expect("pretty json");
     text.push('\n');
@@ -1387,7 +1598,7 @@ fn tracked_signed_attachment_vectors_are_the_current_generator_output() {
             .to_owned()
     };
     let accepted = entries("accepted");
-    assert_eq!(accepted.len(), 2);
+    assert_eq!(accepted.len(), 7);
     for entry in &accepted {
         let framed = hex::decode(text(entry, "signed_transaction_hex")).expect("hex");
         let signed = norito::decode_canonical::<SignedTransaction>(&framed).expect("decode");
@@ -1415,7 +1626,7 @@ fn tracked_signed_attachment_vectors_are_the_current_generator_output() {
         assert_eq!(decoded.payload(), signed.payload());
     }
     let rejected_entries = entries("rejected");
-    assert_eq!(rejected_entries.len(), 10);
+    assert_eq!(rejected_entries.len(), 12);
     for entry in &rejected_entries {
         let framed = hex::decode(text(entry, "signed_transaction_hex")).expect("hex");
         let error = norito::decode_canonical::<SignedTransaction>(&framed)

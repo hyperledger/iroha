@@ -109,11 +109,13 @@ fn internal_private_capture_keeps_foreign_contracts_and_namespace_substitution_c
 fn internal_capture_rejects_missing_malformed_or_unauthenticated_genesis_root() {
     let malformed = World::new();
     let mut parameters = malformed.parameters.block();
-    parameters.set_parameter(Parameter::Custom(CustomParameter::new(
-        consensus_metadata::handshake_meta_id(),
-        iroha_primitives::json::Json::from_norito_value_ref(&norito::json::Value::Bool(false))
-            .unwrap(),
-    )));
+    parameters
+        .set_parameter(Parameter::Custom(CustomParameter::new(
+            consensus_metadata::handshake_meta_id(),
+            iroha_primitives::json::Json::from_norito_value_ref(&norito::json::Value::Bool(false))
+                .unwrap(),
+        )))
+        .expect("valid fixture parameters");
     parameters.commit();
     for (world, height) in [
         (World::new(), 2),

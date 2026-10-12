@@ -39,9 +39,9 @@ impl State {
     /// Install the pipeline settings of this node's own configuration.
     ///
     /// Only local resource settings (workers, caches, tracing, accelerator
-    /// selection, signature batching, the default cursor mode) and, until its
-    /// committed source exists, the fee policy `pipeline.gas` are taken from
-    /// `node`. Every execution limit is the committed pipeline validity policy
+    /// selection, signature batching and the default cursor mode) are taken from
+    /// `node`. Fee policy comes only from committed parameters. Every execution
+    /// limit is the committed pipeline validity policy
     /// ([`crate::pipeline_validity_policy::PipelineValidityPolicyV1`]) when
     /// the restored World already holds one, and the protocol default
     /// otherwise; a policy committed later governs the blocks after it. A node
@@ -51,9 +51,9 @@ impl State {
     ///
     /// # Errors
     ///
-    /// Returns an error when the restored World holds a malformed policy
-    /// payload: such State needs recovery and the node does not fall back to
-    /// another policy.
+    /// Returns an error if the typed committed execution limits fail validation.
+    /// The parameter owner already validates raw fee/limit bytes during mutation
+    /// and restore; this installation performs no resource-sensitive decoding.
     pub fn install_node_pipeline(
         &mut self,
         node: iroha_config::parameters::actual::Pipeline,
@@ -61,15 +61,7 @@ impl State {
         Vec<&'static str>,
         crate::pipeline_validity_policy::PipelineValidityPolicyError,
     > {
-        if let Err(error) =
-            crate::pipeline_validity_policy::committed(&self.world.parameters.view())
-        {
-            iroha_logger::error!(
-                %error,
-                "the restored State holds a malformed pipeline validity policy"
-            );
-            return Err(error);
-        }
+        self.world.parameters.view().pipeline_policy().validate()?;
         let ignored = crate::pipeline_validity_policy::node_validity_overrides(&node);
         self.install_pipeline_settings(crate::pipeline_validity_policy::node_local_resources(node));
         Ok(ignored)

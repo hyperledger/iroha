@@ -2,7 +2,9 @@
 use crate::execution_attempt::ExecutionAttemptError as Attempt;
 use iroha_data_model::{
     block::SignedBlock,
-    sumeragi_finality::{CommitmentError, ExecutionResultCommitment},
+    sumeragi_finality::{
+        CertifiedResultError, CertifiedResultScope, CertifiedResultV1, CommitmentError,
+    },
 };
 use std::io;
 
@@ -22,35 +24,45 @@ pub(super) fn validate(block: &SignedBlock) -> Result<(), Attempt<io::Error>> {
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     // The owning decoder enforces the finite result-preimage ceiling and input-derived
     // cumulative decode budgets. No schedule decoded here selects availability authority.
-    let result =
-        ExecutionResultCommitment::decode(certificate.result_preimage()).map_err(|error| {
-            if let CommitmentError::Resource(resource) = error {
-                if !cfg!(all(test, sumeragi_core_mutation = "HC20")) {
-                    #[cfg(all(test, sumeragi_core_mutation = "HC24"))]
-                    return io::Error::new(
-                        io::ErrorKind::WouldBlock,
-                        CommitmentError::Resource(resource),
-                    )
-                    .into();
-                    #[cfg(not(all(test, sumeragi_core_mutation = "HC24")))]
-                    return crate::execution_attempt::norito_decode_attempt_error(
-                        resource.into(),
-                        |_| {
-                            io::Error::new(
-                                io::ErrorKind::InvalidData,
-                                CommitmentError::Resource(resource),
-                            )
-                        },
-                    );
-                }
+    let result = CertifiedResultV1::decode(
+        certificate.result_preimage(),
+        CertifiedResultScope::TairaGlobal,
+    )
+    .map_err(|error| {
+        if let CertifiedResultError::Body(CommitmentError::Resource(resource)) = error {
+            if !cfg!(all(test, sumeragi_core_mutation = "HC20")) {
+                #[cfg(all(test, sumeragi_core_mutation = "HC24"))]
                 return io::Error::new(
-                    io::ErrorKind::InvalidData,
+                    io::ErrorKind::WouldBlock,
                     CommitmentError::Resource(resource),
                 )
                 .into();
+                #[cfg(not(all(test, sumeragi_core_mutation = "HC24")))]
+                return crate::execution_attempt::canonical_decode_attempt_error(
+                    resource,
+                    |resource| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            CommitmentError::Resource(resource),
+                        )
+                    },
+                );
             }
-            io::Error::new(io::ErrorKind::InvalidData, error).into()
-        })?;
+            return io::Error::new(
+                io::ErrorKind::InvalidData,
+                CommitmentError::Resource(resource),
+            )
+            .into();
+        }
+        io::Error::new(io::ErrorKind::InvalidData, error).into()
+    })?;
+    result
+        .check_block(
+            block.header().height().get(),
+            block.header().creation_time_ms,
+        )
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    let result = result.commitment();
     let (len, hash) = block
         .executed_block_wire_identity()
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;

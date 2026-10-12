@@ -184,9 +184,11 @@ pub fn world_with_test_domains() -> World {
     // This component fixture needs explicit routing metadata; it has no signed
     // genesis, certified history or native publication authority.
     let mut parameters = world.parameters.block();
-    parameters.set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
-        iroha_data_model::block::consensus::SumeragiRootScope::Global,
-    ));
+    parameters
+        .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        ))
+        .expect("valid fixture parameters");
     parameters.commit();
     world
 }
@@ -215,9 +217,11 @@ fn nexus_routing_fixture_with_nexus(nexus: Nexus) -> NexusRoutingFixture {
     // This component fixture needs explicit routing metadata; it has no signed
     // genesis, certified history or native publication authority.
     let mut parameters = world.parameters.block();
-    parameters.set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
-        iroha_data_model::block::consensus::SumeragiRootScope::Global,
-    ));
+    parameters
+        .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        ))
+        .expect("valid fixture parameters");
     parameters.commit();
     let state = State::new_with_nexus_for_testing(world, nexus, LiveQueryStore::start_test());
     NexusRoutingFixture {

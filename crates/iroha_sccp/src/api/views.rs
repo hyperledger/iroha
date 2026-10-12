@@ -43,8 +43,8 @@ pub const MAX_CONTROLS_PAGE: usize = 64;
 
 /// Payload of [`SccpOutboundStateV1::Recorded`].
 ///
-/// TODO: Torii work package (TT-A1): add `provable`, set once a certificate covers the record
-/// height (§6).
+/// The availability flag reports the caller's durable committed-height cut (§6).
+/// It is not a finality proof; consumers verify the separately served certificate.
 #[derive(
     Debug,
     Clone,
@@ -65,12 +65,11 @@ pub const MAX_CONTROLS_PAGE: usize = 64;
 pub struct SccpRecordedStateV1 {
     /// Destination-time mint deadline.
     pub deadline_ms: u64,
+    /// Whether the record height is covered by the explicit durable committed-height cut.
+    pub provable: bool,
 }
 
 /// Wallet-facing state of an outbound record (§6, §7.1 step 4, §7.3).
-///
-/// Codec index 1 belonged to the attested state of the attestation transport and stays
-/// unassigned.
 #[derive(
     Debug,
     Clone,
@@ -95,15 +94,15 @@ pub enum SccpOutboundStateV1 {
     #[norito(rename = "recorded")]
     Recorded(SccpRecordedStateV1),
     /// Voided on the destination and proven on Taira.
-    #[codec(index = 2)]
+    #[codec(index = 1)]
     #[norito(rename = "voided")]
     Voided(SccpVoidStatusV1),
     /// Refunded to the sender.
-    #[codec(index = 3)]
+    #[codec(index = 2)]
     #[norito(rename = "refunded")]
     Refunded(SccpStatusHeightV1),
     /// Moved to the route's stranded balance.
-    #[codec(index = 4)]
+    #[codec(index = 3)]
     #[norito(rename = "stranded")]
     Stranded(SccpStatusHeightV1),
 }
@@ -687,6 +686,8 @@ pub struct SccpReadLimitsV1 {
     pub outbound_page: u32,
     /// `GET /v1/sccp/controls/{network}/{revision}`.
     pub controls_page: u32,
+    /// `GET /v1/sccp/committees/rotations`.
+    pub rotation_steps: u32,
 }
 
 impl SccpReadLimitsV1 {
@@ -698,6 +699,7 @@ impl SccpReadLimitsV1 {
             recent_messages: 50,
             outbound_page: 256,
             controls_page: 64,
+            rotation_steps: 16,
         }
     }
 }
@@ -818,7 +820,10 @@ mod tests {
 
     fn states() -> Vec<SccpOutboundStateV1> {
         vec![
-            SccpOutboundStateV1::Recorded(SccpRecordedStateV1 { deadline_ms: 99 }),
+            SccpOutboundStateV1::Recorded(SccpRecordedStateV1 {
+                deadline_ms: 99,
+                provable: false,
+            }),
             SccpOutboundStateV1::Voided(SccpVoidStatusV1 {
                 kind: SccpVoidKindV1::Frozen,
                 proven_at_height: 30,
@@ -888,10 +893,13 @@ mod tests {
         );
         assert_eq!(u32::try_from(MAX_OUTBOUND_PAGE), Ok(limits.outbound_page));
         assert_eq!(u32::try_from(MAX_CONTROLS_PAGE), Ok(limits.controls_page));
-        // The rotations page of the attestation transport has no limit entry.
+        assert_eq!(
+            u32::try_from(super::super::MAX_ROTATION_STEPS),
+            Ok(limits.rotation_steps)
+        );
         let json = norito::json::to_value(&limits).expect("JSON");
-        assert!(json.get("rotation_steps").is_none());
-        assert_eq!(json.as_object().expect("object").len(), 3);
+        assert_eq!(json.get("rotation_steps"), Some(&Value::from(16_u32)));
+        assert_eq!(json.as_object().expect("object").len(), 4);
     }
 
     #[test]
@@ -910,12 +918,11 @@ mod tests {
     }
 
     #[test]
-    fn outbound_state_keeps_its_codec_indices_and_has_no_attested_state() {
-        // Index 1 was the attested state; it stays unassigned and the survivors do not shift.
-        for (state, index) in states().iter().zip([0_u32, 2, 3, 4]) {
+    fn outbound_state_has_four_contiguous_indices_and_no_attested_state() {
+        for (state, index) in states().iter().zip([0_u32, 1, 2, 3]) {
             assert!(state.encode().starts_with(&index.encode()), "{state:?}");
         }
-        for index in [1_u32, 5, u32::MAX] {
+        for index in [4_u32, 5, u32::MAX] {
             let mut encoded = index.encode();
             encoded.extend_from_slice(&[0x11; 64]);
             assert!(
@@ -931,6 +938,15 @@ mod tests {
 
     #[test]
     fn views_roundtrip_in_every_codec() {
+        for provable in [false, true] {
+            let recorded = SccpRecordedStateV1 {
+                deadline_ms: 99,
+                provable,
+            };
+            roundtrip(&recorded);
+            assert_closed(&recorded, "provable");
+            assert_closed(&recorded, "deadline_ms");
+        }
         for state in states() {
             roundtrip(&state);
             roundtrip(&SccpMessageStatusV1::Outbound(outbound(state)));

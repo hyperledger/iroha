@@ -329,6 +329,10 @@
             "id": "ivm_gas_limit_per_block",
             "payload": 50000000
           },
+          "ivm_gas_tech_account_id": {
+            "id": "ivm_gas_tech_account_id",
+            "payload": "testuﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"
+          },
           "ivm_gas_accepted_assets": {
             "id": "ivm_gas_accepted_assets",
             "payload": [

@@ -198,10 +198,18 @@ fn bad_quorum_parent_and_result_are_rejected_without_partial_progress() {
     changed.certificate.consensus_header = norito::encode_canonical(&header).unwrap();
     assert!(state.apply(&changed).is_err());
     let mut changed = anchor.clone();
-    let mut result =
-        ExecutionResultCommitment::decode(&changed.certificate.result_preimage).unwrap();
+    let (finality_header, mut result) = CertifiedResultV1::decode(
+        &changed.certificate.result_preimage,
+        CertifiedResultScope::NonGlobal,
+    )
+    .unwrap()
+    .into_parts();
     result.execution.world_state_root = Hash::new(b"unrelated state");
-    changed.certificate.result_preimage = result.preimage().unwrap();
+    changed.certificate.result_preimage =
+        CertifiedResultV1::new(finality_header, result, CertifiedResultScope::NonGlobal)
+            .unwrap()
+            .preimage()
+            .unwrap();
     assert!(state.apply(&changed).is_err());
     assert_eq!(state, original);
     state.apply(&anchor).unwrap();
@@ -272,13 +280,14 @@ fn authenticated_anchor_state_json_roundtrip_and_restore_invariants() {
     let restored: PrivateDataspaceAnchorState = norito::json::from_str(&json).unwrap();
     restored.validate().unwrap();
     assert_eq!(restored, state);
-    for field in 0..5 {
+    for field in 0..6 {
         let mut malformed = genesis.clone();
         match field {
             0 => malformed.cursor.height = 0,
             1 => malformed.cursor.result = [0; 32],
             2 => malformed.cursor.consensus_hash = [1; 32],
             3 => malformed.tracker.instance = [1; 32],
+            4 => malformed.tracker.result_scope = CertifiedResultScope::TairaGlobal,
             _ => malformed.tracker.previous = Some(registration.initial_epoch.clone()),
         }
         assert!(malformed.validate().is_err());

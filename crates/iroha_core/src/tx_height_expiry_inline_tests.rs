@@ -9,7 +9,9 @@ fn transaction_height_expiry_is_exclusive_when_height_expiry_is_optional() {
         let (mut world, authority_id, kp) = world_with_authority("wonderland");
         let mut params = iroha_data_model::parameter::system::Parameters::default();
         params.transaction = params.transaction.with_ingress_enforcement(false, false);
-        world.parameters = mv::cell::Cell::new(params);
+        world.parameters = mv::cell::Cell::new(
+            crate::state::StateParameters::try_from(params).expect("valid fixture parameters"),
+        );
         let kura = crate::kura::Kura::blank_kura_for_testing();
         let query_handle = crate::query::store::LiveQueryStore::start_test();
         let chain: ChainId = "ttl-check-chain".parse().unwrap();

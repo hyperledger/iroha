@@ -1766,6 +1766,14 @@
             "role": "source"
           },
           {
+            "path": "crates/iroha_core/src/zk_validity_policy_feature_parity_tests.rs",
+            "role": "test"
+          },
+          {
+            "path": "crates/iroha_core/src/zk_validity_policy_parity_tests.rs",
+            "role": "test"
+          },
+          {
             "path": "crates/iroha_core/tests/zk_stark.rs",
             "role": "test"
           },
@@ -3991,6 +3999,10 @@
         },
         {
           "path": "crates/fastpq_prover/src/backend/tests.rs",
+          "role": "test"
+        },
+        {
+          "path": "crates/fastpq_prover/src/backend/transcript_profile/tests.rs",
           "role": "test"
         },
         {

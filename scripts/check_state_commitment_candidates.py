@@ -41,10 +41,12 @@ cites and requires the tracked file to be exactly that. The raw records are
 untracked, so this check runs only where the run directories are present; it
 is how an edited measured number is found.
 
-``--refresh RUN_DIR...`` rebuilds the file from harness run directories
+``--refresh RUN_DIR... --manifest-sha256 SHA256...`` rebuilds the file from externally
+pinned harness run directories
 (``scripts/zk_resource_harness.py run``; untracked under ``dist/``). The raw
 records stay untracked; the tracked file cites each run by directory name and
-manifest digest. ``--source-digest`` prints the digest of the prototype
+manifest digest. Every read revalidates acceptance through the E.1 reader and
+uses its verified documents without reopening paths. ``--source-digest`` prints the digest of the prototype
 sources, to be put into the ``--config`` of the harness runs.
 
 Inventory consistency only. Nothing here qualifies a construction, a hash or
@@ -55,6 +57,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import re
 import statistics
@@ -62,6 +65,13 @@ import sys
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
+
+_HARNESS_SPEC = importlib.util.spec_from_file_location(
+    "state_candidates_resource_harness", Path(__file__).with_name("zk_resource_harness.py")
+)
+assert _HARNESS_SPEC is not None and _HARNESS_SPEC.loader is not None
+HARNESS = importlib.util.module_from_spec(_HARNESS_SPEC)
+_HARNESS_SPEC.loader.exec_module(HARNESS)
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 SUMMARY = Path("specs/state_commitment_candidates.json")
@@ -431,7 +441,7 @@ def sha256_file(path: Path) -> str:
 
 
 def prototype_sources(repository: Path) -> list[Path]:
-    """Every source the measured executable's candidate code comes from."""
+    """Candidate, adapter and measurement files; not transitive build inputs."""
     paths = sorted((repository / PROTOTYPES).glob("*.rs"))
     paths += [repository / PROTOTYPE_ROOT, repository / ADAPTERS, repository / MEASUREMENT]
     return [path for path in paths if path.is_file()]
@@ -1018,13 +1028,14 @@ def shared_path_rows(record: Record) -> list[dict[str, Any]]:
     return rows
 
 
-def load_run(run_dir: Path) -> dict[str, Any]:
-    report = json.loads((run_dir / "report.json").read_text())
-    manifest_path = run_dir / "manifest.json"
+def load_run(run_dir: Path, manifest_sha256: str) -> dict[str, Any]:
+    """Summarize evidence returned by the pinned reader without reopening its paths."""
+    verified = HARNESS.read_pinned_run(run_dir, manifest_sha256)
+    report = verified["report"]
     records = []
     for entry in report["records"]:
         path = entry["json"]["path"]
-        document = json.loads((run_dir / path).read_text())
+        document = verified["documents"][path]
         if not document["identity"]["workload"].startswith(WORKLOAD_PREFIX):
             continue
         records.append(Record(document, run_dir.name, path))
@@ -1048,7 +1059,7 @@ def load_run(run_dir: Path) -> dict[str, Any]:
             "test": test,
             "verdict": report["verdict"],
             "reasons": report["reasons"],
-            "manifest_sha256": sha256_file(manifest_path),
+            "manifest_sha256": verified["manifest_sha256"],
             "executable_sha256": report["command"]["executable_sha256"],
             "source_commit": report["context"]["source_commit"],
             "source_dirty": report["context"]["source_dirty"],
@@ -1718,7 +1729,7 @@ STATIC_SECTIONS = {
     "selection": None,
     "selection_note": "No construction or hash is selected here. G.3 selects, freezes the semantic profile and repeats the final measurements on it.",
     "checked_by": "scripts/check_state_commitment_candidates.py",
-    "regenerate": "python3 scripts/check_state_commitment_candidates.py --refresh dist/zk-resource-harness/<run>...",
+    "regenerate": "python3 scripts/check_state_commitment_candidates.py --refresh dist/zk-resource-harness/<run>... --manifest-sha256 <external-sha256>...",
     "contract": {
         "specification": "specs/sumeragi.md section 16 (rules K1..K12)",
         "interface": str(INTERFACE),
@@ -1748,8 +1759,23 @@ STATIC_SECTIONS = {
 }
 
 
-def build_summary(run_dirs: Iterable[Path], repository: Path) -> dict[str, Any]:
-    runs = [load_run(run_dir) for run_dir in run_dirs]
+def build_summary(
+    run_dirs: Iterable[Path], repository: Path, *, manifest_sha256: Iterable[str]
+) -> dict[str, Any]:
+    """Build a comparison only from externally pinned, independently accepted runs."""
+    directories, pins = list(run_dirs), list(manifest_sha256)
+    if len(directories) != len(pins) or not directories:
+        raise ValueError("exactly one external manifest SHA-256 is required per run directory")
+    if any(not isinstance(pin, str) or not re.fullmatch(r"[0-9a-f]{64}", pin) for pin in pins):
+        raise ValueError("every external manifest pin must be a SHA-256 digest")
+    if len(set(pins)) != len(pins):
+        raise ValueError("one sealed run cannot be counted as multiple measurements")
+    runs = [load_run(run_dir, pin) for run_dir, pin in zip(directories, pins)]
+    return _assemble_summary(runs, repository)
+
+
+def _assemble_summary(runs: list[dict[str, Any]], repository: Path) -> dict[str, Any]:
+    """Assemble verified run facts, or the empty descriptive template checked below."""
     native: list[dict[str, Any]] = []
     circuit: list[dict[str, Any]] = []
     latency: list[dict[str, Any]] = []
@@ -1836,12 +1862,12 @@ def build_summary(run_dirs: Iterable[Path], repository: Path) -> dict[str, Any]:
                 "host": first.get("host"),
                 "profile": first["context"].get("profile"),
                 "config": first["context"].get("config"),
-                "config_note": "The last component is the first sixteen digits of prototype_sources.sha256: the runs were made from exactly the prototype, adapter and measurement sources of that digest, and the checker fails when the tree's differ.",
+                "config_note": "The last component is the first sixteen digits of prototype_sources.sha256, binding the prototype, adapter and measurement files. The checker rejects a different current digest. This limited file set excludes transitive dependencies and does not establish their build provenance or current qualification.",
                 "prototype_sources": source_digest(repository),
                 "cache_policy": first["context"].get("cache_policy"),
                 "source_commit": first["context"].get("source_commit"),
                 "source_dirty": first["context"].get("source_dirty"),
-                "source_dirty_note": "The checkout held the uncommitted work of this and other tasks; each run records its own dirty digest. The measured executable is identified by its SHA-256.",
+                "source_dirty_note": "The source commit and dirty digest describe the checkout when each run executed, not the executable's complete build inputs. The executable SHA-256 and recorded runtime State schema identify the measured artifact and input. An executable retained from an earlier build can measure a newly exported runtime schema; that does not establish a fresh build with current transitive dependencies.",
                 "harness": "scripts/zk_resource_harness.py run (task E.1); records written by crates/iroha_measurement",
                 "load_note": "The measurement runs executed one at a time, none beside another, on a shared development host that other work was also using; the one-minute load average at the start and end of every record is in its row. Every timed phase was repeated on identical inputs inside its run. A test listed more than once in runs was measured again by the same executable; its rows pool both runs.",
                 "allocator_note": "The measuring executable counts heap bytes in its global allocator (two relaxed atomic updates and one thread-local read per allocation, the same for every candidate).",
@@ -2722,7 +2748,7 @@ def check_sections(summary: dict[str, Any], repository: Path, errors: list[str])
         if workloads.get(key) != expected:
             errors.append(f"workloads.{key} differs from the checker's table")
     # The measured sections carry this script's classes, units, rules and notes.
-    template = build_summary([], repository)
+    template = _assemble_summary([], repository)
     for key, expected in template.items():
         if key not in STATIC_SECTIONS and key != "projections" and isinstance(expected, dict):
             check_static_text(expected, summary.get(key), key, errors)
@@ -2763,16 +2789,28 @@ def check_sections(summary: dict[str, Any], repository: Path, errors: list[str])
     if not runs:
         errors.append("benchmark_identity.runs is empty")
     run_names = set()
+    manifest_pins = set()
     for index, run in enumerate(runs):
         where = f"benchmark_identity.runs[{index}]"
-        run_names.add(run.get("run"))
+        name = run.get("run")
+        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", name):
+            errors.append(f"{where}.run is not a single directory name")
+        elif name in run_names:
+            errors.append(f"{where}.run duplicates a cited run")
+        if isinstance(name, str):
+            run_names.add(name)
         if run.get("verdict") != "accepted" or run.get("reasons"):
             errors.append(f"{where}: the harness did not accept the run")
         for key in ("manifest_sha256", "executable_sha256", "source_dirty_digest"):
             if not re.fullmatch(r"[0-9a-f]{64}", str(run.get(key))):
                 errors.append(f"{where}.{key} is not a SHA-256 digest")
-        if not str(run.get("raw_records", "")).startswith(f"{RAW_ROOT}/"):
-            errors.append(f"{where}.raw_records must be under the untracked {RAW_ROOT}/")
+        pin = run.get("manifest_sha256")
+        if isinstance(pin, str):
+            if pin in manifest_pins:
+                errors.append(f"{where}.manifest_sha256 repeats the same sealed evidence")
+            manifest_pins.add(pin)
+        if run.get("raw_records") != f"{RAW_ROOT}/{name}/child/":
+            errors.append(f"{where}.raw_records must be under the untracked {RAW_ROOT}/ and name exactly its cited run's child directory")
         if run.get("load_milli_min") is None or run.get("load_milli_max") is None:
             errors.append(f"{where}: the load of the run is not recorded")
         if not run.get("thermal_states"):
@@ -2894,13 +2932,18 @@ def reproduction_errors(summary: dict[str, Any], tracked: str, repository: Path)
     cited run directory. The runs are read in the order the file lists them,
     which is the order they were given to `--refresh`.
     """
-    names = [run.get("run") for run in summary["benchmark_identity"]["runs"]]
+    cited = summary["benchmark_identity"]["runs"]
+    names = [run.get("run") for run in cited]
+    if any(not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", name) for name in names):
+        return ["--reproduce: a cited run is not a single directory name"]
     directories = [repository / RAW_ROOT / str(name) for name in names]
     missing = [str(name) for name, directory in zip(names, directories) if not (directory / "report.json").is_file()]
     if missing:
         return [f"--reproduce: the raw records of {', '.join(missing)} are not under {RAW_ROOT}/"]
     try:
-        rebuilt = build_summary(directories, repository)
+        rebuilt = build_summary(
+            directories, repository, manifest_sha256=[run.get("manifest_sha256") for run in cited]
+        )
     except (ValueError, KeyError, OSError) as error:
         return [f"--reproduce: the cited runs do not build a comparison ({error})"]
     if render(rebuilt) == tracked:
@@ -2912,6 +2955,12 @@ def reproduction_errors(summary: dict[str, Any], tracked: str, repository: Path)
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repository", type=Path, default=REPOSITORY)
+    parser.add_argument(
+        "--manifest-sha256",
+        nargs="+",
+        metavar="EXTERNAL_SHA256",
+        help="one externally retained manifest digest per --refresh directory, in the same order",
+    )
     parser.add_argument(
         "--refresh",
         nargs="+",
@@ -2938,7 +2987,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if arguments.refresh:
         try:
-            summary = build_summary([run.resolve() for run in arguments.refresh], repository)
+            summary = build_summary(
+                arguments.refresh, repository, manifest_sha256=arguments.manifest_sha256 or []
+            )
         except (ValueError, KeyError, OSError) as error:
             # Records that disagree, a directory that is not a harness run, or
             # a report of another shape: say so and write nothing.
@@ -2954,6 +3005,9 @@ def main(argv: list[str] | None = None) -> int:
         path.write_text(render(summary))
         print(f"{SUMMARY}: written from {len(arguments.refresh)} runs")
         return 0
+    if arguments.manifest_sha256:
+        print("--manifest-sha256 requires --refresh", file=sys.stderr)
+        return 1
     if not path.is_file():
         print(f"{SUMMARY}: missing", file=sys.stderr)
         return 1

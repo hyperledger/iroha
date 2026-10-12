@@ -108,8 +108,9 @@ mod initial_publication_admission {
             nexus.fees.per_gas_unit_fee = Quantity::zero();
             nexus.fees.fee_asset_id = asset.to_string();
             nexus.fees.fee_sink_account_id = account(SINK).to_string();
-            // Declare both routing targets so the wrong-home binding reaches the native
-            // namespace check instead of failing because its dataspace is unknown.
+            // Declare both targets so cross-scope admission exercises physical route
+            // rejection rather than failing on an unknown dataspace. The namespace's
+            // native home check is tested separately against this same catalog.
             nexus.dataspace_catalog = DataSpaceCatalog::new(vec![
                 DataSpaceMetadata::default(),
                 DataSpaceMetadata {
@@ -268,7 +269,11 @@ mod initial_publication_admission {
                 .get(&AssetId::new(self.asset.clone(), account(seed)))
                 .map_or_else(Quantity::zero, |value| value.as_ref().clone())
         }
-        fn submit(&mut self, seed: u8, instruction: InstructionBox) -> Option<String> {
+        fn submit(
+            &mut self,
+            seed: u8,
+            instruction: InstructionBox,
+        ) -> Option<TransactionRejectionReason> {
             let time = self.chain.committed(self.chain.height()).block_time_ms() + 1;
             let builder = TransactionBuilder::new_with_time_source(
                 self.chain.network_id(),
@@ -336,20 +341,7 @@ mod initial_publication_admission {
                 );
                 None
             } else {
-                let TransactionRejectionReason::Validation(
-                    iroha_data_model::executor::ValidationFail::InstructionFailed(error),
-                ) = result.as_ref().unwrap_err()
-                else {
-                    panic!("must reach the unchanged native handler: {result:?}");
-                };
-                let mut reason = error.to_string();
-                let mut source = std::error::Error::source(error);
-                while let Some(cause) = source {
-                    reason.push_str(": ");
-                    reason.push_str(&cause.to_string());
-                    source = cause.source();
-                }
-                Some(reason)
+                Some(result.as_ref().unwrap_err().clone())
             }
         }
         fn applied(&mut self, seed: u8, instruction: InstructionBox) {
@@ -357,7 +349,23 @@ mod initial_publication_admission {
         }
         fn refused(&mut self, seed: u8, instruction: InstructionBox, reason: &str) {
             let result = self.submit(seed, instruction).expect("native refusal");
-            assert!(result.contains(reason), "{result}");
+            let TransactionRejectionReason::Validation(
+                iroha_data_model::executor::ValidationFail::InstructionFailed(error),
+            ) = result
+            else {
+                panic!("must reach the unchanged native handler: {result:?}");
+            };
+            let mut actual = error.to_string();
+            let mut source = std::error::Error::source(&error);
+            while let Some(cause) = source {
+                actual.push_str(": ");
+                actual.push_str(&cause.to_string());
+                source = cause.source();
+            }
+            assert!(actual.contains(reason), "{actual}");
+            self.assert_no_publication();
+        }
+        fn assert_no_publication(&self) {
             let view = self.chain.state().view();
             assert_eq!(
                 view.world().musubi_archives().get(&self.archive.archive_id),
@@ -527,11 +535,26 @@ mod initial_publication_admission {
         );
         let mut cross_scope = binding.clone();
         cross_scope.home_dataspace = DataSpaceId::new(7);
-        f.refused(
-            PUBLISHER,
-            instruction(cross_scope).into(),
-            "not declared home dataspace",
-        );
+        {
+            let view = f.chain.state().view();
+            let error = validate_namespace_home_dataspace(
+                &cross_scope,
+                view.world(),
+                &view.nexus().dataspace_catalog,
+                view.authenticated_query_ledger_time_ms().unwrap(),
+            )
+            .expect_err("native namespace home must reject the same cross-scope binding");
+            assert!(error.to_string().contains("not declared home dataspace"));
+        }
+        // The signed transaction is independently refused before native execution: its
+        // physical plan spans the declared target and required universal coordinator.
+        assert!(matches!(
+            f.submit(PUBLISHER, instruction(cross_scope).into()),
+            Some(TransactionRejectionReason::Validation(
+                iroha_data_model::executor::ValidationFail::NotPermitted(reason),
+            )) if reason == "physical policy requires one executable route"
+        ));
+        f.assert_no_publication();
         assert!(
             f.chain
                 .state()

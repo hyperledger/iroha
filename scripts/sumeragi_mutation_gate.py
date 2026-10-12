@@ -340,6 +340,8 @@ MUTATIONS = [
       ["det_l29_late_leader_does_not_raise"], ["f36"]),
     m("ML30", "commit_height: d_c measured from t_prop of any held proposal",
       ["det_l29_late_leader_does_not_raise"], ["f36"]),
+    m("ML31", "validate_chain: omits the outer sync response allowance",
+      ["det_l31_chain_parameters_leave_a_feasible_sync_frame_budget"], []),
     m("MS42", "original publication recovery does not halt the core",
       ["det_s42_original_publication_recovery_halts"], []),
     m("MS43", "signing domains omit epoch identity and complete context", ["det_s43_every_signature_binds_epoch_and_complete_context"], []),
@@ -992,6 +994,9 @@ CORE_MUTATIONS = [
 
     m("HC224", "native pulse demand: treat a committed Parliament slot row as mandatory control",
       ["sumeragi::epoch_beacon::producer::tests::execution_tests::pending_parliament_slots_create_no_native_control_demand_and_never_block_unrelated_work"]),
+
+    m("HC225", "consensus signer: restore the generic w3f signature suite for the original preimage",
+      ["sumeragi::crypto::tests::production_consensus_suite_refuses_generic_and_nonallowlisted_signatures"]),
 
 ]
 
