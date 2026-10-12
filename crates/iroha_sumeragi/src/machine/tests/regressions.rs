@@ -258,12 +258,15 @@ fn anchoring_is_checked_when_the_next_configuration_is_known() {
     h.start(vec![(key, RecordState::Absent)]);
     for o in h.others(3, &[]) {
         let k = h.key_at(o);
-        let sig = h.signer_of(&k).sign(&crate::preimage::echo_preimage(
-            &I,
-            &crate::testing::TEST_EPOCH.id,
-            h.nonce,
-            3,
-        )).expect("fixture signing succeeds");
+        let sig = h
+            .signer_of(&k)
+            .sign(&crate::preimage::echo_preimage(
+                &I,
+                &crate::testing::TEST_EPOCH.id,
+                h.nonce,
+                3,
+            ))
+            .expect("fixture signing succeeds");
         let msg = WireMessage::Status(Box::new(Status {
             instance: I,
             height: 3,

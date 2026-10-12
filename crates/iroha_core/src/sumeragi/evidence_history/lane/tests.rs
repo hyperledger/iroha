@@ -214,12 +214,14 @@ fn anchored_chain_with_config(
                 signers: Bitmap::from_indices(4, [0, 1, 2]).unwrap(),
                 agg_sig: AggregateSignature([0; SIGNATURE_LEN]),
             };
-            qc.agg_sig = crypto.aggregate(
-                &signers[..3]
-                    .iter()
-                    .map(|signer| signer.sign(&qc.preimage()).unwrap())
-                    .collect::<Vec<_>>(),
-            ).unwrap();
+            qc.agg_sig = crypto
+                .aggregate(
+                    &signers[..3]
+                        .iter()
+                        .map(|signer| signer.sign(&qc.preimage()).unwrap())
+                        .collect::<Vec<_>>(),
+                )
+                .unwrap();
             assert!(
                 iroha_sumeragi::crypto::Verifier::new(
                     &crypto,
@@ -432,7 +434,9 @@ fn proposal_pair(reader: &LaneProofRead) -> Evidence {
             parent_qc: None,
             sig: Signature([0; SIGNATURE_LEN]),
         };
-        proposal.sig = signer.sign(&proposal.signing_preimage(&reader.crypto)).unwrap();
+        proposal.sig = signer
+            .sign(&proposal.signing_preimage(&reader.crypto))
+            .unwrap();
         proposal
     };
     Evidence::ProposalEquivocation(Box::new(proposal(31)), Box::new(proposal(32)))
@@ -517,12 +521,15 @@ fn lane_proof_rejects_valid_same_height_certificate_on_an_unmerged_branch() {
         .unwrap_or_else(|_| panic!("other actual signed branch"));
     let mut qc = original.qc;
     qc.block_hash = authored.body.hash(&reader.crypto);
-    qc.agg_sig = reader.crypto.aggregate(
-        &signers[..3]
-            .iter()
-            .map(|signer| signer.sign(&qc.preimage()).unwrap())
-            .collect::<Vec<_>>(),
-    ).unwrap();
+    qc.agg_sig = reader
+        .crypto
+        .aggregate(
+            &signers[..3]
+                .iter()
+                .map(|signer| signer.sign(&qc.preimage()).unwrap())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
     assert_ne!(qc.block_hash.0, expected.block_hash);
     assert!(
         iroha_sumeragi::crypto::Verifier::new(

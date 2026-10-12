@@ -85,7 +85,8 @@ fn certificate(keys: &[KeyPair], header: &BlockHeader, result: Hash32, last: boo
 
             vote.sig = crate::sumeragi::crypto::KeyPairSigner::new(&keys[index])
                 .unwrap()
-                .sign(&vote.preimage()).unwrap();
+                .sign(&vote.preimage())
+                .unwrap();
             vote
         })
         .collect::<Vec<_>>();

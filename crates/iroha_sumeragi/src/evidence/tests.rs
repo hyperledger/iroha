@@ -89,7 +89,8 @@ impl Fixture {
         proposal.sig = self
             .validators
             .signer(leader)
-            .sign(&proposal.signing_preimage(&self.validators.crypto)).expect("fixture signing succeeds");
+            .sign(&proposal.signing_preimage(&self.validators.crypto))
+            .expect("fixture signing succeeds");
     }
     fn vote(&self, block: u8) -> Vote {
         self.validators
@@ -249,7 +250,8 @@ fn proposal_equivocation_requires_actual_leader_and_distinct_signed_content() {
     wrong_leader.sig = fixture
         .validators
         .signer((expected + 1) % 4)
-        .sign(&wrong_leader.signing_preimage(&fixture.validators.crypto)).expect("fixture signing succeeds");
+        .sign(&wrong_leader.signing_preimage(&fixture.validators.crypto))
+        .expect("fixture signing succeeds");
     assert_eq!(
         fixture.verify(&Evidence::ProposalEquivocation(
             Box::new(first),

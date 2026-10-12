@@ -13,6 +13,13 @@
 //! `QuickSilver` polynomial constraint check, bound together by the Fiat-Shamir
 //! transcript of that specification.
 //!
+//! The layers, bottom up: [`field`], [`prg`], [`hash`] and [`universal_hash`];
+//! [`bavc`] and [`crt`]; [`vole`]; [`quicksilver`] (the constraint check for a
+//! relation written once against a small algebra trait), [`transcript`], [`codec`]
+//! and [`randomness`]; and [`proof`], the generic prove and verify entry points for
+//! any relation on any supported row. Every random-oracle call can be evaluated
+//! inside a caller-chosen [`hash::Namespace`]; the empty prefix is plain FAEST.
+//!
 //! The [`faest`] module instantiates the backend with the plain FAEST AES
 //! one-way-function relation so that every layer can be checked against the official
 //! FAEST v3.0.2 reference test vectors (`tests/fixtures/faest_v3_0_2`). When the
@@ -48,6 +55,7 @@ pub mod field;
 pub mod hash;
 pub mod params;
 pub mod prg;
+pub mod proof;
 pub mod quicksilver;
 pub mod randomness;
 pub mod transcript;

@@ -280,16 +280,19 @@ fn original_history_refuses_false_parent_qc_reports_and_preserves_signed_safety_
     );
     let leader = topology.leader(0);
     let sign_qc = |qc: &mut Qc| {
-        qc.agg_sig = crypto.aggregate(
-            &qc.signers
-                .ones()
-                .map(|index| {
-                    KeyPairSigner::new(&keys[index as usize])
-                        .unwrap()
-                        .sign(&qc.preimage()).unwrap()
-                })
-                .collect::<Vec<_>>(),
-        ).unwrap();
+        qc.agg_sig = crypto
+            .aggregate(
+                &qc.signers
+                    .ones()
+                    .map(|index| {
+                        KeyPairSigner::new(&keys[index as usize])
+                            .unwrap()
+                            .sign(&qc.preimage())
+                            .unwrap()
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
     };
     let report = |qc, defect| {
         let mut proposal = Proposal {
@@ -316,7 +319,8 @@ fn original_history_refuses_false_parent_qc_reports_and_preserves_signed_safety_
         };
         proposal.sig = KeyPairSigner::new(&keys[leader as usize])
             .unwrap()
-            .sign(&proposal.signing_preimage(&crypto)).unwrap();
+            .sign(&proposal.signing_preimage(&crypto))
+            .unwrap();
         Evidence::InvalidProposal {
             proposal: Box::new(proposal),
             defect,

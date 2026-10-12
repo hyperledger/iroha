@@ -80,6 +80,18 @@
       "gas": 24586,
       "limit": 30000
     },
+    "5.4 void frozen n=31": {
+      "gas": 12751,
+      "limit": 30000
+    },
+    "5.4 void frozen n=4": {
+      "gas": 12751,
+      "limit": 30000
+    },
+    "5.4 void frozen n=7": {
+      "gas": 12751,
+      "limit": 30000
+    },
     "BLS_FASTAGGREGATEVERIFY n=31": {
       "gas": 121034,
       "limit": 121034

@@ -170,12 +170,14 @@ pub(super) fn alternative(qc: &Qc, crypto: &dyn Crypto) -> Qc {
     signers.sort_by(|a, b| a.public_key().cmp(b.public_key()));
     let mut other = qc.clone();
     other.signers = Bitmap::from_indices(4, [1, 2, 3]).unwrap();
-    other.agg_sig = crypto.aggregate(
-        &signers[1..]
-            .iter()
-            .map(|s| s.sign(&other.preimage()).unwrap())
-            .collect::<Vec<_>>(),
-    ).unwrap();
+    other.agg_sig = crypto
+        .aggregate(
+            &signers[1..]
+                .iter()
+                .map(|s| s.sign(&other.preimage()).unwrap())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
     other
 }
 
@@ -545,12 +547,14 @@ fn at_height(
     let mut qc = qc.clone();
     qc.height = height;
     qc.block_hash = body.hash(crypto);
-    qc.agg_sig = crypto.aggregate(
-        &signers[..3]
-            .iter()
-            .map(|s| s.sign(&qc.preimage()).unwrap())
-            .collect::<Vec<_>>(),
-    ).unwrap();
+    qc.agg_sig = crypto
+        .aggregate(
+            &signers[..3]
+                .iter()
+                .map(|s| s.sign(&qc.preimage()).unwrap())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
     (body, qc)
 }
 
@@ -758,12 +762,14 @@ fn append_rejects_body_from_another_committee_even_with_a_valid_store_commit_qc(
         authorized,
     )
     .unwrap();
-    qc.agg_sig = crypto.aggregate(
-        &members[..3]
-            .iter()
-            .map(|signer| signer.sign(&qc.preimage()).unwrap())
-            .collect::<Vec<_>>(),
-    ).unwrap();
+    qc.agg_sig = crypto
+        .aggregate(
+            &members[..3]
+                .iter()
+                .map(|signer| signer.sign(&qc.preimage()).unwrap())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
     assert!(
         Verifier::new(
             &crypto,

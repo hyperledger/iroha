@@ -378,7 +378,8 @@ fn retained_key_probe_cannot_anchor_a_different_epoch_context() {
     for (epoch, accepted) in [(old, false), (current, true)] {
         let sig = h
             .signer_of(&key)
-            .sign(&preimage::echo_preimage(&I, &epoch, h.nonce, 4)).expect("fixture signing succeeds");
+            .sign(&preimage::echo_preimage(&I, &epoch, h.nonce, 4))
+            .expect("fixture signing succeeds");
         let message = Status {
             instance: I,
             height: 4,

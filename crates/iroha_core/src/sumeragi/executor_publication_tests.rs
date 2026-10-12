@@ -388,10 +388,20 @@ fn original_staking_payload_worker_retains_pool_refusal_and_exact_queued_retry()
             };
             let original_refusal: crate::execution_attempt::ExecutionDeferred =
                 original_allocation.clone().into();
-            assert!(matches!(
-                worker.build(2, 0, 1 << 20, 100),
-                Err(PublicationError::Retryable(_))
-            ));
+            let returned = worker.build(2, 0, 1 << 20, 100);
+            let Err(PublicationError::Deferred(returned)) = returned else {
+                panic!("original staking capacity must reach the driver as a typed deferral");
+            };
+            assert_eq!(returned.allocation_refusal(), Some(original_allocation));
+            assert_eq!(
+                returned,
+                PublicationDeferral::EvidencePreparation(
+                    original_error
+                        .downcast_ref::<EvidencePreparationError>()
+                        .unwrap()
+                        .clone()
+                )
+            );
             assert_eq!(
                 worker.routing_refusal.as_ref(),
                 Some(&original_refusal),
@@ -3593,10 +3603,13 @@ fn original_lane_policy_proposal_refusal_retains_worker_owner_and_exact_queued_r
                 .to_owned();
             let budget = worker.state.ivm_execution_budget();
             let charged = budget.reserved_bytes();
-            assert!(matches!(
-                norito::with_decode_limits_scope(limits, || worker.build(2, 0, 1 << 20, 100)),
-                Err(PublicationError::Retryable(_))
-            ));
+            let returned =
+                norito::with_decode_limits_scope(limits, || worker.build(2, 0, 1 << 20, 100));
+            let Err(PublicationError::Deferred(returned)) = returned else {
+                panic!("original lane policy refusal must reach the driver as a typed deferral");
+            };
+            assert_eq!(returned, PublicationDeferral::Execution(original.clone()));
+            assert!(returned.release_wait().is_none());
             assert_eq!(
                 worker.routing_refusal.as_ref(),
                 Some(&original),

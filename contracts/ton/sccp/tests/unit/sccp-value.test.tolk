@@ -413,15 +413,63 @@ get fun `test a bucket reply at a minter below its floor completes without payin
     // the reply kept the prior balance and paid nothing toward the floor
     expect(testing.getAccountBalance(env.minter.address)).toEqual(low);
 
-    // `sccp_already_consumed` does the same: the duplicate is refused and refunded
-    val again = sendFinalize(env, env.deployer, d, finalizeValue(env, 1));
-    expect(again).toHaveAllSuccessfulTxs();
-    expect(again).toHaveSuccessfulTx<SccpAlreadyConsumed>({ to: env.minter.address });
-    // the entry call of the duplicate paid the deficit; its reply paid nothing
+    // `sccp_already_consumed` does the same. The entry call of the duplicate
+    // pays the deficit; then the balance drops again before the reply.
+    val duplicate = testing.createTraceIterationCursor(
+        env.deployer,
+        createMessage({
+            bounce: BounceMode.Only256BitsOfBody,
+            value: finalizeValue(env, 1),
+            dest: env.minter.address,
+            body: SccpFinalize {
+                queryId: 1,
+                response: env.deployer,
+                cert: d.cert as Cell<TairaCert>,
+                message: d.proof as Cell<MessageProof>,
+            },
+        }),
+    );
+    duplicate.executeN(2);
     expect(testing.getAccountBalance(env.minter.address)).toEqual(sccpMinterFloor());
+    expect(env.minter.getSccpState().pendingSupply).toEqual(300);
+    setAccountBalance(env.minter.address, low);
+    val refused = duplicate.executeAllRemaining();
+    duplicate.close();
+    expect(refused).toHaveAllSuccessfulTxs();
+    expect(refused).toHaveSuccessfulTx<SccpAlreadyConsumed>({ to: env.minter.address });
+    expect(refused).toHaveSuccessfulTx<ReturnExcessesBack>({ to: env.deployer });
+    expect(testing.getAccountBalance(env.minter.address)).toEqual(low);
     val state = env.minter.getSccpState();
     expect(state.pendingSupply).toEqual(0);
     expect(state.totalSupply).toEqual(1300);
+}
+
+get fun `test storage a caller did not pay for stays a deficit for the next caller`() {
+    val alice = testing.treasury("alice").address;
+    val env = envAtFloor(alice);
+    val floor = sccpMinterFloor();
+    testing.setNow(T0 + 3 * DAY_S);
+    // the stored balance is the floor, so the entry minimum is the step alone
+    val c = deliverControl(env, 1, true);
+    val step = sccpApplyControlRequiredValue();
+    val res = sendControlWith(env, c, step);
+    expect(res).toHaveAllSuccessfulTxs();
+    expect(env.minter.getSccpState().parliamentPaused).toBeTrue();
+    // The reserve never takes from the part the step needs: the three days
+    // of storage that this transaction collected are not topped up.
+    val after = testing.getAccountBalance(env.minter.address);
+    val deficit = floor - after;
+    expect(deficit > 0).toBeTrue();
+    // seven days of the largest state cover three days of the actual one
+    expect(deficit < sccpMinterStorageGrace()).toBeTrue();
+    // the next caller is quoted the deficit and closes it
+    val quote = env.minter.applyControlRequiredValue();
+    expect(quote).toEqual(step + deficit + sccpMinterStorageGrace());
+    val next = deliverControl(env, 2, false);
+    expectOutcome(sendControlWith(env, next, step + deficit - 1), SccpErrors.NotEnoughValue);
+    expect(sendControlWith(env, next, step + deficit)).toHaveAllSuccessfulTxs();
+    expect(env.minter.getSccpState().controlNonce).toEqual(2);
+    expect(testing.getAccountBalance(env.minter.address)).toEqual(floor);
 }
 
 get fun `test apply control on an under-floor minter needs its quote`() {

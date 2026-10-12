@@ -58,7 +58,10 @@ impl std::error::Error for AggregationError {}
 pub trait Signer: Send + Sync {
     /// The consensus public key.
     fn public_key(&self) -> &PublicKey;
-    /// Sign `preimage`.
+    /// Sign `preimage` without substituting signature bytes for a refusal.
+    ///
+    /// # Errors
+    /// A local backend refusal; callers retain durable reservations and publish no message.
     fn sign(&self, preimage: &[u8]) -> Result<Signature, SigningError>;
 }
 
@@ -73,6 +76,9 @@ pub trait Crypto {
     /// Verify an individual signature.
     fn verify(&self, pk: &PublicKey, msg: &[u8], sig: &Signature) -> bool;
     /// Aggregate signatures (possibly over different messages).
+    ///
+    /// # Errors
+    /// A local backend refusal; callers retain verified input votes and emit no certificate.
     fn aggregate(&self, sigs: &[Signature]) -> Result<AggregateSignature, AggregationError>;
     /// Verify an aggregate of signatures by `pks` over one message.
     fn verify_aggregate(&self, pks: &[&PublicKey], msg: &[u8], agg: &AggregateSignature) -> bool;
@@ -474,13 +480,19 @@ pub fn form_tc(
 }
 
 /// Formation cannot convert a refused local operation into certificate custody.
-fn aggregate_certificate(crypto: &dyn Crypto, sigs: &[Signature]) -> Result<AggregateSignature, FormError> {
+fn aggregate_certificate(
+    crypto: &dyn Crypto,
+    sigs: &[Signature],
+) -> Result<AggregateSignature, FormError> {
     match crypto.aggregate(sigs) {
         Ok(signature) => Ok(signature),
         Err(error) => {
             // MS55: manufacture certificate custody after an aggregation refusal.
             #[cfg(sumeragi_mutation = "MS55")]
-            return Ok(AggregateSignature([0; crate::types::SIGNATURE_LEN]));
+            {
+                let _ = error;
+                return Ok(AggregateSignature([0; crate::types::SIGNATURE_LEN]));
+            }
             #[cfg(not(sumeragi_mutation = "MS55"))]
             Err(FormError::AggregationFailed(error))
         }
@@ -509,6 +521,26 @@ mod tests {
 
     fn validators(n: usize) -> FakeValidators {
         FakeValidators::new(n, 1, None)
+    }
+
+    #[test]
+    fn local_crypto_errors_have_owned_object_safe_diagnostics() {
+        let failures: [Box<dyn std::error::Error + Send + Sync>; 4] = [
+            Box::new(SigningError::Refused),
+            Box::new(SigningError::InvalidInput),
+            Box::new(AggregationError::Refused),
+            Box::new(AggregationError::InvalidInput),
+        ];
+        let expected = [
+            "local signing refused",
+            "local signing input rejected",
+            "local aggregation refused",
+            "local aggregation input rejected",
+        ];
+        for (error, message) in failures.into_iter().zip(expected) {
+            assert_eq!(error.to_string(), message);
+            assert!(error.source().is_none());
+        }
     }
 
     #[test]

@@ -1073,6 +1073,7 @@ fn sccp_event_network(
         SccpEvent::TrustedCheckpointInstalled(ev) => Some(ev.network),
         SccpEvent::RevisionActivationChanged(ev) => Some(ev.network),
         SccpEvent::ControlRecorded(ev) => Some(ev.network),
+        SccpEvent::FastPauseLapsed(ev) => Some(ev.network),
         SccpEvent::BlockCommitted(_)
         | SccpEvent::GovernanceEnacted(_)
         | SccpEvent::CommitteeGenerationCreated(_)
@@ -2825,6 +2826,34 @@ mod sccp_filter_tests {
         bridge::SccpNetworkV1,
         sccp::events::{SccpBlockCommittedV1, SccpEvent, SccpEventSet, SccpMessageRecordedV1},
     };
+
+    #[test]
+    fn fast_pause_lapse_matches_only_its_network_and_event_set() {
+        let event = SccpEvent::FastPauseLapsed(crate::sccp::events::SccpFastPauseLapsedV1 {
+            network: SccpNetworkV1::EthereumMainnet,
+            certificate_id: [31; 32],
+            until_ms: 120_000,
+        });
+        assert!(SccpEventFilter::default().matches(&event));
+        assert!(
+            SccpEventFilter::new()
+                .for_network(SccpNetworkV1::EthereumMainnet)
+                .for_events(SccpEventSet::FastPauseLapsed)
+                .matches(&event)
+        );
+        for network in [SccpNetworkV1::BscMainnet, SccpNetworkV1::TonMainnet] {
+            assert!(!SccpEventFilter::new().for_network(network).matches(&event));
+        }
+        assert!(
+            !SccpEventFilter::new()
+                .for_events(SccpEventSet::ControlRecorded)
+                .matches(&event)
+        );
+        assert!(
+            DataEventFilter::Sccp(SccpEventFilter::new().for_events(SccpEventSet::FastPauseLapsed))
+                .matches(&DataEvent::Sccp(event))
+        );
+    }
 
     fn recorded(network: SccpNetworkV1) -> SccpEvent {
         SccpEvent::MessageRecorded(SccpMessageRecordedV1 {

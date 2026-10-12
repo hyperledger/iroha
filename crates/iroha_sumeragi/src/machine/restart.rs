@@ -86,10 +86,17 @@ impl Core {
                 Err(_) => return self.halt(HaltReason::SafetyRecordCorrupt),
             }
         }
-        // R5: the block store lost the last commit; the record's parent CommitQC restores it
-        // (that its block extends the tip is checked when the body arrives, §6.9 rule 6).
+        // R5: the block store lost the last commit. Authenticate every retained certificate
+        // before its parent CommitQC restores it (the parent link is checked when the body
+        // arrives, §6.9 rule 6). A record beyond a pending epoch boundary stays inert under
+        // R6 until ordinary catch-up authenticates that height's authority.
         let t = self.tip.height;
-        if let Some(record) = recommit_candidate(&records, t) {
+        if let Some(record) = recommit_candidate(&records, t)
+            && self.config(record.height).is_some()
+        {
+            if !self.record_round_certificates_verify(record) {
+                return self.halt(HaltReason::SafetyRecordInconsistent);
+            }
             #[cfg(not(sumeragi_mutation = "MS15"))]
             let config_height = t.saturating_add(1);
             #[cfg(sumeragi_mutation = "MS15")]
@@ -341,15 +348,15 @@ impl Core {
     /// of the tip for `(tip.block_hash, tip.result)`. Every retained certificate, including
     /// those nested in a proposal justification or timeout, verifies under its own height's
     /// authenticated authority before any restored state or verification cache is installed.
-    // SPEC: R4 does not say that the record must agree with the block store. Its
-    // `parent_commit_qc` is the `parent_qc` of every proposal re-sent from the record
+    // SPEC: R4 requires the record to agree with the block store. Its `parent_commit_qc`
+    // is the `parent_qc` of every proposal re-sent from the record
     // (§6.10 rule 0), so a checksum-valid record whose parent CommitQC is not a valid
     // CommitQC of the committed tip would make this node re-send a different proposal for
     // a recorded round (found by the simulator: F24 with a forged record parent, seed 11).
     // Such a record contradicts the store: halt as for R5 (Appendix E, E2). The check runs
     // for the record of every key (configured or retired, signing or not) when the node
     // reaches its height, not only for the signing key's (found by review).
-    pub(super) fn record_matches_tip(&mut self, record: &SafetyRecord) -> bool {
+    pub(super) fn record_matches_tip(&self, record: &SafetyRecord) -> bool {
         if record.height != self.height
             || record.epoch != self.cfg.epoch.id
             || !self.cfg.epoch.contains(record.height)
@@ -366,38 +373,44 @@ impl Core {
                     && qc.kind == VoteKind::Commit
                     && qc.height == self.tip.height
                     && qc.value() == (self.tip.block_hash, self.tip.result)
+                    && self.config(qc.height).is_some_and(|config| {
+                        config.epoch.contains(qc.height)
+                            && self.verifier(config).verify_qc(qc).is_ok()
+                    })
             }
         };
-        parent_matches && self.record_certificates_verify(record)
+        parent_matches && self.record_round_certificates_verify(record)
     }
 
-    /// Fully verify retained certificates without consulting or populating the live cache.
-    /// Ahead records remain inert until their authenticated height configuration is known.
-    fn record_certificates_verify(&self, record: &SafetyRecord) -> bool {
+    /// Fully verify the record height's retained certificates without consulting or filling
+    /// the live cache. The parent certificate is independently verified by `check_recommit`
+    /// (R5) or `record_matches_tip` (R4/R6) before either path installs anything.
+    fn record_round_certificates_verify(&self, record: &SafetyRecord) -> bool {
         if cfg!(sumeragi_mutation = "MS57") {
             return true;
         }
-        let qcs = record
-            .parent_commit_qc
-            .iter()
-            .chain(record.lock.iter())
-            .chain(
-                record
-                    .timeout
-                    .iter()
-                    .filter_map(|timeout| timeout.high_pqc.as_ref()),
-            );
-        let tcs = record.high_tc.iter().chain(
+        if self.config(record.height).is_none_or(|config| {
+            config.epoch.id != record.epoch || !config.epoch.contains(record.height)
+        }) {
+            return false;
+        }
+        let mut qcs = record.lock.iter().chain(
+            record
+                .timeout
+                .iter()
+                .filter_map(|timeout| timeout.high_pqc.as_ref()),
+        );
+        let mut tcs = record.high_tc.iter().chain(
             record
                 .proposal
                 .iter()
                 .filter_map(|proposal| proposal.justify.as_ref()),
         );
-        qcs.into_iter().all(|qc| {
+        qcs.all(|qc| {
             self.config(qc.height).is_some_and(|config| {
                 config.epoch.contains(qc.height) && self.verifier(config).verify_qc(qc).is_ok()
             })
-        }) && tcs.into_iter().all(|tc| {
+        }) && tcs.all(|tc| {
             self.config(tc.height).is_some_and(|config| {
                 config.epoch.contains(tc.height) && self.verifier(config).verify_tc(tc).is_ok()
             })

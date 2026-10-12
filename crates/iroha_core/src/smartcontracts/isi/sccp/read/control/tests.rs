@@ -647,3 +647,5 @@ fn native_control_rejects_genuine_other_branch_with_same_instance_and_control_ro
     drop((proof, cache));
     assert_eq!(budget.reserved_bytes(), occupied);
 }
+
+mod lapse;

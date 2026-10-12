@@ -13,6 +13,7 @@
 //   test` collects them and compares them with `gas-baseline.json` at 1.1 x.
 // - The floors hold after each flow.
 
+import "@stdlib/gas-payments"
 import "@stdlib/strings"
 import "@acton/build"
 import "@acton/io"
@@ -522,6 +523,8 @@ fun largestPayload(nonce: int, deadlineMs: int, recipient: address): cell {
 /// - Rotation extra: what a heartbeat and a key-changing rotation add to it.
 /// - Inline finalize: the minter step, and the value the whole flow consumes
 ///   with its bucket and wallet round trips.
+/// - `voidFrozen`: the minter step for a range in an active bucket. It
+///   verifies no certificate, so its gas does not depend on `n`.
 ///
 /// The inline void and control are measured beside them, because they price
 /// two more gas limits.
@@ -605,6 +608,13 @@ fun measureRows(n: int) {
     replayExpectKeys(env, next.keys);
     val rotationGas = stepGas(rotation);
     reportGas(rowLabel("5.4 rotation key change", n), rotationGas, SCCP_GAS_MINTER_CHECKPOINT);
+
+    // the successor expires: the upper half of bucket 0 is voided
+    testing.setNow(T0 + 11 + TEST_VALIDITY_MS / 1000 + 1);
+    val frozen = sendVoidFrozen(env, 256, 256, env.minter.voidFrozenRequiredValue(256));
+    expect(frozen).toHaveAllSuccessfulTxs();
+    expect(isConsumedAt(env, 511)).toBeTrue();
+    reportGas(rowLabel("5.4 void frozen", n), stepGas(frozen), SCCP_GAS_MINTER_VOID_FROZEN);
 
     // the opcode is 58 000 + 3 000·q of every full-path step
     expect(checkGas > opcodeGas).toBeTrue();
@@ -826,6 +836,33 @@ get fun `test the bucket and wallet round trip of a finalize and the floors`() {
     expectCovered("bucket account", bc, bb, SCCP_BUCKET_STATE_CELLS, SCCP_BUCKET_STATE_BITS);
     val (wc, wb) = accountStorageUsed(walletOf(env, alice).address);
     expectCovered("wallet account", wc, wb, SCCP_WALLET_STATE_CELLS, SCCP_WALLET_STATE_BITS);
+    // The floors are `GETSTORAGEFEE` of those sizes at the current prices:
+    // 100 years for the minter and a bucket, five for a new wallet (§5.3.5).
+    val year = 365 * 86400;
+    expect(sccpMinterFloor()).toEqual(
+        calculateStorageFee(
+            BASECHAIN,
+            100 * year,
+            SCCP_MINTER_STATE_BITS,
+            SCCP_MINTER_STATE_CELLS,
+        ),
+    );
+    expect(sccpBucketFloor()).toEqual(
+        calculateStorageFee(
+            BASECHAIN,
+            100 * year,
+            SCCP_BUCKET_STATE_BITS,
+            SCCP_BUCKET_STATE_CELLS,
+        ),
+    );
+    expect(sccpWalletMinStorage()).toEqual(
+        calculateStorageFee(
+            BASECHAIN,
+            5 * year,
+            SCCP_WALLET_STATE_BITS,
+            SCCP_WALLET_STATE_CELLS,
+        ),
+    );
     println(
         "BUCKET_FLOOR {} MINTER_FLOOR {} wallet min storage {} gas fee of 100000 gas {}",
         sccpBucketFloor(),

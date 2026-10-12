@@ -394,6 +394,29 @@ mod tests {
                 None
             );
             assert_eq!(committee_generations::get(&*stx.world, &1), Some(&original));
+            assert!(stx.world.sccp_destination_pending_generations.is_empty());
+            let mut ended = original.clone();
+            ended.end = Some(iroha_data_model::sccp::generation::SccpGenerationEndV1 {
+                end_height: 5,
+                end_timestamp_ms: 5_000,
+                next_committee_root: original.committee_root,
+                successor_validity_ms: original.validity_ms,
+            });
+            assert!(committee_generations::insert(&mut stx, 2, ended.clone()).is_err());
+            assert!(stx.world.sccp_destination_pending_generations.is_empty());
+            committee_generations::insert(&mut stx, 1, ended.clone()).unwrap();
+            assert_eq!(
+                stx.world.sccp_destination_pending_generations.get(&1),
+                Some(&())
+            );
+            let mut cleared = ended.clone();
+            cleared.dest_cleared_lc = Some(5_000);
+            committee_generations::insert(&mut stx, 1, cleared).unwrap();
+            assert!(stx.world.sccp_destination_pending_generations.is_empty());
+            committee_generations::insert(&mut stx, 1, ended.clone()).unwrap();
+            assert!(committee_generations::remove(&mut stx, 1).is_some());
+            assert!(stx.world.sccp_destination_pending_generations.is_empty());
+            committee_generations::insert(&mut stx, 1, ended).unwrap();
             assert_eq!(committee_current::set(&mut stx, 1), 0);
             assert_eq!(liability_clock::set(&mut stx, 1_000), 0);
             assert_eq!(degraded_run::set(&mut stx, 2), 0);
@@ -415,6 +438,7 @@ mod tests {
             // Dropping the complete transaction retains neither metadata nor new trust state.
         }
         assert!(committee_generations::is_empty(&block.world));
+        assert!(block.world.sccp_destination_pending_generations.is_empty());
         assert!(anchor_chunks::is_empty(&block.world));
         assert!(anchor_open::get(&block.world).as_slice().is_empty());
         assert_eq!(*committee_current::get(&block.world), 0);

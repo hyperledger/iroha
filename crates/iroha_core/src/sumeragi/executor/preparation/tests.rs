@@ -909,3 +909,68 @@ fn native_source_publication_change_retries_without_recovery_or_quarantine() {
         assert!(!super::super::control::transaction_rejection(&terminal));
     }
 }
+
+#[test]
+fn producer_payload_errors_keep_original_release_and_terminal_classification() {
+    use super::super::super::payload::PayloadError;
+    use crate::state::{
+        BlockHashAdmissionError, EvidencePreparationError, MembershipAdmissionError,
+        StateAdmissionError, StateStorageAdmissionError,
+    };
+    let budget = iroha_allocation::AllocationBudget::new(1 << 20);
+    let mut registration = crate::unit_test_support::release_registration(&budget);
+    let occupied = budget
+        .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
+        .unwrap();
+    let original = budget.try_reserve_bytes(1).unwrap_err();
+    let iroha_allocation::AllocationRefusal::Capacity { release, .. } = &original else {
+        panic!("actual occupied producer pool must own its capacity refusal");
+    };
+    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+    for error in [
+        PayloadError::RoutingDeferred(original.clone().into()),
+        PayloadError::DecodeResource(original.clone().into()),
+        PayloadError::StakingPreparation(EvidencePreparationError::Admission(original.clone())),
+        PayloadError::StakingAdmission(StateAdmissionError::Storage(
+            StateStorageAdmissionError::World(mv::storage::AdmittedStorageError::Allocation(
+                original.clone(),
+            )),
+        )),
+        PayloadError::StakingAdmission(StateAdmissionError::History(
+            BlockHashAdmissionError::Capacity(original.clone()),
+        )),
+        PayloadError::StakingAdmission(StateAdmissionError::Membership(
+            MembershipAdmissionError::Capacity(original.clone()),
+        )),
+    ] {
+        let Some(PublicationError::Deferred(classified)) = super::payload_failure(&error) else {
+            panic!("producer must return its original release-bearing error");
+        };
+        assert_eq!(classified.allocation_refusal(), Some(&original));
+        assert_eq!(classified.release_wait(), Some(release));
+        assert!(registration.poll_wait(release, &mut context).is_pending());
+        assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
+    }
+    for error in [
+        PayloadError::RoutingDeferred(ExecutionDeferral::LocalInvariantViolation.into()),
+        PayloadError::DecodeResource(ExecutionDeferral::LocalInvariantViolation.into()),
+        PayloadError::StakingPreparation(EvidencePreparationError::Invariant),
+        PayloadError::SignatureCustodyInvariant("original signature owner lost".into()),
+    ] {
+        assert!(matches!(
+            super::payload_failure(&error),
+            Some(PublicationError::RecoveryRequired(_))
+        ));
+    }
+    assert!(matches!(
+        super::payload_failure(&PayloadError::StakingPreparation(
+            EvidencePreparationError::OriginalHistoryPending
+        )),
+        Some(PublicationError::Retryable(_))
+    ));
+    assert!(super::payload_failure(&PayloadError::EmptyBlock).is_none());
+    drop(occupied);
+    assert!(registration.poll_wait(release, &mut context).is_ready());
+    drop(registration);
+    assert_eq!(budget.reserved_bytes(), 0);
+}

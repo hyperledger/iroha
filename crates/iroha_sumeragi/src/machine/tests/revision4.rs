@@ -529,12 +529,15 @@ fn det_r4_probe_statuses_and_echoes() {
     };
     h.deliver(peer, WireMessage::Status(Box::new(plain)));
     let echo = |h: &H, named: &PublicKey, signer: &PublicKey, height: u64| {
-        let sig = h.signer_of(signer).sign(&preimage::echo_preimage(
-            &I,
-            &crate::testing::TEST_EPOCH.id,
-            h.nonce,
-            height,
-        )).expect("fixture signing succeeds");
+        let sig = h
+            .signer_of(signer)
+            .sign(&preimage::echo_preimage(
+                &I,
+                &crate::testing::TEST_EPOCH.id,
+                h.nonce,
+                height,
+            ))
+            .expect("fixture signing succeeds");
         WireMessage::Status(Box::new(Status {
             instance: I,
             height,
@@ -558,12 +561,14 @@ fn det_r4_probe_statuses_and_echoes() {
     // A non-member key never counts; a relayed echo counts for its signer.
     let outsider = crate::testing::FakeSigner::from_seed(b"outsider", None);
     let outsider_key = outsider.public_key().clone();
-    let sig = outsider.sign(&preimage::echo_preimage(
-        &I,
-        &crate::testing::TEST_EPOCH.id,
-        h.nonce,
-        2,
-    )).expect("fixture signing succeeds");
+    let sig = outsider
+        .sign(&preimage::echo_preimage(
+            &I,
+            &crate::testing::TEST_EPOCH.id,
+            h.nonce,
+            2,
+        ))
+        .expect("fixture signing succeeds");
     let foreign = WireMessage::Status(Box::new(Status {
         instance: I,
         height: 2,

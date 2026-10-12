@@ -440,7 +440,10 @@ impl FakeValidators {
             block_hash: *block_hash,
             result: *result,
             signer,
-            sig: self.signer(signer).sign(&msg).expect("fixture signing succeeds"),
+            sig: self
+                .signer(signer)
+                .sign(&msg)
+                .expect("fixture signing succeeds"),
         }
     }
 
@@ -469,7 +472,11 @@ impl FakeValidators {
         sorted.dedup();
         let sigs: Vec<Signature> = sorted
             .iter()
-            .map(|index| self.signer(*index).sign(&msg).expect("fixture signing succeeds"))
+            .map(|index| {
+                self.signer(*index)
+                    .sign(&msg)
+                    .expect("fixture signing succeeds")
+            })
             .collect();
         Qc {
             epoch: crate::testing::TEST_EPOCH.id,
@@ -481,7 +488,10 @@ impl FakeValidators {
             result: *result,
             signers: Bitmap::from_indices(self.committee.n(), sorted.iter().copied())
                 .unwrap_or_else(|| Bitmap::new(self.committee.n())),
-            agg_sig: self.crypto.aggregate(&sigs).expect("fixture aggregation succeeds"),
+            agg_sig: self
+                .crypto
+                .aggregate(&sigs)
+                .expect("fixture aggregation succeeds"),
         }
     }
 
@@ -504,7 +514,10 @@ impl FakeValidators {
             view,
             high_pqc,
             signer,
-            sig: self.signer(signer).sign(&msg).expect("fixture signing succeeds"),
+            sig: self
+                .signer(signer)
+                .sign(&msg)
+                .expect("fixture signing succeeds"),
         }
     }
 
@@ -540,7 +553,10 @@ impl FakeValidators {
                     hq: t.hq(),
                 })
                 .collect(),
-            agg_sig: self.crypto.aggregate(&sigs).expect("fixture aggregation succeeds"),
+            agg_sig: self
+                .crypto
+                .aggregate(&sigs)
+                .expect("fixture aggregation succeeds"),
             high_pqc,
         }
     }
@@ -573,7 +589,10 @@ impl FakeValidators {
             header,
             justify,
             parent_qc,
-            sig: self.signer(leader).sign(&msg).expect("fixture signing succeeds"),
+            sig: self
+                .signer(leader)
+                .sign(&msg)
+                .expect("fixture signing succeeds"),
         }
     }
 }
@@ -829,13 +848,27 @@ mod tests {
         assert!(crypto.verify(a.public_key(), b"m", &sig_a));
         assert!(!crypto.verify(b.public_key(), b"m", &sig_a));
         assert!(!crypto.verify(a.public_key(), b"n", &sig_a));
-        let agg = crypto.aggregate(&[sig_a, sig_b]).expect("fixture aggregation succeeds");
-        assert_eq!(agg, crypto.aggregate(&[sig_b, sig_a]).expect("fixture aggregation succeeds"), "order independent");
+        let agg = crypto
+            .aggregate(&[sig_a, sig_b])
+            .expect("fixture aggregation succeeds");
+        assert_eq!(
+            agg,
+            crypto
+                .aggregate(&[sig_b, sig_a])
+                .expect("fixture aggregation succeeds"),
+            "order independent"
+        );
         assert!(crypto.verify_aggregate(&[a.public_key(), b.public_key()], b"m", &agg));
         assert!(!crypto.verify_aggregate(&[a.public_key()], b"m", &agg));
-        assert!(!crypto.verify_aggregate(&[], b"m", &crypto.aggregate(&[]).expect("fixture aggregation succeeds")));
+        assert!(!crypto.verify_aggregate(
+            &[],
+            b"m",
+            &crypto.aggregate(&[]).expect("fixture aggregation succeeds")
+        ));
         let sig_c = b.sign(b"other").expect("fixture signing succeeds");
-        let multi = crypto.aggregate(&[sig_a, sig_c]).expect("fixture aggregation succeeds");
+        let multi = crypto
+            .aggregate(&[sig_a, sig_c])
+            .expect("fixture aggregation succeeds");
         assert!(crypto.verify_aggregate_multi(
             &[
                 (vec![a.public_key()], b"m".to_vec()),
@@ -876,7 +909,9 @@ mod tests {
         let forged = fake_sig(signer.public_key(), b"bye");
         assert!(crypto.verify(signer.public_key(), b"bye", &forged));
         assert!(!log.was_signed(signer.public_key(), b"bye"));
-        let agg = crypto.aggregate(&[sig]).expect("fixture aggregation succeeds");
+        let agg = crypto
+            .aggregate(&[sig])
+            .expect("fixture aggregation succeeds");
         assert_eq!(log.aggregate_parts(&agg), Some(vec![sig]));
         assert_eq!(log.signatures_by(signer.public_key()).len(), 1);
         assert_eq!(log.signatures()[0].preimage, b"hello".to_vec());

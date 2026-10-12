@@ -494,10 +494,17 @@ impl Core {
             return;
         };
         // A failed attempt keeps its durable sign-once reservation. Retry only that value.
-        if self.safety.as_ref().and_then(|r| r.prepare).is_some_and(|reserved| {
-            reserved.view > view || (reserved.view == view &&
-                (reserved.block_hash != bh || reserved.result != result))
-        }) && !cfg!(sumeragi_mutation = "MS2") {
+        if self
+            .safety
+            .as_ref()
+            .and_then(|r| r.prepare)
+            .is_some_and(|reserved| {
+                reserved.view > view
+                    || (reserved.view == view
+                        && (reserved.block_hash != bh || reserved.result != result))
+            })
+            && !cfg!(sumeragi_mutation = "MS2")
+        {
             return;
         }
         if self.certified_results(bh).iter().any(|e| *e != result) {

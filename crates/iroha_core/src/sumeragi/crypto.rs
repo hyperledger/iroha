@@ -19,7 +19,7 @@ use iroha_crypto::{
 };
 use iroha_sumeragi::{
     crypto::{AggregationError, Crypto, Signer, SigningError},
-    types::{AggregateSignature, Hash32, PublicKey, SIGNATURE_LEN, Signature},
+    types::{AggregateSignature, Hash32, PublicKey, Signature},
 };
 use parking_lot::{Mutex, RwLock};
 
@@ -318,7 +318,7 @@ mod tests {
     use iroha_sumeragi::{
         crypto::{form_qc, form_tc},
         message::{Qc, TimeoutVote, Vote, VoteKind},
-        types::{Committee, EpochId, ValidatorIndex},
+        types::{Committee, EpochId, SIGNATURE_LEN, ValidatorIndex},
     };
 
     use super::*;

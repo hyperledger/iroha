@@ -137,8 +137,8 @@ impl Core {
         }
     }
 
-    /// §6.11 on `Status` from the authenticated peer `from`, in four steps: the probe echo and
-    /// the proposal request are exempt from the per-peer rate limit; everything else is
+    /// §6.11 on `Status` from the authenticated peer `from`, in four steps: probe echoes,
+    /// probe requests and proposal requests have independent admission; everything else is
     /// processed for at most one `Status` per peer per `rebroadcast_interval / 2`.
     pub(super) fn on_status(&mut self, from: &PublicKey, s: Status) {
         // Step 1: echo (a signed answer to this node's probe; relayed copies count).
@@ -161,6 +161,12 @@ impl Core {
         #[cfg(not(any(sumeragi_mutation = "ML19b", sumeragi_mutation = "ML19c")))]
         if s.want_proposal && s.height == self.height && s.view == self.view && !self.awaiting {
             self.repush_on_request(from, &s);
+        }
+        // A signing refusal consumes no successful-Echo rate limit. The unrelated Status
+        // intake gate must not suppress a subsequent retry of that same probe.
+        #[cfg(not(sumeragi_mutation = "MS61"))]
+        if let Some(nonce) = s.probe {
+            self.answer_probe(from, nonce);
         }
         // Step 3: the per-peer rate limit.
         let interval = self.local.rebroadcast_interval / 2;
@@ -204,13 +210,15 @@ impl Core {
         peer.view = s.view;
         peer.proposal_hash = s.proposal_hash;
         peer.status_at = Some(now);
+        // MS61: a failed Echo attempt leaves its retry behind the unrelated Status gate.
+        #[cfg(sumeragi_mutation = "MS61")]
+        if let Some(nonce) = s.probe {
+            self.answer_probe(from, nonce);
+        }
         // ML19c: the proposal request is served only after the rate limit.
         #[cfg(sumeragi_mutation = "ML19c")]
         if s.want_proposal && s.height == self.height && s.view == self.view && !self.awaiting {
             self.repush_on_request(from, &s);
-        }
-        if let Some(nonce) = s.probe {
-            self.answer_probe(from, nonce);
         }
         if let Some(qc) = s
             .committed_qc
@@ -309,7 +317,7 @@ impl Core {
         self.probe.clear();
     }
 
-    /// §6.11 step 4: answer a probe with a signed echo, at most once per peer per
+    /// §6.11: answer a probe with a signed echo, at most once per peer per
     /// `rebroadcast_interval`, only with a configured key and while none of this node's keys
     /// (retired ones included) is unanchored or abstaining at the current height.
     fn answer_probe(&mut self, to: &PublicKey, nonce: u64) {
@@ -349,7 +357,13 @@ impl Core {
         let mut status = self.status_message();
         let msg = preimage::echo_preimage(&self.instance, &epoch.id, nonce, status.height);
         let key = self.keys[slot].pk.clone();
-        let Some(sig) = self.sign(slot, crate::api::SigningKind::Echo, status.height, self.view, &msg) else {
+        let Some(sig) = self.sign(
+            slot,
+            crate::api::SigningKind::Echo,
+            status.height,
+            self.view,
+            &msg,
+        ) else {
             return;
         };
         self.peer_entry(to).echoed_at = Some(now);

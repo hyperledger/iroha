@@ -1716,6 +1716,11 @@ fn proof_crypto_accepts_only_current_consensus_suite_in_every_relation() {
         .collect();
     validators.sort_by_key(|member| member.public_key.borrowed_parts().unwrap().1.to_vec());
     let (crypto, _) = ProofCrypto::new(&validators).unwrap();
+    assert_eq!(crypto.aggregate(&[]), Err(AggregationError::Refused));
+    assert_eq!(
+        crypto.aggregate(&[Signature([0; 96])]),
+        Err(AggregationError::Refused)
+    );
     let key = CoreKey::new(pairs[0].public_key().borrowed_parts().unwrap().1.to_vec()).unwrap();
     let other_key =
         CoreKey::new(pairs[1].public_key().borrowed_parts().unwrap().1.to_vec()).unwrap();

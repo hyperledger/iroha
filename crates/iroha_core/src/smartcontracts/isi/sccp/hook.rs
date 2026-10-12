@@ -1085,4 +1085,49 @@ mod tests {
             expected
         );
     }
+    #[test]
+    fn authenticated_dataspace_genesis_cannot_lapse_global_pause_record() {
+        use crate::sumeragi::test_chain::CertifiedTestChain;
+        use iroha_data_model::{
+            block::consensus::SumeragiRootScope,
+            sumeragi_finality::test_fixtures::NativeFinalityFixture,
+        };
+        let parent = NativeFinalityFixture::start("pause-lapse-global-parent");
+        let scope = SumeragiRootScope::Dataspace {
+            parent_network_id: parent.network_id(),
+            dataspace_id: iroha_model_base::topology::DataSpaceId::new(7),
+        };
+        let mut config = native_init_config(scope);
+        let init = config.genesis_instructions.pop().unwrap();
+        assert!(
+            init.as_any()
+                .is::<iroha_data_model::isi::sccp::InitializeSccpV1>()
+        );
+        let mut prepared = CertifiedTestChain::prepare(config).expect("original private genesis");
+        let time = prepared.genesis.block().header().creation_time_ms;
+        let state = std::sync::Arc::get_mut(&mut prepared.state).unwrap();
+        let budget = state.ivm_execution_budget();
+        // Intentionally foreign Global component prestate, never created by private authority.
+        // Neither a present DTO nor its expired timestamp may authorize Global cleanup.
+        state.world.sccp_parameters = mv::cell::Cell::new(Some(SccpParametersV1::taira_default()));
+        let mut pause = super::super::test_support::sample_fast_pause(1);
+        pause.enacted_at_ms = time.checked_sub(1).unwrap();
+        pause.until_ms = time;
+        let original =
+            super::super::pause_record::RetainedSccpFastPause::admit(&pause, &budget).unwrap();
+        let network = iroha_data_model::bridge::SccpNetworkV1::EthereumMainnet;
+        state
+            .world
+            .sccp_fast_pauses
+            .insert(network, original.clone());
+        let chain = CertifiedTestChain::from_prepared(prepared).expect("genuine private G1");
+        assert_eq!(chain.root_scope(), scope);
+        assert!(!chain.committed(1).certified_result().header().is_active());
+        let view = chain.state().view();
+        let retained = store::fast_pauses::get(view.world(), &network).unwrap();
+        assert!(
+            std::ptr::eq(&**retained, &*original),
+            "authenticated Dataspace scope cannot authorize Global lapse"
+        );
+    }
 }

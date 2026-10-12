@@ -422,3 +422,210 @@ fn validation_only_lookup_never_admits_or_retains_a_missed_context() {
     assert_eq!(validation.core_epoch(&epoch).unwrap(), original);
     assert_eq!(validation.validations, 1);
 }
+
+#[test]
+fn epoch_scope_retains_exact_context_without_a_hidden_heap_graph() {
+    use crate::amx_prepare_streaming_allocations::PhysicalObservation;
+    use iroha_allocation::AllocationBudget;
+    use norito::core::DecodeBudgetContext;
+
+    // This is native structural validation, not a source/certificate authority fixture.
+    // Both native root scopes use this same bounded committee contract.
+    for count in [4, crate::sumeragi::epoch::MAX_VALIDATORS] {
+        for mode in [ConsensusMode::Npos, ConsensusMode::Permissioned] {
+            let mut context = fixture(count);
+            context.mode = mode;
+            let source = norito::encode_canonical(&context).unwrap();
+            let pointers = context
+                .committee
+                .iter()
+                .map(|member| {
+                    (
+                        member
+                            .validator
+                            .public_key()
+                            .borrowed_parts()
+                            .unwrap()
+                            .1
+                            .as_ptr(),
+                        member.proof_of_possession.as_ptr(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let budget = AllocationBudget::new(1 << 20);
+            let decoder = DecodeBudgetContext::try_new_owned(
+                norito::DecodeLimits::new(1 << 20, 1 << 20, 1 << 20, 16 << 20, 64),
+                &budget,
+            )
+            .unwrap();
+            // Warm the shared canonical/crypto machinery outside both comparable measurements.
+            context.context_id().unwrap();
+            let retained = budget.reserved_bytes();
+            let physical = PhysicalObservation::start();
+            let expected = decoder.with(|| context.context_id());
+            let validation_requests = physical.snapshot().requests();
+            drop(physical);
+            let before_debit = decoder.consumed_allocated_bytes();
+            let mut validation = EpochValidationScope::new();
+            let physical = PhysicalObservation::start();
+            let actual = decoder.with(|| validation.core_epoch(&context));
+            let scope_requests = physical.snapshot().requests();
+            drop(physical);
+            let after_debit = decoder.consumed_allocated_bytes();
+            eprintln!(
+                "epoch cache observation count={count} mode={mode:?} baseline_ok={} scope_ok={} baseline_requests={validation_requests:?} scope_requests={scope_requests:?} before_debit={before_debit} after_debit={after_debit} entries={}",
+                expected.is_ok(),
+                actual.is_ok(),
+                validation.entries.iter().flatten().count(),
+            );
+            let expected = expected.expect("original mandatory context validation must succeed");
+            let actual = actual.expect("same mandatory epoch validation must succeed");
+            assert_eq!(actual.id.context.0, expected);
+            // Preserve both observations, but let the own heap-graph assertion be causal first.
+            assert_eq!(
+                scope_requests, validation_requests,
+                "epoch cache adds no heap graph beyond original context validation"
+            );
+            assert_eq!(validation.entries.iter().flatten().count(), 1);
+            assert_eq!(
+                after_debit, before_debit,
+                "exact cache retention must not debit a hidden encode/decode roundtrip"
+            );
+
+            assert_eq!(budget.reserved_bytes(), retained);
+            for (member, original) in context.committee.iter().zip(&pointers) {
+                assert_eq!(
+                    member
+                        .validator
+                        .public_key()
+                        .borrowed_parts()
+                        .unwrap()
+                        .1
+                        .as_ptr(),
+                    original.0
+                );
+                assert_eq!(member.proof_of_possession.as_ptr(), original.1);
+            }
+            assert_eq!(norito::encode_canonical(&context).unwrap(), source);
+            // Saturation is a separate positive control after the own allocation cause above.
+            // The old optional insertion is allowed to refuse; it cannot mask that cause.
+            let blocker = budget
+                .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
+                .unwrap();
+            let full_charge = budget.reserved_bytes();
+            let mut full_scope = EpochValidationScope::new();
+            let physical = PhysicalObservation::start();
+            let full_insert = decoder.with(|| full_scope.core_epoch(&context));
+            let full_requests = physical.snapshot().requests();
+            drop(physical);
+            assert_eq!(full_insert.unwrap(), actual);
+            assert_eq!(full_requests, validation_requests);
+            assert_eq!(full_scope.entries.iter().flatten().count(), 1);
+            assert_eq!(budget.reserved_bytes(), full_charge);
+            let physical = PhysicalObservation::start();
+            let repeated = decoder.with(|| full_scope.core_epoch(&context));
+            let repeat_requests = physical.snapshot().requests();
+            drop(physical);
+            assert_eq!(repeated.unwrap(), actual);
+            assert_eq!(repeat_requests, [0, 0, 0]);
+            assert_eq!(decoder.consumed_allocated_bytes(), after_debit);
+            drop(blocker);
+            drop(decoder);
+            assert_eq!(budget.reserved_bytes(), 0);
+        }
+    }
+    // Native validation runs on libtest's unchanged default stack. Report actual target layout;
+    // no stack-size override, allocator pool replacement or protocol limit is introduced.
+    eprintln!(
+        "EpochValidationScope inline bytes: {}",
+        size_of::<EpochValidationScope>()
+    );
+    assert!(size_of::<EpochValidationScope>() <= 12 * 1024);
+}
+
+#[test]
+fn epoch_scope_compares_every_original_field_and_last_bounded_credential() {
+    use crate::sumeragi::epoch::{
+        BeaconEpochBindingV1, InstalledBeaconEpochBindingV1, ValidatorEpochDecisionV1,
+    };
+    let original = fixture(crate::sumeragi::epoch::MAX_VALIDATORS);
+    let wire = norito::encode_canonical(&original).unwrap();
+    let mut validation = EpochValidationScope::new();
+    let original_core = validation.core_epoch(&original).unwrap();
+    for mutation in 0..25 {
+        let mut changed = original.clone();
+        match mutation {
+            0 => changed.da_layout.chunk_size_bytes += 1,
+            1 => changed.da_layout.data_shards += 1,
+            2 => changed.da_layout.parity_shards += 1,
+            3 => changed.da_layout.max_payload_size_bytes += 1,
+            4 => changed.da_layout.max_chunk_count += 1,
+            5 => changed.version = 2,
+            6 => changed.network_id = fixture_other_network(),
+            7 => changed.mode = ConsensusMode::Permissioned,
+            8 => changed.leader_seed[31] ^= 1,
+            9 => changed.authorization.version = 2,
+            10 => changed.authorization.network_id = fixture_other_network(),
+            11 => changed.authorization.epoch += 1,
+            12 => changed.authorization.first_height += 1,
+            13 => changed.authorization.last_height += 1,
+            14 => changed.authorization.authority_generation += 1,
+            15 => changed.authorization.authority_id[31] ^= 1,
+            16 => {
+                changed.authorization.beacon =
+                    BeaconEpochBindingV1::Installed(InstalledBeaconEpochBindingV1 {
+                        session_id: [0x45; 32],
+                        transcript_hash: [0x46; 32],
+                    })
+            }
+            17 => changed.authorization.previous_authorization_id[31] ^= 1,
+            18 => changed.authorization.transition_id[31] ^= 1,
+            19 => changed.authorization.decision = ValidatorEpochDecisionV1::Retain,
+            20 => changed.committee.last_mut().unwrap().proof_of_possession[95] ^= 1,
+            21 => {
+                changed.committee.pop();
+            }
+            22 => {
+                changed
+                    .committee
+                    .push(changed.committee.last().unwrap().clone());
+            }
+            23 => {
+                let last = changed.committee.len() - 1;
+                changed.committee.swap(last - 1, last);
+            }
+            _ => {
+                changed.committee.last_mut().unwrap().validator =
+                    original.committee[0].validator.clone()
+            }
+        }
+        // The independent original validator is the oracle, including every existing error.
+        let expected = EpochValidationScope::new().core_epoch(&changed);
+        let actual = validation.core_epoch(&changed);
+        match (actual, expected) {
+            (Ok(actual), Ok(expected)) => {
+                assert_eq!(actual, expected, "field {mutation}");
+                assert_ne!(
+                    actual.id, original_core.id,
+                    "changed field {mutation} must miss exact reuse"
+                );
+            }
+            (Err(actual), Err(expected)) => {
+                assert_eq!(actual.to_string(), expected.to_string(), "field {mutation}")
+            }
+            _ => panic!("warm epoch scope changed original validation result for field {mutation}"),
+        }
+        assert_eq!(validation.core_epoch(&original).unwrap(), original_core);
+    }
+    assert_eq!(norito::encode_canonical(&original).unwrap(), wire);
+    // Cache lifetime cannot borrow the caller's heap: unchanged owned originals still hit
+    // after the first source retires, while a new source at another epoch must validate.
+    let independent = original.clone();
+    drop(original);
+    assert_eq!(validation.core_epoch(&independent).unwrap(), original_core);
+    let next = retained(&independent);
+    assert_eq!(
+        validation.core_epoch(&next).unwrap(),
+        core_epoch(&next).unwrap()
+    );
+}

@@ -174,3 +174,60 @@ fn restart_requires_verified_parent_above_genesis() {
         assert_eq!(h.records[&record.key], bytes);
     }
 }
+
+/// MS57 also covers R5: an authentic parent cannot make an otherwise corrupt record
+/// advance the durable-store tip before its retained round certificates are checked.
+#[test]
+fn det_s57_recommit_refuses_unverified_retained_lock_before_advancing_tip() {
+    let mut h = H::new(4, pick::set_a(0));
+    h.commit_heights(2);
+    let mut record = retained_record(&h);
+    record.lock.as_mut().unwrap().agg_sig = AggregateSignature([7; SIGNATURE_LEN]);
+    let bytes = record.encode(&h.v.crypto).unwrap();
+    h.records.insert(record.key.clone(), bytes.clone());
+    h.store.truncate(1);
+    let out = h.restart();
+    assert_eq!(halts(&out), vec![HaltReason::SafetyRecordInconsistent]);
+    assert_eq!(
+        h.core.tip.height, 1,
+        "R5 must not install the authentic parent yet"
+    );
+    assert!(h.core.high_pqc.is_none());
+    assert_eq!(h.records[&record.key], bytes);
+    assert!(
+        !out.iter()
+            .any(|action| matches!(action, Action::CommitBlock { .. }))
+    );
+}
+
+#[test]
+fn recommit_waits_for_authenticated_record_epoch() {
+    let mut h = H::new(4, pick::set_a(0));
+    h.committees.insert(2, h.v.committee.clone());
+    h.records.clear();
+    h.install_keys();
+    h.restart();
+    h.commit_heights(1);
+    let mut record = h.core.safety.clone().unwrap();
+    let block = h.block(0, b"retained next epoch block");
+    record.lock = Some(h.qc_q(VoteKind::Prepare, 0, &block));
+    assert_eq!(record.height, 2);
+    let bytes = record.encode(&h.v.crypto).unwrap();
+    h.records.insert(record.key.clone(), bytes.clone());
+    h.store.clear();
+    let out = h.restart();
+    assert!(halts(&out).is_empty());
+    assert_eq!(h.core.tip.height, 0);
+    assert!(
+        h.core.config(2).is_none(),
+        "new epoch has no authenticated authority yet"
+    );
+    assert!(h.core.high_pqc.is_none());
+    assert_eq!(h.core.keys[0].restore.as_ref(), Some(&record));
+    assert!(h.core.status().signer.is_none());
+    assert_eq!(h.records[&record.key], bytes);
+    assert!(
+        !out.iter()
+            .any(|action| matches!(action, Action::CommitBlock { .. }))
+    );
+}

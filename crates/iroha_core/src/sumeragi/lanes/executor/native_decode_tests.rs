@@ -216,12 +216,14 @@ impl Fixture {
                 [0; iroha_sumeragi::types::SIGNATURE_LEN],
             ),
         };
-        qc.agg_sig = crypto.aggregate(
-            &signers[..3]
-                .iter()
-                .map(|signer| signer.sign(&qc.preimage()).unwrap())
-                .collect::<Vec<_>>(),
-        ).unwrap();
+        qc.agg_sig = crypto
+            .aggregate(
+                &signers[..3]
+                    .iter()
+                    .map(|signer| signer.sign(&qc.preimage()).unwrap())
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
         let directory = tempfile::tempdir().unwrap();
         let store = FileLaneBlockStore::begin_open(
             directory.path(),

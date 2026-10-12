@@ -25,14 +25,15 @@ const SIGNATURE_SUITE: &[u8] = b"sumeragi/safety/signature-suite/v1\0SHA-256(pre
 const CERTIFIED_RESULT_CONTRACT: &[u8] = b"sumeragi/safety/certified-result/v1\0SHA-256(RESULT_TAG||SccpFinalityHeaderV1||H_iroha(RESULT_BODY_TAG||ExecutionResultCommitment))";
 
 /// Current-only durable envelope. The checksum covers the identities and the entire record.
-#[derive(norito::Encode, norito::Decode)]
+#[derive(norito::Encode, norito::Decode, norito::NoritoSchema)]
+#[norito_schema(name = "iroha_sumeragi::SafetyRecordEnvelope")]
 struct RecordEnvelope {
     signature_suite: Hash32,
     certified_result_contract: Hash32,
     record: SafetyRecord,
 }
 
-/// `(view, block_hash, justify)` of the last proposal signed at the record's height.
+/// `(view, block_hash, justify)` of the last proposal reserved for signing at the record's height.
 #[derive(Clone, PartialEq, Eq, Debug, norito::Encode, norito::Decode)]
 pub struct RecordedProposal {
     /// View of the proposal.
@@ -43,7 +44,7 @@ pub struct RecordedProposal {
     pub justify: Option<TimeoutCert>,
 }
 
-/// `(view, block_hash, result)` of the last Prepare vote signed.
+/// `(view, block_hash, result)` of the last Prepare vote reserved for signing.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, norito::Encode, norito::Decode)]
 pub struct RecordedVote {
     /// View of the vote.
@@ -54,7 +55,7 @@ pub struct RecordedVote {
     pub result: Hash32,
 }
 
-/// `(view, exact PrepareQC carried)` of the last timeout signed.
+/// `(view, exact PrepareQC carried)` of the last timeout reserved for signing.
 #[derive(Clone, PartialEq, Eq, Debug, norito::Encode, norito::Decode)]
 pub struct RecordedTimeout {
     /// Timed-out view.
@@ -84,11 +85,11 @@ pub struct SafetyRecord {
     pub height: u64,
     /// `CommitQC` of `height − 1` (`None` at `g + 1`).
     pub parent_commit_qc: Option<Qc>,
-    /// Last proposal signed.
+    /// Last proposal reserved for signing, including a refused attempt.
     pub proposal: Option<RecordedProposal>,
-    /// Last Prepare signed.
+    /// Last Prepare reserved for signing, including a refused attempt.
     pub prepare: Option<RecordedVote>,
-    /// Last timeout signed.
+    /// Last timeout reserved for signing, including a refused attempt.
     pub timeout: Option<RecordedTimeout>,
     /// Lock (`high_pqc`) at write time; also the record of every Commit (§6.5: a Commit at
     /// `(h, v)` is always for the lock of view `v`, durable before the vote leaves).
@@ -492,9 +493,10 @@ pub fn select_signer(
 mod tests {
     use super::*;
     use crate::{
+        api::{Action, CommittedTip, Init, LocalParams},
         message::TcEntry,
         testing::{FakeCrypto, FakeValidators},
-        types::{AggregateSignature, SIGNATURE_LEN},
+        types::{AggregateSignature, ChainParams, ConfigSlot, HeightConfig, SIGNATURE_LEN},
     };
 
     const I: Hash32 = Hash32([0x11; 32]);
@@ -593,6 +595,40 @@ mod tests {
                 read_record(&v.crypto, &I, &record.key, &state),
                 Err(RecordError::WrongProtocol)
             );
+            let config = HeightConfig {
+                epoch: Box::new(crate::testing::TEST_EPOCH),
+                committee: v.committee.clone(),
+                params: ChainParams::default(),
+            };
+            let init = Init {
+                instance: I,
+                records: vec![(record.key.clone(), state.clone(), false)],
+                genesis_height: 0,
+                demotion_window: 128,
+                nonce: 1,
+                tip: CommittedTip {
+                    height: 0,
+                    block_hash: h(8),
+                    result: h(9),
+                    header: None,
+                    commit_qc: None,
+                },
+                configs: vec![
+                    (1, ConfigSlot::Ready(config.clone())),
+                    (2, ConfigSlot::Ready(config)),
+                ],
+                recent_headers: Vec::new(),
+            };
+            let (_, actions) = crate::Core::new(
+                LocalParams::default(),
+                init,
+                vec![std::sync::Arc::new(v.signer(1).clone())],
+                Box::new(v.crypto.clone()),
+                iroha_allocation::AllocationBudget::new(1 << 30),
+                0,
+            )
+            .unwrap();
+            assert_eq!(actions, vec![Action::Halt(HaltReason::SafetyRecordCorrupt)]);
             assert_eq!(
                 state,
                 RecordState::Present(bytes),

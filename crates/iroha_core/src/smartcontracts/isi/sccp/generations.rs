@@ -126,7 +126,7 @@ fn member_for_peer<'a>(
         .public_lane_validators()
         .iter()
         .filter(|(key, _)| {
-            cfg!(all(test, sumeragi_core_mutation = "HC240")) || key.0 == LaneId::SINGLE
+            cfg!(all(test, sumeragi_core_mutation = "HC248")) || key.0 == LaneId::SINGLE
         })
         .filter(|(key, record)| {
             &record.peer_id == peer
@@ -580,7 +580,9 @@ pub(super) fn timestamp_ms(header: &BlockHeader) -> u64 {
 fn publish_record(stx: &mut StateTransaction<'_, '_>, generation: RetainedSccpGeneration) {
     let id = generation.generation;
     if generation.end.is_some() && generation.dest_cleared_lc.is_none() {
-        stx.world.sccp_destination_pending_generations.insert(id, ());
+        stx.world
+            .sccp_destination_pending_generations
+            .insert(id, ());
     } else {
         stx.world.sccp_destination_pending_generations.remove(id);
     }
@@ -593,35 +595,43 @@ pub(super) fn clear_destinations(stx: &mut StateTransaction<'_, '_>) -> usize {
     let mut selected = [0; 64];
     let mut count = 0;
     let mut visited = 0;
-    let mut pending = stx.world.sccp_destination_pending_generations.iter().map(|(id, ())| *id).take(64);
-    let mut history = store::committee_generations::iter(&*stx.world).map(|(id, _)| *id);
-    let candidates: &mut dyn Iterator<Item = u64> = if cfg!(all(test, sumeragi_core_mutation = "HC241")) {
-        &mut history
-    } else {
-        &mut pending
-    };
-    for id in candidates {
-        visited += 1;
-        let generation = store::committee_generations::get(&*stx.world, &id)
-            .expect("pending destination index references an original generation");
-        if generation.end.is_none() || generation.dest_cleared_lc.is_some() {
-            continue;
-        }
-        let cleared = store::routes::iter(&*stx.world).all(|(network, route)| {
-            !route
-                .revisions
-                .values()
-                .any(|revision| revision.activation != SccpRouteActivationV1::Retired)
-                || store::light_clients::get(&*stx.world, network).is_some_and(|client| {
-                    !client.is_frozen()
-                        && client.head.latest_finalized.source_time_ms > generation.deadline_ms
-                })
-        });
-        if cleared {
-            selected[count] = id;
-            count += 1;
-            if count == selected.len() {
-                break;
+    {
+        let mut pending = stx
+            .world
+            .sccp_destination_pending_generations
+            .iter()
+            .map(|(id, ())| *id)
+            .take(64);
+        let mut history = store::committee_generations::iter(&*stx.world).map(|(id, _)| *id);
+        let candidates: &mut dyn Iterator<Item = u64> =
+            if cfg!(all(test, sumeragi_core_mutation = "HC249")) {
+                &mut history
+            } else {
+                &mut pending
+            };
+        for id in candidates {
+            visited += 1;
+            let generation = store::committee_generations::get(&*stx.world, &id)
+                .expect("pending destination index references an original generation");
+            if generation.end.is_none() || generation.dest_cleared_lc.is_some() {
+                continue;
+            }
+            let cleared = store::routes::iter(&*stx.world).all(|(network, route)| {
+                !route
+                    .revisions
+                    .values()
+                    .any(|revision| revision.activation != SccpRouteActivationV1::Retired)
+                    || store::light_clients::get(&*stx.world, network).is_some_and(|client| {
+                        !client.is_frozen()
+                            && client.head.latest_finalized.source_time_ms > generation.deadline_ms
+                    })
+            });
+            if cleared {
+                selected[count] = id;
+                count += 1;
+                if count == selected.len() {
+                    break;
+                }
             }
         }
     }

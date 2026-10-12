@@ -263,12 +263,19 @@ fn historical_lane_authority_retains_original_creation_bytes_and_prepaid_config_
             agg_sig: AggregateSignature([0; SIGNATURE_LEN]),
         };
         let sign_qc = |qc: &mut Qc| {
-            qc.agg_sig = crypto.aggregate(
-                &keys[..3]
-                    .iter()
-                    .map(|key| KeyPairSigner::new(key).unwrap().sign(&qc.preimage()).unwrap())
-                    .collect::<Vec<_>>(),
-            ).unwrap();
+            qc.agg_sig = crypto
+                .aggregate(
+                    &keys[..3]
+                        .iter()
+                        .map(|key| {
+                            KeyPairSigner::new(key)
+                                .unwrap()
+                                .sign(&qc.preimage())
+                                .unwrap()
+                        })
+                        .collect::<Vec<_>>(),
+                )
+                .unwrap();
         };
         let epoch = qc.epoch;
         let verifier = Verifier::new(&*crypto, &instance, &epoch, &config.committee);

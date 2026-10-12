@@ -453,8 +453,18 @@ impl Core {
             } => self.on_executed(block_hash, req, &outcome),
             Event::BodyAvailable { block } => self.on_body(block),
             Event::PayloadAuthored { req, body } => self.on_payload_authored(req, body),
-            Event::SigningFailed { kind, height, view, error } => {
-                self.local_fault(LocalFault::SigningFailed { kind, height, view, error });
+            Event::SigningFailed {
+                kind,
+                height,
+                view,
+                error,
+            } => {
+                self.local_fault(LocalFault::SigningFailed {
+                    kind,
+                    height,
+                    view,
+                    error,
+                });
             }
             Event::ManifestRejected { manifest } => self.on_manifest_rejected(&manifest),
             Event::BlockApplied {
@@ -761,12 +771,24 @@ impl Core {
     }
 
     /// Sign with one configured key. Refusal produces telemetry only, retaining any reservation.
-    fn sign(&mut self, slot: usize, kind: crate::api::SigningKind, height: u64, view: u64, preimage: &[u8]) -> Option<Signature> {
+    fn sign(
+        &mut self,
+        slot: usize,
+        kind: crate::api::SigningKind,
+        height: u64,
+        view: u64,
+        preimage: &[u8],
+    ) -> Option<Signature> {
         let signer = self.keys.get(slot)?.signer.as_ref()?;
         match signer.sign(preimage) {
             Ok(signature) => Some(signature),
             Err(error) => {
-                self.local_fault(LocalFault::SigningFailed { kind, height, view, error });
+                self.local_fault(LocalFault::SigningFailed {
+                    kind,
+                    height,
+                    view,
+                    error,
+                });
                 // MS54: manufacture signature custody after a local signing refusal.
                 #[cfg(sumeragi_mutation = "MS54")]
                 return Some(Signature([0; crate::types::SIGNATURE_LEN]));

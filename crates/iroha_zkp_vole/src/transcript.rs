@@ -467,7 +467,11 @@ mod tests {
         let grinder = Challenge3::new(reference, vole, &second, &coefficients).expect("valid");
         assert_eq!(
             grinder.at(0, &mut [0u8; 15]),
-            invalid(Input::Challenge3, 16, 15)
+            Err(TranscriptError::InvalidLength {
+                input: Input::Challenge3,
+                expected: 16,
+                actual: 15
+            })
         );
         assert_eq!(
             check_length(Input::Mu, 1, 1),

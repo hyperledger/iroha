@@ -9583,7 +9583,7 @@ mod sccp_routing_tests {
     #[test]
     fn every_sccp_instruction_routes_to_the_universal_dataspace() {
         let samples = SampleInstructions::all();
-        assert_eq!(samples.len(), 10);
+        assert_eq!(samples.len(), 7);
         for (index, instruction) in samples.iter().enumerate() {
             let instruction: &dyn Instruction = &**instruction;
             assert!(instruction_routes_to_universal_dataspace(instruction));

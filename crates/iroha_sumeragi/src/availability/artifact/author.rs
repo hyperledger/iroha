@@ -176,19 +176,37 @@ impl PayloadAuthoring {
                             .try_into()
                             .expect("exact table hash"),
                     );
-                    let length = u32::try_from(shape.chunk_range(index).expect("bounded index").len())
-                        .expect("protocol-bounded row length");
-                    (crate::api::SigningKind::PayloadRow, Some((
-                        u32::try_from(index).expect("protocol-bounded row index"), length, hash,
-                    )))
+                    let length =
+                        u32::try_from(shape.chunk_range(index).expect("bounded index").len())
+                            .expect("protocol-bounded row length");
+                    (
+                        crate::api::SigningKind::PayloadRow,
+                        Some((
+                            u32::try_from(index).expect("protocol-bounded row index"),
+                            length,
+                            hash,
+                        )),
+                    )
                 };
                 let (message, used) = statement(&self.header, bh, row);
-                let signature = signer.sign(&message[..used]).map_err(|error| AuthoringError::SigningFailed {
-                    kind,
-                    height: self.header.height,
-                    view: self.header.origin_view,
-                    error,
-                })?;
+                let signature = match signer.sign(&message[..used]) {
+                    Ok(signature) => signature,
+                    Err(error) => {
+                        // MS59: cache manufactured availability-signature bytes after refusal.
+                        #[cfg(sumeragi_mutation = "MS59")]
+                        {
+                            let _ = (kind, error);
+                            crate::types::Signature([0; SIGNATURE_LEN])
+                        }
+                        #[cfg(not(sumeragi_mutation = "MS59"))]
+                        return Err(AuthoringError::SigningFailed {
+                            kind,
+                            height: self.header.height,
+                            view: self.header.origin_view,
+                            error,
+                        });
+                    }
+                };
                 bytes.append(&signature.0).expect("exact table backing");
             }
         }

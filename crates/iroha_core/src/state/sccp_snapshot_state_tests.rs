@@ -225,8 +225,11 @@ fn world_with(write: impl FnOnce(&mut WorldBlock<'_>)) -> World {
 #[test]
 fn sccp_snapshot_rejects_every_storage_invariant_violation() {
     use crate::smartcontracts::isi::sccp::test_support::sample_route;
-    use iroha_data_model::sccp::params::SCCP_MESSAGES_MAX_PER_BLOCK_V1;
+    use iroha_data_model::sccp::{
+        control::SCCP_FIRST_CONTROL_NONCE_V1, params::SCCP_MESSAGES_MAX_PER_BLOCK_V1,
+    };
     let network = SccpNetworkV1::EthereumMainnet;
+    let control_key = (network, 1, SCCP_FIRST_CONTROL_NONCE_V1);
     let control = |commitment_index| SccpControlRecordV1 {
         track: 1,
         parliament_paused: true,
@@ -247,7 +250,7 @@ fn sccp_snapshot_rejects_every_storage_invariant_violation() {
         message_count,
         history_index: 0,
     };
-    let cases: Vec<(&str, World, World)> = vec![
+    let mut cases: Vec<(&str, World, World)> = vec![
         (
             "sccp_block_leaves",
             world_with(|block| {
@@ -290,12 +293,10 @@ fn sccp_snapshot_rejects_every_storage_invariant_violation() {
             world_with(|block| {
                 block
                     .sccp_control_messages
-                    .insert((network, 1, 0), control(SCCP_MESSAGES_MAX_PER_BLOCK_V1));
+                    .insert(control_key, control(SCCP_MESSAGES_MAX_PER_BLOCK_V1));
             }),
             world_with(|block| {
-                block
-                    .sccp_control_messages
-                    .insert((network, 1, 0), control(0));
+                block.sccp_control_messages.insert(control_key, control(0));
             }),
         ),
         (
@@ -371,6 +372,23 @@ fn sccp_snapshot_rejects_every_storage_invariant_violation() {
             }),
         ),
     ];
+    // Each invalid key differs from the current valid neighbour in exactly one field.
+    // Keep the leaf-index refusal above independent of the retired zero-nonce fixture.
+    for key in [
+        (SccpNetworkV1::SoraTaira, 1, SCCP_FIRST_CONTROL_NONCE_V1),
+        (network, 0, SCCP_FIRST_CONTROL_NONCE_V1),
+        (network, 1, 0),
+    ] {
+        cases.push((
+            "sccp_control_messages",
+            world_with(|block| {
+                block.sccp_control_messages.insert(key, control(0));
+            }),
+            world_with(|block| {
+                block.sccp_control_messages.insert(control_key, control(0));
+            }),
+        ));
+    }
     for (field, invalid, valid) in cases {
         let mut target = World::default();
         let before = encoded(&target);
@@ -668,4 +686,72 @@ fn pause_snapshot_admits_complete_current_and_undo_graph_once_and_holds_final_re
     );
     drop(readers);
     assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn destination_pending_index_restores_current_and_exact_predecessor_generations() {
+    use crate::smartcontracts::isi::sccp::test_support::sample_generation;
+    use iroha_data_model::sccp::generation::SccpGenerationEndV1;
+
+    let budget = AllocationBudget::new(16 * 1024 * 1024);
+    let ended = |seed| {
+        let mut record = RetainedSccpGeneration::admit(&sample_generation(seed), &budget).unwrap();
+        record.end = Some(SccpGenerationEndV1 {
+            end_height: 10,
+            end_timestamp_ms: 10_000,
+            next_committee_root: record.committee_root,
+            successor_validity_ms: record.validity_ms,
+        });
+        record
+    };
+    let pending_one = ended(1);
+    let mut cleared_one = pending_one.clone();
+    cleared_one.dest_cleared_lc = Some(5_000);
+    let active_three = RetainedSccpGeneration::admit(&sample_generation(3), &budget).unwrap();
+    let mut world = World::default();
+    world.sccp_committee_generations = Storage::from_snapshot_parts(
+        BTreeMap::from([(1, cleared_one), (2, ended(2)), (3, ended(3))]),
+        BTreeMap::from([(1, Some(pending_one)), (2, None), (3, Some(active_three))]),
+    );
+    world.sccp_destination_pending_generations =
+        destination_pending_index(&world.sccp_committee_generations);
+    let mut restored = World::default();
+    restore(&encoded(&world), &mut restored).unwrap();
+    assert_eq!(
+        restored
+            .sccp_destination_pending_generations
+            .view()
+            .iter()
+            .map(|(id, ())| *id)
+            .collect::<Vec<_>>(),
+        vec![2, 3]
+    );
+    {
+        let reverted = restored.block_and_revert();
+        assert_eq!(
+            reverted
+                .sccp_destination_pending_generations
+                .iter()
+                .map(|(id, ())| *id)
+                .collect::<Vec<_>>(),
+            vec![1]
+        );
+        assert!(reverted.sccp_committee_generations.get(&2).is_none());
+        assert!(
+            reverted
+                .sccp_committee_generations
+                .get(&3)
+                .unwrap()
+                .end
+                .is_none()
+        );
+    }
+    let mut advanced = restored.block();
+    advanced.sccp_destination_pending_generations.remove(2);
+    drop(advanced);
+    assert_eq!(
+        restored.sccp_destination_pending_generations.view().len(),
+        2,
+        "discarding a transaction preserves the committed work index"
+    );
 }

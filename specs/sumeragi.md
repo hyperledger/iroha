@@ -1532,7 +1532,15 @@ retry.
   capped at `rebroadcast_interval`, where `t_vote` is the time of the vote's first send or of its
   stage-entry re-send, whichever is later.
 - **Rebroadcast** (every `rebroadcast_interval`):
-  1. Re-send `mine.timeout` by broadcast if `timeout_view == Some(view)`.
+  First retry certificate formation from retained verified votes, selecting exactly
+  `q = n − f` inputs under §6.4/§6.7 even if more votes arrived during a local refusal.
+  Then retry unsent reserved signatures under their ordinary signing conditions, using only
+  the identical reserved preimage. Keep a recorded proposal's retry obligation while its
+  original body is unavailable; an earlier-view `mine.timeout` does not satisfy the current
+  view's Timeout reservation. If these retries change the height or enter `awaiting`, stop
+  this round's rebroadcast. Otherwise:
+  1. Re-send `mine.timeout` by broadcast only if `timeout_view == Some(view)` and
+     `mine.timeout.view == view`.
   2. Leader of `(h, view)` holding its proposal: re-send it (with its original availability table) once per member per
      view, to each member whose latest `Status` is for `(h, view)`, was received at least
      `rebroadcast_interval` after the proposal was first sent, and does not report
@@ -1566,7 +1574,7 @@ retry.
   `Send(Status{probe: Some(nonce), ..})` to each member of `C_{tip.height+2}` other than itself
   (not sent while that configuration is unknown). While some key is unanchored, every `Status`
   the node sends — broadcast, reply, proposal request or probe — carries `probe: Some(nonce)`, so
-  whichever of them a peer's rate limit admits is answered.
+  probe answering uses its own successful-Echo rate limit independently of ordinary Status intake.
 
 On `Status s` from peer `p` (`p` is the authenticated sender, §1.4), in this order:
 1. **Echo** (exempt from the rate limit). If `s.echo = Some(e)`, `e.nonce == nonce`, some key is
@@ -1575,23 +1583,25 @@ On `Status s` from peer `p` (`p` is the authenticated sender, §1.4), in this or
    `e.key` over `echo_preimage(nonce, s.height)` (§3.3); on success `probe[e.key] = s.height` and
    check anchoring (§7.4 R2). The reply is fresh (it echoes a nonce drawn at this `Init`) and the
    signature, not the channel, identifies the member, so a relayed copy counts for its signer.
-   Nothing else in `s` is exempt from the rate limit.
+   Proposal requests and probe requests below have their own bounded admission.
 2. **Proposal request** (exempt from the rate limit). If `s.want_proposal`, `(s.height, s.view)
    == (h, view)` and this node leads `(h, view)`: apply the late-entrant re-push (capped at once
    per member per view).
+   **Probe request** (independent of the general Status rate limit). If `s.probe = Some(x)`, the node
+   has a configured key, and none of its keys (retired ones included) is unanchored or abstaining
+   at the current height (R2, R6): `Send(p, our Status with echo: Some(Echo{nonce: x, key, sig}))`
+   (at most one successful Echo per peer per `rebroadcast_interval`; a signing refusal consumes
+   no allowance), where `key` is its signing key at `h`
+   (`keys[signer]`), else its first configured key, and `sig = sign(echo_preimage(x, height))`
+   over the `height` of that `Status` (across a key rotation a reply may name a key that is not
+   in the prober's `C_{t'+2}`; it then does not count, and replies after the change height do).
 3. **Rate limit.** The rest of a `Status` is processed for at most one `Status` per peer per
    `rebroadcast_interval / 2`; for any other `Status`, stop here — except that its
    `committed_qc` alone is still used (§6.8 for height `h`, §6.9 above it) if its height is
    `≥ h` and above every `committed_qc` height processed from that peer (at most two extra
    verifications per peer and height): the §6.1 rule-3 reply that carries the CommitQC a
    lagging voter lacks often follows the peer's periodic `Status` within the window.
-4. Record `(p, s.height, s.view, s.proposal_hash)` in `peers`. If `s.probe = Some(x)`, the node
-   has a configured key, and none of its keys (retired ones included) is unanchored or abstaining
-   at the current height (R2, R6): `Send(p, our Status with echo: Some(Echo{nonce: x, key, sig}))`
-   (at most once per peer per `rebroadcast_interval`), where `key` is its signing key at `h`
-   (`keys[signer]`), else its first configured key, and `sig = sign(echo_preimage(x, height))`
-   over the `height` of that `Status` (across a key rotation a reply may name a key that is not
-   in the prober's `C_{t'+2}`; it then does not count, and replies after the change height do).
+4. Record `(p, s.height, s.view, s.proposal_hash)` in `peers`.
    Then, after §6.1 rule 5: `s.committed_qc` → §6.8 (height `h`), §6.9 (height `> h`), or §7.6
    only if its value differs from the committed one; `s.high_tc` → §6.7 if its view is
    `> high_tc.view`; `s.high_pqc` → §6.5 if its view is `> high_pqc.view`. If `s.height < h`,
@@ -1753,12 +1763,13 @@ record, restored on restart, and reset only when the height changes. It is *not*
 ```rust
 struct SafetyRecord {
     instance: Hash32,
+    epoch: EpochId,                                  // authenticated scheduling context
     key: PublicKey,                                  // the consensus key this record belongs to
     height: u64,                                     // round height the record describes
     parent_commit_qc: Option<Qc>,                    // CommitQC of height − 1 (None at g + 1)
-    proposal: Option<(u64, Hash32, Option<TimeoutCert>)>, // (view, bh, justify) of the last proposal signed
-    prepare: Option<(u64, Hash32, Hash32)>,    // (view, bh, R) of the last Prepare signed
-    timeout: Option<(u64, Option<Qc>)>,              // (view, exact PrepareQC carried) of the last timeout signed
+    proposal: Option<(u64, Hash32, Option<TimeoutCert>)>, // (view, bh, justify) of the last proposal reserved for signing
+    prepare: Option<(u64, Hash32, Hash32)>,    // (view, bh, R) of the last Prepare reserved for signing
+    timeout: Option<(u64, Option<Qc>)>,              // (view, exact PrepareQC carried) of the last timeout reserved for signing
     lock: Option<Qc>,                                // high_pqc at write time; also the record of every Commit (§6.5)
     high_tc: Option<TimeoutCert>,                    // high_tc at write time (the certificate that justified the view)
 }
@@ -1772,7 +1783,9 @@ refreshing, or reinterpreting it. Before installing any retained lock or certifi
 verifies every retained and nested QC and TC under the authenticated committee for that
 certificate's height and the current suite, including the parent CommitQC (required above
 `g + 1`). A failed verification refuses the record in the same way. An ahead record remains
-untrusted and abstaining until its height's authenticated configuration is available. Size is
+untrusted and abstaining until its height's authenticated configuration is available; this
+also holds for R5 at a pending epoch boundary, where the record remains inert as R6 instead
+of authorizing a recommit before its complete certificate graph can be checked. Size is
 bounded by the envelope and certificate limits. Nothing else is persisted by the core; the block
 bodies it relies on are written by the driver on `StoreBody`.
 Votes, pools, pacemaker level and routing stage are re-derived or re-fetched.
@@ -1847,12 +1860,14 @@ verify proposals' `parent_qc` and the stage hint at `t + 1`; omitted when `t = g
 `t+2`, the last `W + 2` committed headers, `demotion_window` and `nonce` (a fresh random 64-bit
 value drawn by the driver for every `Init`; the simulator draws it from its seeded PRNG).
 `restore` composes all keys into one starting round:
-1. **R1** For every key: `Present` but checksum/decode fails, or `instance`/`key` mismatch →
+1. **R1** For every key: `Present` but envelope identity/checksum/decode fails, or `instance`/`key` mismatch →
    `Halt(SafetyRecordCorrupt)`.
 2. **R5** If some `Present` record has `height == t + 2` (the block store lost the last commit: a
-   crash after entering `t+2`, before the apply of `t+1` was durable): verify its
+   crash after entering `t+2`, before the apply of `t+1` was durable): first verify every
+   retained/nested round certificate under authenticated `C_{t+2}` and then its
    `parent_commit_qc` under `C_{t+1}` as a CommitQC for `t + 1`; failure →
-   `Halt(SafetyRecordInconsistent)`. On success commit it (§6.8 steps 2–3: `tip` becomes `t + 1`;
+   `Halt(SafetyRecordInconsistent)`. If `C_{t+2}` is still pending, retain the record inert as R6
+   until ordinary catch-up authenticates it. On success commit it (§6.8 steps 2–3: `tip` becomes `t + 1`;
    the `pending_apply` entry carries the old tip's hash and result as parent, and its want looks in
    the local body store first; that the block extends the old tip is checked when the body
    arrives, §6.9 rule 6), and continue with `t := t + 1`. At most one key has a record at any
@@ -1870,7 +1885,8 @@ value drawn by the driver for every `Init`; the simulator draws it from its seed
    record whose `parent_commit_qc` is not a valid CommitQC of `t` for `(tip.block_hash,
    tip.result)` (or is present at `g + 1`, absent above it), the record contradicts the block
    store: `Halt(SafetyRecordInconsistent)` (its parent CommitQC would be the `parent_qc` of a
-   re-sent proposal). Otherwise restore from it: `proposal`, `prepare`, `timeout`, `lock`, `high_tc` into `safety`;
+   re-sent proposal). Every other retained/nested certificate must also verify under its
+   authenticated height committee before installing any round state. Otherwise restore from it: `proposal`, `prepare`, `timeout`, `lock`, `high_tc` into `safety`;
    `high_pqc = lock`; `high_tc = record.high_tc`; `timeout_view = timeout.view`; `mine.timeout` =
    the timeout rebuilt from the recorded `(view, carried QC)` (re-signing an identical preimage
    gives identical bytes, §12.1); `view` = the maximum of `proposal.view`, `prepare.view`,
@@ -3040,9 +3056,12 @@ The core halts an instance (`Action::Halt`, then emits nothing but serving) **on
 A signer refusal yields `Action::LocalFault(LocalFault::SigningFailed { kind, height, view,
 error })` and no signature or associated effect. This applies to Proposal, Prepare, Commit,
 Timeout, Echo, RS16 manifest and row; a durable reservation survives failure and permits only an
-identical-preimage retry. `form_qc` and `form_tc` return `FormError::AggregationFailed` on
+identical-preimage retry. Retry reservations survive unavailable proposal bodies, and a successful
+Timeout of an earlier view cannot suppress retry of the current view's reserved Timeout. `form_qc` and `form_tc` return `FormError::AggregationFailed` on
 aggregation refusal, retain verified votes for retry and report `LocalFault::AggregationFailed`
-without publishing or locally trusting a certificate. `SigningError` and `AggregationError` are
+without publishing or locally trusting a certificate. The existing bounded rebroadcast cadence
+retries aggregation from those retained verified inputs, always selecting exactly `q = n − f`
+votes even if more have arrived. `SigningError` and `AggregationError` are
 object-safe Sumeragi-owned errors; no crypto-backend dependency enters the sans-IO crate. These
 failures are local faults, never evidence or `Invalid` execution verdicts.
 
@@ -3476,6 +3495,20 @@ Detection needs targeted adversaries: random faults alone did not kill the TC-ru
 | MS51 | `request_exec` — emits `Execute { certified: false }` for a block that a held PrepareQC certifies (the application clock guard of §4.5 then applies to certified re-proposals) | `f33_hidden_prepareqc_due_work_block_commits_after_lag`: n=4 F33 with the simulator's clock guard, every transaction applies due work; a Byzantine proxy tail hides PQC(B) of a due-work block B; the views fail until a TC carries PQC(B) and B is re-proposed past `gov.due_work_max_lag_ms` of the honest wall clocks → the honest nodes execute B with `certified = true` (CT5 skipped), Prepare, and B commits in a later view. `det_s51_execute_certified_flag`: a fresh block and its retry after `Failed(ClockAhead)` are executed with `certified = false`; after TC(1) carries the hidden PQC(B, 0), the re-proposal and its retry after `Failed(StaleDueWork)` are executed with `certified = true`, and X Prepares `Q.result`; on a second core, a PQC(C, 0) formed by the others reaches X while the guard refuses C, and the retry of C is executed with `certified = true` (the node's lock) | F39 | O-LIVE |
 | MS52 | fake driver executor (the simulator's model of §4.5) — CT1 deleted: an honest executor never answers `Failed(ClockAhead)` | `clock_guard_certified_time_within_two_drifts`: n=4, two honest wall clocks at `+max_clock_drift_ms`, one at real time; a Byzantine member that votes proposes in turn blocks dated `+2·max_clock_drift_ms` and far-future blocks → the far-future blocks are refused and never commit, and every committed block time is within `2·max_clock_drift_ms` of the smallest honest wall clock. Under MS52 a far-future block commits. `clock_guard_liveness_with_f_plus_one_slow_clocks` also detects it | F39 | O-TIME |
 | MS53 | Accept a zero-length proposal at a later view | `empty_proposals_are_rejected_at_every_view`: reject empty fresh proposals and certified re-proposals at every view | — | O-SIGN, nonempty work |
+| MS54 | A refused local signature is published and pooled | `det_signing_refusal_prepare_preserves_reservation_without_pooling`: refusal retains the reservation, emits only a local fault and permits only the identical retry | — | O-SIGN, O-CERT |
+| MS55 | A refused aggregation is accepted as a locally formed certificate | `det_aggregation_refusal_retains_verified_votes_without_certificates`: QC/TC refusals retain verified votes and publish no certificate | — | O-CERT |
+| MS56 | Safety envelope accepts another consensus suite or certified-result contract identity | `det_s56_safety_record_refuses_other_protocol_identity`: a checksummed foreign envelope is refused without reinterpretation | — | O-SIGN |
+| MS57 | Restart skips verification of retained or nested QCs and TCs | `det_s57_restart_verifies_every_retained_certificate`, `det_s57_recommit_refuses_unverified_retained_lock_before_advancing_tip`: every corrupted retained/nested certificate refuses startup before installing a lock or advancing the tip | — | O-CERT, O-SIGN |
+| MS58 | Skip aggregation retry from retained verified input votes | `det_aggregation_refusal_retains_verified_votes_without_certificates`: recovery of the local backend permits an exact-quorum QC or TC on the bounded retry cadence | — | O-LIVE, O-CERT |
+| MS59 | RS16 authoring substitutes a signature after local refusal | `det_signing_refusal_manifest_retains_original_request`, `det_signing_refusal_row_retains_completed_signatures`: no completed body appears and the identical original request resumes | — | O-SIGN |
+| MS60 | Skip reserved local signature retry on the rebroadcast cadence | `det_signing_refusal_proposal_preserves_reservation_without_publication`, `det_signing_refusal_timeout_preserves_original_high_qc_on_retry`: backend recovery resumes only the identical reserved preimage on a due tick | — | O-LIVE, O-SIGN |
+| MS61 | General Status admission suppresses a probe retry after refused Echo signing | `det_signing_refusal_echo_does_not_consume_rate_limit`: refusal consumes no successful-Echo allowance, identical retry succeeds and subsequent successful sends remain rate-limited | — | O-LIVE |
+| MS62 | A retained earlier-view Timeout suppresses current-view signing retry | `det_signing_refusal_current_timeout_retries_with_prior_timeout_retained`: the current reserved Timeout retries despite an earlier successful Timeout | — | O-LIVE, O-SIGN |
+| MS63 | Periodic proposal retry consumes its marker while the original body is unavailable | `det_signing_retry_retains_restored_proposal_until_delayed_body_arrives`: the marker survives a due tick, and delayed original body delivery resends the exact recorded proposal | — | O-LIVE, O-SIGN |
+
+
+
+
 
 Removed as equivalent mutants (revision 4, Appendix C): **MS6** (Commit sign-once check deleted)
 and **MS28** (Commit not recorded). A second, different Commit in one view is unreachable
@@ -3824,12 +3857,17 @@ profile and the same strict named-test, normal-exit and complete-harness require
 | HC237 | SCCP control cause: replace the exact World-authenticated certificate ID with its proposal ID | `smartcontracts::isi::world::isi::tests::parliament_due_sccp_control_binds_exact_certificate_and_complete_pause_state` | The stored valid due certificate executes through the unchanged exact-context owner; the recorded leaf/event must retain GovernanceCertificateId::derive_v1(certificate) and the original effect hash, distinct from the proposal ID. |
 | HC238 | SCCP control recorder: omit the actual active destination fast-pause expiry | `smartcontracts::isi::world::isi::tests::parliament_due_sccp_control_binds_exact_certificate_and_complete_pause_state` | A Parliament effect changes only its own flag; the current 199-byte control records the actual active independent expiry, exact cause, hash and event, preserving the original pause record. |
 | HC239 | Native epoch construction: forget the original charge ledger after partial payload unwind | `sumeragi::epoch_election::owned::tests::partial_epoch_committee_unwind_refunds_retired_nested_backing` | A real nested committee construction unwinds after admitted backing exists. Destroyed payloads must refund their exact original pool; an existing retained schedule keeps its bytes and key identity, retry succeeds, and its final reader releases the remaining credit. |
+| HC248 | SCCP G6 resolves a global signer's liability across participant staking lanes | `smartcontracts::isi::sccp::generations::tests::global_member_binding_ignores_participant_staking_registration`: simultaneous global and participant registration retains the global binding at generation start | — | O-VAL |
+| HC249 | SCCP destination clearance scans cleared generation history before limiting work | `smartcontracts::isi::sccp::generations::tests::destination_clearance_visits_only_bounded_pending_index_after_cleared_history`: historical cleared records do not increase the at-most-64 visited pending records | — | O-LIVE |
+
 | HC240 | SCCP retained fast Taira pause: omit the active network hold from original consumers | `smartcontracts::isi::sccp::outbound::tests::record_obeys_fast_pause_network_revision_and_exact_expiry_without_effects`, `smartcontracts::isi::sccp::settle::tests::taira_fast_pause_holds_inbound_only_without_losing_proof_money_or_retry`, `smartcontracts::isi::sccp::settle::tests::taira_fast_pause_keeps_void_refund_pending_without_stranding_or_moving_money` | The original native consumer must retain its exact hold, time and pre-block facts. Every declared control must fail at its own causal assertion under this test-only mutation. |
 | HC241 | SCCP retained destination pause: omit the active exact-revision outbound hold | `smartcontracts::isi::sccp::outbound::tests::record_obeys_fast_pause_network_revision_and_exact_expiry_without_effects` | The original native consumer must retain its exact hold, time and pre-block facts. Every declared control must fail at its own causal assertion under this test-only mutation. |
 | HC242 | SCCP committed pause time: substitute the executing timestamp for the original native prefix | `smartcontracts::isi::sccp::hold::tests::committed_pause_time_binds_original_native_prefix_and_ignores_executing_header` | The original native consumer must retain its exact hold, time and pre-block facts. Every declared control must fail at its own causal assertion under this test-only mutation. |
 | HC243 | SCCP eligibility: replace original pre-block facts with the executing writes | `smartcontracts::isi::sccp::eligibility_tests::original_eligibility_preimages_survive_siblings_rollback_and_replacement` | The original native consumer must retain its exact hold, time and pre-block facts. Every declared control must fail at its own causal assertion under this test-only mutation. |
 | HC244 | Network failure-fee settlement: swallow the original local execution deferral as a completed rejection | `state::output_capacity::producer::tests::network::fees::sccp_failure_fee_decoder_refusal_keeps_original_deferral_and_retry`, `state::output_capacity::producer::tests::network::fees::ordinary_failure_fee_decoder_refusal_keeps_original_deferral_and_retry`, `state::output_capacity::producer::tests::network::penalties::refusal::fee_decoder_refusal_after_actual_ballot_penalty_rolls_back_and_retries_once` | Actual rejection settlement must preserve the original local deferral before terminal projection; abandon the poisoned block and qualify original-source retry with exactly-once fee/slash effects. Every declared control must fail at its own causal assertion under this test-only mutation. |
 | HC245 | Network ballot-penalty settlement: swallow the original local execution deferral as a completed rejection | `state::output_capacity::producer::tests::network::penalties::refusal::actual_ballot_penalty_decoder_refusal_keeps_original_deferral_and_retry` | Actual rejection settlement must preserve the original local deferral before terminal projection; abandon the poisoned block and qualify original-source retry with exactly-once fee/slash effects. Every declared control must fail at its own causal assertion under this test-only mutation. |
+| HC246 | SCCP fast-pause lifecycle: omit Global G4 expiry cleanup after enactments | `smartcontracts::isi::sccp::read::control::tests::lapse::native_fast_pause_lapse_uses_exact_time_and_preserves_parliament_confirmation`, `smartcontracts::isi::sccp::read::control::tests::lapse::native_fast_pause_lapse_cancellation_keeps_original_record_and_retries_once` | At the exact original block timestamp, remove only the expired original record; preserve Parliament state, subject heads and leaves, retain its original reader, and publish one event only after successful native certification. Cancellation discards the effect and fresh original-source retry publishes once. Every declared control must fail at its own causal assertion. Panel and casting-open producers remain separate open requirements. |
+| HC247 | Payload producer retry: erase the original resource refusal at the driver boundary | `sumeragi::executor::publication_tests::original_lane_policy_proposal_refusal_retains_worker_owner_and_exact_queued_retry`, `sumeragi::executor::publication_tests::original_staking_payload_worker_retains_pool_refusal_and_exact_queued_retry` | Return the original typed refusal from the actual queued worker. Preserve the exact pool release and keep the waiter pending until an external release; retain the queued transaction and retry the same source. Policy-capacity refusals without a release owner remain typed without inventing one. |
 
 The finite Core full-proof interval is request-owned. Its Torii/SDK callers retain actual query, worker and response owners separately under the existing route and SDK absolute deadlines. Nested signed-genesis/result/authority graph funding remains open. These controls do not attribute the observed H3 timeout to prefix work or qualify the paid transition.
 
@@ -3877,6 +3915,7 @@ restart and full release qualification remain separate required controls.
 | DM31 | instruction base64: omit cumulative scratch admission | `isi::instruction_decode_refusal_tests::instruction_base64_scratch_is_admitted_before_decode_and_retries_original_input` | The actual base64 scratch capacity is cumulatively admitted before allocation and decoding. Below-capacity admission refuses with exact fields; the same source retries. This does not claim physical original-pool ownership of the decoded graph. |
 | DM32 | structured asset instructions: erase original canonical account refusal | `isi::instruction_decode_refusal_tests::structured_asset_instructions_preserve_original_account_refusal_and_retry` | All four structured asset-transfer instructions borrow the account literal and delegate to canonical AccountId JSON admission. Genuine scoped shortages retain their fields and original observer through the public InstructionBox reader; the same input/context retries and malformed or padded account literals remain terminal. |
 | DM33 | Allocate a diagnostic String instead of retaining the original intrinsic native AMX multisig cause | `sumeragi_amx::native::leg_decode::tests::invalid_native_multisig_threshold_replay_preserves_original_cause_without_diagnostic_allocations`, `sumeragi_amx::native::leg_decode::tests::invalid_native_multisig_member_replay_preserves_original_cause_without_diagnostic_allocations` | The sole canonical policy/member validators retain their Copy cause by value, including original dynamic version, curve, count and threshold fields. Replay of the already materialized invalid owner preserves the exact original pool, controls, keys, member/charge ledger and spans without a diagnostic or replacement allocation; ordinary canonical diagnostic parity remains exact. The test-only omission restores only the old String conversion. Core maps this intrinsic cause to the existing terminal diagnostic without inferring local retry provenance. Ordinary codec diagnostics, the final Core diagnostic and complete graph funding remain separate open boundaries. |
+| DM34 | Reconstruct an owning canonical epoch snapshot for optional validation reuse | `sumeragi_finality::epoch_graph::validation_tests::epoch_scope_retains_exact_context_without_a_hidden_heap_graph` | The actual cache retains all original scalar and ordered key/PoP values inline under the native maximum of 31. Mandatory context validation is measured independently; the named physical-allocation assertion runs with adequate original capacity before optional insertion assertions. A separate full-pool phase checks fresh insertion/hits, unchanged cumulative debit and final refund. Exact fields, last-member/order/overflow refusal, source independence and default-stack layout remain required; complete authority/configuration/source graph funding is still separate. |
 
 SDK public-read and Deploy managed-bootstrap rules use separate owning `--sdk` and
 `--deploy` unit-test families (`SUMERAGI_SDK_MUTATION`/`sumeragi_sdk_mutation` and

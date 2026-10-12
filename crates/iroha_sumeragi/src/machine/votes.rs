@@ -166,10 +166,21 @@ impl Core {
                 return;
             }
         }
-        let votes = self.votes.matching(x);
-        if votes.len() != self.cfg.committee.q() {
+        self.try_form_qc(x);
+    }
+
+    /// Retry only verified custody, selecting an exact quorum even if more votes arrived.
+    fn try_form_qc(&mut self, x: &Vote) {
+        if x.kind == VoteKind::Prepare && self.high_pqc.as_ref().is_some_and(|qc| qc.view >= x.view)
+        {
             return;
         }
+        let mut votes = self.votes.matching(x);
+        let q = self.cfg.committee.q();
+        if votes.len() < q {
+            return;
+        }
+        votes.truncate(q);
         let qc = match form_qc(&*self.crypto, self.n(), &votes) {
             Ok(qc) => qc,
             Err(crate::crypto::FormError::AggregationFailed(error)) => {
@@ -190,6 +201,42 @@ impl Core {
         match qc.kind {
             VoteKind::Prepare => self.on_qc(qc, PqcVia::Formed),
             VoteKind::Commit => self.commit_height(qc, Via::Formed),
+        }
+    }
+
+    /// Retry retained certificate inputs at the existing rebroadcast cadence after local refusal.
+    pub(super) fn retry_certificates(&mut self) {
+        let height = self.height;
+        let q = self.cfg.committee.q();
+        // At most one value in each bounded phase/view pool can have an exact quorum.
+        let candidates: Vec<Vote> = self
+            .votes
+            .slots
+            .values()
+            .filter_map(|slots| {
+                let mut values = BTreeMap::new();
+                for vote in slots.iter().flatten() {
+                    let entry = values.entry(vote.value()).or_insert((0, *vote));
+                    entry.0 += 1;
+                }
+                values
+                    .into_values()
+                    .find_map(|(count, vote)| (count >= q).then_some(vote))
+            })
+            .collect();
+        for vote in candidates {
+            self.try_form_qc(&vote);
+            if !self.same_height(height) {
+                return;
+            }
+        }
+        let views: std::collections::BTreeSet<u64> =
+            self.timeouts.iter().flatten().map(|t| t.view).collect();
+        for view in views {
+            self.try_form_tc(view);
+            if !self.same_height(height) {
+                return;
+            }
         }
     }
 
@@ -325,7 +372,15 @@ impl Core {
             VoteKind::Prepare => crate::api::SigningKind::Prepare,
             VoteKind::Commit => crate::api::SigningKind::Commit,
         };
-        let preimage = crate::preimage::vote_preimage(kind, &self.instance, &self.cfg.epoch.id, self.height, self.view, &bh, &result);
+        let preimage = crate::preimage::vote_preimage(
+            kind,
+            &self.instance,
+            &self.cfg.epoch.id,
+            self.height,
+            self.view,
+            &bh,
+            &result,
+        );
         let sig = self.sign(me.slot, signing_kind, self.height, self.view, &preimage)?;
         let vote = Vote {
             kind,

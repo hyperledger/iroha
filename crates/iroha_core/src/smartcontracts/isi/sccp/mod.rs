@@ -37,6 +37,7 @@ pub mod light_clients;
 pub mod outbound;
 pub mod params;
 pub mod parliament_iface;
+pub(crate) mod pause_lifecycle;
 pub mod pause_record;
 pub mod read;
 pub mod recipients;

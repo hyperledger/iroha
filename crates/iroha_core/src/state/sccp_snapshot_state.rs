@@ -77,14 +77,22 @@ fn destination_pending_index(
     generations: &Storage<u64, RetainedSccpGeneration>,
 ) -> Storage<u64, ()> {
     let snapshot = generations.snapshot();
-    let pending = |record: &RetainedSccpGeneration| {
-        record.end.is_some() && record.dest_cleared_lc.is_none()
-    };
-    let current = snapshot.current().iter()
+    let pending =
+        |record: &RetainedSccpGeneration| record.end.is_some() && record.dest_cleared_lc.is_none();
+    let current = snapshot
+        .current()
+        .iter()
         .filter_map(|(id, record)| pending(record).then_some((*id, ())))
         .collect();
-    let undo = snapshot.revert_map().iter()
-        .map(|(id, record)| (*id, record.as_ref().filter(|record| pending(record)).map(|_| ())))
+    let undo = snapshot
+        .revert_map()
+        .iter()
+        .map(|(id, record)| {
+            (
+                *id,
+                record.as_ref().filter(|record| pending(record)).map(|_| ()),
+            )
+        })
         .collect();
     Storage::from_snapshot_parts(current, undo)
 }

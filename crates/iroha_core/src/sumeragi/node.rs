@@ -2614,7 +2614,8 @@ mod tests {
                     .expect("original validator custody");
                 KeyPairSigner::new(key)
                     .expect("original BLS signer")
-                    .sign(&preimage).unwrap()
+                    .sign(&preimage)
+                    .unwrap()
             })
             .collect::<Vec<_>>();
         forged.agg_sig = crypto.aggregate(&signatures).unwrap();

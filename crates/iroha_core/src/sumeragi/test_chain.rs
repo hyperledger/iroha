@@ -1290,7 +1290,8 @@ impl CertifiedTestChain {
                 vote.sig = self
                     .signer_for_member(&context.committee[signer as usize].validator)
                     .expect("provisioned exact scheduled BLS custody")
-                    .sign(&vote.preimage()).unwrap();
+                    .sign(&vote.preimage())
+                    .unwrap();
                 vote
             })
             .collect::<Vec<_>>();
@@ -1319,7 +1320,8 @@ impl CertifiedTestChain {
                     block_hash,
                     result,
                     signers: signers_bitmap,
-                    agg_sig: iroha_sumeragi::crypto::Crypto::aggregate(&*self.crypto, &sigs),
+                    agg_sig: iroha_sumeragi::crypto::Crypto::aggregate(&*self.crypto, &sigs)
+                        .expect("genuine fixture signatures aggregate"),
                 }
             }
         }

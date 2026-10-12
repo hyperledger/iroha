@@ -349,6 +349,29 @@ MUTATIONS = [
     m("MS48", "control response accepts another exact source", ["det_s48_control_response_requires_exact_request_epoch_view_and_parent_source"], []),
     m("MS53", "on_proposal: zero-payload signed-defect rejection omitted",
       ["empty_proposals_are_rejected_at_every_view"], []),
+    m("MS54", "local signing refusal becomes a publishable and pooled signature",
+      ["det_signing_refusal_prepare_preserves_reservation_without_pooling"], []),
+    m("MS55", "aggregation refusal becomes a locally trusted certificate",
+      ["det_aggregation_refusal_retains_verified_votes_without_certificates"], []),
+    m("MS56", "safety envelope accepts another signature suite or certified-result contract",
+      ["det_s56_safety_record_refuses_other_protocol_identity"], []),
+    m("MS57", "restore installs retained or nested certificates without current-suite verification",
+      ["det_s57_restart_verifies_every_retained_certificate",
+       "det_s57_recommit_refuses_unverified_retained_lock_before_advancing_tip"], []),
+    m("MS58", "retained verified quorums are never retried after local aggregation refusal",
+      ["det_aggregation_refusal_retains_verified_votes_without_certificates"], []),
+    m("MS59", "RS16 authoring substitutes a signature for a local signing refusal",
+      ["det_signing_refusal_manifest_retains_original_request",
+       "det_signing_refusal_row_retains_completed_signatures"], []),
+    m("MS60", "reserved local signatures are never retried on the rebroadcast cadence",
+      ["det_signing_refusal_proposal_preserves_reservation_without_publication",
+       "det_signing_refusal_timeout_preserves_original_high_qc_on_retry"], []),
+    m("MS61", "Status intake throttling consumes a failed probe Echo signing attempt",
+      ["det_signing_refusal_echo_does_not_consume_rate_limit"], []),
+    m("MS62", "an earlier successful Timeout suppresses retry of a refused current-view Timeout",
+      ["det_signing_refusal_current_timeout_retries_with_prior_timeout_retained"], []),
+    m("MS63", "a proposal signing retry consumes its reservation before the original body arrives",
+      ["det_signing_retry_retains_restored_proposal_until_delayed_body_arrives"], []),
     # ---- as-built rules of Appendix E (E1-E7) and their regression tests
     m("ME1", "on_status: rate-limited Status drops its fresh CommitQC (E1)",
       ["rate_limited_status_still_delivers_a_fresh_commit_qc"], ["f03"]),
@@ -1030,6 +1053,11 @@ CORE_MUTATIONS = [
       ["smartcontracts::isi::world::isi::tests::parliament_due_sccp_control_binds_exact_certificate_and_complete_pause_state"]),
     m("HC239", "native epoch construction: leak the original ledger after partial payload unwind",
       ["sumeragi::epoch_election::owned::tests::partial_epoch_committee_unwind_refunds_retired_nested_backing"]),
+    m("HC248", "SCCP G6 resolves liability outside the canonical global election lane",
+      ["smartcontracts::isi::sccp::generations::tests::global_member_binding_ignores_participant_staking_registration"]),
+    m("HC249", "SCCP destination clearance traverses already cleared generation history",
+      ["smartcontracts::isi::sccp::generations::tests::destination_clearance_visits_only_bounded_pending_index_after_cleared_history"]),
+
 
     m('HC240', 'SCCP retained fast Taira pause: omit the active network hold from original consumers',
       ['smartcontracts::isi::sccp::outbound::tests::record_obeys_fast_pause_network_revision_and_exact_expiry_without_effects', 'smartcontracts::isi::sccp::settle::tests::taira_fast_pause_holds_inbound_only_without_losing_proof_money_or_retry', 'smartcontracts::isi::sccp::settle::tests::taira_fast_pause_keeps_void_refund_pending_without_stranding_or_moving_money']),
@@ -1044,6 +1072,11 @@ CORE_MUTATIONS = [
       ['state::output_capacity::producer::tests::network::fees::sccp_failure_fee_decoder_refusal_keeps_original_deferral_and_retry', 'state::output_capacity::producer::tests::network::fees::ordinary_failure_fee_decoder_refusal_keeps_original_deferral_and_retry', 'state::output_capacity::producer::tests::network::penalties::refusal::fee_decoder_refusal_after_actual_ballot_penalty_rolls_back_and_retries_once']),
     m('HC245', 'Network ballot-penalty settlement: swallow the original local execution deferral as a completed rejection',
       ['state::output_capacity::producer::tests::network::penalties::refusal::actual_ballot_penalty_decoder_refusal_keeps_original_deferral_and_retry']),
+    m('HC246', 'SCCP fast-pause lifecycle: omit Global G4 expiry cleanup after enactments',
+      ['smartcontracts::isi::sccp::read::control::tests::lapse::native_fast_pause_lapse_uses_exact_time_and_preserves_parliament_confirmation', 'smartcontracts::isi::sccp::read::control::tests::lapse::native_fast_pause_lapse_cancellation_keeps_original_record_and_retries_once']),
+
+    m('HC247', 'Payload producer retry: erase the original resource refusal at the driver boundary',
+      ['sumeragi::executor::publication_tests::original_lane_policy_proposal_refusal_retains_worker_owner_and_exact_queued_retry', 'sumeragi::executor::publication_tests::original_staking_payload_worker_retains_pool_refusal_and_exact_queued_retry']),
 
 ]
 
@@ -1127,6 +1160,9 @@ MODEL_MUTATIONS = [
     m("DM33", "native AMX multisig semantic cause: allocate a String on original retained replay",
       ["sumeragi_amx::native::leg_decode::tests::invalid_native_multisig_threshold_replay_preserves_original_cause_without_diagnostic_allocations",
        "sumeragi_amx::native::leg_decode::tests::invalid_native_multisig_member_replay_preserves_original_cause_without_diagnostic_allocations"]),
+
+    m("DM34", "epoch validation cache: reconstruct an owning canonical epoch snapshot",
+      ["sumeragi_finality::epoch_graph::validation_tests::epoch_scope_retains_exact_context_without_a_hidden_heap_graph"]),
 
 ]
 

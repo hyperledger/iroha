@@ -530,7 +530,7 @@ mod tests {
             .and_then(|vole| ProofParams::new(vole, 256, 300))
             .expect("valid row");
         let mut body = sample(&params);
-        body.drain(start - lb..start);
+        body.drain(start - lb..end);
         assert_eq!(body.len(), proof_bytes(&tight));
         assert_eq!(
             decode(&tight, &body),
