@@ -3300,7 +3300,19 @@ fn collect_instruction_native_amx_participants<W: WorldReadOnly>(
                     world,
                 )?;
             }
-            if nested_dataspaces.is_empty() {
+            // Universal targets are intentionally absent from the participant set.
+            // Only a payload without any concrete target inherits the account scope;
+            // a global balance write must not acquire a spurious private participant.
+            if nested_dataspaces.is_empty()
+                && merge_instruction_dataspace_targets_with_world_and_fx_overlay(
+                    instructions.iter(),
+                    Some(dataspace_catalog),
+                    world,
+                    ledger_time_ms,
+                    &mut fx_overlay.clone(),
+                )?
+                .is_none()
+            {
                 insert_native_amx_participant(
                     &mut nested_dataspaces,
                     account_dataspace_target(Some(world), account, ledger_time_ms)?,
@@ -10905,6 +10917,7 @@ mod tests {
             .insert(account_id.clone(), scope_entry);
     }
     include!("router_initial_routing_tests.rs");
+    include!("router_multisig_global_scope_tests.rs");
     #[test]
     fn canonical_dataspace_route_classifies_unknown_scope_before_lane_absence() {
         let unknown = DataSpaceId::new(8);
