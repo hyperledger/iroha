@@ -2124,14 +2124,17 @@ mod tests {
     }
     #[test]
     fn multisig_json_preserves_required_occurrence_nonce() {
+        use iroha_executor_data_model::isi::multisig::MultisigInstructionBox;
+
         let draft = draft_from_fixture(FIXTURE_MULTISIG_PROPOSE);
         let canonical = draft.to_json_value();
         let parsed = InstructionDraft::from_json_value(&canonical).expect("canonical proposal");
         let instruction = parsed.instruction();
-        let proposal = instruction
-            .as_any()
-            .downcast_ref::<MultisigPropose>()
-            .expect("native proposal instruction");
+        let MultisigInstructionBox::Propose(proposal) =
+            MultisigInstructionBox::try_from(&instruction).expect("native multisig instruction")
+        else {
+            panic!("native proposal instruction");
+        };
         assert_eq!(proposal.proposal_nonce.to_string(), "07".repeat(32));
 
         let mut missing = canonical.clone();
