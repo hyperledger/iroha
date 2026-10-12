@@ -306,8 +306,8 @@ fn put_u8_vec_push(c: &mut Criterion) {
     group.throughput(Throughput::Bytes(cnt as u64));
     group.bench_function("put_u8_vec_push", |b| {
         b.iter(|| {
-            for _ in 0..cnt {
-                buf.push(b'x');
+            for value in std::iter::repeat_n(b'x', cnt) {
+                buf.push(value);
             }
             black_box(&buf);
             unsafe {

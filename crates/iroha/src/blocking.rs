@@ -1007,7 +1007,9 @@ mod tests {
         let repeated = bounded
             .with_request_deadline(deadline + Duration::from_secs(30))
             .unwrap();
-        let shortened_deadline = deadline - Duration::from_secs(10);
+        let shortened_deadline = deadline
+            .checked_sub(Duration::from_secs(10))
+            .expect("fixture deadline includes thirty seconds of headroom");
         let shortened = repeated.with_request_deadline(shortened_deadline).unwrap();
         for view in [&bounded, &repeated, &shortened] {
             assert!(Arc::ptr_eq(&source.runtime, &view.runtime));

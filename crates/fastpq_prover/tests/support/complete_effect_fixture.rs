@@ -178,7 +178,7 @@ impl EffectFixture {
     pub fn artifact(&self, bundle_frame: Vec<u8>) -> FastpqOrdinaryCompactArtifactV1 {
         FastpqOrdinaryCompactArtifactV1 {
             profile_id: execution_effect_profile_id(),
-            source: self.source.clone(),
+            source: self.source,
             statement: self.statement.clone(),
             bundle_frame,
         }
@@ -187,7 +187,7 @@ impl EffectFixture {
     pub fn prove(
         &self,
         proving: ProvingLimits,
-        policy: VerificationLimits,
+        policy: &VerificationLimits,
     ) -> Result<Vec<u8>, ProvingError> {
         self.prove_offered(&self.statement, self.expected(), proving, policy)
     }
@@ -197,11 +197,11 @@ impl EffectFixture {
         offered: &FastpqExecutionEffectStatementV1,
         expected: ExpectedExecutionEffects<'_>,
         proving: ProvingLimits,
-        policy: VerificationLimits,
+        policy: &VerificationLimits,
     ) -> Result<Vec<u8>, ProvingError> {
         // Test-owned finite credit is derived from the valid independent fixture,
         // leaving deliberately deficient work/public policy to the actual producer.
-        let mut funding_policy = limits(VerificationLimits::default());
+        let mut funding_policy = limits(&VerificationLimits::default());
         funding_policy.bundle.max_segments = self.statement.effects.effects.len();
         funding_policy.bundle.max_total_statement_bytes = funding_policy
             .bundle
@@ -245,7 +245,7 @@ impl EffectFixture {
     pub fn verify(
         &self,
         bytes: &[u8],
-        policy: VerificationLimits,
+        policy: &VerificationLimits,
     ) -> Result<VerifiedArtifact, VerificationError> {
         self.verify_expected(bytes, self.expected(), policy)
     }
@@ -254,13 +254,13 @@ impl EffectFixture {
         &self,
         bytes: &[u8],
         expected: ExpectedExecutionEffects<'_>,
-        policy: VerificationLimits,
+        policy: &VerificationLimits,
     ) -> Result<VerifiedArtifact, VerificationError> {
         // Allocate fixture credit from the baseline policy, not a deliberately
         // deficient tested policy, so the actual verifier observes each cap.
         let demand = quantity_ordinary_verification_allocation_bytes(
             &self.statement.effects,
-            &limits(VerificationLimits::default()),
+            &limits(&VerificationLimits::default()),
         )?;
         let budget = AllocationBudget::new(demand);
         let mut reservation = budget
@@ -279,7 +279,7 @@ impl EffectFixture {
     }
 }
 /// Preserve the existing test's exact physical/codec caps while selecting complete effects.
-pub fn limits(policy: VerificationLimits) -> ExecutionEffectVerificationLimits {
+pub fn limits(policy: &VerificationLimits) -> ExecutionEffectVerificationLimits {
     ExecutionEffectVerificationLimits {
         transport: policy.transport,
         bundle: policy.bundle,

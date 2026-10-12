@@ -90,8 +90,6 @@ pub fn mk_app_state_for_tests() -> SharedAppState {
 }
 #[tokio::test]
 async fn api_version_negotiates_text_success_and_typed_unavailable() {
-    use iroha_version::Version as _;
-
     let app = mk_app_state_for_tests();
     let router = axum::Router::new()
         .route(

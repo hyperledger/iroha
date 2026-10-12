@@ -4186,8 +4186,8 @@ def test_prepared_intent_capture_uses_original_witness_and_authenticated_source(
     for obligation in ["self.recheck_namespace()?", "witness.pool().same_pool(&self.budget)",
                        "witness.matches_original_native_execution", "original.carrier_hash != executed.hash()",
                        "executed.header() != overlay._curr_block", "count(&witness.writes)?",
-                       "authenticated_parent_source(&self.budget)", "parent.global_genesis",
-                       "parent.global_successor", "Hash::new", "authority: 0",
+                       "authenticated_parent_source(&self.budget)", "source.global_genesis",
+                       "source.global_successor", "Hash::new", "authority: 0",
                        "ChargedBuffer::new(length, &self.budget)"]:
         assert re.sub(r"\s+", "", obligation) in re.sub(r"\s+", "", capture)
     assert "core_hash" not in capture and "header.instance" not in capture
@@ -4198,7 +4198,7 @@ def test_prepared_intent_capture_uses_original_witness_and_authenticated_source(
     assert "decode_canonical" not in capture and "AllocationBudget::new" not in capture
     assert "write_element_sequence::<Row, _>" in owner
     assert "rows: RowsRef" in owner
-    assert 'frame = "iroha_core::amx::PreparedIntentCoordinatesV1"' in owner
+    assert 'frame = "iroha_core::amx::AmxIntentCoordinatesV1"' in owner
     assert "borrowed_intent_coordinates_declare_exact_owned_frame_without_erasing_nominal_lifetime" in owner
     source_binding = (source / "state/fastpq_quantity_capture/commitment_journal/finalized_source/witness.rs").read_text()
     assert "self.native == Some((executed.hash(), execution))" in source_binding
@@ -4248,7 +4248,7 @@ def test_prepared_intent_real_same_block_pruning_uses_committed_witness():
     schema_owner = (source / "query/native_context_archive/prepared_intents.rs").read_text()
     scanner = (source / "state/state_table_inventory_tests.rs").read_text()
     # Rust schema names are excluded by the existing exact domain-literal rule.
-    for identity in ("iroha_core::amx::PreparedIntentCoordinatesV1", "iroha_core::amx::PreparedIntentRowV1"):
+    for identity in ("iroha_core::amx::AmxParentCoordinatesV1", "iroha_core::amx::AmxIntentCoordinatesV1", "iroha_core::amx::AmxIntentRowV1"):
         assert identity in schema_owner and identity not in domains
         assert identity in scanner
 
@@ -5338,9 +5338,9 @@ def test_restarted_prepared_intent_completeness_mutation_uses_authenticated_full
     assert gate.has_switch(mid, core=True)
     core = ROOT / "crates/iroha_core/src"
     owner = (core / "query/native_receipts/amx_intents.rs").read_text()
-    assert owner.index('sumeragi_core_mutation = "HC218"') < owner.index(".authenticated_prepared_count()?") < owner.index(".into_relay()")
+    assert owner.index('sumeragi_core_mutation = "HC218"') < owner.index(".authenticated_relay_record_count()?") < owner.index(".into_relay()")
     proof = (core / "query/native_receipts/amx_read.rs").read_text()
-    count = proof.split("fn authenticated_prepared_count", 1)[1].split("// Only this sibling", 1)[0]
+    count = proof.split("fn authenticated_relay_record_count", 1)[1].split("// Only this sibling", 1)[0]
     assert "source.completed && source.authenticated" in count
     assert re.search(r"prepared_intents::count\(&projection\.witness\.get\(\)\.writes,?\)", re.sub(r"\s+", "", count))
     assert "clone()" not in count and "collect(" not in count
@@ -5349,7 +5349,10 @@ def test_restarted_prepared_intent_completeness_mutation_uses_authenticated_full
     for evidence in ("roots.transaction(40", "roots.transaction(60", "roots.participants[0].sign(&payer(), prepares",
                      "restored.replay_from(", "one_row_subset(&original)",
                      "restarted canonical intent must match every authenticated Prepared row before first delivery",
-                     "retained_instruction().is_none()", "let first = complete.complete_next()", "let second = complete.complete_next()"):
+                     "retained_instruction().is_none()", "let (first_descriptor, first) = complete.complete_next()", "let (second_descriptor, second) = complete.complete_next()",
+                     "assert_ne!(first_descriptor.source_record_key(), second_descriptor.source_record_key())",
+                     "instruction_relay(&first).record.tx(), instruction_relay(&second).record.tx()",
+                     "delivered == original.canonical()", "first.amx_proof_admitted_to(&budget) && second.amx_proof_admitted_to(&budget)"):
         assert evidence in control
     assert control.index("std::fs::write(&path, &original)") < control.index("assert!(matches!(refused")
     rows = re.findall(r"^\| " + mid + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.MULTILINE)
@@ -6638,7 +6641,7 @@ def test_sccp_control_mutation_preserves_original_cause_and_pause_owner(mid, own
     spec = (ROOT / "specs/sumeragi.md").read_text()
     rows = re.findall(rf"^\| {mid} \|.*$", spec, re.M)
     assert len(rows) == 1 and name in rows[0]
-    assert "| SC5 | CT1 disabled |" in spec and "| SC6 | CT3 builder pacing disabled |" in spec
+    assert "| SC5 (full State: HC257) | CT1 disabled |" in spec and "| SC6 | CT3 builder pacing disabled |" in spec
     # The existing pending-proof custody rule remains an independent live rule.
     assert len(gate.index_mutations(gate.CORE_MUTATIONS)["HC236"].tests) == 3
 
@@ -7034,7 +7037,7 @@ def causal_rule(mid):
     return gate.index_mutations(gate.MODEL_MUTATIONS if mid == 'DM34' else gate.CORE_MUTATIONS)[mid]
 
 
-@pytest.mark.parametrize('mid', ['HC246', 'HC247', 'HC248', 'HC252', 'DM34'])
+@pytest.mark.parametrize('mid', ['HC246', 'HC247', 'HC248', 'HC252', 'HC254', 'HC255', 'HC256', 'DM34'])
 @pytest.mark.parametrize('corruption', ['none', 'unrelated', 'incidental', 'source', 'owner', 'missing_panic', 'extra_panic', 'outside_section', 'duplicate_section', 'one_passes', 'all_pass'])
 def test_declared_causal_mutation_requires_every_owned_cause(monkeypatch, tmp_path, mid, corruption):
     rule = causal_rule(mid)
@@ -7117,7 +7120,7 @@ def test_native_authority_mapper_has_an_independent_original_custody_mutation():
 
 
 def test_direct_payment_replay_mutation_requires_original_fee_effect_failure():
-    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC254"]
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC265"]
     assert rule.tests == (
         "executor::settlement_replay::tests::"
         "direct_payment_replay_two_carriers_charge_once_and_recover_after_certified_restart",
@@ -7127,13 +7130,28 @@ def test_direct_payment_replay_mutation_requires_original_fee_effect_failure():
         "same direct payment identity charges one execution fee across distinct carriers",
         "crates/iroha_core/src/executor/settlement_replay_tests.rs",
     ),)
-    assert gate.has_switch("HC254", core=True)
+    assert gate.has_switch("HC265", core=True)
     for family in ({}, {"model": True}):
-        assert not gate.has_switch("HC254", **family)
+        assert not gate.has_switch("HC265", **family)
+
+
+def test_begin_delivery_mutation_requires_original_post_admission_source_failure():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC271"]
+    assert rule.tests == (
+        "sumeragi::amx::native::tests::paid_borrowed_custody::begins::"
+        "native_amx_begin_delivery_final_namespace_refusal_preserves_original_instruction",
+    )
+    assert rule.causes == (gate.ExpectedFailure(
+        "source namespace must be rechecked after instruction admission",
+        "crates/iroha_core/src/sumeragi/amx/native/tests/paid_borrowed_custody/begins.rs",
+    ),)
+    assert gate.has_switch("HC271", core=True)
+    assert not gate.has_switch("HC271")
+    assert not gate.has_switch("HC271", model=True)
 
 
 def test_decision_delivery_mutation_requires_original_post_admission_source_failure():
-    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC256"]
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC267"]
     assert rule.tests == (
         "sumeragi::amx::native::tests::paid_borrowed_custody::"
         "native_amx_decision_delivery_final_namespace_refusal_preserves_original_instruction",
@@ -7142,8 +7160,8 @@ def test_decision_delivery_mutation_requires_original_post_admission_source_fail
         "Decision delivery must recheck original namespace after instruction admission",
         "crates/iroha_core/src/sumeragi/amx/native/tests/paid_borrowed_custody.rs",
     ),)
-    assert gate.has_switch("HC256", core=True)
-    assert not gate.has_switch("HC256")
+    assert gate.has_switch("HC267", core=True)
+    assert not gate.has_switch("HC267")
 
 
 def test_proposer_clock_selection_mutation_preserves_both_native_selection_controls():
@@ -7376,3 +7394,202 @@ def test_full_state_clock_mutations_have_exact_owners_and_runtime_controls():
         assert f"fn {name}()" in controls
     assert "restored.replay(&block, &qc)" in controls
     assert "!worker.results.contains_key(&hash)" in controls
+
+
+def assert_original_journal_static_causal_literal(source, name, expected):
+    """Bind the gate cause to the exact executed Retryable assertion's literal."""
+    body = source.split("fn " + name.rsplit("::", 1)[-1] + "() {", 1)[1].split("#[test]", 1)[0]
+    literals = re.findall(
+        r'assert!\(\s*matches!\(result, Err\(PublicationError::Retryable\(_\)\)\),'
+        r'\s*("(?:[^"\\]|\\.)*")\s*\);', body
+    )
+    assert literals == [json.dumps(expected.cause)], "HC253 requires the exact static native causal message"
+
+
+@pytest.mark.parametrize("index", [0, 1])
+def test_original_journal_causal_messages_match_actual_rust_assertions(index):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC253"]
+    expected = rule.causes[index]
+    source = (ROOT / expected.source).read_text()
+    assert_original_journal_static_causal_literal(source, rule.tests[index], expected)
+
+
+@pytest.mark.parametrize("index", [0, 1])
+@pytest.mark.parametrize("replacement", [
+    '"original parent journal unavailability remains retryable: {result:?}"',
+    '"original parent journal unavailability remains retryable: {:?}", result',
+    '"original parent journal unavailability remains retryable {}", ""',
+    '"original parent journal unavailability remains retryable "',
+])
+def test_original_journal_causal_literal_rejects_dynamic_or_extra_message_text(index, replacement):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC253"]
+    expected = rule.causes[index]
+    source = (ROOT / expected.source).read_text()
+    original = json.dumps(expected.cause)
+    assert source.count(original) == 2
+    source = source.replace(original, replacement)
+    with pytest.raises(AssertionError, match="exact static native causal message"):
+        assert_original_journal_static_causal_literal(source, rule.tests[index], expected)
+
+
+LANE_GEOMETRY_CAUSAL_CONTROLS = (
+    ("HC254", 0, "completed_publication_refuses_substituted_journal_namespace_and_retries_original_owner", "result.is_err()"),
+    ("HC254", 1, "substituted_tiered_path", "result.is_err()"),
+    ("HC254", 2, "substituted_tiered_path", "result.is_err()"),
+    ("HC255", 0, "assert_retained", "original.tiered.as_ref().unwrap().is_applied()"),
+    ("HC256", 0, "completed_publication_refuses_changed_baseline_and_retries_original_owner", "result.is_err()"),
+)
+
+
+def assert_lane_geometry_static_cause(source, function, condition, expected):
+    """Require the exact executed assertion condition and static owner message."""
+    body = source.split("fn " + function + "(", 1)[1].split("\nfn ", 1)[0]
+    literals = re.findall(
+        r'assert!\(\s*' + re.escape(condition) + r',\s*("(?:[^"\\]|\\.)*")\s*\);', body
+    )
+    assert literals == [json.dumps(expected.cause)], "geometry mutation requires its exact static native cause"
+
+
+@pytest.mark.parametrize("mid,owner,tests", [
+    ("HC254", "state/geometry_publication.rs", (
+        "completed_publication_refuses_substituted_journal_namespace_and_retries_original_owner",
+        "prepublication_refuses_substituted_tiered_directory_and_retries_original_owner",
+        "completed_publication_refuses_substituted_tiered_directory_and_retries_original_owner",
+    )),
+    ("HC255", "state/geometry_publication.rs", (
+        "completed_retry_preserves_original_applied_progress_on_tiered_identity_refusal",
+    )),
+    ("HC256", "kura/lane_geometry/raw_attempt.rs", (
+        "completed_publication_refuses_changed_baseline_and_retries_original_owner",
+    )),
+])
+def test_lane_geometry_mutations_keep_separate_original_production_owners(mid, owner, tests):
+    registry = gate.index_mutations(gate.CORE_MUTATIONS)
+    assert len(registry) == len(gate.CORE_MUTATIONS)
+    rule = registry[mid]
+    assert rule.tests == tuple("state::tests::geometry_completion_tests::" + name for name in tests)
+    assert not rule.scenarios
+    assert len(rule.causes) == len(rule.tests)
+    assert all(expected.source == "crates/iroha_core/src/state/geometry_completion_tests.rs"
+               and expected.worker_thread == "" and expected.join_source == ""
+               and expected.join_message == ""
+               for expected in rule.causes)
+    core = ROOT / "crates/iroha_core/src"
+    owners = {path.relative_to(core).as_posix() for path in core.rglob("*.rs")
+              if re.search(r'sumeragi_core_mutation\s*=\s*"' + mid + '"', path.read_text())}
+    assert owners == {owner}
+    assert gate.has_switch(mid, core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True},
+                   {"deploy": True}, {"torii": True}, {"norito": True}):
+        assert not gate.has_switch(mid, **family)
+    rows = re.findall(r"^\| " + mid + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(rows) == 1 and all(name in rows[0] for name in rule.tests)
+
+
+@pytest.mark.parametrize("mid,index,function,condition", LANE_GEOMETRY_CAUSAL_CONTROLS)
+def test_lane_geometry_causal_messages_match_actual_rust_assertions(mid, index, function, condition):
+    expected = gate.index_mutations(gate.CORE_MUTATIONS)[mid].causes[index]
+    assert_lane_geometry_static_cause((ROOT / expected.source).read_text(), function, condition, expected)
+
+
+@pytest.mark.parametrize("mid,index,function,condition", LANE_GEOMETRY_CAUSAL_CONTROLS)
+@pytest.mark.parametrize("suffix", [': {result:?}', ' ', ' {}'])
+def test_lane_geometry_causal_message_rejects_dynamic_or_extra_text(mid, index, function, condition, suffix):
+    expected = gate.index_mutations(gate.CORE_MUTATIONS)[mid].causes[index]
+    source = (ROOT / expected.source).read_text()
+    original = json.dumps(expected.cause)
+    assert source.count(original) == 1
+    with pytest.raises(AssertionError, match="exact static native cause"):
+        assert_lane_geometry_static_cause(source.replace(original, json.dumps(expected.cause + suffix)), function, condition, expected)
+
+
+@pytest.mark.parametrize("mid", ["HC254", "HC255", "HC256"])
+@pytest.mark.parametrize("status,verdict", [
+    ("ok", "survived"), ("FAILED", "killed_by_test"), ("ignored", "error"),
+    ("missing", "error"), ("incidental", "error"),
+])
+def test_lane_geometry_requires_every_exact_declared_terminal(monkeypatch, tmp_path, mid, status, verdict):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[mid]
+    monkeypatch.setattr(gate, "has_switch", lambda *args, **kwargs: True)
+    monkeypatch.setattr(gate, "build", lambda *args: gate.Step(status="pass"))
+    rows = [] if status == "missing" else [
+        (name + "_incidental", "FAILED") if status == "incidental" else (name, status)
+        for name in rule.tests
+    ]
+    code, output = causal_control_output(rule, rows)
+    selected_cargo_results(monkeypatch, code, output, names=tuple(name for name, _ in rows))
+    result = gate.evaluate(SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
+    assert result["verdict"] == verdict, result
+    assert result["named_tests"] == list(rule.tests)
+
+
+def test_lane_geometry_regressions_keep_original_source_and_prepublication_boundaries():
+    source = (ROOT / "crates/iroha_core/src/state/geometry_completion_tests.rs").read_text()
+    for required in [
+        "raw.publish_catalog_under(&lease, Some(baseline))", "original_owners(state),",
+        "RawGeometryPhase::FilesApplied", "RawGeometryPhase::CatalogPublished",
+        "!failure.rollback_safe", "original.cursors_updated", "original_metadata.ctime()",
+        "original_metadata.ctime_nsec()", "fs::rename(&displaced, store_root)",
+        "fs::rename(&displaced, &lane)", "for changed in [None, Some(foreign)]",
+        "substituted_tiered_path(false, false)", "substituted_tiered_path(true, false)",
+        "substituted_tiered_path(true, true)", "retry_original(state, configured, kura, baseline)",
+    ]:
+        assert required in source
+    assert "stack_size" not in source and "#[ignore" not in source
+
+
+@pytest.mark.parametrize("mid,index,function,condition", LANE_GEOMETRY_CAUSAL_CONTROLS)
+@pytest.mark.parametrize("corruption", ["unrelated", "wrong_source", "missing_panic"])
+def test_lane_geometry_other_controls_cannot_mask_one_wrong_cause(monkeypatch, tmp_path, mid, index, function, condition, corruption):
+    del function, condition
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[mid]
+    code, output = causal_control_output(rule, [(name, "FAILED") for name in rule.tests])
+    name, expected = rule.tests[index], rule.causes[index]
+    panic = f"thread '{name}' (12) panicked at {expected.source}:123:7:\n{expected.cause}\n"
+    assert output.count(panic) == 1
+    wrong = (panic.replace(expected.cause, "unrelated fixture failure") if corruption == "unrelated"
+             else panic.replace(expected.source, "wrong_source.rs") if corruption == "wrong_source"
+             else "")
+    output = output.replace(panic, wrong, 1)
+    monkeypatch.setattr(gate, "has_switch", lambda *args, **kwargs: True)
+    monkeypatch.setattr(gate, "build", lambda *args: gate.Step(status="pass"))
+    selected_cargo_results(monkeypatch, code, output, names=rule.tests)
+    result = gate.evaluate(SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
+    assert result["verdict"] == "error", result
+
+
+def test_lane_clock_retry_mutation_owns_the_original_builder_answer():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC264"]
+    name = "sumeragi::lanes::executor::tests::future_only_lane_work_retries_without_an_empty_answer_or_new_traffic"
+    assert rule.tests == (name,)
+    assert not rule.scenarios
+    assert len(rule.causes) == 1
+    cause = rule.causes[0]
+    assert cause.source == "crates/iroha_core/src/sumeragi/lanes/executor.rs"
+    assert cause.cause == "future-only lane work must retry instead of reporting an empty payload"
+    assert not cause.worker_thread and not cause.join_source and not cause.join_message
+    source = (ROOT / cause.source).read_text()
+    assert 'sumeragi_core_mutation = "HC264"' in source
+    assert 'Err(LaneSelectionError::ClockAhead)' in source
+    assert 'return Err(PublicationError::Retryable("ClockAhead".into()))' in source
+    assert 'clock.advance(Duration::from_millis(1))' in source
+    assert source.count('"' + cause.cause + '"') == 1
+    assert gate.has_switch("HC264", core=True)
+    assert not gate.has_switch("HC264")
+    assert len(re.findall(r"^\| HC264 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)) == 1
+
+
+@pytest.mark.parametrize("mid,name,source,cause", [
+    ("HC268", "sumeragi::lanes::executor::native_decode_tests::signed_lane_clock_retains_original_admission_until_exact_boundary_and_certified_replay", "crates/iroha_core/src/sumeragi/lanes/executor/native_decode_tests.rs", "uncertified lane must wait at its authenticated effective clock boundary"),
+    ("HC269", "sumeragi::lanes::executor::tests::lane_builder_effective_clock_retains_original_payload_across_clock_rewind", "crates/iroha_core/src/sumeragi/lanes/executor.rs", "lane builder must retain its original effective timestamp before publication"),
+])
+def test_lane_effective_clock_rules_have_exact_original_owners(mid, name, source, cause):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[mid]
+    assert rule.tests == (name,) and not rule.scenarios
+    assert len(rule.causes) == 1
+    expected = rule.causes[0]
+    assert expected.source == source and expected.cause == cause
+    assert not expected.worker_thread and not expected.join_source and not expected.join_message
+    assert (ROOT / source).read_text().count('"' + cause + '"') == 1
+    assert gate.has_switch(mid, core=True) and not gate.has_switch(mid)
+    assert len(re.findall(r"^\| " + mid + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)) == 1

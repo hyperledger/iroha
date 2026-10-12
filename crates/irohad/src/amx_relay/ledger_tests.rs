@@ -353,7 +353,18 @@ async fn relay_durable_restart_retransmits_identical_bytes_and_never_resigns_unk
             Arc::new(Clock::default()),
         );
         let handle = engine.workflow(plan.clone()).unwrap();
-        assert!(handle.run(&driver, &options).await.is_err());
+        assert!(
+            handle
+                .run(
+                    &driver,
+                    &WorkflowRunOptions {
+                        retransmit_identical_bytes: false,
+                        ..options.clone()
+                    }
+                )
+                .await
+                .is_err()
+        );
     }
     assert_eq!(account.signs.load(Ordering::Relaxed), 1);
     assert_eq!(account.sent.lock().unwrap().len(), 1);

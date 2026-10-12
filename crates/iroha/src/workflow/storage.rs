@@ -367,10 +367,8 @@ impl WorkflowStorage for FileWorkflowStorage {
     }
 
     fn load(&self, id: &WorkflowId) -> Result<Option<Vec<u8>>, WorkflowStorageError> {
-        match self.workflow_directory(id, false)? {
-            Some(workflow) => Self::read(&workflow),
-            None => Ok(None),
-        }
+        self.workflow_directory(id, false)?
+            .map_or(Ok(None), |workflow| Self::read(&workflow))
     }
 
     fn compare_and_store(

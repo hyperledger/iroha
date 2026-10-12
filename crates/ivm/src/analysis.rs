@@ -331,7 +331,6 @@ fn analyze_prepared_in(
 /// # Errors
 /// Returns original local allocation refusal before constructing traversal or result backing.
 /// Scheduler callers must decline exact hints on refusal and retain conservative fences.
-#[must_use]
 pub fn analyze_prepared_static_state_accesses(
     contract: &PreparedContract,
     entrypoint: Option<&str>,

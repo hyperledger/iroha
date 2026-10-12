@@ -8,7 +8,7 @@ use crate::managed::stream_token_custody::body_history::{
     finish_timing, graph_original_tests, operation_scope_tests,
 };
 
-use super::{Terms, encode, invalid, read_optional, require_empty};
+use super::{Terms, encode, invalid, read_optional};
 use crate::managed::{ManagedBootstrapFailure, Result};
 use iroha_crypto::Hash;
 use iroha_data_model::sorafs::capacity::ProviderId;

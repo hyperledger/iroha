@@ -1616,3 +1616,9 @@ fn native_amx_decision_delivery_final_namespace_refusal_preserves_original_instr
         drop(view);
     });
 }
+
+#[path = "paid_borrowed_custody/discovery.rs"]
+mod discovery;
+
+#[path = "paid_borrowed_custody/begins.rs"]
+mod begins;

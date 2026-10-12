@@ -8,7 +8,7 @@ use crate::backend::offline_compact::{BundleVerificationLimits, VerificationLimi
 pub(in crate::backend) use fixture::EffectFixture;
 use iroha_allocation::AllocationBudget;
 
-pub(in crate::backend) fn policy(limits: ArtifactLimits) -> VerificationLimits {
+pub(in crate::backend) fn policy(limits: &ArtifactLimits) -> VerificationLimits {
     let b = limits.bundle;
     VerificationLimits {
         transport: limits.transport,
@@ -29,7 +29,7 @@ pub(in crate::backend) fn policy(limits: ArtifactLimits) -> VerificationLimits {
 pub(in crate::backend) fn verify(
     bytes: &[u8],
     expected: &EffectFixture,
-    limits: ArtifactLimits,
+    limits: &ArtifactLimits,
 ) -> Result<VerifiedArtifact, ArtifactError> {
     verify_expected(bytes, expected, expected.expected(), limits)
 }
@@ -37,9 +37,9 @@ pub(in crate::backend) fn verify_expected(
     bytes: &[u8],
     funding_fixture: &EffectFixture,
     expected: crate::offline_compact::ExpectedExecutionEffects<'_>,
-    limits: ArtifactLimits,
+    limits: &ArtifactLimits,
 ) -> Result<VerifiedArtifact, ArtifactError> {
-    let generous = fixture::limits(VerificationLimits::default());
+    let generous = fixture::limits(&VerificationLimits::default());
     let demand = crate::offline_compact::quantity_ordinary_verification_allocation_bytes(
         &funding_fixture.statement.effects,
         &generous,
@@ -49,7 +49,7 @@ pub(in crate::backend) fn verify_expected(
     let result = execution_effect::verify(
         bytes,
         expected,
-        &fixture::limits(policy(limits)),
+        &fixture::limits(&policy(limits)),
         &budget,
         &mut reservation,
     );

@@ -262,6 +262,7 @@ impl Fixture {
             store.clone(),
             Arc::clone(&self.crypto),
             self.chain.state().ivm_execution_budget(),
+            iroha_primitives::time::TimeSource::new_system(),
         )
         .complete()
         .unwrap_or_else(|(_, error)| panic!("original lane recovery: {error}"));

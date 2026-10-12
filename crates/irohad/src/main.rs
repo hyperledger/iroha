@@ -617,9 +617,13 @@ mod handshake_payload_tests {
         let world = iroha_core::state::World::default();
         {
             let mut block = world.block();
-            block.parameters.get_mut().set_parameter(
-                iroha_data_model::parameter::Parameter::Custom(policy.into_custom_parameter()),
-            );
+            block
+                .parameters
+                .get_mut()
+                .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                    policy.into_custom_parameter(),
+                ))
+                .expect("install the committed pipeline fixture policy");
             block.commit();
         }
         let state = iroha_core::state::State::new_for_testing(

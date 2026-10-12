@@ -433,7 +433,7 @@ fn refused_actual_account_read_retains_same_move_only_intake_allocation() {
     let (_, value, bytes) = existing_account(94, Algorithm::Ed25519);
     let digest = kagemusha_wallet_account_digest_v1(&value).unwrap();
     let retained = Box::new(bytes);
-    let identity = (&*retained) as *const Vec<u8>;
+    let identity = core::ptr::from_ref(&*retained);
     let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
     let (retained, error) = norito::with_decode_limits_scope(limits, || {
         retain_checked(retained, |original| account(original, &digest))
@@ -441,10 +441,10 @@ fn refused_actual_account_read_retains_same_move_only_intake_allocation() {
     .err()
     .expect("real decoder refusal");
     assert!(matches!(error, Error::DecodeResource(_)));
-    assert_eq!((&*retained) as *const Vec<u8>, identity);
+    assert_eq!(core::ptr::from_ref(&*retained), identity);
     let (retained, decoded) =
         retain_checked(retained, |original| account(original, &digest)).unwrap();
-    assert_eq!((&*retained) as *const Vec<u8>, identity);
+    assert_eq!(core::ptr::from_ref(&*retained), identity);
     assert_eq!(decoded, value);
 }
 

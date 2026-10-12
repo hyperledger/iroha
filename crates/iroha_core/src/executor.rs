@@ -10693,10 +10693,9 @@ mod tests {
         );
         tx.world.account_permissions.insert(
             authority.clone(),
-            BTreeSet::from([executor_permission::query::CanReadAccountData {
-                account: payer,
-            }
-            .into()]),
+            BTreeSet::from([
+                executor_permission::query::CanReadAccountData { account: payer }.into(),
+            ]),
         );
         validate_builtin_native_query_permission(tx.world(), &authority, &request, 0)
             .expect("reader has the exact payer-scoped grant");

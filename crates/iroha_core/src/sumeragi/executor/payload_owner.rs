@@ -709,7 +709,7 @@ mod tests {
                 let result = worker.build(2, 0, 1 << 20, 100);
                 assert!(
                     matches!(result, Err(PublicationError::Retryable(_))),
-                    "original parent journal unavailability remains retryable: {result:?}"
+                    "original parent journal unavailability remains retryable"
                 );
                 assert_eq!(retained_partial_pointer(worker), pointer);
                 assert_eq!(
@@ -775,7 +775,7 @@ mod tests {
             let result = worker.build(2, 0, 1 << 20, 100);
             assert!(
                 matches!(result, Err(PublicationError::Retryable(_))),
-                "original parent journal unavailability remains retryable: {result:?}"
+                "original parent journal unavailability remains retryable"
             );
             assert_eq!(retained_partial_pointer(worker), pointer);
             assert_eq!(budget.reserved_bytes(), held);

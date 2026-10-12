@@ -5,7 +5,6 @@ use ff::PrimeField;
 use iroha_pasta::Fp;
 use sha2::{Digest as _, Sha256};
 use std::{
-    fmt::Write as _,
     fs::{self, File, OpenOptions},
     io::{Read as _, Write as _},
     path::{Path, PathBuf},
@@ -47,11 +46,13 @@ pub fn sha(bytes: &[u8]) -> [u8; 32] {
 }
 /// Canonical lowercase hash/word formatting.
 pub fn hex(bytes: &[u8]) -> String {
-    let mut text = String::new();
+    use std::fmt::Write as _;
+
+    let mut encoded = String::new();
     for byte in bytes {
-        write!(&mut text, "{byte:02x}").expect("formatting bytes into String");
+        write!(encoded, "{byte:02x}").expect("formatting into a String cannot fail");
     }
-    text
+    encoded
 }
 /// An independently selected exact hash, with no default identity.
 pub fn pin(text: &str) -> [u8; 32] {
@@ -231,6 +232,12 @@ mod tests {
             let _ = fs::remove_dir_all(&self.0);
         }
     }
+    #[test]
+    fn hex_is_canonical_lowercase_with_zero_padding() {
+        assert_eq!(hex(&[]), "");
+        assert_eq!(hex(&[0x00, 0x0f, 0x10, 0xa5, 0xff]), "000f10a5ff");
+    }
+
     #[test]
     fn stable_schema_and_canonical_roundtrip() {
         use norito::NoritoSchema as _;

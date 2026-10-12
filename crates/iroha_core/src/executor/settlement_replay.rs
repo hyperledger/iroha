@@ -20,7 +20,7 @@ pub(crate) fn reject_committed_direct_payment(
     state: &StateTransaction<'_, '_>,
     transaction: &SignedTransaction,
 ) -> Result<(), ExecutionAttemptError<ValidationFail>> {
-    if cfg!(all(test, sumeragi_core_mutation = "HC254")) {
+    if cfg!(all(test, sumeragi_core_mutation = "HC265")) {
         return Ok(());
     }
     let Executable::Instructions(instructions) = transaction.instructions() else {

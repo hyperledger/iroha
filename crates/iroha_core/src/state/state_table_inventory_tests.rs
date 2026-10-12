@@ -8094,8 +8094,9 @@ fn source_scan_classifies_every_domain_literal_and_construction_use() {
         "iroha.mint",
         "iroha::logger",
         // Norito Rust schema identities name layouts, not scanned hash domains.
-        "iroha_core::amx::PreparedIntentCoordinatesV1",
-        "iroha_core::amx::PreparedIntentRowV1",
+        "iroha_core::amx::AmxParentCoordinatesV1",
+        "iroha_core::amx::AmxIntentCoordinatesV1",
+        "iroha_core::amx::AmxIntentRowV1",
         "plain text v1 here",
         "retail_fee_head_tree_v1",
         "../fixtures/a/b_v1.json",
@@ -8882,6 +8883,42 @@ fn state_hash_scan_actual_amx_complete_keeps_its_original_listing() {
         1,
         "original AMX complete must retain its exact registry entry"
     );
+}
+
+/// Fixture-only hash collection cannot replace the production replay-alias classification.
+#[test]
+fn state_hash_scan_carrier_fixture_keeps_production_alias_and_visitor_visible() {
+    let path = "crates/iroha_core/src/tx.rs";
+    let (_, code) = split_source(&source(path));
+    let signatures = fn_signatures(&code);
+    assert!(
+        !signatures
+            .iter()
+            .any(|entry| entry.name == "canonical_carrier_membership_hashes"),
+        "the cfg(test) collection adapter is not a production State reader"
+    );
+    let visitor: Vec<_> = signatures
+        .iter()
+        .filter(|entry| entry.name == "for_each_canonical_carrier_membership_hash")
+        .collect();
+    assert_eq!(visitor.len(), 1);
+    assert!(visitor[0].reads_state && !visitor[0].returns_hash);
+    let alias: Vec<_> = signatures
+        .iter()
+        .filter(|entry| entry.name == "authenticated_signed_replay_alias")
+        .collect();
+    assert_eq!(alias.len(), 1);
+    assert!(alias[0].reads_state && alias[0].returns_hash);
+    let listed: Vec<_> = STATE_HASH_FUNCTIONS
+        .iter()
+        .filter(|entry| entry.path == path && entry.name == "authenticated_signed_replay_alias")
+        .collect();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].count, 1);
+    assert!(matches!(listed[0].owner, UseOwner::Other(Use::Record, _)));
+    assert!(!STATE_HASH_FUNCTIONS.iter().any(|entry| {
+        entry.path == path && entry.name == "canonical_carrier_membership_hashes"
+    }));
 }
 
 /// Current execution proofs serve an existing certified identity and result.

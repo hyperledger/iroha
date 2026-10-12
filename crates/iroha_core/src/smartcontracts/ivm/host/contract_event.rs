@@ -101,7 +101,8 @@ fn allocation() -> VMError {
     VMError::ExecutionDeferred(ivm::error::ExecutionDeferral::AllocationUnavailable)
 }
 
-/// Pre-copy exact metadata allocation demand used by emission gas/output preflight.
+/// Fixture metadata demand, excluding the retained charge ledger and payload backing.
+#[cfg(test)]
 pub(crate) fn metadata_allocation_bytes(
     contract: &ContractAddress,
     caller: &AccountId,

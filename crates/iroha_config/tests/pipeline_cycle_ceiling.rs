@@ -121,6 +121,8 @@ fn execution_limits_of_a_node_settings_value_are_the_protocol_defaults() {
 
 #[test]
 fn configuration_file_cannot_set_an_execution_limit() {
+    use std::fmt::Write as _;
+
     // Each chain-policy key alone is an unknown parameter of the node schema.
     for (key, value) in CHAIN_POLICY_KEYS {
         let error = base_reader()
@@ -135,10 +137,10 @@ fn configuration_file_cannot_set_an_execution_limit() {
         );
     }
     // One file naming all of them reports every one in a single aggregated error.
-    let all: String = CHAIN_POLICY_KEYS
-        .iter()
-        .map(|(key, value)| format!("{key} = {value}\n"))
-        .collect();
+    let mut all = String::new();
+    for (key, value) in CHAIN_POLICY_KEYS {
+        writeln!(&mut all, "{key} = {value}").expect("write to fixture string");
+    }
     let error = base_reader()
         .with_toml_source(inline_source(&format!("[pipeline]\n{all}")))
         .read_and_complete::<UserConfig>()

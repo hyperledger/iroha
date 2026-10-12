@@ -123,28 +123,28 @@ impl ExportRequest {
             *input.vesta
         );
         let mut words = input.public.to_vec();
-        let (x, y) = Option::<(Fp, Fp)>::from(input.pallas.g().coordinates()).unwrap();
-        words.extend([x, y]);
+        let pallas_coordinates = Option::<(Fp, Fp)>::from(input.pallas.g().coordinates()).unwrap();
+        words.extend([pallas_coordinates.0, pallas_coordinates.1]);
         for u in input.pallas.challenges() {
             words.extend(foreign_limbs(u).map(Fp::from_u128));
         }
         assert_eq!(words.len(), 52);
         let digest = hash_with_domain(LINEAGE_DOMAIN, &words);
-        let (x, y) = Option::<(Fq, Fq)>::from(input.vesta.g().coordinates()).unwrap();
+        let vesta_coordinates = Option::<(Fq, Fq)>::from(input.vesta.g().coordinates()).unwrap();
         let fq = |value: Fp| Option::<Fq>::from(Fq::from_repr(value.to_repr())).unwrap();
         let instances = vec![
             vec![fq(digest)],
-            vec![x, y],
+            vec![vesta_coordinates.0, vesta_coordinates.1],
             input.vesta.challenges().iter().copied().map(fq).collect(),
         ];
         assert_eq!(
             instances, input.instances,
             "public18/original P/V must bind exact producer instances"
         );
-        let pallas_params = PinnedParams::<Ep>::derive(16).unwrap();
-        let vesta_params = PinnedParams::<Eq>::derive(16).unwrap();
+        let pallas_parameters = PinnedParams::<Ep>::derive(16).unwrap();
+        let vesta_parameters = PinnedParams::<Eq>::derive(16).unwrap();
         verify_full(
-            &pallas_params,
+            &pallas_parameters,
             &binding,
             &key,
             &instances,
@@ -154,14 +154,14 @@ impl ExportRequest {
         .unwrap();
         input
             .pallas
-            .decide(&pallas_params, MemoryBudget::DEFAULT)
+            .decide(&pallas_parameters, MemoryBudget::DEFAULT)
             .unwrap();
         input
             .vesta
-            .decide(&vesta_params, MemoryBudget::DEFAULT)
+            .decide(&vesta_parameters, MemoryBudget::DEFAULT)
             .unwrap();
         let claim = accumulate_generator(
-            &pallas_params,
+            &pallas_parameters,
             &binding,
             &key,
             &instances,
@@ -171,7 +171,7 @@ impl ExportRequest {
         .unwrap();
         let opening = FoldInput::from_opening(*claim.g(), claim.challenges()).unwrap();
         opening
-            .decide(&pallas_params, MemoryBudget::DEFAULT)
+            .decide(&pallas_parameters, MemoryBudget::DEFAULT)
             .unwrap();
         let public = words_bytes(input.public);
         let originals = [

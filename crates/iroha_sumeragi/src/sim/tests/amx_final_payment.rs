@@ -18,6 +18,11 @@ fn last_payment(seed: u64) -> Scenario {
     // require this exact payment's outcome and escrow release instead.
     scenario.checks.liveness = false;
     scenario.checks.progress = 0;
+    scenario.clock_guard = Some(crate::sim::scenario::ClockGuard {
+        max_clock_drift_ms: 500,
+        due_work_max_lag_ms: 5_000,
+        ..Default::default()
+    });
     scenario.amx = Some(AmxConfig {
         relayers: vec![0],
         client: (2_000, 2_000),
@@ -42,7 +47,7 @@ fn amx_final_payment_recovers_lost_relayer_jobs_without_unrelated_work() {
     assert!(world.workload_every().is_none());
     let amx = world.amx.as_ref().unwrap();
     assert_eq!(amx.seen.begun.len(), 1, "one final payment only");
-    let (&tx, (participants, _)) = amx.seen.begun.first_key_value().unwrap();
+    let (&tx, (participants, _, _)) = amx.seen.begun.first_key_value().unwrap();
     assert_eq!(
         amx.seen.decided.get(&tx).map(|value| value.0),
         Some(Outcome::Commit)
@@ -97,4 +102,36 @@ fn amx_final_payment_silent_participant_requires_actionable_abort() {
         amx.seen.settled.get(&(1, tx)).map(|value| value.0),
         Some(Outcome::Abort)
     );
+}
+
+#[test]
+fn amx_final_payment_due_job_rebuilds_after_relayer_restart_without_background_work() {
+    let mut scenario = last_payment(1);
+    scenario.net_rules.push(NetRule::StallInstance {
+        inst: 2,
+        from: 0,
+        until: scenario.duration,
+    });
+    scenario.amx.as_mut().unwrap().settle_window = scenario.duration + 1;
+    // The relayer loses the expiry job before the due time and returns after it.
+    scenario.script.push((10_000, Fault::Crash(0)));
+    scenario.script.push((30_000, Fault::Restart(0)));
+    let world = run(scenario).unwrap_or_else(|failure| panic!("{failure}"));
+    assert!(world.workload_every().is_none());
+    assert!(world.clock_guard.is_some());
+    let amx = world.amx.as_ref().unwrap();
+    assert_eq!(amx.seen.begun.len(), 1);
+    let (&tx, (_, _, expires_at_ms)) = amx.seen.begun.first_key_value().unwrap();
+    let &(outcome, _, decided_at) = amx
+        .seen
+        .decided
+        .get(&tx)
+        .expect("reconstructed original expiry work must close the final obligation");
+    assert_eq!(outcome, Outcome::Abort);
+    assert!(decided_at >= *expires_at_ms && decided_at >= 30_000);
+    assert_eq!(
+        amx.seen.settled.get(&(1, tx)).map(|value| value.0),
+        Some(Outcome::Abort)
+    );
+    assert_eq!(world.machines[0].crashes, 1);
 }

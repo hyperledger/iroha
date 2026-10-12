@@ -107,6 +107,7 @@ struct RowContext<'a> {
     before: Option<&'a SumeragiAmxState>,
 }
 impl RowContext<'_> {
+    #[cfg(test)]
     fn prepared(participant: DataSpaceId) -> Self {
         Self {
             participant: Some(participant),
@@ -1144,5 +1145,67 @@ mod tests {
         drop(decoded);
         drop(bytes);
         assert_eq!(budget.reserved_bytes(), 0);
+    }
+    #[test]
+    fn borrowed_global_intent_keeps_exact_begin_locator_without_a_participant_parent() {
+        let writes = [ExecKv {
+            key: amx_record_witness_key(AmxRecordKind::Begin, [0x81; 32]).to_vec(),
+            value: vec![1, 4, 8],
+        }];
+        let carrier = HashOf::from_untyped_unchecked(Hash::new(b"Global scalar codec fixture"));
+        let mut coordinates = Coordinates {
+            local_network: NetworkId::from_genesis_hash(carrier),
+            local_chain: b"Global original",
+            scope: SumeragiRootScope::Global,
+            parent: None,
+            height: 8,
+            carrier,
+            ordinary_writes_root: Hash::new(b"actual full witness root belongs to verifier"),
+            records: 1,
+            authority: 0,
+            rows: RowsRef {
+                source: RowsSource::Writes(&writes),
+                count: 1,
+                context: RowContext {
+                    participant: None,
+                    height: 8,
+                    current: None,
+                    before: None,
+                },
+            },
+        };
+        let encoded = norito::encode_canonical(&coordinates).unwrap();
+        let decoded = read_coordinates(&encoded).unwrap();
+        assert!(decoded.parent.is_none());
+        assert_eq!(norito::encode_canonical(&decoded).unwrap(), encoded);
+        let projection = IntentProjection::decode(&encoded).unwrap();
+        let offset = projection.first_offset(&encoded).unwrap();
+        let (row, next) = projection.row(&encoded, 0, offset).unwrap().unwrap();
+        assert_eq!(row.kind().unwrap(), AmxRecordKind::Begin);
+        assert_eq!(row.begin_height, Some(8));
+        assert_eq!(row.participant, None);
+        assert_eq!(row.tx, [0x81; 32]);
+        assert!(projection.row(&encoded, 1, next).unwrap().is_none());
+        coordinates.height = 9;
+        let substituted = norito::encode_canonical(&coordinates).unwrap();
+        let projection = IntentProjection::decode(&substituted).unwrap();
+        assert!(
+            projection
+                .row(
+                    &substituted,
+                    0,
+                    projection.first_offset(&substituted).unwrap()
+                )
+                .is_err(),
+            "Begin locator cannot differ from its source height"
+        );
+        coordinates.scope = SumeragiRootScope::Dataspace {
+            parent_network_id: coordinates.local_network,
+            dataspace_id: DataSpaceId::new(5),
+        };
+        assert!(
+            IntentProjection::decode(&norito::encode_canonical(&coordinates).unwrap()).is_err(),
+            "a private source requires its exact authenticated parent coordinates"
+        );
     }
 }

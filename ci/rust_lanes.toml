@@ -10,6 +10,7 @@ daemon_packages = ["irohad", "irohad_lib"]
 [lanes.foundation]
 description = "Foundational codecs, primitives, derives, schemas, and support libraries."
 packages = [
+  "aes",
   "axum-core",
   "build-support",
   "bytes",
@@ -57,12 +58,14 @@ packages = [
   "iroha_executor_data_model",
   "iroha_executor_data_model_derive",
   "iroha_kagemusha_proof",
+  "iroha_parliament_ballot_proof",
   "iroha_pasta",
   "iroha_plonk",
   "iroha_plonk_gadgets",
   "iroha_plonk_recursion",
   "iroha_zkp_halo2",
   "iroha_zkp_poseidon",
+  "iroha_zkp_vole",
   "ivm",
   "ivm_abi",
   "ivm_artifact_admission",

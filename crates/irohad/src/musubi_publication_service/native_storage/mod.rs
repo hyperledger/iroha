@@ -21,7 +21,7 @@ use iroha_core::{
     query::native_musubi_storage::{
         NativeMusubiStorageObservationV1, with_native_musubi_storage_v1,
     },
-    state::{State, StateReadOnly as _},
+    state::State,
 };
 use iroha_crypto::KeyPair;
 use iroha_data_model::{

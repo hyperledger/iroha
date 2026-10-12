@@ -105,7 +105,7 @@ unsafe impl GlobalAlloc for ObservedAllocator {
 /// A body with a distinct nonzero allocation and intact returned identity.
 #[repr(align(256))]
 #[derive(Debug)]
-pub struct ProbeBody<E> {
+pub(super) struct ProbeBody<E> {
     data: Option<Bytes>,
     identity: u64,
     pending: bool,
@@ -173,7 +173,7 @@ impl<E> Body for ProbeBody<E> {
 /// A token with a distinct exact allocation and original returned identity.
 #[repr(align(128))]
 #[derive(Debug)]
-pub struct ProbeToken {
+pub(super) struct ProbeToken {
     identity: u64,
     contents: [u8; 17],
 }
@@ -231,7 +231,7 @@ fn finish() -> Observation {
 
 /// Exercise data, cancellation, refusal and panic cleanup against actual
 /// allocator deallocations for the supplied native constructor.
-pub fn verify<B, E, F>(constructor: F, body_layout: Layout, token_layout: Layout)
+pub(super) fn verify<B, E, F>(constructor: F, body_layout: Layout, token_layout: Layout)
 where
     B: Body<Data = Bytes, Error = E> + Unpin,
     F: Fn(ProbeBody<E>, ProbeToken) -> Result<B, (ProbeBody<E>, ProbeToken)>,
@@ -250,12 +250,11 @@ where
     ] {
         let expected_data = data.clone();
         start(body_layout, token_layout, 0);
-        let mut body = match constructor(
+        let Ok(mut body) = constructor(
             ProbeBody::new(data, pending, panic_on_drop),
             ProbeToken::new(),
-        ) {
-            Ok(body) => body,
-            Err(_) => panic!("native body allocation unexpectedly refused"),
+        ) else {
+            panic!("native body allocation unexpectedly refused");
         };
         OBSERVATION.with(|cell| {
             assert_eq!(
@@ -274,9 +273,8 @@ where
             Poll::Pending => assert!(pending),
             Poll::Ready(Some(Ok(frame))) => {
                 assert!(!pending);
-                let bytes = match frame.into_data() {
-                    Ok(bytes) => bytes,
-                    Err(_) => panic!("expected data frame"),
+                let Ok(bytes) = frame.into_data() else {
+                    panic!("expected data frame");
                 };
                 assert_eq!(Some(bytes), expected_data);
             }
@@ -297,12 +295,11 @@ where
 
     for refuse_step in [1, 2] {
         start(body_layout, token_layout, refuse_step);
-        let (body, token) = match constructor(
+        let Err((body, token)) = constructor(
             ProbeBody::new(Some(Bytes::from_static(b"unchanged")), true, false),
             ProbeToken::new(),
-        ) {
-            Err(original) => original,
-            Ok(_) => panic!("constructor ignored allocator refusal"),
+        ) else {
+            panic!("constructor ignored allocator refusal");
         };
         let observation = finish();
         assert_eq!(observation.allocation_step, refuse_step);
@@ -324,7 +321,7 @@ where
 }
 
 /// Check that the original constructor still has only its body allocation.
-pub fn verify_plain<B, E, F>(constructor: F, body_layout: Layout)
+pub(super) fn verify_plain<B, E, F>(constructor: F, body_layout: Layout)
 where
     B: Body<Data = Bytes, Error = E> + Unpin,
     F: Fn(ProbeBody<E>) -> B,

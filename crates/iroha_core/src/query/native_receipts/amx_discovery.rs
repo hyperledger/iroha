@@ -1,4 +1,4 @@
-//! Original-history discovery for Prepared and multi-participant Decision delivery.
+//! Original-history discovery for Begin, Prepared and multi-participant Decision delivery.
 //!
 //! An authenticated zero-record witness advances without an `.ami` file. A positive count
 //! requires the exact complete scalar frame and original per-record authentication. Begin
@@ -10,16 +10,19 @@ use iroha_crypto::HashOf;
 use iroha_data_model::{
     block::{BlockHeader, consensus::SumeragiRootScope},
     sumeragi_amx::{
-        AMX_RECORD_WITNESS_KEY_BYTES, AmxRecordKind, AmxRecordV1, MAX_AMX_PARTICIPANTS,
+        AMX_RECORD_WITNESS_KEY_BYTES, AllocatedAmxRecordProofV1, AmxRecordKind, AmxRecordV1,
+        MAX_AMX_PARTICIPANTS,
     },
 };
 use iroha_model_base::topology::DataSpaceId;
 
 use super::{
+    NativeAmxBeginRelayErrorV1, NativeAmxBeginRelayPollV1, NativeAmxBeginRelayReadV1,
     NativeAmxDecisionRelayErrorV1, NativeAmxDecisionRelayPollV1, NativeAmxDecisionRelayReadV1,
     NativeAmxPreparedRelayErrorV1, NativeAmxPreparedRelayPollV1, NativeAmxPreparedRelayReadV1,
     NativeAmxRecordProofPollV1, NativeAmxRecordProofReadV1, NativeAmxRelayIntentV1,
-    amx_intents::record_hash, amx_record_proof, decision_amx_relay, prepared_amx_relays,
+    amx_intents::record_hash, amx_record_proof, begin_amx_relay, decision_amx_relay,
+    prepared_amx_relays,
 };
 use crate::{
     query::native_context_archive::{
@@ -35,6 +38,9 @@ pub enum NativeAmxRelayDiscoveryErrorV1 {
     /// The original complete witness, archive frame or Prepared instruction refused.
     #[error(transparent)]
     Source(#[from] NativeAmxPreparedRelayErrorV1),
+    /// The original successful Begin input or Prepare instruction refused.
+    #[error(transparent)]
+    Begin(#[from] NativeAmxBeginRelayErrorV1),
     /// The original Begin/Decision join or Settle instruction refused.
     #[error(transparent)]
     Decision(#[from] NativeAmxDecisionRelayErrorV1),
@@ -58,6 +64,9 @@ pub enum NativeAmxRelayDiscoveryPollV1 {
 /// journal. Delivery of a Decision is not evidence of successful participant settlement.
 #[must_use = "retain the original discovery job through refusal or explicitly retire it"]
 pub struct NativeAmxRelayDiscoveryReadV1<'v, V: StateReadOnly> {
+    instruction: Option<NativeAmxRelayIntentV1>,
+    probe: Option<AllocatedAmxRecordProofV1>,
+    prepare: Option<NativeAmxBeginRelayReadV1<'v, V>>,
     decision: Option<NativeAmxDecisionRelayReadV1<'v, V>>,
     begin: Option<NativeAmxRecordProofReadV1<'v, V>>,
     selected: Option<NativeAmxRecordProofReadV1<'v, V>>,
@@ -121,6 +130,9 @@ pub fn amx_relays<'v, V: StateReadOnly>(
     )
     .map_err(Error::Archive)?;
     Ok(NativeAmxRelayDiscoveryReadV1 {
+        instruction: None,
+        probe: None,
+        prepare: None,
         decision: None,
         begin: None,
         selected: None,
@@ -198,6 +210,7 @@ impl<V: StateReadOnly> NativeAmxRelayDiscoveryReadV1<'_, V> {
         self.selected = None;
         self.begin = None;
         self.decision = None;
+        self.prepare = None;
         self.selected_verified = false;
         self.participants_len = 0;
         self.participant_index = 0;
@@ -229,14 +242,15 @@ impl<V: StateReadOnly> NativeAmxRelayDiscoveryReadV1<'_, V> {
                 }
             }
             self.recheck()?;
-            if self.count == Some(0) {
-                self.complete = true;
-                return Ok(Poll::Complete);
-            }
-            if matches!(self.scope, SumeragiRootScope::Dataspace { .. }) {
-                self.prepared = Some(prepared_amx_relays(self.view, self.height)?);
-            }
             return Ok(Poll::Pending);
+        }
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC270")))]
+        if self.count == Some(0) {
+            self.complete = true;
+            return Ok(Poll::Complete);
+        }
+        if self.prepared.is_none() && matches!(self.scope, SumeragiRootScope::Dataspace { .. }) {
+            self.prepared = Some(prepared_amx_relays(self.view, self.height)?);
         }
         if let Some(prepared) = &mut self.prepared {
             return Ok(match prepared.poll()? {
@@ -297,14 +311,33 @@ impl<V: StateReadOnly> NativeAmxRelayDiscoveryReadV1<'_, V> {
             self.row = Some((row, next));
         }
         let row = self.row.as_ref().expect("selected original row").0;
+        let kind = row.kind().map_err(Error::Encoding)?;
+        if kind == AmxRecordKind::Prepared {
+            return Err(Error::Source("Prepared row on Global root").into());
+        }
         if !self.selected_verified {
-            let selected = self.selected.as_mut().expect("original row verifier");
-            let proof = match selected.poll().map_err(Error::Proof)? {
-                NativeAmxRecordProofPollV1::Pending => return Ok(Poll::Pending),
-                NativeAmxRecordProofPollV1::Complete(proof) => {
-                    proof.ok_or(Error::Source("AMX row names an absent original record"))?
+            if self.probe.is_none() {
+                match self
+                    .selected
+                    .as_mut()
+                    .expect("original row verifier")
+                    .poll()
+                    .map_err(Error::Proof)?
+                {
+                    NativeAmxRecordProofPollV1::Pending => return Ok(Poll::Pending),
+                    NativeAmxRecordProofPollV1::Complete(proof) => {
+                        self.probe = Some(
+                            proof
+                                .ok_or(Error::Source("AMX row names an absent original record"))?,
+                        );
+                    }
                 }
-            };
+            }
+            let selected = self.selected.as_ref().expect("original row verifier");
+            let proof = self
+                .probe
+                .as_ref()
+                .expect("original retained selector proof");
             let record = &proof.canonical().record;
             let projection = self.projection.as_ref().expect("original projection");
             if !selected.matches_completed_execution(self.carrier, projection.ordinary_writes_root)
@@ -315,14 +348,15 @@ impl<V: StateReadOnly> NativeAmxRelayDiscoveryReadV1<'_, V> {
                     Error::Source("AMX row differs from original certified execution").into(),
                 );
             }
+            self.recheck()?;
             self.selected_verified = true;
-            // Authenticate and retire this selector before issuing a fresh delivery owner.
-            drop(proof);
-            if row.kind().map_err(Error::Encoding)? == AmxRecordKind::Begin {
-                self.recheck()?;
-                self.finish_row();
-                return Ok(Poll::Pending);
+            // A Begin already owns the exact authenticated participant selector. Other
+            // row selectors retire before acquiring their original Begin selector.
+            if kind != AmxRecordKind::Begin {
+                self.probe = None;
             }
+        }
+        if kind == AmxRecordKind::Decision && self.participants_len == 0 && self.begin.is_none() {
             self.begin = Some(amx_record_proof(
                 self.view,
                 row.begin_height.expect("validated Decision locator"),
@@ -331,13 +365,26 @@ impl<V: StateReadOnly> NativeAmxRelayDiscoveryReadV1<'_, V> {
             ));
         }
         if self.participants_len == 0 {
-            let begin = self.begin.as_mut().expect("original Begin verifier");
-            let proof = match begin.poll().map_err(Error::Proof)? {
-                NativeAmxRecordProofPollV1::Pending => return Ok(Poll::Pending),
-                NativeAmxRecordProofPollV1::Complete(proof) => proof.ok_or(Error::Source(
-                    "Decision locator names an absent original Begin",
-                ))?,
-            };
+            if self.probe.is_none() {
+                match self
+                    .begin
+                    .as_mut()
+                    .expect("original Begin verifier")
+                    .poll()
+                    .map_err(Error::Proof)?
+                {
+                    NativeAmxRecordProofPollV1::Pending => return Ok(Poll::Pending),
+                    NativeAmxRecordProofPollV1::Complete(proof) => {
+                        self.probe = Some(proof.ok_or(Error::Source(
+                            "Decision locator names an absent original Begin",
+                        ))?);
+                    }
+                }
+            }
+            let proof = self
+                .probe
+                .as_ref()
+                .expect("original retained Begin selector");
             let AmxRecordV1::Begin(record) = &proof.canonical().record else {
                 return Err(
                     Error::Source("Decision locator selected a different record kind").into(),
@@ -349,36 +396,71 @@ impl<V: StateReadOnly> NativeAmxRelayDiscoveryReadV1<'_, V> {
             {
                 return Err(Error::Source("original Begin participant set differs").into());
             }
+            self.recheck()?;
             self.participants_len = record.participants.len();
             self.participants[..self.participants_len].copy_from_slice(&record.participants);
             // Only fixed scalar selectors survive. decision_amx_relay independently verifies
             // exact Begin, Decision and immutable registered target before moving any graph.
-            drop(proof);
+            self.probe = None;
             self.begin = None;
             self.selected = None;
             return Ok(Poll::Pending);
         }
-        if self.decision.is_none() {
-            self.decision = Some(decision_amx_relay(
-                self.view,
-                row.begin_height.expect("validated Decision locator"),
-                self.height,
-                row.tx,
-                self.participants[self.participant_index],
-            )?);
+        if self.instruction.is_none() {
+            match kind {
+                AmxRecordKind::Begin => {
+                    if self.prepare.is_none() {
+                        self.prepare = Some(begin_amx_relay(
+                            self.view,
+                            self.height,
+                            row.tx,
+                            self.participants[self.participant_index],
+                        )?);
+                    }
+                    match self
+                        .prepare
+                        .as_mut()
+                        .expect("original Begin delivery")
+                        .poll()?
+                    {
+                        NativeAmxBeginRelayPollV1::Pending => return Ok(Poll::Pending),
+                        NativeAmxBeginRelayPollV1::Complete(intent) => {
+                            self.instruction = Some(intent)
+                        }
+                    }
+                }
+                AmxRecordKind::Decision => {
+                    if self.decision.is_none() {
+                        self.decision = Some(decision_amx_relay(
+                            self.view,
+                            row.begin_height.expect("validated Decision locator"),
+                            self.height,
+                            row.tx,
+                            self.participants[self.participant_index],
+                        )?);
+                    }
+                    match self
+                        .decision
+                        .as_mut()
+                        .expect("original Decision delivery")
+                        .poll()?
+                    {
+                        NativeAmxDecisionRelayPollV1::Pending => return Ok(Poll::Pending),
+                        NativeAmxDecisionRelayPollV1::Complete(intent) => {
+                            self.instruction = Some(intent)
+                        }
+                    }
+                }
+                AmxRecordKind::Prepared => {
+                    return Err(Error::Source("Prepared row on Global root").into());
+                }
+            }
         }
-        let intent = match self
-            .decision
-            .as_mut()
-            .expect("original Decision delivery")
-            .poll()?
-        {
-            NativeAmxDecisionRelayPollV1::Pending => return Ok(Poll::Pending),
-            NativeAmxDecisionRelayPollV1::Complete(intent) => intent,
-        };
-        // The exact .ami and certified source remain joined until this original delivery.
+        // Retain the exact admitted graph on final source/namespace refusal.
         self.recheck()?;
+        let intent = self.instruction.take().expect("original admitted delivery");
         self.decision = None;
+        self.prepare = None;
         self.participant_index += 1;
         if self.participant_index == self.participants_len {
             self.finish_row();

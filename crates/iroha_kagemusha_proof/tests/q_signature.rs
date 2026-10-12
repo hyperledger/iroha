@@ -244,6 +244,7 @@ fn signature_actual_native_proof_binds_inputs_and_retains_opening() {
         Arc,
         atomic::{AtomicUsize, Ordering},
     };
+
     let c = circuit(witness(), VerifyMode::Hard, false);
     let public = c.instances(&[true]).unwrap();
     let params = iroha_plonk::pcs::ipa::PinnedParams::<iroha_pasta::Ep>::derive(16).unwrap();

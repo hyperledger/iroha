@@ -2,7 +2,7 @@
 
 /// One completed canonical typed result word.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Word {
+pub enum Word {
     /// Canonical pointer-backed integer.
     Int(i64),
     /// Canonical decimal with exact expected value.
@@ -14,7 +14,7 @@ pub(crate) enum Word {
 }
 /// Actual native VM outcome; source declarations do not establish execution.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Outcome {
+pub enum Outcome {
     /// Every typed result word must be reproduced.
     Success(&'static [Word]),
     /// A declared nominal failure with the complete original authenticated descriptor.
@@ -27,7 +27,7 @@ pub(crate) enum Outcome {
     Permission,
 }
 /// One exact source pair, with complete observable expectations.
-pub(crate) struct Case {
+pub struct Case {
     /// Complete ordered capture identity.
     pub(crate) id: &'static str,
     /// Identical complete source used by both compiler sequences.
@@ -38,7 +38,7 @@ pub(crate) struct Case {
     pub(crate) trace: Option<i64>,
 }
 /// Complete inventory; missing or extra rows are rejected.
-pub(crate) const CASES: &[Case] = &[
+pub const CASES: &[Case] = &[
     Case {
         id: "rounded_values",
         source: include_str!("rounded_values.ko"),
@@ -111,21 +111,19 @@ pub(crate) const CASES: &[Case] = &[
     },
 ];
 /// Repository-relative canonical native capture consumed by compiler and VM tests.
-pub(crate) const CAPTURE_PATH: &str = "fixtures/kotodama/compact_emission/native_v1.tsv";
+pub const CAPTURE_PATH: &str = "fixtures/kotodama/compact_emission/native_v1.tsv";
 /// Bound on one canonical captured artifact, before any hex allocation.
-pub(crate) const MAX_ARTIFACT_BYTES: usize = 64 * 1024;
+pub const MAX_ARTIFACT_BYTES: usize = 64 * 1024;
 
 /// Exact canonical artifact pair, checked against its source and full byte hashes.
-pub(crate) struct Pair {
+pub struct Pair {
     /// Complete artifact with the original compact-emission sequence retained by its scoped test guard.
     pub(crate) before: Vec<u8>,
     /// Complete artifact with the sole production compact emitter enabled.
     pub(crate) after: Vec<u8>,
 }
 /// Load the complete native capture, rejecting missing, duplicate, oversized or altered rows.
-pub(crate) fn load_pairs(
-    repository_root: &std::path::Path,
-) -> std::collections::BTreeMap<String, Pair> {
+pub fn load_pairs(repository_root: &std::path::Path) -> std::collections::BTreeMap<String, Pair> {
     let path = repository_root.join(CAPTURE_PATH);
     let metadata = std::fs::metadata(&path)
         .expect("capture native compiler rows before running parity or VM consumers");
@@ -148,7 +146,7 @@ pub(crate) fn load_pairs(
             "exact complete source identity"
         );
         let artifact = |hex_text: &str, expected_hash: &str| {
-            assert!(hex_text.len() <= MAX_ARTIFACT_BYTES * 2 && hex_text.len() % 2 == 0);
+            assert!(hex_text.len() <= MAX_ARTIFACT_BYTES * 2 && hex_text.len().is_multiple_of(2));
             let bytes = hex::decode(hex_text).expect("native artifact hex");
             assert_eq!(hex::encode(&bytes), hex_text, "canonical lowercase hex");
             assert_eq!(

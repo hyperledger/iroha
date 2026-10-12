@@ -8,9 +8,7 @@ use iroha_crypto::KeyPair;
 use iroha_data_model::{
     NetworkId,
     account::AccountId,
-    transaction::{
-        Executable, FeePaymentIntent, SignedTransaction, TransactionBuilder, TransactionPayload,
-    },
+    transaction::{Executable, SignedTransaction, TransactionBuilder, TransactionPayload},
 };
 use iroha_operation_journal::{Journal, NativeRecord};
 use iroha_version::codec::DecodeVersioned as _;

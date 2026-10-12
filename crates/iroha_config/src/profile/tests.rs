@@ -78,9 +78,11 @@ fn every_compiled_profile_loads_with_its_identity() {
 
 #[test]
 fn shipping_gossip_profiles_and_execution_overlay_carry_the_default_frame() {
-    let expected = defaults::network::MAX_PLAINTEXT_FRAME_BYTES.get() as i64;
+    let expected = i64::try_from(defaults::network::MAX_PLAINTEXT_FRAME_BYTES.get())
+        .expect("default plaintext frame bound fits the TOML integer");
     assert_eq!(
-        defaults::network::MAX_FRAME_BYTES_TX_GOSSIP.get() as i64,
+        i64::try_from(defaults::network::MAX_FRAME_BYTES_TX_GOSSIP.get())
+            .expect("default gossip frame bound fits the TOML integer"),
         expected
     );
     for id in [ProfileId::SoraNexusV1, ProfileId::SoraNexusV1Qual] {

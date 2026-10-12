@@ -1362,6 +1362,8 @@ impl PrefixVerifierContext {
         Ok(())
     }
 
+    /// Fixture adapter over the production preparer with an injected scratch admission.
+    #[cfg(test)]
     fn verify_certificate_with_scratch_admission(
         &self,
         committed: CommittedBlock,

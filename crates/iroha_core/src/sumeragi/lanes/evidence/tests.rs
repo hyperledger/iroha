@@ -217,6 +217,7 @@ impl Fixture {
             Arc::new(EmptyStore),
             shared,
             budget.clone(),
+            iroha_primitives::time::TimeSource::new_system(),
         )
         .complete()
         .unwrap_or_else(|(_, error)| panic!("empty original lane recovery: {error}"));

@@ -113,7 +113,7 @@ impl<'a, F: LambdaField> Plain<'a, F> {
 
     /// The field value inside `value`.
     #[cfg(test)]
-    pub(super) fn value_of(&self, value: PlainValue<F>) -> F {
+    pub(super) fn value_of(value: PlainValue<F>) -> F {
         value.value
     }
 }
@@ -170,10 +170,10 @@ impl<F: LambdaField> ConstraintSystem for Plain<'_, F> {
         }
         let non_zero = !value.value.is_zero();
         self.violated |= non_zero;
-        if let Some(indices) = &mut self.indices {
-            if non_zero {
-                indices.push(index);
-            }
+        if let Some(indices) = &mut self.indices
+            && non_zero
+        {
+            indices.push(index);
         }
         #[cfg(test)]
         self.recorded.push(value.value);
@@ -194,7 +194,7 @@ mod tests {
         for index in 0..16 {
             let expected = F::from_bit(u8::from([1, 2, 15].contains(&index)));
             assert_eq!(system.coordinate(index), Some(expected));
-            assert_eq!(system.value_of(system.witness(index)), expected);
+            assert_eq!(Plain::<F>::value_of(system.witness(index)), expected);
             assert_eq!(system.witness(index).degree, Degree::ONE);
         }
         assert_eq!(system.coordinate(16), None);

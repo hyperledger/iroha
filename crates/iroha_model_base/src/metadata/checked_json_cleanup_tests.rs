@@ -90,7 +90,7 @@ fn audit(value: &impl JsonSerialize, label: &str, defects: &mut Vec<String>) {
         defects.push(format!("{label}: {changed:?}"));
     }
 }
-fn complete(defects: Vec<String>) {
+fn complete(defects: &[String]) {
     assert!(defects.is_empty(), "{ASSERTION}: {defects:?}");
 }
 #[test]
@@ -103,7 +103,7 @@ fn original_metadata_refusal_preserves_inherited_depth() {
     let mut defects = Vec::new();
     audit(&value, "Metadata scalar", &mut defects);
     audit(&Metadata::default(), "Metadata empty", &mut defects);
-    complete(defects);
+    complete(&defects);
 }
 
 #[test]
@@ -116,5 +116,5 @@ fn quoted_metadata_keys_and_nested_canonical_json_keep_original_bytes_and_depth(
     );
     let mut defects = Vec::new();
     audit(&value, "quoted key and nested retained Json", &mut defects);
-    complete(defects);
+    complete(&defects);
 }

@@ -746,7 +746,7 @@ fn replication_completion_signer_is_distinct_required_and_canonical() {
     roundtrip(&original);
     for replacement in [
         Value::Null,
-        Value::String("".into()),
+        Value::String(String::new()),
         Value::String("not-an-account".into()),
     ] {
         let mut candidate = original.clone();

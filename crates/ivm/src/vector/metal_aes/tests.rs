@@ -21,10 +21,10 @@ fn measured_adapter_rejects_unsupported_or_mismatched_geometry_without_mutation(
     let keys = [[0x39; 16]; 9];
     let mut states = [[0x17; 16]; 128];
     for work in [
-        MetalBatchWork::AesEnc,
-        MetalBatchWork::AesDec,
-        MetalBatchWork::AesEncRounds(9),
-        MetalBatchWork::AesDecRounds(9),
+        MetalBatchWork::Encrypt,
+        MetalBatchWork::Decrypt,
+        MetalBatchWork::EncryptRounds(9),
+        MetalBatchWork::DecryptRounds(9),
     ] {
         let baseline = AesCpuBaseline::capture(work);
         let wrong_keys = if work.fused() { &keys[..8] } else { &keys[..2] };
@@ -77,10 +77,10 @@ fn required_metal_aes_rechecks_measured_cpu_after_native_completion() {
         std::array::from_fn(|round| std::array::from_fn(|lane| (round * 17 + lane * 7) as u8));
     for slot in 0..slots {
         for work in [
-            MetalBatchWork::AesEnc,
-            MetalBatchWork::AesDec,
-            MetalBatchWork::AesEncRounds(9),
-            MetalBatchWork::AesDecRounds(9),
+            MetalBatchWork::Encrypt,
+            MetalBatchWork::Decrypt,
+            MetalBatchWork::EncryptRounds(9),
+            MetalBatchWork::DecryptRounds(9),
         ] {
             let keys = &keys[..work.rounds()];
             let expected = states.map(|block| {

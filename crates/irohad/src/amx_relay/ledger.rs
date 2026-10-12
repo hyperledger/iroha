@@ -260,7 +260,7 @@ impl RelayLedger {
         else {
             return Err(eyre!("AMX carrier is not externally signed"));
         };
-        if !cfg!(all(test, sumeragi_daemon_mutation = "HC255")) {
+        if !cfg!(all(test, sumeragi_daemon_mutation = "HC266")) {
             self.check_payload(transaction.payload())?;
         }
         let evidence = evidence(block, index)?;

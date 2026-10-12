@@ -44,6 +44,7 @@ impl<F: PastaField> Circuit<F> for KeyShape<F> {
 }
 fn identity<C: PastaCurve>() {
     use super::super::proving;
+
     let params = PinnedParams::<C>::derive(8).unwrap();
     let mut config = KeygenConfigV2::pipa_r(vec![InstanceType::Bounded]);
     config.compress_selectors = false;

@@ -630,6 +630,7 @@ fn certified_execution_flag_reaches_the_application_without_inference() {
     let mut executor = Overlay::new();
     let blocks = FakeBlocks::default();
     let (block, block_hash, _) = child(1, (G, RG), 1);
+    let block = std::sync::Arc::new(block);
     for certified in [false, true, false, true] {
         assert!(matches!(
             run_exec(

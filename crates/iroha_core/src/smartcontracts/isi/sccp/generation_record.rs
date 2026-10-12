@@ -420,6 +420,7 @@ impl RetainedSccpGeneration {
     ///
     /// # Errors
     /// Invalid structure, original capacity refusal or fallible physical/account allocation.
+    #[cfg(test)]
     pub(crate) fn admit(
         source: &SccpCommitteeGenerationV1,
         budget: &AllocationBudget,

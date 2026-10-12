@@ -82,10 +82,10 @@ fn canonical<T: norito::NoritoSerialize>(
     value: &T,
     stage: WorkflowStage,
 ) -> Result<Vec<u8>, WorkflowError> {
-    norito::encode_canonical(value).map_err(|error| canonical_error(error, stage))
+    norito::encode_canonical(value).map_err(|error| canonical_error(&error, stage))
 }
 
-fn canonical_error(error: norito::Error, stage: WorkflowStage) -> WorkflowError {
+fn canonical_error(error: &norito::Error, stage: WorkflowStage) -> WorkflowError {
     // A writer has no decoder scope. Preserve its actual allocator error without
     // manufacturing a decode attempt or inferring refusal from diagnostic text.
     let code = if matches!(error, norito::Error::AllocationFailed { .. }) {
@@ -236,7 +236,8 @@ impl StepDescriptorV1 {
             max_transaction_identities: 0,
             participants_required,
             custody_handles_required,
-            max_transcript_bytes: MAX_ROUND_TRANSCRIPT_BYTES_V1 as u32,
+            max_transcript_bytes: u32::try_from(MAX_ROUND_TRANSCRIPT_BYTES_V1)
+                .expect("the protocol transcript bound fits its u32 field"),
         }
     }
 

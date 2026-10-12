@@ -3566,21 +3566,6 @@ impl Kura {
         }
         self.install_lane_incarnation_marker_for_test(entry, incarnation, activation_height)
     }
-    /// Inject marker identity corruption at the original physical object.
-    #[cfg(test)]
-    pub(super) fn substitute_lane_marker_identity_for_test(
-        &self,
-        entry: &LaneStorageEntry,
-        incarnation: Hash,
-        activation_height: u64,
-    ) -> Result<()> {
-        let _geometry = self.lane_geometry_lock.lock();
-        let path = entry.blocks_dir(&self.store_root).join(MARKER_FILE_NAME);
-        let mut marker = self.read_lane_marker(&path)?;
-        marker.incarnation = incarnation;
-        marker.activation_height = activation_height;
-        self.atomic_write_geometry_file(&path, &path.with_extension("norito.tmp"), &marker.encode())
-    }
     /// Restore a structural storage fixture from its actual published journal.
     /// Tests supply the expected route catalog; no incarnation or predecessor
     /// is synthesized from a configuration alias or the later active map.

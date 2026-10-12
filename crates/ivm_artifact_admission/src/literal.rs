@@ -67,9 +67,10 @@ where
         payload,
         ivm_abi::codec::canonical_norito_decode_limits(payload.len()),
     )
-    .map_err(|error| match error.into_local_refusal() {
-        Ok(original) => VMError::DecodeDeferred(original),
-        Err(_) => VMError::InvalidMetadata,
+    .map_err(|error| {
+        error
+            .into_local_refusal()
+            .map_or_else(|_| VMError::InvalidMetadata, VMError::DecodeDeferred)
     })
 }
 pub fn validate_literal_payload(

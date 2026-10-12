@@ -188,11 +188,15 @@ mod tests {
         let mut out = vec![0u8; len];
         if level == SecurityLevel::L128 {
             let mut sponge = sha3::Shake128::default();
-            parts.iter().for_each(|part| sponge.update(part));
+            for part in parts {
+                sponge.update(part);
+            }
             sponge.finalize_xof().read(&mut out);
         } else {
             let mut sponge = sha3::Shake256::default();
-            parts.iter().for_each(|part| sponge.update(part));
+            for part in parts {
+                sponge.update(part);
+            }
             sponge.finalize_xof().read(&mut out);
         }
         out

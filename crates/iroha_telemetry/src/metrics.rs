@@ -1413,11 +1413,10 @@ impl Metrics {
             crypto: CryptoStatus {
                 sm_helpers_available: cfg!(feature = "sm"),
                 sm_openssl_preview_enabled: value.sm_openssl_preview.get() != 0,
-                trace: value
+                trace: *value
                     .trace_status
                     .read()
-                    .expect("trace status lock poisoned")
-                    .clone(),
+                    .expect("trace status lock poisoned"),
             },
             stack: stack_settings_snapshot().into(),
             sumeragi: Some(build_sumeragi_status(value)),

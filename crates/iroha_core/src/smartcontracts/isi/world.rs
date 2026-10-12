@@ -32135,7 +32135,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 drop(state_block);
                 assert_eq!(
                     state.view().world().parameters().sumeragi().max_clock_drift_ms(),
-                    iroha_data_model::parameter::system::defaults::sumeragi::max_clock_drift_ms(),
+                    iroha_data_model::parameter::system::SumeragiParameters::default().max_clock_drift_ms(),
                 );
             }
         });

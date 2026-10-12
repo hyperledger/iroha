@@ -53,14 +53,14 @@ mod transaction_wait;
 mod validator_committee;
 mod verified_payment;
 pub use native_payment::{
-    NativePaymentError, NativePaymentObservationError, NativePaymentOperation, NativePaymentRecovery,
-    NativePaymentRequest, NativePaymentRunOptions, NativePaymentSettlement,
+    NativePaymentError, NativePaymentObservationError, NativePaymentOperation,
+    NativePaymentRecovery, NativePaymentRequest, NativePaymentRunOptions, NativePaymentSettlement,
 };
+pub use payment_inbox::{PaymentCreditEntry, PaymentCreditStatus, PaymentInbox, PaymentInboxError};
 pub use payment_return::{
     NativePaymentFullReturnRequest, NativePaymentReturnLink, NativePaymentReturnOperation,
     NativePaymentReturnRecovery, NativePaymentReturnSettlement, VerifiedPaymentReturn,
 };
-pub use payment_inbox::{PaymentCreditEntry, PaymentCreditStatus, PaymentInbox, PaymentInboxError};
 pub use transaction_wait::TransactionFinalityFailure;
 pub use verified_payment::{PaymentReceiptVerificationError, VerifiedPaymentReceipt};
 #[cfg(test)]

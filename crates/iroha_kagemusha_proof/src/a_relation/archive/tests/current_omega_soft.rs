@@ -161,11 +161,11 @@ impl Circuit<Fp> for IncomingBoundary {
                 );
                 out.extend(incoming.vesta.words());
                 append_p(&mut out, &incoming.opening);
-                let active_bytes = transport.active_carrier()?;
-                out.push(active_bytes.length().word().clone());
+                let payload = transport.active_carrier()?;
+                out.push(payload.length().word().clone());
                 let lanes = chip.operation_lanes()?;
                 let mut uint = UintChip::new(lanes.glue, lanes.range);
-                out.push(active_bytes.packed().digest(
+                out.push(payload.packed().digest(
                     &mut uint,
                     lanes.hash.sponge_mut()?,
                     &mut r,

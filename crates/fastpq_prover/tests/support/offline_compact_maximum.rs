@@ -536,7 +536,7 @@ pub fn assert_maximum_context_preflight() {
     let effect = EffectFixture::from_transfer_facts(&three);
     assert_eq!(three.transitions.len(), 6);
     assert!(matches!(
-        effect.prove(ProvingLimits::default(), VerificationLimits::default()),
+        effect.prove(ProvingLimits::default(), &VerificationLimits::default()),
         Err(ProvingError::Prove(Error::VerifierLimitExceeded {
             limit: "max_bundle_segments",
             actual: 3,

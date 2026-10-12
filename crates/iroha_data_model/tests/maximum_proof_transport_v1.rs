@@ -46,7 +46,8 @@ fn ceiling_proof_complete_envelopes_fit_the_fixed_transaction_cap() {
     let parameters = Parameters::default();
     let proof_bytes = TAIRA_PRIVACY_MAX_PROOF_BYTES_PER_ACTION_V1 as usize;
     assert_eq!(proof_bytes, 9_437_184);
-    let transaction_cap = parameters.transaction().max_tx_bytes().get() as usize;
+    let transaction_cap = usize::try_from(parameters.transaction().max_tx_bytes().get())
+        .expect("transaction ceiling fits usize");
     assert_eq!(transaction_cap, 10_485_760);
     let algorithms: Vec<_> = (0..=u8::MAX)
         .filter_map(|tag| Algorithm::try_from(tag).ok())
@@ -56,15 +57,21 @@ fn ceiling_proof_complete_envelopes_fit_the_fixed_transaction_cap() {
         .max_by_key(|algorithm| algorithm.signature_payload_len())
         .expect("at least one supported signature algorithm");
     assert_eq!(largest, Algorithm::MlDsa);
-    let count = parameters.transaction().max_signatures().get() as usize;
+    let count = usize::try_from(parameters.transaction().max_signatures().get())
+        .expect("signature ceiling fits usize");
     let fixtures = privacy_exact12_fixture_bundle_v1().expect("typed fixtures");
     assert_eq!(fixtures.rows.len(), 12);
     for algorithm in algorithms {
         let keys: Vec<_> = (0..count)
-            .map(|index| KeyPair::from_seed(vec![index as u8 + 1; 32], algorithm))
+            .map(|index| {
+                KeyPair::from_seed(
+                    vec![u8::try_from(index + 1).expect("sixteen distinct signer seeds"); 32],
+                    algorithm,
+                )
+            })
             .collect();
         let policy = MultisigPolicy::new(
-            count as u16,
+            u16::try_from(count).expect("sixteen-member signature threshold"),
             keys.iter()
                 .map(|key| MultisigMember::new(key.public_key().clone(), 1).expect("member"))
                 .collect(),
@@ -216,7 +223,7 @@ fn maximum_statement_and_proof_fit_with_sixteen_mldsa_signatures() {
         Err(
             PrivacyStatementValidationError::StatementAndEncryptedOutputsTooLarge {
                 bytes: statement_cap as u64 + 1,
-                max: statement_cap as u32,
+                max: u32::try_from(statement_cap).expect("statement ceiling fits u32"),
             }
         )
     );
@@ -235,13 +242,19 @@ fn maximum_statement_and_proof_fit_with_sixteen_mldsa_signatures() {
     let submit_bytes = norito::canonical_frame_len(&instruction).expect("submit frame");
     assert_eq!(submit_bytes - envelope_bytes, 4);
     let parameters = Parameters::default();
-    let count = parameters.transaction().max_signatures().get() as usize;
+    let count = usize::try_from(parameters.transaction().max_signatures().get())
+        .expect("signature ceiling fits usize");
     assert_eq!(count, 16);
     let keys: Vec<_> = (0..count)
-        .map(|index| KeyPair::from_seed(vec![index as u8 + 1; 32], Algorithm::MlDsa))
+        .map(|index| {
+            KeyPair::from_seed(
+                vec![u8::try_from(index + 1).expect("sixteen distinct signer seeds"); 32],
+                Algorithm::MlDsa,
+            )
+        })
         .collect();
     let policy = MultisigPolicy::new(
-        count as u16,
+        u16::try_from(count).expect("sixteen-member signature threshold"),
         keys.iter()
             .map(|key| MultisigMember::new(key.public_key().clone(), 1).expect("member"))
             .collect(),
@@ -264,7 +277,8 @@ fn maximum_statement_and_proof_fit_with_sixteen_mldsa_signatures() {
     assert_eq!(signed.signature_count(), count);
     let decoded: SignedTransaction = norito::decode_canonical(&canonical).expect("roundtrip");
     assert_eq!(decoded, signed);
-    let transaction_cap = parameters.transaction().max_tx_bytes().get() as usize;
+    let transaction_cap = usize::try_from(parameters.transaction().max_tx_bytes().get())
+        .expect("transaction ceiling fits usize");
     assert!(canonical.len() <= transaction_cap);
     println!(
         "MAXIMUM_STATEMENT_ENVELOPE statement={} ciphertext={} proof={} envelope={} submit={} wrapper={} transaction={} remaining={} authority_members={} signatures={}",

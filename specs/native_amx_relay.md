@@ -91,11 +91,22 @@ is not by itself a receipt for completed participant monetary effects.
 
 ## Current delivery boundary
 
-The supervised source scan currently emits Prepared records for delivery to their Global
-coordinator. The supervisor, route custody, exact-byte journal and authenticated
-outcome adapter cover that phase. The exact-selection Decision reader is separate
-from durable obligation discovery. TODO: connect retained Begin/Decision/Handoff
-discovery and delivery to the same supervisor and qualify the complete two-bank loop.
+The supervised source scan emits Begin as Prepare to each original participant,
+Prepared to its Global coordinator, and Decision as Settle to every participant. One canonical `.ami` frame stores
+Begin, Prepared and Decision scalar coordinates from the actual execution witness.
+A Decision retains its original Begin height before the Global entry is pruned, including
+an Abort emitted by the same pruning block. Replay regenerates the same frame. The
+reader authenticates the complete original witness before advancing over an ordinary
+height with no AMX records; a positive count requires the complete original frame.
+Every Decision row and its Begin participants are authenticated before the existing
+source-bound delivery reader constructs each target instruction. A frame or selector
+never grants signing authority, and no second index or outbound journal is created.
+
+Begin delivery additionally authenticates the original successful signed `BeginAmxV1`
+input. Pending Prepare admission retains that original shared block owner and its input
+indices; no transaction DTO replaces the authorized full terms. Destination signing still
+requires the independently configured account to own the local debit. TODO: add handoff
+delivery and qualify the complete two-bank loop on the current node candidate.
 Consensus deadline progress must be carried by real committed obligation work;
 local polling is never permission to release escrow or produce empty blocks.
 

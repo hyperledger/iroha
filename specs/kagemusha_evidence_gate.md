@@ -520,12 +520,13 @@ remained unchanged, but the source identity did not. Its partial samples and
 invalid attempts remain retained; every configuration is incomplete and
 inconclusive. The fresh capture in `m3-gate-selector-factor-current-capture-2`
 has the same executable, workload descriptors and consumed-file closure; its
-updated Cargo metadata is captured without source drift. A complete campaign
-is running from fresh processes with no samples inherited from the interrupted
-run. Its first four-thread synthetic-Q block contains a valid 11.276027125-second
-sample, exceeding the 10-second hard limit. This campaign therefore cannot pass;
-the remaining schedule continues to collect the other configurations, retaining
-all invalid attempts and hard failures. Independent raw-record review confirms
+updated Cargo metadata was captured without source drift. Its fresh campaign
+inherited no samples from the interrupted run. The first four-thread synthetic-Q
+block contains a valid 11.276027125-second sample, exceeding the 10-second hard
+limit. The campaign subsequently stopped naturally at sequence 30 when its
+source identity changed; its executable remained unchanged. The valid hard
+failure, partial configurations and invalid attempts remain retained. This
+incomplete campaign cannot qualify the candidate. Independent raw-record review confirms
 four workers, passing calibration and host probes, and unchanged selected source
 and executable identities (`m3-gate-selector-factor-capture2-hard-failure-review-1`,
 manifest SHA `b65b942228bf18ae14f7345a609a76b8b80307d00f096e19d7d1f8477e755ae5`).
@@ -1517,9 +1518,11 @@ The applied coefficient-MSM change uses the existing full-width secret path in
 both halves of `create_fold`, because its transcript may remain private inside
 an outer proof. It retains the process-wide 64 MiB scratch cap and adds secret
 scratch wiping; bucket operations and other fold branches remain variable-time.
-Both-curve k16 full-fold goldens, cancellation/budget regressions and strict lint
-remain pending. No whole-fold constant-time, performance or privacy claim is
-made (`c12-fold-secret-msm-applied-1/application.json` under
+Both-curve k16 full-fold goldens and 27 ordinary recursion cases pass in the
+retained run, but the post-test guard then rejects changed source identity.
+The three transcript cases, eight Pasta regressions and strict lint were not
+reached; current component qualification requires a fresh source-bound run.
+No whole-fold constant-time, performance or privacy claim is made (`c12-fold-secret-msm-applied-1/application.json` under
 `target/qualification`).
 
 Earlier diagnostic evidence follows. Independent source review accepts the final-salt

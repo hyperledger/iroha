@@ -63,7 +63,7 @@ class NativeInventoryTests(unittest.TestCase):
     def test_real_checkout_matches_every_reviewed_owner(self):
         names = inventory.validate_native_source_inventory(ROOT)
         self.assertEqual(len(names), sum(len(row[-1]) for row in inventory.NATIVE_CORE_TEST_OWNERS))
-        self.assertEqual(len(names), 479)
+        self.assertEqual(len(names), 503)
 
     def test_native_multisig_semantic_control_binds_its_exact_core_source_owner(self):
         row = next(row for row in inventory.NATIVE_CORE_TEST_OWNERS
@@ -322,11 +322,55 @@ class NativeInventoryTests(unittest.TestCase):
                         self.assertIn("unreviewed_native_replacement", str(refusal.exception))
                 source.write_text(original)
 
+    def test_current_sccp_restore_and_original_release_controls_have_exact_owners(self):
+        """Every added custody rule is selected and rejects a same-count replacement."""
+        expected = {
+            'native funded driver wake': (
+                ('sumeragi/driver/mod.rs', 'sumeragi/driver/wake.rs', 'wake', 'sumeragi::driver::wake::tests'),
+                ('original_thread_capacity_release_unparks_after_final_latch_check_with_writer_retained',)),
+            'native preparation refusal identity': (
+                ('sumeragi/executor/preparation.rs', 'sumeragi/executor/preparation/tests.rs', 'tests', 'sumeragi::executor::preparation::tests'),
+                ('immutable_result_foreign_budget_requires_recovery_with_original_diagnostic', 'immutable_result_excessive_preimage_requires_recovery_with_original_extent', 'immutable_result_encoding_failure_requires_recovery_with_original_cause', 'immutable_certificate_foreign_budget_requires_recovery_with_original_diagnostic', 'immutable_preparation_capacity_preserves_the_exact_original_release', 'immutable_preparation_allocator_refusal_never_invents_a_release', 'immutable_preparation_short_prepaid_parent_requires_recovery_without_losing_custody', 'producer_payload_errors_keep_original_release_and_terminal_classification')),
+            'native original execution and undo': (
+                ('state/native_execution_tip.rs', 'state/native_execution_tip/tests.rs', 'tests', 'state::native_execution_tip::tests'),
+                ('native_tip_snapshot_scope_is_mandatory_and_objects_are_closed',)),
+            'native certified history': (
+                ('sumeragi/certified_chain.rs', 'sumeragi/certified_chain/tests.rs', 'tests', 'sumeragi::certified_chain::tests'),
+                ('current_result_frame_preserves_original_x_and_rejects_scope_time_and_retired_body', 'native_frame_requires_fixed_header_and_exact_block_binding', 'authenticated_scope_rejects_active_non_global_without_redecoding_result', 'original_signed_dataspace_scope_refuses_active_genesis_in_both_prefix_owners')),
+            'native frozen epoch schedule': (
+                ('sumeragi/schedule.rs', 'sumeragi/schedule/tests.rs', 'tests', 'sumeragi::schedule::tests'),
+                ('sccp_epoch_floor_applies_even_when_disabled_and_after_genesis_initialization',)),
+        }
+        for label, (edge, leaves) in expected.items():
+            with self.subTest(owner=label):
+                owner, = (row for row in inventory.NATIVE_CORE_TEST_OWNERS if row[0] == label)
+                self.assertEqual(owner[1:5], edge)
+                for leaf in leaves:
+                    self.assertEqual(owner[-1].count(leaf), 1)
+                for relative in owner[1:3]:
+                    target = self.package / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(ROOT / "crates/iroha_core/src" / relative, target)
+                source = self.package / owner[2]
+                original = source.read_text()
+                self.assertEqual(inventory.validate_native_source_inventory(self.root, owners=(owner,)),
+                                 {owner[4] + "::" + leaf for leaf in owner[-1]})
+                for leaf in leaves:
+                    with self.subTest(leaf=leaf):
+                        declaration = "fn " + leaf + "("
+                        self.assertEqual(original.count(declaration), 1)
+                        source.write_text(original.replace(declaration, "fn unreviewed_current_rule_replacement("))
+                        with self.assertRaisesRegex(ValueError, "census differs") as refusal:
+                            inventory.validate_native_source_inventory(self.root, owners=(owner,))
+                        self.assertIn(leaf, str(refusal.exception))
+                        self.assertIn("unreviewed_current_rule_replacement", str(refusal.exception))
+                source.write_text(original)
+
     def test_source_retries_and_replay_bind_only_current_executable_owners(self):
         expected = {
             "native execution producer source retries": (
                 "sumeragi/driver/exec.rs", "sumeragi/driver/producer_retry_tests.rs",
-                "producer_retry_tests", "sumeragi::driver::exec::producer_retry_tests", 12),
+                "producer_retry_tests", "sumeragi::driver::exec::producer_retry_tests", 13),
             "native witness admission": (
                 "sumeragi/driver/mod.rs", "sumeragi/driver/tests/witness_admission.rs",
                 "witness_admission_tests", "sumeragi::driver::witness_admission_tests", 11),

@@ -240,7 +240,8 @@ impl Kura {
     ) -> Result<StableCanonicalBlockStoreMetadata> {
         // Failure to reacquire the original pathname is source unavailability,
         // not proof that the retained journal's authenticated bytes are corrupt.
-        // Keep this classification at the pre-I/O identity boundary only.
+        // Keep this classification at the metadata identity boundary only;
+        // frame, slot and byte validation errors retain their own classification.
         self.native_frame_journal_binding_inner(store)
             .map_err(|error| match error {
                 Error::IO(source, path) => Error::NativeJournalUnavailable(source, path),

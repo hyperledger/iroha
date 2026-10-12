@@ -1141,12 +1141,17 @@ CORE_MUTATIONS = [
           join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs",
           join_message="publication worker fixture: Any { .. }"),)),
 
-    m("HC254", "Direct payment replay: charge another execution fee for an already consumed business identity",
+    m("HC265", "Direct payment replay: charge another execution fee for an already consumed business identity",
       ["executor::settlement_replay::tests::direct_payment_replay_two_carriers_charge_once_and_recover_after_certified_restart"],
       causes=(ExpectedFailure("same direct payment identity charges one execution fee across distinct carriers",
           "crates/iroha_core/src/executor/settlement_replay_tests.rs"),)),
 
-    m("HC256", "Decision delivery: skip original source revalidation after funded instruction admission",
+    m("HC271", "Begin delivery: skip original source revalidation after funded Prepare admission",
+      ["sumeragi::amx::native::tests::paid_borrowed_custody::begins::native_amx_begin_delivery_final_namespace_refusal_preserves_original_instruction"],
+      causes=(ExpectedFailure("source namespace must be rechecked after instruction admission",
+          "crates/iroha_core/src/sumeragi/amx/native/tests/paid_borrowed_custody/begins.rs"),)),
+
+    m("HC267", "Decision delivery: skip original source revalidation after funded instruction admission",
       ["sumeragi::amx::native::tests::paid_borrowed_custody::native_amx_decision_delivery_final_namespace_refusal_preserves_original_instruction"],
       causes=(ExpectedFailure("Decision delivery must recheck original namespace after instruction admission",
           "crates/iroha_core/src/sumeragi/amx/native/tests/paid_borrowed_custody.rs"),)),
@@ -1158,6 +1163,21 @@ CORE_MUTATIONS = [
           "crates/iroha_core/src/sumeragi/payload/resource_contract_tests.rs"),
           ExpectedFailure("lane proposer must leave future signed input queued",
           "crates/iroha_core/src/sumeragi/payload/resource_contract_tests.rs"))),
+
+    m("HC268", "Routing lane executor: omit the uncertified effective-clock guard",
+      ["sumeragi::lanes::executor::native_decode_tests::signed_lane_clock_retains_original_admission_until_exact_boundary_and_certified_replay"],
+      causes=(ExpectedFailure("uncertified lane must wait at its authenticated effective clock boundary",
+          "crates/iroha_core/src/sumeragi/lanes/executor/native_decode_tests.rs"),)),
+
+    m("HC269", "Routing lane builder: publish before its authenticated effective timestamp",
+      ["sumeragi::lanes::executor::tests::lane_builder_effective_clock_retains_original_payload_across_clock_rewind"],
+      causes=(ExpectedFailure("lane builder must retain its original effective timestamp before publication",
+          "crates/iroha_core/src/sumeragi/lanes/executor.rs"),)),
+
+    m("HC264", "Routing lane builder: collapse future-only clock wait into an empty payload",
+      ["sumeragi::lanes::executor::tests::future_only_lane_work_retries_without_an_empty_answer_or_new_traffic"],
+      causes=(ExpectedFailure("future-only lane work must retry instead of reporting an empty payload",
+          "crates/iroha_core/src/sumeragi/lanes/executor.rs"),)),
 
     m("HC260", "Proposer clock: publish original canonical payload before its clock boundary",
       ["sumeragi::executor::payload_owner::tests::proposer_clock_retains_final_input_and_canonical_output_until_due",
@@ -1184,6 +1204,26 @@ CORE_MUTATIONS = [
           worker_thread="sumeragi-publication-test",
           join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs",
           join_message="publication worker fixture: Any { .. }") for _ in range(2))),
+
+
+    m("HC254", "Lane geometry completion: retire original physical owners without final authentication",
+      ["state::tests::geometry_completion_tests::completed_publication_refuses_substituted_journal_namespace_and_retries_original_owner",
+       "state::tests::geometry_completion_tests::prepublication_refuses_substituted_tiered_directory_and_retries_original_owner",
+       "state::tests::geometry_completion_tests::completed_publication_refuses_substituted_tiered_directory_and_retries_original_owner"],
+      causes=tuple(ExpectedFailure(cause, "crates/iroha_core/src/state/geometry_completion_tests.rs")
+          for cause in ("completed publication refuses a substituted original journal namespace",
+                        "publication refuses a substituted original tiered directory",
+                        "publication refuses a substituted original tiered directory"))),
+
+    m("HC255", "Lane geometry retry: reopen completed tiered progress before an identity refusal",
+      ["state::tests::geometry_completion_tests::completed_retry_preserves_original_applied_progress_on_tiered_identity_refusal"],
+      causes=(ExpectedFailure("completed tiered refusal preserves original forward progress",
+          "crates/iroha_core/src/state/geometry_completion_tests.rs"),)),
+
+    m("HC256", "Lane geometry completion: accept a different original configured baseline",
+      ["state::tests::geometry_completion_tests::completed_publication_refuses_changed_baseline_and_retries_original_owner"],
+      causes=(ExpectedFailure("completed publication refuses a changed original configured baseline",
+          "crates/iroha_core/src/state/geometry_completion_tests.rs"),)),
 
 ]
 
@@ -1285,7 +1325,7 @@ MODEL_MUTATIONS = [
 
 # Daemon integration rules execute only in the owning daemon unit-test crate.
 DAEMON_MUTATIONS = [
-    m("HC255", "AMX relay journal identity substitutes an unrelated authenticated successful carrier",
+    m("HC266", "AMX relay journal identity substitutes an unrelated authenticated successful carrier",
       ["amx_relay::ledger::proof_tests::relay_journal_identity_cannot_substitute_an_unrelated_successful_carrier"]),
     m("HC105", "DKG generation restore: ignore original input marker or later producer intent",
       ["beacon_bootstrap::seat_attempt::durable_tests::input_marker_or_later_intent_cannot_restore_generation_or_grant_a_new_interval"]),

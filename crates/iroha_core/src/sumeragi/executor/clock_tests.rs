@@ -1,7 +1,10 @@
 //! Local clock deferral over genuine State execution, independent roots and certified replay.
 
 use super::*;
-use crate::sumeragi::test_chain::{CertifiedTestChain, TestChainConfig};
+use crate::sumeragi::{
+    driver::traits::BlockStore as _,
+    test_chain::{CertifiedTestChain, TestChainConfig},
+};
 use iroha_primitives::time::TimeSource;
 
 /// Exercise the same original State guard for a caller's genuinely signed root.

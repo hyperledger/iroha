@@ -7,9 +7,17 @@
 //! remaining native proof graph and
 //! receipt/tree scratch before allocation; this scoped write owner does not fund those graphs.
 
+mod amx_begins;
+pub use amx_begins::{
+    NativeAmxBeginRelayErrorV1, NativeAmxBeginRelayPollV1, NativeAmxBeginRelayReadV1,
+    begin_amx_relay,
+};
 mod amx_decisions;
 mod amx_discovery;
-pub use amx_discovery::{NativeAmxRelayDiscoveryErrorV1, NativeAmxRelayDiscoveryPollV1, NativeAmxRelayDiscoveryReadV1, amx_relays};
+pub use amx_discovery::{
+    NativeAmxRelayDiscoveryErrorV1, NativeAmxRelayDiscoveryPollV1, NativeAmxRelayDiscoveryReadV1,
+    amx_relays,
+};
 mod amx_intents;
 pub use amx_decisions::{
     NativeAmxDecisionRelayErrorV1, NativeAmxDecisionRelayPollV1, NativeAmxDecisionRelayReadV1,

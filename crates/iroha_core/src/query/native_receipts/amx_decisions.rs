@@ -245,7 +245,7 @@ impl<V: StateReadOnly> NativeAmxDecisionRelayReadV1<'_, V> {
         if let Some(probe) = self.instruction_probe.take() {
             probe(self.instruction.as_ref().expect("original instruction"));
         }
-        #[cfg(not(all(test, sumeragi_core_mutation = "HC256")))]
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC267")))]
         if Some(self.joined_descriptor()?) != self.descriptor {
             return Err(Error::Source(
                 "original delivery binding changed after admission",

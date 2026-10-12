@@ -44,20 +44,6 @@ pub(crate) fn da_hydration_error(error: iroha_core::state::DaIndexHydrationError
     }
 }
 
-/// Preserve storage errors separately from local allocation refusal at the HTTP boundary.
-pub(crate) fn kura_attempt_error(
-    error: ExecutionAttemptError<iroha_core::kura::Error>,
-) -> crate::Error {
-    match error {
-        ExecutionAttemptError::Deferred(_) => crate::Error::Query(
-            iroha_data_model::ValidationFail::QueryFailed(QueryExecutionFail::CapacityLimit),
-        ),
-        ExecutionAttemptError::Rejected(error) => crate::Error::Query(
-            iroha_data_model::ValidationFail::InternalError(error.to_string()),
-        ),
-    }
-}
-
 /// Authenticate and bound the whole carrier before projecting any output.
 #[cfg(test)]
 fn read_carrier(

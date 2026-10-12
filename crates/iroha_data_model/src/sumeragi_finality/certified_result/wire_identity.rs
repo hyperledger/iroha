@@ -227,8 +227,10 @@ mod tests {
         assert_eq!(fields.len(), expected.len());
         let mut cursor = 0;
         for ((name, value), expected) in fields.into_iter().zip(expected) {
-            let start = u64::from_le_bytes(value[..8].try_into().unwrap()) as usize;
-            let width = u64::from_le_bytes(value[8..16].try_into().unwrap()) as usize;
+            let start = usize::try_from(u64::from_le_bytes(value[..8].try_into().unwrap()))
+                .expect("fixed X field offset fits usize");
+            let width = usize::try_from(u64::from_le_bytes(value[8..16].try_into().unwrap()))
+                .expect("fixed X field width fits usize");
             assert_eq!(start, cursor, "{name}");
             assert_eq!(&encoded[start..start + width], expected, "{name}");
             cursor += width;
@@ -269,7 +271,8 @@ mod tests {
                 .all(|&byte| byte == 0)
         );
         assert_eq!(
-            u64::from_le_bytes(body[23..31].try_into().unwrap()) as usize,
+            usize::try_from(u64::from_le_bytes(body[23..31].try_into().unwrap()))
+                .expect("bounded result body fits usize"),
             body.len() - start
         );
         assert_eq!(MAX_RESULT_BODY_BYTES + X_LEN, MAX_RESULT_PREIMAGE_BYTES);

@@ -1,3 +1,4 @@
+//! Actual allocation ledger for owned buffer and vector transitions.
 #![cfg(not(miri))]
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::ptr::null_mut;
@@ -16,9 +17,8 @@ struct Ledger {
 
 impl Ledger {
     const fn new() -> Self {
-        const ELEM: (AtomicPtr<u8>, AtomicUsize) =
-            (AtomicPtr::new(null_mut()), AtomicUsize::new(0));
-        let alloc_table = [ELEM; LEDGER_LENGTH];
+        let alloc_table =
+            [const { (AtomicPtr::new(null_mut()), AtomicUsize::new(0)) }; LEDGER_LENGTH];
 
         Self { alloc_table }
     }

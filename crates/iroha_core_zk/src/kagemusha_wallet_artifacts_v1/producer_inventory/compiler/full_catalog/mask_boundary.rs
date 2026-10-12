@@ -508,7 +508,7 @@ fn opening_report(plan: &OpeningPlan, n: usize, b: usize) -> Check<Vec<String>> 
 }
 
 fn assert_opening_mask(binding: &DescriptorBinding, role: &str) {
-    let protocol = Protocol::new(binding).expect("actual protocol");
+    let protocol = Protocol::new(binding.descriptor()).expect("actual protocol");
     check_zero_knowledge_budget(&protocol).expect("actual S7 plan");
     let shape = protocol.shape();
     let rows = opening_report(protocol.plan(), shape.n, shape.blinding_factors)

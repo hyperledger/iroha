@@ -2795,7 +2795,8 @@ fn run_doctor(public_root: &str, scope: DoctorScope) -> Result<Value> {
     )
 }
 
-/// The public-reset verifier consumes the producer's scoped check contract.
+/// Expected scoped producer checks for doctor report contract fixtures.
+#[cfg(test)]
 pub(super) fn doctor_expected_checks(
     scope: DoctorScope,
 ) -> Vec<(&'static str, u64, Option<String>)> {

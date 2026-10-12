@@ -423,7 +423,10 @@ mod tests {
             .clone();
         assert!(trust(&wrong).is_err());
         wrong = route.clone();
-        wrong.network_id = NativeFinalityFixture::start("other-route").network_id();
+        wrong.network_id =
+            NetworkId::from_genesis_hash(iroha_crypto::HashOf::from_untyped_unchecked(
+                iroha_crypto::Hash::new(b"foreign genesis identity"),
+            ));
         assert!(trust(&wrong).is_err());
         std::fs::write(&route.signed_genesis, &wire[..wire.len() - 1]).unwrap();
         assert!(trust(&route).is_err());

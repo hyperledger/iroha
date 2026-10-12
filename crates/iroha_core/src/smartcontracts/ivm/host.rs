@@ -9062,7 +9062,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             commit_height,
         }
     }
-    #[cfg(any(test, feature = "iroha-core-tests"))]
+    #[cfg(test)]
     fn flush_durable_state(
         &mut self,
         tx: &mut StateTransaction<'_, '_>,

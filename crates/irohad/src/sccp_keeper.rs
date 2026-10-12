@@ -1472,7 +1472,8 @@ mod tests {
                 .set_parameter(Parameter::Custom(CustomParameter::new(
                     consensus_metadata::handshake_meta_id(),
                     iroha_primitives::json::Json::new(metadata),
-                )));
+                )))
+                .expect("install the signed SCCP handshake fixture");
             block.commit();
         }
         let state = Arc::new(State::new_for_testing(

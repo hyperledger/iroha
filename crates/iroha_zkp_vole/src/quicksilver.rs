@@ -562,10 +562,10 @@ pub(crate) mod tests {
     use crate::field::{BinaryField, Gf128, Gf192, Gf256};
 
     /// A deterministic field element.
-    pub(crate) fn element<F: LambdaField>(seed: u64) -> F {
+    pub fn element<F: LambdaField>(seed: u64) -> F {
         let mut state = seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1;
         let mut acc = F::ZERO;
-        for _ in 0..F::BYTES / 8 + 1 {
+        for _ in 0..=F::BYTES / 8 {
             state ^= state << 13;
             state ^= state >> 7;
             state ^= state << 17;
@@ -592,9 +592,9 @@ pub(crate) mod tests {
     /// * identically zero, twice: `w6 * 0` and the constant 0;
     /// * degree 3 through a product with a degree-0 constant:
     ///   `(w32 * w33) * (w34 + 1) * 1 + w35`.
-    pub(crate) struct Mixed;
+    pub struct Mixed;
 
-    pub(crate) const MIXED_SCALARS: [u64; 8] = [3, 5, 7, 11, 13, 17, 19, 23];
+    pub const MIXED_SCALARS: [u64; 8] = [3, 5, 7, 11, 13, 17, 19, 23];
 
     impl Mixed {
         /// The public constant of the scalar constraint: the scalars of the
@@ -614,14 +614,12 @@ pub(crate) mod tests {
                 *bit = (salt.wrapping_mul(0x2545_f491_4f6c_dd1d) >> (i % 61)) & 1 == 1;
             }
             bits[2] = bits[0] ^ bits[1] ^ public[0];
-            for i in 0..8 {
-                bits[8 + i] = public[3 + i];
-            }
+            bits[8..16].copy_from_slice(&public[3..11]);
             bits[5] = (bits[3] & bits[4]) ^ public[1];
             bits[22] =
                 (bits[16] & bits[17] & bits[18] & bits[19]) ^ (bits[20] & bits[21]) ^ public[2];
             bits[31] = bits[24..31].iter().all(|&bit| bit);
-            bits[35] = bits[32] & bits[33] & !bits[34];
+            bits[35] = bits[32] && bits[33] && !bits[34];
             let mut bytes = vec![0u8; 8];
             for (i, bit) in bits.into_iter().enumerate() {
                 bytes[i / 8] |= u8::from(bit) << (i % 8);
@@ -1252,16 +1250,22 @@ pub(crate) mod tests {
     #[test]
     fn constants_follow_the_field() {
         let system = plain::Plain::<Gf192>::new(&[1], 8, false);
-        assert_eq!(system.value_of(system.zero()), Gf192::ZERO);
-        assert_eq!(system.value_of(system.one()), Gf192::ONE);
-        assert_eq!(system.value_of(system.bit(true)), Gf192::ONE);
-        assert_eq!(system.value_of(system.bit(false)), Gf192::ZERO);
+        assert_eq!(plain::Plain::<Gf192>::value_of(system.zero()), Gf192::ZERO);
+        assert_eq!(plain::Plain::<Gf192>::value_of(system.one()), Gf192::ONE);
         assert_eq!(
-            system.value_of(system.add_bit(system.witness(0), true)),
+            plain::Plain::<Gf192>::value_of(system.bit(true)),
+            Gf192::ONE
+        );
+        assert_eq!(
+            plain::Plain::<Gf192>::value_of(system.bit(false)),
             Gf192::ZERO
         );
         assert_eq!(
-            system.value_of(system.add_bit(system.witness(1), true)),
+            plain::Plain::<Gf192>::value_of(system.add_bit(system.witness(0), true)),
+            Gf192::ZERO
+        );
+        assert_eq!(
+            plain::Plain::<Gf192>::value_of(system.add_bit(system.witness(1), true)),
             Gf192::ONE
         );
         assert_eq!((DEGREE, MASKS), (7, 10));

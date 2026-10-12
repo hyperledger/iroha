@@ -23,10 +23,10 @@ fn winning_profile(geometry: Geometry, baseline: AesCpuBaseline) -> Profile {
 fn batch_scheduler_unwind_keeps_later_calibration_and_original_quarantine() {
     let _baseline = ScalarOverride::new();
     for work in [
-        MetalBatchWork::AesEnc,
-        MetalBatchWork::AesDec,
-        MetalBatchWork::AesEncRounds(2),
-        MetalBatchWork::AesDecRounds(2),
+        MetalBatchWork::Encrypt,
+        MetalBatchWork::Decrypt,
+        MetalBatchWork::EncryptRounds(2),
+        MetalBatchWork::DecryptRounds(2),
     ] {
         let geometry = Geometry::new(work, 128).unwrap();
         let baseline = AesCpuBaseline::capture(work);
@@ -119,10 +119,10 @@ fn batch_scheduler_unwind_keeps_later_calibration_and_original_quarantine() {
 fn fair_batch_sampling_defers_without_penalty_for_each_public_family() {
     let _baseline = ScalarOverride::new();
     for work in [
-        MetalBatchWork::AesEnc,
-        MetalBatchWork::AesDec,
-        MetalBatchWork::AesEncRounds(2),
-        MetalBatchWork::AesDecRounds(2),
+        MetalBatchWork::Encrypt,
+        MetalBatchWork::Decrypt,
+        MetalBatchWork::EncryptRounds(2),
+        MetalBatchWork::DecryptRounds(2),
     ] {
         let geometry = Geometry::new(work, 128).unwrap();
         let baseline = AesCpuBaseline::capture(work);

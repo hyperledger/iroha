@@ -1138,7 +1138,7 @@ mod tests {
         let seed = root(&params);
         let plain = commit(&params, &seed, &IV).expect("commit");
         let first = [0x77u8; 77];
-        let mut seen = vec![(
+        let mut observed_commitments = vec![(
             plain.commitment().to_vec(),
             plain.mult_corrections().to_vec(),
             plain.v_masks().to_vec(),
@@ -1170,16 +1170,16 @@ mod tests {
             assert_eq!(foreign.q(), opened.q());
             assert_ne!(foreign.q_masks(), opened.q_masks());
             assert_ne!(foreign.commitment(), opened.commitment());
-            seen.push((
+            observed_commitments.push((
                 commitment.commitment().to_vec(),
                 commitment.mult_corrections().to_vec(),
                 commitment.v_masks().to_vec(),
             ));
         }
         for (left, right) in [(0, 1), (0, 2), (1, 2)] {
-            assert_ne!(seen[left].0, seen[right].0);
-            assert_ne!(seen[left].1, seen[right].1);
-            assert_ne!(seen[left].2, seen[right].2);
+            assert_ne!(observed_commitments[left].0, observed_commitments[right].0);
+            assert_ne!(observed_commitments[left].1, observed_commitments[right].1);
+            assert_ne!(observed_commitments[left].2, observed_commitments[right].2);
         }
         // The wrappers are reference mode.
         let again = commit_with_tables(&params, tables, &seed, &IV).expect("commit");

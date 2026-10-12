@@ -95,6 +95,10 @@ struct Fixture {
 }
 impl Fixture {
     fn new(canonical: bool) -> Self {
+        Self::with_creation(canonical, 6_000)
+    }
+
+    fn with_creation(canonical: bool, created_ms: u64) -> Self {
         let mut keys: Vec<_> = (1..=4)
             .map(|seed| KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal))
             .collect();
@@ -145,7 +149,7 @@ impl Fixture {
             AllocationBudget::new(std::mem::size_of::<u64>()),
         ));
         let key = KeyPair::from_seed(vec![0x29; 32], Algorithm::Ed25519);
-        let transaction = TransactionBuilder::new(
+        let mut builder = TransactionBuilder::new(
             network,
             AccountId::new(key.public_key().clone()),
             FeePaymentIntent::authority(Vec::new(), None),
@@ -153,8 +157,9 @@ impl Fixture {
         .with_instructions([Log::new(
             Level::INFO,
             "original signed lane transaction".into(),
-        )])
-        .sign(key.private_key());
+        )]);
+        builder.set_creation_time(Duration::from_millis(created_ms));
+        let transaction = builder.sign(key.private_key());
         let bytes = if canonical {
             LaneBatch {
                 anchor_height: 7,
@@ -249,6 +254,13 @@ impl Fixture {
         }
     }
     fn recovery(&self) -> LaneRecovery<Anchor, IntrinsicComponentCheck, NoRows> {
+        self.recovery_with_clock(iroha_primitives::time::TimeSource::new_system())
+    }
+
+    fn recovery_with_clock(
+        &self,
+        time_source: iroha_primitives::time::TimeSource,
+    ) -> LaneRecovery<Anchor, IntrinsicComponentCheck, NoRows> {
         LaneExecutor::begin_recover(
             self.record.clone(),
             self.body.source().config().clone(),
@@ -260,6 +272,7 @@ impl Fixture {
             self.store.clone(),
             self.crypto.clone(),
             self.budget.clone(),
+            time_source,
         )
     }
 }
@@ -437,4 +450,123 @@ fn signed_four_validator_lane_recovery_keeps_available_phase_and_exact_original_
         .unwrap();
     let (_, error) = malformed.recovery().complete().unwrap_err();
     assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+}
+
+#[test]
+fn signed_lane_clock_retains_original_admission_until_exact_boundary_and_certified_replay() {
+    for created_ms in [4_000, 6_000] {
+        let fixture = Fixture::with_creation(true, created_ms);
+        let effective = Duration::from_millis(5_000.max(created_ms + 1));
+        let boundary = effective - fixture.record.params.max_clock_drift();
+        let (clock, time) =
+            iroha_primitives::time::TimeSource::new_mock(boundary - Duration::from_millis(1));
+        let mut lane = fixture
+            .recovery_with_clock(time.clone())
+            .complete()
+            .unwrap_or_else(|_| panic!("original lane recovery"));
+        for _ in 0..2 {
+            assert!(
+                matches!(lane.execute(&fixture.body, &fixture.qc.block_hash, false),
+                Some(ExecOutcome::Failed(reason)) if reason == "ClockAhead"),
+                "uncertified lane must wait at its authenticated effective clock boundary"
+            );
+            assert!(lane.cache.is_empty());
+            assert_eq!(lane.applied.height, 0);
+        }
+        let original = lane.admission.as_ref().unwrap();
+        let batch_pointer = original.batch.transactions.as_ptr();
+        let input_pointer = original.body.payload().as_slice().as_ptr();
+        assert_eq!(
+            original.admitted.as_ref().unwrap().effective_time,
+            effective
+        );
+        clock.rewind(Duration::from_millis(1));
+        assert!(matches!(
+            lane.execute(&fixture.body, &fixture.qc.block_hash, false),
+            Some(ExecOutcome::Failed(_))
+        ));
+        assert_eq!(
+            lane.admission.as_ref().unwrap().batch.transactions.as_ptr(),
+            batch_pointer
+        );
+        assert_eq!(
+            lane.admission
+                .as_ref()
+                .unwrap()
+                .body
+                .payload()
+                .as_slice()
+                .as_ptr(),
+            input_pointer
+        );
+        clock.set(boundary);
+        assert_eq!(
+            lane.execute(&fixture.body, &fixture.qc.block_hash, false),
+            Some(ExecOutcome::Valid(fixture.qc.result))
+        );
+        clock.set(Duration::ZERO);
+        assert_eq!(
+            lane.execute(&fixture.body, &fixture.qc.block_hash, false),
+            Some(ExecOutcome::Valid(fixture.qc.result))
+        );
+        lane.discard(1, &[]);
+        assert!(matches!(
+            lane.execute(&fixture.body, &fixture.qc.block_hash, false),
+            Some(ExecOutcome::Failed(_))
+        ));
+        assert_eq!(
+            lane.execute(&fixture.body, &fixture.qc.block_hash, true),
+            Some(ExecOutcome::Valid(fixture.qc.result))
+        );
+        lane.discard(1, &[]);
+        assert_eq!(
+            lane.prepare(&fixture.body, &fixture.qc),
+            Ok(Some(fixture.qc.result))
+        );
+        fixture.store.append(&fixture.body, &fixture.qc).unwrap();
+        lane.commit(&fixture.body, &fixture.qc).unwrap();
+        let recovered = fixture
+            .recovery_with_clock(time)
+            .complete()
+            .unwrap_or_else(|_| panic!("original lane recovery"));
+        assert_eq!(recovered.applied.height, 1);
+        assert_eq!(recovered.applied.block_hash, fixture.qc.block_hash);
+        assert!(
+            recovered
+                .applied
+                .state
+                .view()
+                .recent
+                .contains_key(&fixture.transaction.hash_as_entrypoint())
+        );
+    }
+}
+
+#[test]
+fn signed_lane_clock_wait_cannot_reuse_a_foreign_anchor_identity() {
+    let fixture = Fixture::new(true);
+    let (_, time) = iroha_primitives::time::TimeSource::new_mock(Duration::ZERO);
+    let mut lane = fixture
+        .recovery_with_clock(time)
+        .complete()
+        .unwrap_or_else(|_| panic!("original lane recovery"));
+    assert!(matches!(
+        lane.execute(&fixture.body, &fixture.qc.block_hash, false),
+        Some(ExecOutcome::Failed(_))
+    ));
+    lane.anchors = Arc::new(Anchor(
+        HashOf::from_untyped_unchecked(Hash::new(b"foreign applied anchor")),
+        fixture.anchor.1.clone(),
+    ));
+    assert_eq!(
+        lane.execute(&fixture.body, &fixture.qc.block_hash, true),
+        Some(ExecOutcome::Invalid)
+    );
+    assert!(lane.admission.is_none());
+    assert!(lane.cache.is_empty());
+    lane.anchors = fixture.anchor.clone();
+    assert_eq!(
+        lane.execute(&fixture.body, &fixture.qc.block_hash, true),
+        Some(ExecOutcome::Valid(fixture.qc.result))
+    );
 }

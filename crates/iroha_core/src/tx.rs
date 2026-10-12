@@ -98,12 +98,14 @@ pub(crate) fn exact_signed_transaction_hash(
         TransactionEntrypoint::SealedCommitment(_) => None,
     }
 }
-/// Return every identity that must be checked for replay before executing entrypoints.
+/// Collect replay identities for fixture comparisons.
+/// Production checks the original accepted transaction without allocating this collection.
 ///
 /// A sealed reveal always exposes both its carrier and enclosed signed identity
 /// to duplicate/replay validation. This helper does not decide which identities
 /// a rejected reveal is authenticated to commit; use
-/// [`canonical_carrier_membership_hashes`] at the persistence boundary.
+/// [`for_each_canonical_carrier_membership_hash`] at the persistence boundary.
+#[cfg(test)]
 pub(crate) fn canonical_replay_alias_hashes(
     entrypoints: &[TransactionEntrypoint],
 ) -> Vec<HashOf<TransactionEntrypoint>> {
@@ -120,13 +122,15 @@ pub(crate) fn canonical_replay_alias_hashes(
     }
     hashes
 }
-/// Return the identities authenticated for canonical carrier membership.
+/// Collect authenticated carrier identities for fixture comparisons.
+/// Production retains the visitor output in its original funded source owner.
 ///
 /// Every entrypoint commits its outer carrier identity. A sealed reveal commits
 /// the enclosed signed identity only when it exactly authenticates a pending
 /// commitment from the pre-block state at this block's height. Re-reading the
 /// pre-block value keeps the classification stable after successful removal,
 /// rejected execution rollback, or end-of-block expiry pruning.
+#[cfg(test)]
 pub(crate) fn canonical_carrier_membership_hashes(
     state_block: &StateBlock<'_>,
     entrypoints: &[TransactionEntrypoint],

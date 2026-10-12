@@ -53,9 +53,9 @@ pub fn verified_receipt(capture: &str) -> [u8; 282] {
         commit_qc: raw("commit_qc_frame_hex"),
         result_preimage: raw("result_preimage_hex"),
     };
-    let mut certificate_verifier = SumeragiCommitVerifierV1::new(&native).unwrap();
-    let verified = certificate_verifier.verify(&certificate).unwrap();
-    assert_eq!(verified.height(), 2);
+    let mut verifier = SumeragiCommitVerifierV1::new(&native).unwrap();
+    let certified_execution = verifier.verify(&certificate).unwrap();
+    assert_eq!(certified_execution.height(), 2);
     let receipt =
         iroha_data_model::isi::kagemusha_wallet::KagemushaWalletLoadReceiptV1::decode_canonical(
             &raw("receipt_frame_hex"),
@@ -68,12 +68,18 @@ pub fn verified_receipt(capture: &str) -> [u8; 282] {
         iroha_data_model::events::data::DataEvent::KagemushaLoadCommitted(event).into(),
     );
     let path = iroha_crypto::MerkleProof::from_audit_path(0, vec![]);
-    assert!(path.verify(
-        &iroha_crypto::HashOf::new(&boxed),
-        verified.execution().event_commitment.as_ref().unwrap()
-    ));
+    assert!(
+        path.verify(
+            &iroha_crypto::HashOf::new(&boxed),
+            certified_execution
+                .execution()
+                .event_commitment
+                .as_ref()
+                .unwrap()
+        )
+    );
     let transcript = receipt.transcript().unwrap();
     assert_eq!(transcript.as_slice(), raw("receipt_transcript_hex"));
-    assert_eq!(receipt.block_height, verified.height());
+    assert_eq!(receipt.block_height, certified_execution.height());
     transcript
 }

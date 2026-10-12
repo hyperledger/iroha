@@ -1775,18 +1775,19 @@ fn result_encoding_capacity_retry_keeps_original_execution_and_allocation_custod
         let block = proposal(chain, worker);
         let block_hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
         let mut occupied = None;
-        let outcome = worker.run_execution_with_encoder(&block, block_hash, |original, budget| {
-            let remaining = budget
-                .limit_bytes()
-                .checked_sub(budget.reserved_bytes())
-                .unwrap();
-            occupied = Some(
-                budget
-                    .try_reserve_bytes(remaining)
-                    .expect("occupy real original pool"),
-            );
-            encode_result_preimage(original, budget)
-        });
+        let outcome =
+            worker.run_execution_with_encoder(&block, block_hash, false, |original, budget| {
+                let remaining = budget
+                    .limit_bytes()
+                    .checked_sub(budget.reserved_bytes())
+                    .unwrap();
+                occupied = Some(
+                    budget
+                        .try_reserve_bytes(remaining)
+                        .expect("occupy real original pool"),
+                );
+                encode_result_preimage(original, budget)
+            });
         assert!(matches!(outcome, Err(_)));
         assert!(worker.recovery.is_none());
         assert!(worker.live.is_none());
@@ -1881,10 +1882,11 @@ fn result_encoding_foreign_pool_requires_recovery_and_retains_original_execution
     with_worker(|chain, worker, _, _| {
         let block = proposal(chain, worker);
         let block_hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
-        let outcome = worker.run_execution_with_encoder(&block, block_hash, |original, budget| {
-            let foreign = iroha_allocation::AllocationBudget::new(budget.limit_bytes());
-            encode_result_preimage(original, &foreign)
-        });
+        let outcome =
+            worker.run_execution_with_encoder(&block, block_hash, false, |original, budget| {
+                let foreign = iroha_allocation::AllocationBudget::new(budget.limit_bytes());
+                encode_result_preimage(original, &foreign)
+            });
         assert!(matches!(outcome, Err(_)));
         assert!(worker.recovery.is_some());
         let pending = worker
