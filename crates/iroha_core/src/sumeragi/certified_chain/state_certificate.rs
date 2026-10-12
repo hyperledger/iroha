@@ -1127,3 +1127,6 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
         }))
     }
 }
+
+#[cfg(test)]
+mod authority_regressions;

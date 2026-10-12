@@ -225,8 +225,11 @@ fn world_with(write: impl FnOnce(&mut WorldBlock<'_>)) -> World {
 #[test]
 fn sccp_snapshot_rejects_every_storage_invariant_violation() {
     use crate::smartcontracts::isi::sccp::test_support::sample_route;
-    use iroha_data_model::sccp::params::SCCP_MESSAGES_MAX_PER_BLOCK_V1;
+    use iroha_data_model::sccp::{
+        control::SCCP_FIRST_CONTROL_NONCE_V1, params::SCCP_MESSAGES_MAX_PER_BLOCK_V1,
+    };
     let network = SccpNetworkV1::EthereumMainnet;
+    let control_key = (network, 1, SCCP_FIRST_CONTROL_NONCE_V1);
     let control = |commitment_index| SccpControlRecordV1 {
         track: 1,
         parliament_paused: true,
@@ -247,7 +250,7 @@ fn sccp_snapshot_rejects_every_storage_invariant_violation() {
         message_count,
         history_index: 0,
     };
-    let cases: Vec<(&str, World, World)> = vec![
+    let mut cases: Vec<(&str, World, World)> = vec![
         (
             "sccp_block_leaves",
             world_with(|block| {
@@ -290,12 +293,10 @@ fn sccp_snapshot_rejects_every_storage_invariant_violation() {
             world_with(|block| {
                 block
                     .sccp_control_messages
-                    .insert((network, 1, 0), control(SCCP_MESSAGES_MAX_PER_BLOCK_V1));
+                    .insert(control_key, control(SCCP_MESSAGES_MAX_PER_BLOCK_V1));
             }),
             world_with(|block| {
-                block
-                    .sccp_control_messages
-                    .insert((network, 1, 0), control(0));
+                block.sccp_control_messages.insert(control_key, control(0));
             }),
         ),
         (
@@ -371,6 +372,23 @@ fn sccp_snapshot_rejects_every_storage_invariant_violation() {
             }),
         ),
     ];
+    // Each invalid key differs from the current valid neighbour in exactly one field.
+    // Keep the leaf-index refusal above independent of the retired zero-nonce fixture.
+    for key in [
+        (SccpNetworkV1::SoraTaira, 1, SCCP_FIRST_CONTROL_NONCE_V1),
+        (network, 0, SCCP_FIRST_CONTROL_NONCE_V1),
+        (network, 1, 0),
+    ] {
+        cases.push((
+            "sccp_control_messages",
+            world_with(|block| {
+                block.sccp_control_messages.insert(key, control(0));
+            }),
+            world_with(|block| {
+                block.sccp_control_messages.insert(control_key, control(0));
+            }),
+        ));
+    }
     for (field, invalid, valid) in cases {
         let mut target = World::default();
         let before = encoded(&target);

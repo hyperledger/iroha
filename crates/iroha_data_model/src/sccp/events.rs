@@ -537,6 +537,20 @@ sccp_event_payload! {
     }
 }
 
+sccp_event_payload! {
+    /// The first Global block-start pass at or after a fast pause's expiry (§4.14.7 G4).
+    #[derive(Copy)]
+    #[norito_schema(name = "iroha_data_model::sccp::events::SccpFastPauseLapsedV1")]
+    pub struct SccpFastPauseLapsedV1 {
+        /// External network whose original record was removed.
+        pub network: SccpNetworkV1,
+        /// Exact certificate retained by that expired record.
+        pub certificate_id: [u8; 32],
+        /// Original absolute expiry; no new deadline is derived during cleanup.
+        pub until_ms: u64,
+    }
+}
+
 /// SCCP data events (§4.17).
 #[derive(
     Debug,
@@ -653,6 +667,10 @@ pub enum SccpEvent {
     #[codec(index = 30)]
     #[norito(rename = "finality_degraded")]
     FinalityDegraded(SccpFinalityDegradedV1),
+    /// Expired fast-pause record removed without changing Parliament state or heads.
+    #[codec(index = 31)]
+    #[norito(rename = "fast_pause_lapsed")]
+    FastPauseLapsed(SccpFastPauseLapsedV1),
 }
 
 #[cfg(test)]

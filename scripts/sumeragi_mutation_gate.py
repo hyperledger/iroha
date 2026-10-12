@@ -1044,6 +1044,11 @@ CORE_MUTATIONS = [
       ['state::output_capacity::producer::tests::network::fees::sccp_failure_fee_decoder_refusal_keeps_original_deferral_and_retry', 'state::output_capacity::producer::tests::network::fees::ordinary_failure_fee_decoder_refusal_keeps_original_deferral_and_retry', 'state::output_capacity::producer::tests::network::penalties::refusal::fee_decoder_refusal_after_actual_ballot_penalty_rolls_back_and_retries_once']),
     m('HC245', 'Network ballot-penalty settlement: swallow the original local execution deferral as a completed rejection',
       ['state::output_capacity::producer::tests::network::penalties::refusal::actual_ballot_penalty_decoder_refusal_keeps_original_deferral_and_retry']),
+    m('HC246', 'SCCP fast-pause lifecycle: omit Global G4 expiry cleanup after enactments',
+      ['smartcontracts::isi::sccp::read::control::tests::lapse::native_fast_pause_lapse_uses_exact_time_and_preserves_parliament_confirmation', 'smartcontracts::isi::sccp::read::control::tests::lapse::native_fast_pause_lapse_cancellation_keeps_original_record_and_retries_once']),
+
+    m('HC247', 'Payload producer retry: erase the original resource refusal at the driver boundary',
+      ['sumeragi::executor::publication_tests::original_lane_policy_proposal_refusal_retains_worker_owner_and_exact_queued_retry', 'sumeragi::executor::publication_tests::original_staking_payload_worker_retains_pool_refusal_and_exact_queued_retry']),
 
 ]
 
@@ -1127,6 +1132,9 @@ MODEL_MUTATIONS = [
     m("DM33", "native AMX multisig semantic cause: allocate a String on original retained replay",
       ["sumeragi_amx::native::leg_decode::tests::invalid_native_multisig_threshold_replay_preserves_original_cause_without_diagnostic_allocations",
        "sumeragi_amx::native::leg_decode::tests::invalid_native_multisig_member_replay_preserves_original_cause_without_diagnostic_allocations"]),
+
+    m("DM34", "epoch validation cache: reconstruct an owning canonical epoch snapshot",
+      ["sumeragi_finality::epoch_graph::validation_tests::epoch_scope_retains_exact_context_without_a_hidden_heap_graph"]),
 
 ]
 

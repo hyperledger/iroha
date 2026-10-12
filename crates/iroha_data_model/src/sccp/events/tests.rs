@@ -26,8 +26,8 @@ fn point() -> SccpLcPointV1 {
 
 /// Codec index of every variant, in declaration order. Indices 2 to 9 belonged to the events of
 /// the attestation transport and stay unassigned.
-const CODEC_INDICES: [u32; 23] = [
-    0, 1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+const CODEC_INDICES: [u32; 24] = [
+    0, 1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
 ];
 
 /// One event of every variant, in declaration order, with its JSON tag.
@@ -263,6 +263,14 @@ fn every_event() -> Vec<(SccpEvent, &'static str)> {
             }),
             "finality_degraded",
         ),
+        (
+            SccpEvent::FastPauseLapsed(SccpFastPauseLapsedV1 {
+                network: ETH,
+                certificate_id: [29; 32],
+                until_ms: 1_758_604_800_000,
+            }),
+            "fast_pause_lapsed",
+        ),
     ]
 }
 
@@ -303,7 +311,7 @@ fn sccp_event_rejects_the_retired_attestation_and_roster_tags() {
 
     // The freed indices and the first index above the last variant decode to nothing, whatever
     // payload follows.
-    for index in (2_u32..=9).chain([31, u32::MAX]) {
+    for index in (2_u32..=9).chain([32, u32::MAX]) {
         for filler in [0, 1, 32, 256] {
             let mut encoded = index.encode();
             encoded.extend_from_slice(&vec![0x11; filler]);
@@ -455,4 +463,37 @@ fn every_native_degradation_reason_is_copyable_closed_and_roundtrips() {
     assert!(SccpFinalityDegradedReasonV1::decode_all(&mut 6_u32.encode().as_slice()).is_err());
     let retired = r#"{"height":3,"reason":"missing_inputs"}"#;
     assert!(norito::json::from_json::<SccpFinalityDegradedV1>(retired).is_err());
+}
+
+#[test]
+fn fast_pause_lapsed_payload_keeps_original_identity_in_closed_schema() {
+    let event = SccpFastPauseLapsedV1 {
+        network: ETH,
+        certificate_id: [31; 32],
+        until_ms: u64::MAX,
+    };
+    roundtrip(&event);
+    let schema = SccpEvent::schema();
+    let Some(iroha_schema::Metadata::Struct(fields)) = schema.get::<SccpFastPauseLapsedV1>() else {
+        panic!("the event must include its named lapse payload schema");
+    };
+    assert_eq!(
+        fields
+            .declarations
+            .iter()
+            .map(|field| field.name.as_str())
+            .collect::<Vec<_>>(),
+        ["network", "certificate_id", "until_ms"]
+    );
+    for missing in ["network", "certificate_id", "until_ms"] {
+        let mut value = norito::json::to_value(&event).unwrap();
+        value.as_object_mut().unwrap().remove(missing);
+        assert!(
+            norito::json::from_json::<SccpFastPauseLapsedV1>(
+                &norito::json::to_json(&value).unwrap()
+            )
+            .is_err()
+        );
+    }
+    assert_rejects_unknown_field(&event, &[]);
 }

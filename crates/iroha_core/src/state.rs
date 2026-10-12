@@ -28742,6 +28742,10 @@ impl State {
         crate::smartcontracts::isi::sccp::hook::begin_block(&mut sb)
             .map_err(StateBlockStartError::Storage)?;
         Self::apply_block_start_parliament_enactments(&mut sb, now_h)?;
+        // G4 runs after enactments and outside due-work accounting. A future G3
+        // fast-pause producer must precede this cleanup so renewal has no gap.
+        crate::smartcontracts::isi::sccp::pause_lifecycle::lapse_after_enactments(&mut sb)
+            .map_err(StateBlockStartError::Storage)?;
         let current_slot =
             current_axt_slot_from_block(&sb._curr_block, sb.nexus.axt.slot_length_ms);
         // Keep independent transaction phases in separate frames. Unoptimized

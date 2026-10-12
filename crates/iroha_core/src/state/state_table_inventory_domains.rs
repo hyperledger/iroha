@@ -58,8 +58,8 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
         usage: Use::Record,
         reason: "SCCP fast-pause effect binds its network identity, external network and head; certificate identity binds the exact certificate content. These are record identities, not a commitment over the complete State",
         literals: &[
-            r"iroha.sccp.fast_pause.effect.v1",
             r"iroha.sccp.fast_pause.certificate.id.v1",
+            r"iroha.sccp.fast_pause.effect.v1",
         ],
     },
     OtherDomains {

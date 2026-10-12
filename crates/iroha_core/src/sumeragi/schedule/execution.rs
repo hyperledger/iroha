@@ -101,6 +101,16 @@ impl fmt::Debug for ScheduleStep {
     }
 }
 impl ScheduleStep {
+    /// Borrow the scope authenticated for this exact uncompleted native execution.
+    /// An absent or completed request cannot grant block-start lifecycle authority.
+    pub(crate) fn original_root_scope(
+        &self,
+    ) -> Option<iroha_data_model::block::consensus::SumeragiRootScope> {
+        match self {
+            Self::Requested { root_scope, .. } => Some(*root_scope),
+            Self::Off | Self::Done(_) => None,
+        }
+    }
     /// Borrow the original signed genesis authority before any transaction effects.
     /// The completed or absent lifecycle cannot grant initialization authority.
     pub(crate) fn original_genesis_context(

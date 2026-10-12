@@ -2921,6 +2921,7 @@ impl<'s> Worker<'s> {
             Err(error) => {
                 if let crate::execution_attempt::ExecutionAttemptError::Deferred(reason) = &error {
                     self.routing_refusal = Some(reason.clone());
+                    return Err(preparation::producer_deferral(reason.clone().into()));
                 }
                 let reason = format!("lane storage during payload selection: {error}");
                 if matches!(
@@ -3018,9 +3019,8 @@ impl<'s> Worker<'s> {
                 selected
             }
             Err(reason) => {
-                let message = reason.to_string();
-                self.routing_refusal = Some(reason);
-                return Err(PublicationError::Retryable(message));
+                self.routing_refusal = Some(reason.clone());
+                return Err(preparation::producer_deferral(reason.into()));
             }
         };
         iroha_logger::debug!(
@@ -3063,13 +3063,12 @@ impl<'s> Worker<'s> {
                         self.routing_refusal = None;
                         block
                     }
-                    Err(payload::PayloadError::RoutingDeferred(reason)) => {
-                        let message = reason.to_string();
-                        self.routing_refusal = Some(reason);
-                        return Err(PublicationError::Retryable(message));
-                    }
                     Err(error) => {
                         match &error {
+                            payload::PayloadError::RoutingDeferred(reason)
+                            | payload::PayloadError::DecodeResource(reason) => {
+                                self.routing_refusal = Some(reason.clone());
+                            }
                             payload::PayloadError::StakingPreparation(
                                 crate::state::EvidencePreparationError::Admission(refusal),
                             ) => {
@@ -3081,6 +3080,9 @@ impl<'s> Worker<'s> {
                                 self.payload_refusal = Some(error.clone());
                             }
                             _ => {}
+                        }
+                        if let Some(original) = preparation::payload_failure(&error) {
+                            return Err(original);
                         }
                         iroha_logger::warn!(height, %error, "sumeragi: payload assembly failed");
                         return Err(PublicationError::Retryable(format!(

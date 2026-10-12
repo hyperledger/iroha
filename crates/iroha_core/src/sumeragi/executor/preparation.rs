@@ -60,6 +60,62 @@ pub(super) fn certificate_failure(error: &CertificateAdmissionError) -> Publicat
     }
 }
 
+/// Preserve the resource owner across the actual producer/driver boundary.
+/// Diagnostic side fields are not consumed by the driver's retry gate.
+pub(super) fn producer_deferral(original: PublicationDeferral) -> PublicationError {
+    let classified = match original {
+        PublicationDeferral::Execution(original) => {
+            validation_failure(&BlockValidationError::ExecutionDeferred(original))
+                .expect("execution refusal has an explicit validation classification")
+        }
+        other => PublicationError::Deferred(other),
+    };
+    if cfg!(all(test, sumeragi_core_mutation = "HC247"))
+        && let PublicationError::Deferred(original) = classified
+    {
+        PublicationError::Retryable(original.to_string())
+    } else {
+        classified
+    }
+}
+
+/// Reuse the validation classifier for the same original assembly refusal.
+/// Permanent custody failures remain recovery errors, and non-resource failures remain local.
+pub(super) fn payload_failure(error: &super::payload::PayloadError) -> Option<PublicationError> {
+    use super::payload::PayloadError;
+    use crate::state::StateAdmissionError;
+    let classified = match error {
+        PayloadError::SignatureCustodyInvariant(reason) => {
+            return Some(PublicationError::RecoveryRequired(reason.clone()));
+        }
+        PayloadError::RoutingDeferred(original) | PayloadError::DecodeResource(original) => {
+            PublicationError::Deferred(original.clone().into())
+        }
+        PayloadError::StakingPreparation(original) => {
+            validation_failure(&BlockValidationError::EvidencePreparation(original.clone()))?
+        }
+        PayloadError::StakingAdmission(original) => {
+            let original = match original {
+                StateAdmissionError::Storage(error) => {
+                    BlockValidationError::StateStorageAdmission(error.clone())
+                }
+                StateAdmissionError::History(error) => {
+                    BlockValidationError::BlockHashAdmission(error.clone())
+                }
+                StateAdmissionError::Membership(error) => {
+                    BlockValidationError::MembershipAdmission(error.clone())
+                }
+            };
+            validation_failure(&original)?
+        }
+        _ => return None,
+    };
+    Some(match classified {
+        PublicationError::Deferred(original) => producer_deferral(original),
+        other => other,
+    })
+}
+
 #[cfg(test)]
 mod tests;
 

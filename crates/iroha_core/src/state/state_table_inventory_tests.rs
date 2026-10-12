@@ -7340,7 +7340,49 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
             .unwrap_or_else(|| panic!("{id} is not inventoried"));
         assert_eq!(row.commitment, expected, "{id}");
     }
-    assert_eq!(covered.len(), 32);
+    // Pin the exercised owners, not a retired cardinality: dropping an existing
+    // table or testing one twice must not hide missing SCCP pause-state coverage.
+    let actual: BTreeSet<_> = covered.iter().map(|(field, _)| *field).collect();
+    assert_eq!(actual.len(), covered.len(), "typed owners are unique");
+    let expected = BTreeSet::from([
+        "world.account_aliases",
+        "world.confidential_policy_transition_counts",
+        "world.consensus_keys_by_pk",
+        "world.content_chunks",
+        "world.domain_endorsements_by_domain",
+        "world.domains_by_owner",
+        "world.global_beacon_active_session",
+        "world.governance_last_unlock_sweep_height",
+        "world.merge_global_state_root",
+        "world.merge_hint_roots",
+        "world.musubi_domain_ownership_generations",
+        "world.proofs_by_tag",
+        "world.provider_owners",
+        "world.rwas_by_frozen",
+        "world.sccp_anchor_chunks",
+        "world.sccp_anchor_open",
+        "world.sccp_committee_current",
+        "world.sccp_committee_generations",
+        "world.sccp_degraded_run",
+        "world.sccp_fast_pause_rounds",
+        "world.sccp_fast_pause_suspended_until_ms",
+        "world.sccp_fast_pauses",
+        "world.sccp_history_leaves",
+        "world.sccp_liability_clock",
+        "world.sccp_pause_panel",
+        "world.sccp_reset_nonce",
+        "world.smart_contract_state",
+        "world.soracloud_sequence_watermark",
+        "world.soradns_directory_history",
+        "world.soradns_directory_latest",
+        "world.soradns_history_len",
+        "world.soradns_last_publish_ms",
+        "world.tx_sequences",
+        "world.validation_fee_proposal_index",
+        "world.viral_binding_claims",
+        "world.viral_bonus_paid",
+    ]);
+    assert_eq!(actual, expected, "every required typed owner is exercised");
 }
 
 /// Canonical State-level fields reach no certified root: the truth that open defect

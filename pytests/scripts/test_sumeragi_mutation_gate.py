@@ -2672,6 +2672,7 @@ MODEL_NAMES = {
     "DM31": "isi::instruction_decode_refusal_tests::instruction_base64_scratch_is_admitted_before_decode_and_retries_original_input",
     "DM32": "isi::instruction_decode_refusal_tests::structured_asset_instructions_preserve_original_account_refusal_and_retry",
     "DM33": "sumeragi_amx::native::leg_decode::tests::invalid_native_multisig_threshold_replay_preserves_original_cause_without_diagnostic_allocations",
+    "DM34": "sumeragi_finality::epoch_graph::validation_tests::epoch_scope_retains_exact_context_without_a_hidden_heap_graph",
 }
 MODEL_ALLOCATION_OBSERVER = "amx_prepare_streaming_allocations::observer_counts_all_three_allocation_routes_and_resets_after_unwind"
 
@@ -2954,6 +2955,7 @@ def model_build_script(tmp_path_factory):
     (True, "DM31", "", True, True), (False, "DM31", "", True, False),
     (True, "DM32", "", True, True), (False, "DM32", "", True, False),
     (True, "DM33", "", True, True), (False, "DM33", "", True, False),
+    (True, "DM34", "", True, True), (False, "DM34", "", True, False),
     (True, "unknown_rule", "", False, False), (True, "HC1", "", False, False),
     (False, None, '--cfg\x1fsumeragi_model_mutation="DM1"', False, False),
     (True, "DM1", '--cfg\x1fsumeragi_model_mutation="DM2"', False, False),
@@ -6760,6 +6762,129 @@ def test_failure_fee_tail_mutation_binds_original_consumer_controls(mid):
 ])
 def test_failure_fee_tail_kill_requires_declared_native_controls(monkeypatch, tmp_path, mid, status, verdict):
     rule = gate.index_mutations(gate.CORE_MUTATIONS)[mid]
+    monkeypatch.setattr(gate, "has_switch", lambda *args, **kwargs: True)
+    monkeypatch.setattr(gate, "build", lambda *args: gate.Step(status="pass"))
+    rows = [] if status == "missing" else [
+        (name + "_incidental", "FAILED") if status == "incidental" else (name, status)
+        for name in rule.tests
+    ]
+    code, output = exact_control_output(rows)
+    selected_cargo_results(monkeypatch, code, output, names=tuple(name for name, _ in rows))
+    result = gate.evaluate(SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
+    assert result["verdict"] == verdict, result
+    assert result["named_tests"] == list(rule.tests)
+
+
+def test_epoch_cache_mutation_preserves_exact_native_owner_and_physical_cause():
+    rule = gate.index_mutations(gate.MODEL_MUTATIONS)["DM34"]
+    assert rule.tests == (MODEL_NAMES["DM34"],) and not rule.scenarios
+    source = (ROOT / "crates/iroha_data_model/src/sumeragi_finality/epoch_graph.rs").read_text()
+    tests = (ROOT / "crates/iroha_data_model/src/sumeragi_finality/epoch_graph/validation_tests.rs").read_text()
+    assert source.count('sumeragi_model_mutation = "DM34"') == 2
+    assert '#[cfg(not(all(test, sumeragi_model_mutation = "DM34")))]\n        let snapshot = ExactEpoch::capture(context);' in source
+    assert '#[cfg(all(test, sumeragi_model_mutation = "DM34"))]\n        let snapshot = norito::core::to_bytes_bounded(context, usize::MAX)' in source
+    assert 'norito::decode_canonical::<ValidatorEpochContextV1>(&encoded)' in source
+    assert 'let context_id = context.context_id()?;' in source
+    assert 'entry.context.matches(context)' in source
+    for field in ('da_layout', 'version', 'network_id', 'mode', 'authorization', 'leader_seed'):
+        assert f'self.{field} == *{field}' in source
+    assert 'self.committee_len == committee.len()' in source
+    assert 'original.matches(supplied)' in source
+    assert 'committee.len() > crate::sumeragi::epoch::MAX_VALIDATORS' in source
+    assert 'member' in source and 'proof_of_possession.as_slice() == self.proof' in source
+    test = tests.split('fn epoch_scope_retains_exact_context_without_a_hidden_heap_graph()', 1)[1].split('\n#[test]', 1)[0]
+    cause = test.index('epoch cache adds no heap graph beyond original context validation')
+    assert cause < test.index('let blocker = budget')
+    assert cause < test.index('assert_eq!(validation.entries.iter().flatten().count(), 1)')
+    assert 'PhysicalObservation::start()' in test and 'physical.snapshot().requests()' in test
+    assert 'original mandatory context validation must succeed' in test
+    assert 'full_scope.core_epoch(&context)' in test
+    assert 'decoder.consumed_allocated_bytes()' in test
+    assert 'size_of::<EpochValidationScope>() <= 12 * 1024' in test
+    assert 'epoch_scope_compares_every_original_field_and_last_bounded_credential' in tests
+    row = re.findall(r'^\| DM34 \|.*$', (ROOT / 'specs/sumeragi.md').read_text(), re.M)
+    assert len(row) == 1 and rule.tests[0] in row[0]
+
+
+@pytest.mark.parametrize('status,verdict', [
+    ('ok', 'survived'), ('FAILED', 'killed_by_test'), ('ignored', 'error'),
+    ('missing', 'error'), ('incidental', 'error'),
+])
+def test_epoch_cache_mutation_requires_its_exact_native_terminal(monkeypatch, tmp_path, status, verdict):
+    rule = gate.index_mutations(gate.MODEL_MUTATIONS)['DM34']
+    monkeypatch.setattr(gate, 'has_switch', lambda *args, **kwargs: True)
+    monkeypatch.setattr(gate, 'build', lambda *args: gate.Step(status='pass'))
+    rows = [] if status == 'missing' else [
+        (rule.tests[0] + '_incidental', 'FAILED') if status == 'incidental' else (rule.tests[0], status)
+    ]
+    code, output = exact_control_output(rows)
+    selected_cargo_results(monkeypatch, code, output, names=tuple(name for name, _ in rows))
+    result = gate.evaluate(SimpleNamespace(model=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
+    assert result['verdict'] == verdict, result
+    assert result['named_tests'] == list(rule.tests)
+
+
+_PAUSE_LAPSE_CONTROLS = {'smartcontracts::isi::sccp::read::control::tests::lapse::native_fast_pause_lapse_uses_exact_time_and_preserves_parliament_confirmation': 'the first native block at expiry must remove the original fast-pause record', 'smartcontracts::isi::sccp::read::control::tests::lapse::native_fast_pause_lapse_cancellation_keeps_original_record_and_retries_once': 'the original native execution must stage lapse before publication'}
+
+
+def test_fast_pause_lapse_mutation_retains_exact_global_native_controls():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC246"]
+    assert rule.tests == tuple(_PAUSE_LAPSE_CONTROLS) and not rule.scenarios
+    assert gate.has_switch("HC246", core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True},
+                   {"deploy": True}, {"torii": True}, {"norito": True}):
+        assert not gate.has_switch("HC246", **family)
+    core = ROOT / "crates/iroha_core/src"
+    owner = "smartcontracts/isi/sccp/pause_lifecycle.rs"
+    owners = {p.relative_to(core).as_posix() for p in core.rglob("*.rs")
+              if 'sumeragi_core_mutation = "HC246"' in p.read_text()}
+    assert owners == {owner}
+    compact = re.sub(r"\s+", "", (core / owner).read_text())
+    assert 'cfg!(all(test,sumeragi_core_mutation="HC246"))' in compact
+    assert compact.index("original_root_scope()") < compact.index('sumeragi_core_mutation="HC246"')
+    assert "time>=original.until_ms" in compact
+    assert "transaction.require_storage_admission()?" in compact
+    source = (core / "smartcontracts/isi/sccp/read/control/tests/lapse.rs").read_text()
+    for name, cause in _PAUSE_LAPSE_CONTROLS.items():
+        marker = "fn " + name.rsplit("::", 1)[-1] + "("
+        assert source.count(marker) == 1
+        body = source.split(marker, 1)[1].split("#[test]", 1)[0]
+        assert cause in body
+        assert "control_chain(false)" in body
+    assert "mod lapse;" in (core / "smartcontracts/isi/sccp/read/control/tests.rs").read_text()
+    state = (core / "state.rs").read_text()
+    assert state.index("Self::apply_block_start_parliament_enactments(&mut sb, now_h)?") < state.index("pause_lifecycle::lapse_after_enactments(&mut sb)")
+    rows = re.findall(r"^\| HC246 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(rows) == 1 and all(name in rows[0] for name in rule.tests)
+
+
+_PRODUCER_DEFERRAL_CONTROLS = {'sumeragi::executor::publication_tests::original_lane_policy_proposal_refusal_retains_worker_owner_and_exact_queued_retry': 'original lane policy refusal must reach the driver as a typed deferral', 'sumeragi::executor::publication_tests::original_staking_payload_worker_retains_pool_refusal_and_exact_queued_retry': 'original staking capacity must reach the driver as a typed deferral'}
+
+
+def test_payload_producer_deferral_mutation_selects_original_worker_controls():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC247"]
+    assert rule.tests == tuple(_PRODUCER_DEFERRAL_CONTROLS) and not rule.scenarios
+    assert gate.has_switch("HC247", core=True)
+    core = ROOT / "crates/iroha_core/src"
+    owners = {p.relative_to(core).as_posix() for p in core.rglob("*.rs")
+              if 'sumeragi_core_mutation = "HC247"' in p.read_text()}
+    assert owners == {"sumeragi/executor/preparation.rs"}
+    source = (core / "sumeragi/executor_publication_tests.rs").read_text()
+    for name, cause in _PRODUCER_DEFERRAL_CONTROLS.items():
+        marker = "fn " + name.rsplit("::", 1)[-1] + "("
+        assert source.count(marker) == 1
+        body = source.split(marker, 1)[1].split("#[test]", 1)[0]
+        assert cause in body and "worker.build(" in body
+    rows = re.findall(r"^\| HC247 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(rows) == 1 and all(name in rows[0] for name in rule.tests)
+
+
+@pytest.mark.parametrize("status,verdict", [
+    ("ok", "survived"), ("FAILED", "killed_by_test"), ("ignored", "error"),
+    ("missing", "error"), ("incidental", "error"),
+])
+def test_payload_producer_mutation_requires_its_exact_native_terminals(monkeypatch, tmp_path, status, verdict):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC247"]
     monkeypatch.setattr(gate, "has_switch", lambda *args, **kwargs: True)
     monkeypatch.setattr(gate, "build", lambda *args: gate.Step(status="pass"))
     rows = [] if status == "missing" else [
