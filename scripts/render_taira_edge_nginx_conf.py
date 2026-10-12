@@ -487,6 +487,18 @@ def _render_upstream(name: str, server_lines: list[str], keepalive: int) -> list
     return lines
 
 
+def _render_public_torii_cors_response_headers(indent: str) -> list[str]:
+    """Keep the original public CORS policy when a location adds its own headers."""
+    return [
+        f"{indent}add_header Access-Control-Allow-Origin $taira_public_torii_cors_origin always;",
+        f'{indent}add_header Access-Control-Allow-Methods "{PUBLIC_TORII_CORS_METHODS}" always;',
+        f'{indent}add_header Access-Control-Allow-Headers "{PUBLIC_TORII_CORS_HEADERS}" always;',
+        f'{indent}add_header Access-Control-Expose-Headers "{PUBLIC_TORII_CORS_EXPOSED_HEADERS}" always;',
+        f'{indent}add_header Access-Control-Max-Age "{PUBLIC_TORII_CORS_MAX_AGE}" always;',
+        f'{indent}add_header Vary "Origin" always;',
+    ]
+
+
 def _render_public_torii_cors_server_lines() -> list[str]:
     return [
         "  proxy_hide_header Access-Control-Allow-Origin;",
@@ -494,18 +506,50 @@ def _render_public_torii_cors_server_lines() -> list[str]:
         "  proxy_hide_header Access-Control-Allow-Headers;",
         "  proxy_hide_header Access-Control-Expose-Headers;",
         "  proxy_hide_header Access-Control-Max-Age;",
-        "  add_header Access-Control-Allow-Origin $taira_public_torii_cors_origin always;",
-        f'  add_header Access-Control-Allow-Methods "{PUBLIC_TORII_CORS_METHODS}" always;',
-        f'  add_header Access-Control-Allow-Headers "{PUBLIC_TORII_CORS_HEADERS}" always;',
-        f'  add_header Access-Control-Expose-Headers "{PUBLIC_TORII_CORS_EXPOSED_HEADERS}" always;',
-        f'  add_header Access-Control-Max-Age "{PUBLIC_TORII_CORS_MAX_AGE}" always;',
-        '  add_header Vary "Origin" always;',
+        *_render_public_torii_cors_response_headers("  "),
         "",
         "  if ($request_method = OPTIONS) {",
         "    return 204;",
         "  }",
         "",
     ]
+
+
+def _render_bootstrap_locations(publication_dir: str | None) -> list[str]:
+    """Map only the two explicitly public export files, never their directory.
+
+    The directory is an operator-selected serving-host reference, like the TLS
+    paths. This renderer does not read, copy, authenticate or publish its files.
+    Kagami's owner-private preparation output must be promoted separately; its
+    private parent must never become an nginx document root.
+    """
+    lines = [
+        "  # Bootstrap is an explicit public pair, separate from private preparation inputs.",
+        "  location = /bootstrap { return 404; }",
+        "  location ^~ /bootstrap/ { return 404; }",
+        "",
+    ]
+    if publication_dir is None:
+        return lines
+    directory = _canonical_tls_path(publication_dir, "public bootstrap directory")
+    for name in ("checkpoint.nrt", "network-profiles.nrt"):
+        lines.extend([
+            f"  location = /bootstrap/{name} {{",
+            f"    alias {directory}/{name};",
+            "    disable_symlinks on;",
+            "    autoindex off;",
+            "    types { }",
+            "    default_type application/octet-stream;",
+            "    open_file_cache off;",
+            "    etag off;",
+            "    if_modified_since off;",
+            *_render_public_torii_cors_response_headers("    "),
+            '    add_header Cache-Control "no-store" always;',
+            "    limit_except GET { deny all; }",
+            "  }",
+            "",
+        ])
+    return lines
 
 
 def _render_exact_proxy_location(
@@ -993,6 +1037,7 @@ def render_edge_nginx_conf(
     tls_lineage: str = DEFAULT_TLS_LINEAGE,
     certbot_root: str = DEFAULT_CERTBOT_ROOT,
     explorer_root: str = DEFAULT_EXPLORER_ROOT,
+    bootstrap_publication_dir: str | None = None,
     cid_host_suffix: str = DEFAULT_CID_HOST_SUFFIX,
     mon_host_suffix: str = DEFAULT_MON_HOST_SUFFIX,
     client_max_body_size: str = DEFAULT_CLIENT_MAX_BODY_SIZE,
@@ -1142,6 +1187,7 @@ def render_edge_nginx_conf(
         ]
     )
     lines.extend(_render_public_torii_cors_server_lines())
+    lines.extend(_render_bootstrap_locations(bootstrap_publication_dir))
     lines.extend(
         _render_connect_stateful_locations(
             public_validator_upstream,
@@ -1347,6 +1393,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tls-lineage", default=DEFAULT_TLS_LINEAGE)
     parser.add_argument("--certbot-root", default=DEFAULT_CERTBOT_ROOT)
     parser.add_argument("--explorer-root", default=DEFAULT_EXPLORER_ROOT)
+    parser.add_argument(
+        "--bootstrap-publication-dir",
+        help=(
+            "Canonical absolute serving-host directory containing only the explicitly public "
+            "checkpoint.nrt and network-profiles.nrt promoted from Kagami network-bootstrap "
+            "prepare; never select the owner-private preparation directory"
+        ),
+    )
     parser.add_argument("--cid-host-suffix", default=DEFAULT_CID_HOST_SUFFIX)
     parser.add_argument("--mon-host-suffix", default=DEFAULT_MON_HOST_SUFFIX)
     parser.add_argument(
@@ -1377,6 +1431,11 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(str(error))
 
     try:
+        if args.bootstrap_publication_dir is not None and (
+            args.validator_listeners_only or args.validator_verification_listeners_only
+            or args.private_backend_listeners_only
+        ):
+            raise ValueError("bootstrap publication requires full public edge scope")
         backend_arguments = (
             args.backend_listen_address, args.backend_port_base, args.backend_trusted_edge_address,
         )
@@ -1421,6 +1480,7 @@ def main(argv: list[str] | None = None) -> int:
                 tls_lineage=args.tls_lineage,
                 certbot_root=args.certbot_root,
                 explorer_root=args.explorer_root,
+                bootstrap_publication_dir=args.bootstrap_publication_dir,
                 cid_host_suffix=args.cid_host_suffix,
                 mon_host_suffix=args.mon_host_suffix,
                 client_max_body_size=args.client_max_body_size,

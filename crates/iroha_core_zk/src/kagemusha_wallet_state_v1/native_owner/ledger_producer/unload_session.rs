@@ -340,7 +340,7 @@ mod tests {
                 selected_unload_decision(&verifier, tip)
             });
             assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
-                if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+                if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
             assert_eq!(norito::encode_canonical(tip).unwrap(), original);
             assert_eq!(
                 selected_unload_decision(&verifier, tip)
@@ -380,7 +380,7 @@ mod tests {
             session.restore(&genesis, &[1; 32], &[2; 32])
         });
         assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
-            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
         assert_eq!(session.checkpoint, original);
         let (_, checkpoint) = session.restore(&genesis, &[1; 32], &[2; 32]).unwrap();
         assert_eq!(checkpoint.encode_canonical().unwrap(), original);
@@ -408,7 +408,7 @@ mod tests {
                 next_checkpoint(genesis.clone(), previous, candidate)
             });
             assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
-                if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+                if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
             assert_eq!(norito::encode_canonical(candidate).unwrap(), original);
             let (retried, changed) = next_checkpoint(genesis.clone(), previous, candidate).unwrap();
             assert_eq!(changed, previous.is_none());
@@ -542,7 +542,7 @@ mod tests {
             inclusion.retain(&mut archive, &mut confirmations, &genesis, &two)
         });
         assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
-            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
         assert_eq!(confirmations, unchanged);
         assert!(
             inclusion

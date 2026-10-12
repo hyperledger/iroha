@@ -260,11 +260,7 @@ impl<'a> ProofContext<'a> {
             });
         }
         let total = quicksilver::total_constraints(relation)?;
-        Ok(ProofParams::new(
-            self.vole,
-            relation.witness_bits(),
-            total,
-        )?)
+        Ok(ProofParams::new(self.vole, relation.witness_bits(), total)?)
     }
 
     /// Length in bytes of every proof of `relation` in this context.
@@ -697,10 +693,14 @@ mod tests {
                 let level = vole.lambda();
                 let mu = vec![0x6du8; 2 * level.bytes()];
                 let witness = witness(1);
-                let proof = prove::<F, _>(&context, &Pairs, &PUBLIC, &mu, &witness, &tape(level, 3))
-                    .expect("valid witness");
+                let proof =
+                    prove::<F, _>(&context, &Pairs, &PUBLIC, &mu, &witness, &tape(level, 3))
+                        .expect("valid witness");
                 assert_eq!(Ok(proof.len()), context.proof_bytes::<F, _>(&Pairs));
-                assert_eq!(verify::<F, _>(&context, &Pairs, &PUBLIC, &mu, &proof), Ok(()));
+                assert_eq!(
+                    verify::<F, _>(&context, &Pairs, &PUBLIC, &mu, &proof),
+                    Ok(())
+                );
                 let mut other = PUBLIC;
                 other[7] ^= true;
                 assert_eq!(

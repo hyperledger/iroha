@@ -133,8 +133,10 @@ pub const W_STAGE_COUNT: usize = A_STAGE_COUNT - 1;
 pub const OMEGA_TRANSPORT_CAP: usize = 10_000 - 1_723 - 3_456;
 
 /// Native preparation/proof failure. No failure changes a monetary head.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
+    /// Original local checkpoint read refusal; no invalid-input or proof verdict completed.
+    DecodeResource(norito::core::DecodeLocalRefusal),
     /// Explicit cancellation; no proof failure or burn verdict is produced.
     Cancelled,
     /// Installed descriptor/key/schema or fixed policy differs.
@@ -160,10 +162,25 @@ impl fmt::Display for Error {
         write!(f, "native consuming: {self:?}")
     }
 }
-impl std::error::Error for Error {}
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::DecodeResource(original) => Some(original),
+            _ => None,
+        }
+    }
+}
+impl From<norito::core::DecodeAttemptError> for Error {
+    fn from(error: norito::core::DecodeAttemptError) -> Self {
+        match error.into_local_refusal() {
+            Ok(original) => Self::DecodeResource(original),
+            Err(_) => Self::Input,
+        }
+    }
+}
 impl Error {
     /// Whether the operation was cancelled instead of proving an invalid input.
-    pub fn is_cancelled(self) -> bool {
+    pub fn is_cancelled(&self) -> bool {
         matches!(self, Self::Cancelled)
     }
 }

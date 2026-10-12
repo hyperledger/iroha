@@ -171,7 +171,10 @@ fn atomic_instruction(
 ) -> SettleAtomic {
     SettleAtomic::new(
         stx.network_id.clone(),
-        "atomic_business".parse().expect("id"),
+        SettlementId::new(
+            movements[0].source.account().clone(),
+            "atomic_business".parse().expect("reference"),
+        ),
         AtomicSettlementMovements::try_from(movements).expect("canonical vector"),
         nonzero!(100_u64),
         Metadata::default(),
@@ -407,6 +410,31 @@ fn atomic_settlement_missing_consent_at_every_position_changes_nothing() {
 }
 
 #[test]
+fn atomic_settlement_cannot_consume_a_recipient_namespace() {
+    let (state, movements, _) = atomic_state(1);
+    let payer = movements[0].source.account().clone();
+    let mut block = state.block(BlockHeader::new(nonzero!(1_u64), None, None, 0, 0));
+    let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"foreign atomic namespace"));
+    let mut instruction = atomic_instruction(&stx, movements);
+    instruction.settlement_id.owner = CARPENTER_ID.clone();
+    let before = atomic_observable_state(&stx);
+    assert!(
+        admission_validate_atomic(&payer, &mut stx, &instruction)
+            .unwrap_err()
+            .to_string()
+            .contains("settlement id owner")
+    );
+    assert!(
+        instruction
+            .execute(&payer, &mut stx)
+            .unwrap_err()
+            .to_string()
+            .contains("settlement id owner")
+    );
+    assert_eq!(atomic_observable_state(&stx), before);
+}
+
+#[test]
 fn atomic_settlement_metadata_or_amount_substitution_requires_fresh_whole_intent_consent() {
     let (state, movements, _) = atomic_state(3);
     let mut block = state.block(BlockHeader::new(nonzero!(1_u64), None, None, 0, 0));
@@ -455,7 +483,10 @@ fn atomic_settlement_wrong_network_or_expired_height_changes_nothing() {
         };
         let instruction = SettleAtomic::new(
             network,
-            "atomic_expiry".parse().expect("id"),
+            SettlementId::new(
+                movements[0].source.account().clone(),
+                "atomic_expiry".parse().expect("reference"),
+            ),
             AtomicSettlementMovements::try_from(movements.clone()).expect("canonical"),
             NonZeroU64::new(if expired { 1 } else { 100 }).expect("expiry"),
             Metadata::default(),

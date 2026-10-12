@@ -67,7 +67,7 @@ impl LaneTransactions for NoRows {
         _: u64,
         _: usize,
         _: &BTreeSet<HashOf<TransactionEntrypoint>>,
-    ) -> Result<Vec<SignedTransaction>, crate::execution_attempt::ExecutionDeferred> {
+    ) -> Result<Vec<SignedTransaction>, crate::sumeragi::lanes::executor::LaneSelectionError> {
         Ok(Vec::new())
     }
 }
@@ -288,7 +288,7 @@ fn signed_four_validator_lane_execution_refusal_never_caches_invalid_or_publishe
     let retained = fixture.budget.reserved_bytes();
     for _ in 0..2 {
         assert_eq!(
-            allocation_scope(|| lane.execute(&fixture.body, &hash)),
+            allocation_scope(|| lane.execute(&fixture.body, &hash, false)),
             None
         );
         assert!(
@@ -301,7 +301,7 @@ fn signed_four_validator_lane_execution_refusal_never_caches_invalid_or_publishe
         assert_eq!(fixture.budget.reserved_bytes(), retained);
     }
     assert_eq!(
-        lane.execute(&fixture.body, &hash),
+        lane.execute(&fixture.body, &hash, false),
         Some(ExecOutcome::Valid(fixture.qc.result))
     );
     assert_eq!(
@@ -316,7 +316,7 @@ fn signed_four_validator_lane_execution_refusal_never_caches_invalid_or_publishe
         .complete()
         .unwrap_or_else(|_| panic!("empty lane"));
     assert_eq!(
-        lane.execute(&malformed.body, &malformed.qc.block_hash),
+        lane.execute(&malformed.body, &malformed.qc.block_hash, false),
         Some(ExecOutcome::Invalid)
     );
     assert_eq!(lane.prepare(&malformed.body, &malformed.qc), Ok(None));
@@ -350,7 +350,10 @@ fn anchor_read_refusal_retains_original_lane_body_until_capacity_returns() {
     let pointer = fixture.body.payload().as_slice().as_ptr();
     let retained = fixture.budget.reserved_bytes();
     for _ in 0..2 {
-        assert_eq!(lane.execute(&fixture.body, &fixture.qc.block_hash), None);
+        assert_eq!(
+            lane.execute(&fixture.body, &fixture.qc.block_hash, false),
+            None
+        );
         assert_eq!(lane.anchor_refusal.as_ref(), Some(&expected));
         assert_eq!(
             lane.prepare(&fixture.body, &fixture.qc),
@@ -367,7 +370,7 @@ fn anchor_read_refusal_retains_original_lane_body_until_capacity_returns() {
     drop(occupied);
     assert!(registration.poll_wait(&released, &mut context).is_ready());
     assert_eq!(
-        lane.execute(&fixture.body, &fixture.qc.block_hash),
+        lane.execute(&fixture.body, &fixture.qc.block_hash, false),
         Some(ExecOutcome::Valid(fixture.qc.result))
     );
     assert!(lane.anchor_refusal.is_none());

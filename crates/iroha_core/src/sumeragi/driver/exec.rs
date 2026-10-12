@@ -1042,6 +1042,21 @@ impl ExecSched {
         self.release_waker = waker;
     }
 
+    /// Bind all original prepaid release nodes to the native loop thread. This
+    /// startup operation grants no capacity and creates no replacement waiter.
+    /// Arbitrary callbacks retain ordinary physical-writer deferral semantics.
+    pub(crate) fn bind_release_thread(&mut self, thread: std::thread::Thread) {
+        if !cfg!(all(test, sumeragi_core_mutation = "HC252")) {
+            self.commit_registration.bind_thread(thread.clone());
+        }
+        self.payload_retry.registration.bind_thread(thread.clone());
+        self.witness_retry.registration.bind_thread(thread.clone());
+        self.drive_retry.registration.bind_thread(thread.clone());
+        for slot in self.inbound.iter_mut() {
+            slot.retry.registration.bind_thread(thread.clone());
+        }
+    }
+
     fn clear_commit_wait(&mut self) {
         self.commit_registration.cancel();
         self.commit_wait = None;

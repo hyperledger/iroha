@@ -582,6 +582,7 @@ impl CertifiedTestChain {
         );
         let (events, event_receiver) = tokio::sync::broadcast::channel(4096);
         let executor = StateExecutor::spawn(ExecutorContext {
+            time_source: iroha_primitives::time::TimeSource::new_system(),
             state: Arc::clone(&state),
             native_context_archive: Arc::new(
                 crate::query::native_context_archive::NativeContextArchive::open(
@@ -1216,7 +1217,7 @@ impl CertifiedTestChain {
         let block = self.author_payload(header, payload_bytes);
         let block_hash = block.hash(&*self.crypto);
         let mut diagnostic_events = self.events.resubscribe();
-        let result = match self.executor.execute(&block, &block_hash) {
+        let result = match self.executor.execute(&block, &block_hash, false) {
             Some(ExecOutcome::Valid(result)) => result,
             other => {
                 use iroha_data_model::events::{

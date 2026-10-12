@@ -1112,6 +1112,12 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
     ),
     function(
         "crates/iroha_core/src/state/native_execution_tip.rs",
+        "restored_genesis_record",
+        1,
+        UseOwner::Other(Use::ResultBinding, CERTIFIED_IDENTITY),
+    ),
+    function(
+        "crates/iroha_core/src/state/native_execution_tip.rs",
         "validate_native_execution_authorization",
         1,
         UseOwner::Other(Use::ResultBinding, CERTIFIED_IDENTITY),

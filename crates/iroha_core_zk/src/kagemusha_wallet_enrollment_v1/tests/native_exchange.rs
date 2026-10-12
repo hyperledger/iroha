@@ -118,6 +118,18 @@ impl Sources {
             },
             MemoryBudget::DEFAULT,
         );
+        let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+        let failure = norito::with_decode_limits_scope(limits, || {
+            runtime.begin(&frames[0], &frames[1], &frames[2], &frames[3])
+        })
+        .err()
+        .expect("genuine installed pre-challenge read refusal");
+        let (runtime, error) = failure.into_parts();
+        assert!(matches!(error, state::NativeOpenErrorV1::Intake(
+            crate::kagemusha_wallet_intake_v1::Error::DecodeResource(ref cause))
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+        // The same Ready/BeginFailed owner and four originals retry; no challenge
+        // was sampled on the refused preparation read and no provider is reopened.
         let pending = runtime
             .begin(&frames[0], &frames[1], &frames[2], &frames[3])
             .unwrap();

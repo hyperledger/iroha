@@ -497,8 +497,5 @@ fn checked_in_securities_fixtures_validate_and_link_through_torii_profile() {
         .message_status(&confirmation_id)
         .expect("confirmation status");
     assert_eq!(confirmation_status.settlement_quantity(), Some("250000"));
-    assert_eq!(
-        confirmation_status.plan_atomicity(),
-        Some("COMMIT_SECOND_LEG")
-    );
+    assert_eq!(confirmation_status.plan_atomicity(), Some("ALL_OR_NOTHING"));
 }

@@ -208,11 +208,12 @@ fn request(
     if original.is_empty() || original.len() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 {
         return Err(Error::Authority);
     }
-    let request: KagemushaWalletRequestV1 = norito::decode_canonical_with_limits(
-        original,
-        norito::canonical_decode_limits(original.len()),
-    )
-    .map_err(|_| Error::Authority)?;
+    let request: KagemushaWalletRequestV1 = read_original(|| {
+        norito::decode_canonical_with_limits(
+            original,
+            norito::canonical_decode_limits(original.len()),
+        )
+    })?;
     authority(request.verify(scheme))?;
     Ok(request)
 }
@@ -714,24 +715,26 @@ impl PreparationV1<'_> {
         self.receipt_tape(owner, source, budget)?;
         let scheme = self.installed.verifier().scheme();
         let request = request(request_original, scheme)?;
-        let payment = authority(KagemushaWalletPaymentV1::decode_canonical(
-            payment_original,
-            &scheme.scheme_id(),
-        ))?;
-        let payer = authority(KagemushaWalletCredentialV1::decode_canonical(
-            payer_credential_original,
-            &scheme.scheme_id(),
-        ))?;
+        let payment = read_model(|| {
+            KagemushaWalletPaymentV1::decode_canonical(payment_original, &scheme.scheme_id())
+        })?;
+        let payer = read_model(|| {
+            KagemushaWalletCredentialV1::decode_canonical(
+                payer_credential_original,
+                &scheme.scheme_id(),
+            )
+        })?;
         if payer_certificate_set_original.is_empty()
             || payer_certificate_set_original.len() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1
         {
             return Err(Error::Authority);
         }
-        let certificates: KagemushaWalletCertificateSetV1 = norito::decode_canonical_with_limits(
-            payer_certificate_set_original,
-            norito::canonical_decode_limits(payer_certificate_set_original.len()),
-        )
-        .map_err(|_| Error::Authority)?;
+        let certificates: KagemushaWalletCertificateSetV1 = read_original(|| {
+            norito::decode_canonical_with_limits(
+                payer_certificate_set_original,
+                norito::canonical_decode_limits(payer_certificate_set_original.len()),
+            )
+        })?;
         let source_state = &source.frozen.capsule.body().successor_state;
         let check = authority(payment.prepare_receive(
             scheme,
@@ -799,11 +802,12 @@ impl PreparationV1<'_> {
         {
             return Err(Error::Authority);
         }
-        let credential: KagemushaWalletCredentialV1 = norito::decode_canonical_with_limits(
-            payer_original,
-            norito::canonical_decode_limits(payer_original.len()),
-        )
-        .map_err(|_| Error::Authority)?;
+        let credential: KagemushaWalletCredentialV1 = read_original(|| {
+            norito::decode_canonical_with_limits(
+                payer_original,
+                norito::canonical_decode_limits(payer_original.len()),
+            )
+        })?;
         incoming_original::payment(payment_original)?;
         let payer = PayerOriginalV1 {
             credential_original: payer_original.to_vec(),

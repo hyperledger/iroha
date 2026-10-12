@@ -367,7 +367,7 @@ impl NativeContextArchive {
                 .ordinary_writes
                 .0
                 .iter()
-                .any(|write| prepared_intents::is_prepared_key_prefix(&write.key)),
+                .any(|write| prepared_intents::is_relay_key_prefix(&write.key)),
         })
     }
 

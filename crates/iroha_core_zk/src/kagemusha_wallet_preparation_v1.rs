@@ -85,6 +85,22 @@ fn authority<T>(value: Result<T, KagemushaWalletValidationErrorV1>) -> Result<T,
     value.map_err(|_| Error::Authority)
 }
 
+// Decoder observers enclose only the original read/authentication. Pure semantic
+// checks continue through authority() and keep their existing invalid verdict.
+fn read_original<T>(read: impl FnOnce() -> Result<T, norito::Error>) -> Result<T, Error> {
+    norito::core::classify_decode_attempt(read).map_err(Error::decode_attempt)
+}
+
+fn read_model<T>(
+    read: impl FnOnce() -> Result<T, KagemushaWalletValidationErrorV1>,
+) -> Result<T, Error> {
+    let completed = read_original(|| match read() {
+        Err(KagemushaWalletValidationErrorV1::Codec(error)) => Err(error),
+        result => Ok(result),
+    })?;
+    authority(completed)
+}
+
 fn fields<const N: usize>(original: Vec<[u8; 32]>) -> Result<[Fp; N], Error> {
     if original.len() != N {
         return Err(Error::Authority);
@@ -271,17 +287,21 @@ impl<'a> PreparationV1<'a> {
     /// Rejects inconsistent originals; this constructor grants no producer/open capability.
     pub fn new(installed: &'a InstalledVerifierPackV1) -> Result<Self, Error> {
         let scheme = installed.verifier().scheme();
-        let manifest = authority(KagemushaWalletArtifactManifestV1::decode_canonical(
-            &installed.originals().manifest,
-            scheme,
-        ))?;
+        let manifest = read_model(|| {
+            KagemushaWalletArtifactManifestV1::decode_canonical(
+                &installed.originals().manifest,
+                scheme,
+            )
+        })?;
         if manifest.manifest_digest() != installed.verifier().manifest_digest() {
             return Err(Error::Authority);
         }
-        let allowlist = authority(KagemushaWalletVerifyingKeyAllowlistV1::decode_canonical(
-            &installed.originals().allowlist,
-            &manifest.body,
-        ))?;
+        let allowlist = read_model(|| {
+            KagemushaWalletVerifyingKeyAllowlistV1::decode_canonical(
+                &installed.originals().allowlist,
+                &manifest.body,
+            )
+        })?;
         // G1 records the total Omega transport length, including both 544-byte claims.
         let transport_bytes =
             usize::try_from(allowlist.lineage_proof_bytes).map_err(|_| Error::Inventory)?;
@@ -317,14 +337,12 @@ impl<'a> PreparationV1<'a> {
         certificate_original: &[u8],
     ) -> Result<AuthenticatedCredentialV1, Error> {
         let scheme = self.installed.verifier().scheme();
-        let credential = authority(KagemushaWalletCredentialV1::decode_canonical(
-            credential_original,
-            &scheme.scheme_id(),
-        ))?;
-        let certificate = authority(KagemushaWalletSignerCertificateV1::decode_canonical(
-            certificate_original,
-            scheme,
-        ))?;
+        let credential = read_model(|| {
+            KagemushaWalletCredentialV1::decode_canonical(credential_original, &scheme.scheme_id())
+        })?;
+        let certificate = read_model(|| {
+            KagemushaWalletSignerCertificateV1::decode_canonical(certificate_original, scheme)
+        })?;
         authority(credential.verify(scheme, &certificate))?;
         Ok(AuthenticatedCredentialV1 {
             manifest_digest: self.installed.verifier().manifest_digest(),
@@ -494,7 +512,7 @@ impl<'a> PreparationV1<'a> {
         budget: MemoryBudget,
     ) -> Result<Vec<u8>, Error> {
         self.credential_owner(owner)?;
-        step.frozen.validate().map_err(|_| Error::Authority)?;
+        step.frozen.validate().map_err(Error::preparation_read)?;
         let capsule = &step.frozen.capsule;
         let retained = &step.retained;
         if step.frozen.credential != owner.credential

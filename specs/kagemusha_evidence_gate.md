@@ -457,7 +457,7 @@ Starting points, not evidence that this protocol has passed:
 
 ### Current implementation checkpoint (2026-10-12)
 
-The resolved-merge candidate now reuses two dead quotient-workspace columns for
+The measured lookup-mask candidate reuses two dead quotient-workspace columns for
 public lookup-mask weights, without changing proof bytes, random draws or the
 MSM ceiling. Current native Pasta/PLONK validation passes 427 tests with nine
 explicit ignores, and strict library/test lint passes. The compiled x86 library
@@ -489,6 +489,48 @@ schedule, thresholds, source and binary joins (`m3-lookup-mask-preweight-termina
 SHA `d8e8b8dcc82d084f13470c284eb7290d75cbd489ae475e3cd371d30a1ccc5e3f`).
 No full M3 pass follows.
 
+The subsequent reviewed selector-factor candidate is applied. It factors only
+consecutive gate-only products within the original eight-root chunks, preserves
+lookup and shared consumers, and compacts the remaining public expression DAG.
+The real-Q descriptor removes 38 field multiplications per row; this arithmetic
+count is not a measured speedup. Five new controls compare both fields, filter
+order, chunk boundaries and the complete quotient against the unchanged oracle.
+Current native engine validation passes all 432 non-ignored tests, with nine
+explicit experimental ignores, and strict library/test lint. The five new tests,
+both curves' fixed proof vectors, worker-count parity, workspace reuse and
+cancellation controls all pass. The initial lint failure and its narrow repair
+remain recorded. Checked owned sources do not drift during the successful run
+(`m3-gate-selector-factor-engine-validation-2/verification.json`,
+SHA `426610ef9b166966989dd3ce120282f7f792268002dbf20e7210b523d9ad581a`).
+The emulated-x86 library run passes 394 tests with seven explicit ignores;
+all nine ordinary measurement-harness controls and strict harness lint also pass
+(`m3-gate-selector-factor-parity-harness-validation-1/verification.json`,
+SHA `5337c040f30e92b747c6231e262bb544d48f7dd1b46295c2d8b5e4f4c4750f9c`).
+The fresh candidate capture pins the actual compiler-input closure and an
+immutable executable. Its separate diagnostic verifies both 7,936-byte real-Q
+proofs; the slower sample uses 26.478967 seconds of process CPU and kernel peak
+RSS is 667,451,392 bytes. Independent review confirms the source, binary and probe
+records (`m3-gate-selector-factor-real-q-independent-review-1/terminal-review.json`,
+SHA `ceb0dbc39a90cae92bf5adac21a00e6641010349bda819b864281dd9e4d52981`).
+This is a diagnostic, not a qualification or causal speedup result. The
+unchanged eight-configuration campaign in
+`m3-gate-selector-factor-current-capture-1` stopped naturally when its provenance
+check detected a changed `irohad` development-dependency manifest. The executable
+remained unchanged, but the source identity did not. Its partial samples and
+invalid attempts remain retained; every configuration is incomplete and
+inconclusive. The fresh capture in `m3-gate-selector-factor-current-capture-2`
+has the same executable, workload descriptors and consumed-file closure; its
+updated Cargo metadata is captured without source drift. A complete campaign
+is running from fresh processes with no samples inherited from the interrupted
+run. Its first four-thread synthetic-Q block contains a valid 11.276027125-second
+sample, exceeding the 10-second hard limit. This campaign therefore cannot pass;
+the remaining schedule continues to collect the other configurations, retaining
+all invalid attempts and hard failures. Independent raw-record review confirms
+four workers, passing calibration and host probes, and unchanged selected source
+and executable identities (`m3-gate-selector-factor-capture2-hard-failure-review-1`,
+manifest SHA `b65b942228bf18ae14f7345a609a76b8b80307d00f096e19d7d1f8477e755ae5`).
+The preceding campaign cannot qualify these changed sources.
+
 The current ordinary gadget and recursion run passes 286 gadget and 27 recursion
 unit tests, with eight and two explicit ignores respectively. Its compact
 component test fails on an obsolete Glue row-count expectation (19 versus the
@@ -507,9 +549,24 @@ Twelve wallet files now preserve original resource-refusal errors through
 retained choices, policy/blacklist custody and activation/unload recovery;
 the subsequent reviewed repair preserves these origins in all 36 remaining
 model-decoder calls in the state module, four nested mappings and native Unload
-decision verification. Seven new ordinary controls and strengthened retry tests
-are applied; runtime validation is pending. Native-intake decoding has a separate
-error-classification follow-up (`kagemusha-wallet-model-read-family-application-1`).
+decision verification. The next reviewed repair covers 33 preparation readers,
+two intake readers, the retained proof Request reader and nested quota checks.
+One opaque original resource refusal now survives state, proof, intake and native
+error conversion through the bridge's RESOURCE result. Invalid-input verdicts
+and source-read order are retained. The earlier seven new controls and the
+successor's eleven new controls are applied; runtime validation remains pending
+(`kagemusha-wallet-model-read-family-application-1` and
+`kagemusha-preparation-intake-read-family-applied-1/application.json`,
+SHA `f0e747a7a4a7e5b86f3415d3c556382e8ef269ff222bc6f342565dfcb3eff303`).
+The native checkpoint readers now retain the same original refusal at all eight
+A-operation decoder sites and the Q reader. Seven native error families own
+the refusal through the wallet mapping to RESOURCE. Exact-length, malformed
+input, source/key binding and cancellation checks retain their order. Independent
+review found no blocker, and formatting checks pass. Ten new tests cover actual
+enclosing sequence/allocation limits, identical-byte retry, observer identity
+and unchanged invalid-input verdicts; compilation and execution remain pending
+(`kagemusha-native-checkpoint-resource-applied-1/application.json`,
+SHA `d085342ae8ad9619e3ff620df9faaf05de47463984817ceed14b3d4f15c40d43`).
 The reviewed test-only mask checker now covers Omega, all sixteen sigma roles
 and every distinct private Q/A/W original after strict import. Its boundary
 closure includes arbitrary advice rotations and the actual rotated fixed-table
@@ -520,9 +577,16 @@ this does not grant current-key authority or close C12
 (`c12-private-mask-checker-application-1`). The soundness memo links the
 [independently reviewed local ZK derivation](kagemusha_local_zk_v1.md), including
 the joint final-response and residual-oracle law, explicit 255-bit bounded
-sampling and unconditioned failure bounds. Concrete randomness, faithful recursive
-source composition and public-only proof simulation remain open; no C12 closure
-follows. Retirement source guards pass. The reviewed streaming Core restart
+sampling and unconditioned failure bounds. A coherent local Omega-H proof over
+a genuine fixed-Poseidon witness needs no all-H private ancestry. C12 remains
+open: erasing Omega leaves the exported F-derived P/V and target public sigma
+law to be compared, or an alternative coherent source/valid-cut argument to be
+supplied. The total public-only proof simulator, actual current-key M(K) reports
+and concrete randomness bounds remain required. Reverse dependency order alone
+does not supply that comparison; the
+[current blocker record](kagemusha_recursion_soundness_v1.md) distinguishes this
+privacy obligation from the accepted recursive soundness heuristic.
+Retirement source guards pass. The reviewed streaming Core restart
 restoration is applied. Its inventory writer and 31 readback controls pass.
 After repairing the typed-array and obsolete snapshot-restoration fixtures, all
 48 tests in the first consumer group pass. The original broad source gate still
@@ -1041,9 +1105,10 @@ or monetary exchange.
 The owner has explicitly accepted the current Pasta/Poseidon recursive
 Fiat–Shamir security-preservation assumption for the first release, as recorded
 in the [soundness memo](kagemusha_recursion_soundness_v1.md#selected-recursive-fiatshamir-assumption).
-This resolves the design choice to retain the construction. It does not close
-C12, establish a fixed-RP57 privacy simulator, or substitute for the remaining
-composition argument and candidate acceptance tests.
+This resolves the design choice to retain the construction. It does not supply
+a privacy premise or close C12's shared-oracle source/composition argument.
+C12 does not require a simulator executable against the unmodified fixed hash;
+the remaining argument and candidate acceptance tests are still required.
 
 The preceding CoreZK14 shared-wallet capture passes all739 ordinary tests,
 with zero failures and25 explicit ignored cases, in188.357 s. It includes the
@@ -1420,7 +1485,44 @@ required after the implementation and harness are fixed. The availability
 inventory is `target/qualification/resume-20261008/retention.json`; it records
 filesystem observations, not replacement test evidence.
 
-**Recursive privacy argument.** Independent source review accepts the final-salt
+**Recursive privacy argument.** C12 remains open. The ideal-mask local lemma
+supports a coherent endpoint-H Omega proof over a genuine fixed-Poseidon witness;
+all-H private ancestry is unnecessary for that local comparison. After Omega is
+simulated, the exported P/V and original public sigma proofs retain their
+F-derived joint law. The fresh-H fold lemma and reverse dependency order do not
+supply the comparison of that surviving law under the common query interface.
+Existing domain tags preserve address separation; they do not authorize changing
+answers on publication or replay. The independently agreeing source reviews are
+`c12-endpoint-outer-first-quotient-review-1` and
+`c12-endpoint-only-rom-boundary-1` under `target/qualification`.
+
+Native-H producers with genuine fixed-Pow5 Q consumers still fail the
+no-incoming Load/Send round-cell binding; forcing H to F answers changes the
+fresh-oracle law and later public sigma prefixes expose those addresses. These
+are gaps in those proof adapters, not a production attack or impossibility
+result. The retained `c12-logical-source-game-boundary-1` and
+`c12-primary-theorem-intake-1` records identify those failures and the limits of
+the primary theorems reviewed. The selected recursive-FS soundness heuristic
+adds no privacy premise.
+
+Closure requires the surviving-carrier comparison or an alternative coherent
+source/valid-cut argument and the total public-only simulator specified in the
+[soundness memo](kagemusha_recursion_soundness_v1.md), including observable
+outcomes, durable order and exact replay, plus current-key M(K) and concrete
+randomness justification. Any chosen revision of the recursive relation needs
+implementation, re-keying and its own proof. No review above executes proofs or
+grants C12 qualification.
+
+The applied coefficient-MSM change uses the existing full-width secret path in
+both halves of `create_fold`, because its transcript may remain private inside
+an outer proof. It retains the process-wide 64 MiB scratch cap and adds secret
+scratch wiping; bucket operations and other fold branches remain variable-time.
+Both-curve k16 full-fold goldens, cancellation/budget regressions and strict lint
+remain pending. No whole-fold constant-time, performance or privacy claim is
+made (`c12-fold-secret-msm-applied-1/application.json` under
+`target/qualification`).
+
+Earlier diagnostic evidence follows. Independent source review accepts the final-salt
 trace for all wallet owner families and the conditional honest-fold abort bound
 in the [soundness memo](kagemusha_recursion_soundness_v1.md). The bound's
 small-field falsification checks pass; its relation-finding and fresh-oracle

@@ -993,9 +993,6 @@ impl SnapshotMaker {
                     iroha_logger::debug!(height, %reason, "Deferring snapshot until original commit-evidence resources are available");
                     self.commit_evidence_refusal = Some(reason);
                 }
-                Err(error @ TryWriteError::CommitEvidenceDeferred { .. }) => {
-                    iroha_logger::debug!(%error, "Deferring snapshot until commit evidence is complete");
-                }
                 Err(error) => {
                     iroha_logger::error!(%error, "Failed to create a snapshot of state");
                 }

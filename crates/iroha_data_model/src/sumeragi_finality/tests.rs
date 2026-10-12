@@ -1905,3 +1905,19 @@ fn proof_crypto_accepts_native_suite_and_rejects_old_or_unallowlisted_messages()
         &AggregateSignature(native.0),
     ));
 }
+
+#[test]
+fn authenticated_height_tracks_only_verified_prefix_decisions() {
+    let mut fixture = crate::sumeragi_finality::test_fixtures::NativeFinalityFixture::start(
+        "authenticated-height",
+    );
+    let mut verifier = fixture.verifier();
+    assert_eq!(verifier.authenticated_height(), Some(1));
+    let block = fixture.block_with_submitted_work(fixture.next_header());
+    let proof = fixture.certify(block);
+    assert_eq!(verifier.authenticated_height(), Some(1));
+    verifier.verify(&proof).unwrap();
+    assert_eq!(verifier.authenticated_height(), Some(2));
+    assert!(verifier.verify(&proof).is_err());
+    assert_eq!(verifier.authenticated_height(), Some(2));
+}

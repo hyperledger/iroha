@@ -97,7 +97,7 @@ fn check_recipient(
 
 /// Check §4.4 step 2 against the committed parent, not this block's own updates.
 fn check_finality<'a>(parent: impl OriginalRead<'a> + 'a) -> Result<(), Error> {
-    if parent.degraded_run() != 0 {
+    if parent.degraded_run() != 0 && !cfg!(all(test, sumeragi_core_mutation = "HC225")) {
         return Err(refuse(
             "SccpFinalityDegraded: the committed parent has degraded finality",
         ));
@@ -622,7 +622,7 @@ mod tests {
     }
 
     #[test]
-    fn a_degraded_parent_refuses_recording_without_escrow_or_leaf_changes() {
+    fn degraded_parent_refuses_before_money_nonce_or_leaf_and_recovers() {
         for parent_run in [1, 2, u32::MAX] {
             let state = funded_state();
             {
@@ -632,7 +632,7 @@ mod tests {
             }
             let mut block = state.block(header(5));
             let mut stx = block.transaction_for_fastpq_testing(iroha_crypto::Hash::new(
-                b"a_degraded_parent_refuses_recording_without_escrow_or_leaf_changes",
+                b"degraded_parent_refuses_before_money_nonce_or_leaf_and_recovers",
             ));
             setup(&mut stx, 100 * ONE_XOR);
             // Even a repair in this block cannot change the committed-parent verdict.
@@ -641,8 +641,12 @@ mod tests {
             let before_route = store::routes::get(&*stx.world, &network)
                 .cloned()
                 .expect("route");
-            let asset = AssetId::of(sccp_taira_xor_asset_definition_id(), authority(1));
-            let before_balance = stx.world.assets.get(&asset).map(|v| v.as_ref().clone());
+            let before_assets = stx
+                .world
+                .assets
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect::<Vec<_>>();
             let error = refusal(execute_record(
                 record(2, [0x22; 20]),
                 &authority(1),
@@ -654,12 +658,44 @@ mod tests {
                 Some(&before_route)
             );
             assert_eq!(
-                stx.world.assets.get(&asset).map(|v| v.as_ref().clone()),
-                before_balance
+                stx.world
+                    .assets
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect::<Vec<_>>(),
+                before_assets
             );
             assert_eq!(leaves::leaf_count_at(&*stx.world, 5), 0);
             assert_eq!(store::outbound_messages::len(&*stx.world), 0);
             assert_eq!(store::outbound_by_nonce::len(&*stx.world), 0);
+            drop(stx);
+            drop(block);
+
+            // Recovery becomes visible only when the repaired parent is committed.
+            // A fresh execution then consumes that parent's healthy preimage.
+            {
+                let mut parent = state.world.block();
+                *parent.sccp_degraded_run.get_mut() = 0;
+                parent.commit();
+            }
+            let mut recovered = state.block(header(6));
+            let mut stx = recovered.transaction_for_fastpq_testing(iroha_crypto::Hash::new(
+                b"degraded-parent-committed-recovery",
+            ));
+            setup(&mut stx, 100 * ONE_XOR);
+            assert_eq!(TransactionParent(&stx.world).degraded_run(), 0);
+            execute_record(record(2, [0x22; 20]), &authority(1), &mut stx)
+                .expect("recovered committed parent");
+            let route = store::routes::get(&*stx.world, &network).expect("route");
+            assert_eq!(route.revisions[&1].liability, 2 * ONE_XOR);
+            assert_eq!(route.revisions[&1].next_outbound_nonce, 1);
+            assert_eq!(leaves::leaf_count_at(&*stx.world, 6), 1);
+            assert_eq!(store::outbound_messages::len(&*stx.world), 1);
+            assert_eq!(store::outbound_by_nonce::len(&*stx.world), 1);
+            crate::smartcontracts::isi::sccp::test_support::assert_escrow_invariant(
+                &*stx.world,
+                "committed-parent recovery",
+            );
         }
     }
 
@@ -751,5 +787,82 @@ mod tests {
             store::outbound_by_nonce::get(&*stx.world, &(SccpNetworkV1::EthereumMainnet, 1, 0)),
             Some(&id)
         );
+    }
+
+    #[test]
+    fn record_obeys_fast_pause_network_revision_and_exact_expiry_without_effects() {
+        use crate::smartcontracts::isi::sccp::test_support::{
+            assert_escrow_invariant, install_consumer_fast_pause,
+        };
+        let network = SccpNetworkV1::EthereumMainnet;
+        // Route and pause are component preconditions, not a claimed governance enactment.
+        for (pause_network, taira, revisions, until_delta, held) in [
+            (network, true, vec![2], 1_i64, true),
+            (network, false, vec![1], 1, true),
+            (network, false, vec![2], 1, false),
+            (SccpNetworkV1::TonMainnet, true, vec![1], 1, false),
+            (network, true, vec![1], 0, false),
+            (network, true, vec![1], -1, false),
+        ] {
+            let state = funded_state();
+            let mut block = state.block(header(5));
+            {
+                let mut stx = block
+                    .transaction_for_fastpq_testing(iroha_crypto::Hash::new(b"fast-pause-record"));
+                setup(&mut stx, 100 * ONE_XOR);
+                let now = stx.block_unix_timestamp_ms();
+                install_consumer_fast_pause(
+                    &mut stx,
+                    pause_network,
+                    taira,
+                    revisions,
+                    now.checked_add_signed(until_delta).unwrap(),
+                );
+                let before = store::routes::get(&*stx.world, &network).unwrap().clone();
+                let before_assets = stx
+                    .world
+                    .assets
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect::<Vec<_>>();
+                let result = execute_record(record(2, [0x22; 20]), &authority(1), &mut stx);
+                assert_eq!(
+                    result.is_err(),
+                    held,
+                    "the actual Record instruction must respect the exact active pause"
+                );
+                let after = store::routes::get(&*stx.world, &network).unwrap();
+                if held {
+                    assert_eq!(after, &before, "refusal preserves liability and nonce");
+                    assert_eq!(leaves::leaf_count_at(&*stx.world, 5), 0);
+                    assert!(store::outbound_messages::is_empty(&*stx.world));
+                    assert!(store::outbound_by_nonce::is_empty(&*stx.world));
+                    assert_eq!(
+                        stx.world
+                            .assets
+                            .iter()
+                            .map(|(key, value)| (key.clone(), value.clone()))
+                            .collect::<Vec<_>>(),
+                        before_assets,
+                        "refusal leaves sender and escrow balances unchanged"
+                    );
+                } else {
+                    assert_eq!(after.revisions[&1].liability, 2 * ONE_XOR);
+                    assert_eq!(after.revisions[&1].next_outbound_nonce, 1);
+                    assert_eq!(leaves::leaf_count_at(&*stx.world, 5), 1);
+                    assert_eq!(store::outbound_messages::len(&*stx.world), 1);
+                    assert_eq!(store::outbound_by_nonce::len(&*stx.world), 1);
+                }
+                assert_escrow_invariant(&*stx.world, "fast-pause record");
+            }
+            assert!(
+                store::routes::is_empty(&block.world),
+                "dropping the transaction rolls all effects back"
+            );
+            assert!(
+                store::fast_pauses::is_empty(&block.world),
+                "retained pause rolls back with its transaction"
+            );
+        }
     }
 }

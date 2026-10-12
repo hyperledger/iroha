@@ -354,7 +354,7 @@ fn selected_full_list_decoder_keeps_local_refusal_and_exact_original_retry() {
         decode_selected_list(&full, &scheme.scheme_id())
     });
     assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
-        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
     assert_eq!(
         decode_selected_list(&full, &scheme.scheme_id()).unwrap(),
         expected
@@ -393,7 +393,7 @@ fn selected_policy_refusal_keeps_index_and_published_originals_unchanged() {
         )
     });
     assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
-        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
     assert_eq!(objects.writes, writes);
     assert_eq!(empty, IndexRoot::default());
     let selected = retain(
@@ -410,7 +410,7 @@ fn selected_policy_refusal_keeps_index_and_published_originals_unchanged() {
         selected_originals(&mut objects, selected, &scheme, &state)
     });
     assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
-        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
     assert_eq!(objects.writes, writes);
     assert_eq!(
         selected_originals(&mut objects, selected, &scheme, &state).unwrap(),

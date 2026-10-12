@@ -3290,7 +3290,6 @@ construct {
             for reason in [
                 "insufficient_funds",
                 "counterparty_mismatch",
-                "unsupported_policy",
                 "zero_quantity",
                 "missing_entity",
                 "math_error",
@@ -3318,7 +3317,7 @@ construct {
     {
         for kind in ["pvp"] {
             for order in ["delivery_then_payment", "payment_then_delivery"] {
-                for atomicity in ["all_or_nothing", "commit_first_leg", "commit_second_leg"] {
+                for atomicity in ["all_or_nothing"] {
                     let _ = settlement_fx_window_ms.with_label_values(&[kind, order, atomicity]);
                 }
             }

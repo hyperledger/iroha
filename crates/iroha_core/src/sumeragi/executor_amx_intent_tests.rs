@@ -62,7 +62,7 @@ fn paid_block(
         chain.sign(customer, instructions, time)
     });
     let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
-    let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash) else {
+    let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash, false) else {
         panic!("genuine paid original must execute");
     };
     let qc = chain.commit_qc(block.header().height, hash, result, Signers::Quorum);
@@ -177,7 +177,7 @@ fn original_paid_intent_capacity_refusal_retains_completed_context_and_same_pool
         let mut blocker = None;
         let mut pointer = None;
         let mut bytes = None;
-        let outcome = worker.run_execution_with_finisher(&block, hash, |worker| {
+        let outcome = worker.run_execution_with_finisher(&block, hash, false, |worker| {
             worker.prepare_original_result().unwrap();
             let original = worker.finishing.as_mut().unwrap();
             original.native_contexts = Some(
@@ -408,7 +408,7 @@ fn original_paid_intent_capture_rejects_changed_carrier_execution_and_foreign_po
             chain.sign(&customer, [instruction], time)
         });
         let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
-        let outcome = worker.run_execution_with_finisher(&block, hash, |worker| {
+        let outcome = worker.run_execution_with_finisher(&block, hash, false, |worker| {
             worker.prepare_original_result().unwrap();
             let original = worker.finishing.as_mut().unwrap();
             let result = original.phase.ready().unwrap();
@@ -523,7 +523,7 @@ fn original_paid_prepared_witness_survives_same_block_pruning_before_intent_comm
                     let block = publication_tests::proposal_with_transaction(chain, worker,
                         |chain, time| chain.sign(&customer, instructions, time));
                     let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
-                    let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash) else { panic!("actual paid same-block Prepare originals must execute"); };
+                    let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash, false) else { panic!("actual paid same-block Prepare originals must execute"); };
                     let qc = chain.commit_qc(block.header().height, hash, result, Signers::Quorum);
                     let live = worker.live.as_ref().unwrap();
                     let overlay = live.overlay.as_deref().unwrap();

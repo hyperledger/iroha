@@ -179,7 +179,7 @@ impl SccpFlowIdV1 {
 #[norito(no_fast_from_json)]
 #[norito(deny_unknown_fields)]
 pub struct SccpEvidenceItemV1 {
-    /// What the bytes are, e.g. `torii.message_proof` or `evm.roster_state`.
+    /// What the bytes are, e.g. `torii.message_proof` or `evm.committee_state`.
     pub label: String,
     /// The exact bytes as received.
     #[norito(json = "iroha_sccp::api::base64_json")]
@@ -207,7 +207,7 @@ pub struct SccpJournalRecordV1 {
     pub step: u32,
     /// Chain the step is submitted to.
     pub chain: SccpNetworkV1,
-    /// Stable action label, e.g. `evm.finalize`, `evm.rotate_rosters`, `taira.record`.
+    /// Stable action label, e.g. `evm.finalize`, `evm.submit_checkpoints`, `taira.record`.
     pub action: String,
     /// The exact bytes to submit (a signed transaction), or empty for a read-only step.
     #[norito(json = "iroha_sccp::api::base64_json")]
@@ -877,31 +877,63 @@ mod tests {
     }
 
     #[test]
-    fn committee_flow_label_is_first_release_only() {
+    fn committee_sync_kind_roundtrips_and_rejects_retired_roster_kind() {
         let kind = SccpFlowKindV1::CommitteeSync;
         assert_eq!(kind.as_str(), "committee_sync");
         assert_eq!(SccpFlowKindV1::from_label("committee_sync"), Some(kind));
-        assert_eq!(SccpFlowKindV1::from_label("roster_sync"), None);
-        let flow = SccpFlowIdV1 { kind, id: [7; 32] };
-        assert_eq!(SccpFlowIdV1::from_dir_name(&flow.dir_name()), Some(flow));
+        let bytes = json::to_vec(&kind).expect("current kind encodes");
         assert_eq!(
-            SccpFlowIdV1::from_dir_name(&format!("roster_sync-{}", "07".repeat(32))),
+            json::from_slice::<SccpFlowKindV1>(&bytes).expect("current kind decodes"),
+            kind
+        );
+        let text = String::from_utf8(bytes).expect("UTF-8 JSON");
+        assert!(text.contains("committee_sync"), "{text}");
+        let retired = text.replace("committee_sync", "roster_sync");
+        assert!(json::from_str::<SccpFlowKindV1>(&retired).is_err());
+        assert_eq!(SccpFlowKindV1::from_label("roster_sync"), None);
+        assert_eq!(
+            SccpFlowIdV1::from_dir_name(&format!("roster_sync-{}", "ab".repeat(32))),
             None
         );
     }
 
     #[test]
-    fn committee_flow_json_rejects_retired_label() {
-        let kind = SccpFlowKindV1::CommitteeSync;
-        let encoded = String::from_utf8(json::to_vec(&kind).expect("committee flow JSON"))
-            .expect("UTF-8 JSON");
-        assert!(encoded.contains("committee_sync"), "{encoded}");
+    fn committee_sync_step_reopens_with_current_identity_without_resubmission() {
+        let (_dir, root) = root();
+        let network = root.network(&network_id(0x11)).expect("network");
+        let mut record = record(&network, 0);
+        record.flow.kind = SccpFlowKindV1::CommitteeSync;
+        record.action = "evm.submit_checkpoints".to_owned();
+        record.evidence[0].label = "evm.committee_state".to_owned();
+        let bytes = json::to_vec(&record).expect("current record encodes");
         assert_eq!(
-            json::from_str::<SccpFlowKindV1>(&encoded).expect("current label decodes"),
-            kind
+            decode_canonical::<SccpJournalRecordV1>(Path::new("operation.json"), &bytes)
+                .expect("current record decodes"),
+            record
         );
-        let retired = encoded.replace("committee_sync", "roster_sync");
-        assert!(json::from_str::<SccpFlowKindV1>(&retired).is_err());
+        let text = String::from_utf8(bytes).expect("UTF-8 JSON");
+        let retired = text.replace("committee_sync", "roster_sync");
+        assert!(json::from_str::<SccpJournalRecordV1>(&retired).is_err());
+        assert_eq!(
+            record.flow.dir_name(),
+            format!("committee_sync-{}", "ab".repeat(32))
+        );
+        let journal = network.flow(&record.flow).expect("committee flow");
+        let step = journal.append(&record).expect("prepared checkpoint step");
+        assert!(step.begin_submission().expect("one original submission"));
+        drop(step);
+        drop(journal);
+
+        let reopened = network.flow(&record.flow).expect("reopened committee flow");
+        let resumed = reopened.resume_point().expect("resume").expect("pending");
+        assert_eq!(resumed.state, SccpStepStateV1::Submitted);
+        let step = reopened.open_step(0).expect("original checkpoint step");
+        assert_eq!(step.record(), &record);
+        assert!(!step.begin_submission().expect("no duplicate submission"));
+        step.complete(&outcome()).expect("original outcome");
+        drop(step);
+        assert_eq!(reopened.resume_point().expect("completed"), None);
+        assert_eq!(network.flows().expect("current flows"), vec![record.flow]);
     }
 
     #[test]

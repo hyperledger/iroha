@@ -20,7 +20,9 @@ use iroha_sumeragi::{
     crypto::{AggregationError, Crypto, Signer, SigningError},
     types::{AggregateSignature, Hash32, PublicKey, Signature},
 };
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
+
+pub(crate) mod funded;
 
 /// Why a key cannot be used as a Sumeragi consensus key.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -70,10 +72,6 @@ pub fn iroha_key(key: &PublicKey) -> Result<IrohaPublicKey, KeyError> {
 #[derive(Debug, Default)]
 pub struct BlsCrypto {
     admitted: RwLock<HashMap<PublicKey, Arc<BlsNormalPopVerifiedKey>>>,
-    // Request readers admit this exact backing before a boolean relation can
-    // run. Ordinary node instances keep independent per-call scratch, retaining
-    // their existing ability to verify certificates in parallel.
-    aggregate_scratch: Option<Mutex<ConsensusAggregateScratch>>,
 }
 
 impl BlsCrypto {
@@ -82,28 +80,13 @@ impl BlsCrypto {
         Self::default()
     }
 
-    /// Use an already admitted, request-owned aggregate pairing context.
-    ///
-    /// The request must retain its original funding allowance through this
-    /// crypto owner's lifetime. This constructor does not fund the admitted-key
-    /// map, credentials or other caller-owned authority graphs.
-    #[must_use]
-    pub(crate) fn with_aggregate_scratch(scratch: ConsensusAggregateScratch) -> Self {
-        Self {
-            admitted: RwLock::new(HashMap::new()),
-            aggregate_scratch: Some(Mutex::new(scratch)),
-        }
-    }
-
     fn with_scratch(&self, verify: impl FnOnce(&mut ConsensusAggregateScratch) -> bool) -> bool {
-        if let Some(scratch) = &self.aggregate_scratch {
-            verify(&mut scratch.lock())
-        } else {
-            let mut scratch =
-                ConsensusAggregateScratch::new(|_| Ok::<_, core::convert::Infallible>(()))
-                    .unwrap_or_else(|never| match never {});
-            verify(&mut scratch)
-        }
+        // Dynamic node callers retain their original independent per-call scratch.
+        // The immutable native-reader owner has a separate original prepaid backing.
+        let mut scratch =
+            ConsensusAggregateScratch::new(|_| Ok::<_, core::convert::Infallible>(()))
+                .unwrap_or_else(|never| match never {});
+        verify(&mut scratch)
     }
 
     /// Admit a committee key: verify its proof of possession `pop` once and keep the parsed
@@ -195,26 +178,38 @@ impl BlsCrypto {
     }
 }
 
+// Both native crypto owners use the same allocation-free individual relation and
+// existing signature-formation kernel. The funded read path never forms signatures.
+fn verify_individual(pk: &PublicKey, msg: &[u8], sig: &Signature) -> bool {
+    let Some(digest) = ConsensusDigest::from_preimage(msg) else {
+        return false;
+    };
+    let Ok(key) = <&[u8; 48]>::try_from(pk.as_bytes()) else {
+        return false;
+    };
+    // Single-key verification keeps its original allocation-free relation.
+    consensus::verify_public_key(key, &digest, &sig.0)
+}
+
+fn aggregate_signatures(sigs: &[Signature]) -> Result<AggregateSignature, AggregationError> {
+    // Both owners preserve the local refusal without constructing a sentinel signature
+    // or allocating a second input graph.
+    consensus::aggregate(sigs.iter().map(|sig| &sig.0))
+        .map(AggregateSignature)
+        .map_err(|_| AggregationError::Refused)
+}
+
 impl Crypto for BlsCrypto {
     fn hash_chunks(&self, chunks: &[&[u8]]) -> Hash32 {
         Hash32(Hash::new_from_chunks(chunks).into())
     }
 
     fn verify(&self, pk: &PublicKey, msg: &[u8], sig: &Signature) -> bool {
-        let Some(digest) = ConsensusDigest::from_preimage(msg) else {
-            return false;
-        };
-        let Ok(key) = <&[u8; 48]>::try_from(pk.as_bytes()) else {
-            return false;
-        };
-        // Single-key verification keeps its original allocation-free relation.
-        consensus::verify_public_key(key, &digest, &sig.0)
+        verify_individual(pk, msg, sig)
     }
 
     fn aggregate(&self, sigs: &[Signature]) -> Result<AggregateSignature, AggregationError> {
-        consensus::aggregate(sigs.iter().map(|sig| &sig.0))
-            .map(AggregateSignature)
-            .map_err(|_| AggregationError::Refused)
+        aggregate_signatures(sigs)
     }
 
     fn verify_aggregate(&self, pks: &[&PublicKey], msg: &[u8], agg: &AggregateSignature) -> bool {
@@ -222,15 +217,11 @@ impl Crypto for BlsCrypto {
             return false;
         };
         let admitted = self.admitted.read();
-        if pks.iter().any(|key| !admitted.contains_key(*key)) {
+        let lookup = |key: &PublicKey| admitted.get(key).map(AsRef::as_ref);
+        let Some(input) = AggregateInput::prepare(pks, digest, lookup) else {
             return false;
-        }
-        self.with_scratch(|scratch| {
-            let keys = pks
-                .iter()
-                .filter_map(|key| admitted.get(*key).map(AsRef::as_ref));
-            scratch.verify_fast_aggregate(keys, &digest, &agg.0)
-        })
+        };
+        self.with_scratch(|scratch| input.verify(scratch, lookup, agg))
     }
 
     fn verify_aggregate_multi(
@@ -239,27 +230,76 @@ impl Crypto for BlsCrypto {
         agg: &AggregateSignature,
     ) -> bool {
         let admitted = self.admitted.read();
+        let lookup = |key: &PublicKey| admitted.get(key).map(AsRef::as_ref);
+        let Some(input) = AggregateGroups::prepare(groups, lookup) else {
+            return false;
+        };
+        self.with_scratch(|scratch| input.verify(scratch, lookup, agg))
+    }
+}
+
+// Shared immutable preparation and relation for node and caller-funded owners.
+// Lookup borrows credentials for this operation; it cannot admit a new key.
+#[derive(Clone, Copy)]
+struct AggregateInput<'a> {
+    keys: &'a [&'a PublicKey],
+    digest: ConsensusDigest,
+}
+impl<'a> AggregateInput<'a> {
+    fn prepare<'credential>(
+        keys: &'a [&'a PublicKey],
+        digest: ConsensusDigest,
+        lookup: impl Fn(&PublicKey) -> Option<&'credential BlsNormalPopVerifiedKey>,
+    ) -> Option<Self> {
+        if keys.iter().any(|key| lookup(key).is_none()) {
+            return None;
+        }
+        Some(Self { keys, digest })
+    }
+    fn verify<'credential, O>(
+        &self,
+        scratch: &mut ConsensusAggregateScratch<O>,
+        lookup: impl Fn(&PublicKey) -> Option<&'credential BlsNormalPopVerifiedKey> + Copy,
+        aggregate: &AggregateSignature,
+    ) -> bool {
+        scratch.verify_fast_aggregate(
+            self.keys.iter().filter_map(|key| lookup(key)),
+            &self.digest,
+            &aggregate.0,
+        )
+    }
+}
+#[derive(Clone, Copy)]
+struct AggregateGroups<'a> {
+    groups: &'a [(Vec<&'a PublicKey>, Vec<u8>)],
+}
+impl<'a> AggregateGroups<'a> {
+    fn prepare<'credential>(
+        groups: &'a [(Vec<&'a PublicKey>, Vec<u8>)],
+        lookup: impl Fn(&PublicKey) -> Option<&'credential BlsNormalPopVerifiedKey>,
+    ) -> Option<Self> {
         if groups.iter().any(|(keys, message)| {
             ConsensusDigest::from_preimage(message).is_none()
-                || keys.iter().any(|key| !admitted.contains_key(*key))
+                || keys.iter().any(|key| lookup(key).is_none())
         }) {
-            return false;
+            return None;
         }
-        self.with_scratch(|scratch| {
-            scratch.verify_aggregate_multi(
-                groups.iter().filter_map(|(keys, message)| {
-                    // All messages and keys were checked above under this same read guard.
-                    ConsensusDigest::from_preimage(message).map(|digest| {
-                        (
-                            keys.iter()
-                                .filter_map(|key| admitted.get(*key).map(AsRef::as_ref)),
-                            digest,
-                        )
-                    })
-                }),
-                &agg.0,
-            )
-        })
+        Some(Self { groups })
+    }
+    fn verify<'credential, O>(
+        &self,
+        scratch: &mut ConsensusAggregateScratch<O>,
+        lookup: impl Fn(&PublicKey) -> Option<&'credential BlsNormalPopVerifiedKey> + Copy,
+        aggregate: &AggregateSignature,
+    ) -> bool {
+        scratch.verify_aggregate_multi(
+            self.groups.iter().filter_map(|(keys, message)| {
+                // The same immutable original key owner remains borrowed here.
+                ConsensusDigest::from_preimage(message)
+                    .map(|digest| (keys.iter().filter_map(move |key| lookup(key)), digest))
+            }),
+            &aggregate.0,
+        )
     }
 }
 
@@ -870,12 +910,19 @@ mod tests {
     #[test]
     fn borrowed_and_prepaid_crypto_preserve_parallel_and_reused_signature_verdicts() {
         let (signers, crypto, _) = validators(4);
-        let scratch = ConsensusAggregateScratch::new(|_| Ok::<_, ()>(())).unwrap();
-        let prepaid = BlsCrypto::with_aggregate_scratch(scratch);
-        for seed in 1..=4 {
-            let pair = key_pair(seed);
-            prepaid.admit(pair.public_key(), &pop(&pair)).unwrap();
-        }
+        let members: Vec<_> = (1..=4)
+            .map(|seed| {
+                let pair = key_pair(seed);
+                iroha_data_model::sumeragi::epoch::ValidatorCommitteeMemberV1 {
+                    validator: iroha_model_base::peer::PeerId::new(pair.public_key().clone()),
+                    proof_of_possession: pop(&pair),
+                }
+            })
+            .collect();
+        let demand = funded::FundedBlsCommittee::allocation_demand(&members).unwrap();
+        let budget = iroha_allocation::AllocationBudget::new(demand);
+        let prepaid = funded::FundedBlsCommittee::admit(&members, &budget).unwrap();
+        assert_eq!(budget.reserved_bytes(), demand);
         let keys: Vec<_> = signers.iter().map(Signer::public_key).collect();
         let first_message = message(1);
         let first = first_message.as_slice();
@@ -892,7 +939,8 @@ mod tests {
         let first_aggregate = crypto.aggregate(&first_signatures).unwrap();
         let second_aggregate = crypto.aggregate(&second_signatures).unwrap();
         std::thread::scope(|scope| {
-            for reader in [&crypto, &prepaid] {
+            let readers: [&(dyn Crypto + Sync); 2] = [&crypto, &prepaid];
+            for reader in readers {
                 for _ in 0..4 {
                     let keys = &keys;
                     let first_aggregate = &first_aggregate;
@@ -914,6 +962,9 @@ mod tests {
         let unadmitted = KeyPairSigner::new(&key_pair(11)).unwrap();
         assert!(!prepaid.verify_aggregate(&[unadmitted.public_key()], first, &first_aggregate));
         assert_eq!(prepaid.admitted_len(), 4);
+        assert!(prepaid.belongs_to(&budget));
+        drop(prepaid);
+        assert_eq!(budget.reserved_bytes(), 0);
     }
     #[test]
     fn consensus_signatures_refuse_generic_suite_and_retired_contexts() {

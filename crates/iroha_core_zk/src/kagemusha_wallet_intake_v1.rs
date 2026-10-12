@@ -39,8 +39,11 @@ pub const ACCOUNT_ORIGINAL_MAX_BYTES_V1: usize = 4096;
 pub const ASSET_SCOPE_ORIGINAL_MAX_BYTES_V1: usize = 1024;
 
 /// Native admission failure. Storage/key errors remain distinct from invalid ownership.
-#[derive(Debug, Clone, Copy, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum Error {
+    /// Original unfinished canonical read, retaining its opaque resource origin.
+    #[error("wallet original read unavailable: {0}")]
+    DecodeResource(#[source] norito::core::DecodeLocalRefusal),
     /// Provider reconciliation, unknown storage or key availability, or custody loss.
     #[error(transparent)]
     Provider(#[from] KagemushaWalletProviderErrorV1),
@@ -56,6 +59,44 @@ pub enum Error {
     /// The exact selected source changed while account authorization was pending.
     #[error("wallet source changed during original intake")]
     SourceChanged,
+}
+
+impl Error {
+    fn decode_attempt(error: norito::core::DecodeAttemptError, invalid: &'static str) -> Self {
+        match error.into_local_refusal() {
+            Ok(original) => Self::DecodeResource(original),
+            Err(_) => Self::Authority(invalid),
+        }
+    }
+
+    fn preparation(error: crate::kagemusha_wallet_proofs_v1::Error, invalid: &'static str) -> Self {
+        match error {
+            crate::kagemusha_wallet_proofs_v1::Error::DecodeResource(original) => {
+                Self::DecodeResource(original)
+            }
+            _ => Self::Authority(invalid),
+        }
+    }
+
+    fn operation(error: crate::kagemusha_wallet_state_v1::Error, invalid: &'static str) -> Self {
+        use crate::kagemusha_wallet_state_v1::Error as StateError;
+        match error {
+            StateError::DecodeResource(original) => Self::DecodeResource(original),
+            _ => Self::Authority(invalid),
+        }
+    }
+
+    pub(crate) fn into_state_error(
+        self,
+        invalid: crate::kagemusha_wallet_state_v1::Error,
+    ) -> crate::kagemusha_wallet_state_v1::Error {
+        match self {
+            Self::DecodeResource(original) => {
+                crate::kagemusha_wallet_state_v1::Error::DecodeResource(original)
+            }
+            _ => invalid,
+        }
+    }
 }
 
 fn require_installation(
@@ -75,11 +116,13 @@ pub(crate) fn account(original: &[u8], expected_digest: &[u8; 32]) -> Result<Acc
     if original.is_empty() || original.len() > ACCOUNT_ORIGINAL_MAX_BYTES_V1 {
         return Err(Error::Authority("account frame bound"));
     }
-    let account: AccountId = norito::decode_canonical_with_limits(
-        original,
-        norito::canonical_decode_limits(original.len()),
-    )
-    .map_err(|_| Error::Authority("canonical account frame"))?;
+    let account: AccountId = norito::core::classify_decode_attempt(|| {
+        norito::decode_canonical_with_limits(
+            original,
+            norito::canonical_decode_limits(original.len()),
+        )
+    })
+    .map_err(|error| Error::decode_attempt(error, "canonical account frame"))?;
     account
         .try_signatory()
         .filter(|key| key.algorithm() == Algorithm::Ed25519)
@@ -97,11 +140,13 @@ fn asset_scope(original: &[u8], expected: &[u8; 32]) -> Result<KagemushaWalletAs
     if original.is_empty() || original.len() > ASSET_SCOPE_ORIGINAL_MAX_BYTES_V1 {
         return Err(Error::Authority("asset scope original bound"));
     }
-    let scope: KagemushaWalletAssetScopeV1 = norito::decode_canonical_with_limits(
-        original,
-        norito::canonical_decode_limits(original.len()),
-    )
-    .map_err(|_| Error::Authority("canonical asset scope original"))?;
+    let scope: KagemushaWalletAssetScopeV1 = norito::core::classify_decode_attempt(|| {
+        norito::decode_canonical_with_limits(
+            original,
+            norito::canonical_decode_limits(original.len()),
+        )
+    })
+    .map_err(|error| Error::decode_attempt(error, "canonical asset scope original"))?;
     scope
         .validate()
         .map_err(|_| Error::Authority("asset scope"))?;
@@ -253,8 +298,8 @@ pub struct WalletOpenBeginFailureV1<F: KagemushaWalletFsV1, P> {
 impl<F: KagemushaWalletFsV1, P> WalletOpenBeginFailureV1<F, P> {
     /// Original refusal; reading it does not consume custody.
     #[must_use]
-    pub const fn error(&self) -> Error {
-        self.error
+    pub fn error(&self) -> Error {
+        self.error.clone()
     }
 
     /// Compare transport DATA with the four exact bounded originals already owned.
@@ -453,10 +498,10 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> PendingWalletOpenV1<F
                 *provider.scheme_id(),
             )?;
             let preparation = PreparationV1::new(installed)
-                .map_err(|_| Error::Authority("installed preparation source"))?;
+                .map_err(|error| Error::preparation(error, "installed preparation source"))?;
             let authenticated = preparation
                 .authenticate_credential_set(credential_original, certificate_set_original)
-                .map_err(|_| Error::Authority("issuer-authenticated originals"))?;
+                .map_err(|error| Error::operation(error, "issuer-authenticated originals"))?;
             let credential = *authenticated.credential();
             let account = account(account_original, &credential.body.account_digest)?;
             let asset_scope = asset_scope(asset_scope_original, &credential.body.asset_digest)?;

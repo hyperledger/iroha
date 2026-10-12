@@ -330,7 +330,7 @@ fn blacklist_original_read_refusal_never_publishes_or_replaces_its_reference() {
         publish_blacklist_original(&mut objects, &scheme, &original)
     });
     assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
-        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
     assert_eq!(objects.writes, 0);
     assert_eq!(objects.reads, 0);
     let published = publish_blacklist_original(&mut objects, &scheme, &original).unwrap();
@@ -340,7 +340,7 @@ fn blacklist_original_read_refusal_never_publishes_or_replaces_its_reference() {
         read_blacklist_original(&mut objects, &reference, &scheme)
     });
     assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
-        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
     assert_eq!(objects.writes, writes);
     assert_eq!(reference.to_canonical_bytes().unwrap(), frame);
     assert_eq!(
@@ -360,7 +360,7 @@ fn blacklist_original_read_refusal_never_publishes_or_replaces_its_reference() {
         )
     });
     assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
-        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
     verify_policy_update_original(
         KagemushaWalletPolicyUpdateKindV1::Blacklist,
         &scheme,

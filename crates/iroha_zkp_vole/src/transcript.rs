@@ -314,7 +314,12 @@ mod tests {
                 assert_eq!(seen.len(), PREFIXES.len());
             }
             assert_eq!(
-                derive_iv(Namespace::REFERENCE, level, &iv_pre, &pattern(2 * lb + 1, 2)),
+                derive_iv(
+                    Namespace::REFERENCE,
+                    level,
+                    &iv_pre,
+                    &pattern(2 * lb + 1, 2)
+                ),
                 Err(TranscriptError::InvalidLength {
                     input: Input::Mu,
                     expected: 2 * lb,
@@ -346,8 +351,9 @@ mod tests {
             let mut seen: [Vec<Vec<u8>>; 3] = [Vec::new(), Vec::new(), Vec::new()];
             for prefix in PREFIXES {
                 let namespace = Namespace::new(prefix).expect("bounded");
-                let first = challenge_1(namespace, &params, &mu, &com, &corrections, &mult, &iv_pre)
-                    .expect("valid call");
+                let first =
+                    challenge_1(namespace, &params, &mu, &com, &corrections, &mult, &iv_pre)
+                        .expect("valid call");
                 assert_eq!(
                     first,
                     shake(
@@ -415,19 +421,51 @@ mod tests {
             })
         };
         assert_eq!(
-            challenge_1(reference, &params, &mu[1..], &com, &corrections, &mult, &iv_pre),
+            challenge_1(
+                reference,
+                &params,
+                &mu[1..],
+                &com,
+                &corrections,
+                &mult,
+                &iv_pre
+            ),
             invalid(Input::Mu, 32, 31)
         );
         assert_eq!(
-            challenge_1(reference, &params, &mu, &com[1..], &corrections, &mult, &iv_pre),
+            challenge_1(
+                reference,
+                &params,
+                &mu,
+                &com[1..],
+                &corrections,
+                &mult,
+                &iv_pre
+            ),
             invalid(Input::Commitment, 32, 31)
         );
         assert_eq!(
-            challenge_1(reference, &params, &mu, &com, &corrections[1..], &mult, &iv_pre),
+            challenge_1(
+                reference,
+                &params,
+                &mu,
+                &com,
+                &corrections[1..],
+                &mult,
+                &iv_pre
+            ),
             invalid(Input::Corrections, 16 * 32, 16 * 32 - 1)
         );
         assert_eq!(
-            challenge_1(reference, &params, &mu, &com, &corrections, &mult[1..], &iv_pre),
+            challenge_1(
+                reference,
+                &params,
+                &mu,
+                &com,
+                &corrections,
+                &mult[1..],
+                &iv_pre
+            ),
             invalid(Input::MultCorrections, 390, 389)
         );
         let (first, tilde, d) = (vec![0u8; 136], vec![0u8; 64], vec![0u8; 32]);

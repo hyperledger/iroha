@@ -59,7 +59,7 @@ fn activation_cursor_read_refusal_preserves_selected_original_for_retry() {
     let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
     let refused = norito::with_decode_limits_scope(limits, || cursor.restore(&genesis));
     assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
-        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
     assert_eq!(cursor.checkpoint, original);
     let (_, restored) = cursor.restore(&genesis).unwrap();
     assert_eq!(restored.encode_canonical().unwrap(), original);

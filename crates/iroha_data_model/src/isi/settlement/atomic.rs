@@ -308,7 +308,7 @@ impl AtomicSettlementMovements {
 
 isi! {
     #[derive(JsonSerialize, JsonDeserialize)]
-    #[norito(deny_unknown_fields)]
+    #[norito(deny_unknown_fields, validate = "Self::checked")]
     /// Execute one network-bound all-or-nothing batch under exact debit-owner consent.
     #[norito_schema(name = "iroha_data_model::isi::settlement::SettleAtomic")]
     pub struct SettleAtomic {
@@ -325,6 +325,12 @@ isi! {
     }
 }
 impl SettleAtomic {
+    fn checked(self) -> Result<Self, norito::Error> {
+        self.validate()
+            .map_err(|message| norito::Error::Message(message.into()))?;
+        Ok(self)
+    }
+
     /// Concrete operation label; wire dispatch uses the registered settlement box.
     pub const WIRE_ID: &'static str = "iroha.settlement.atomic";
     /// Domain for the complete canonical V1 instruction frame.
@@ -355,9 +361,18 @@ impl SettleAtomic {
     /// balance/permission/routing policies in the same `StateTransaction`.
     ///
     /// # Errors
-    /// Returns an error for a noncanonical or invalid movement vector.
+    /// Returns an error for invalid movements or an ID owner outside the debit owners.
     pub fn validate(&self) -> Result<(), &'static str> {
-        self.movements.validate()
+        self.movements.validate()?;
+        if !self
+            .movements
+            .as_slice()
+            .iter()
+            .any(|movement| movement.source.account() == self.settlement_id.owner())
+        {
+            return Err("settlement id owner must participate as an authorized debit owner");
+        }
+        Ok(())
     }
 
     /// Commit the exact network, business identifier, movements, expiry and metadata.

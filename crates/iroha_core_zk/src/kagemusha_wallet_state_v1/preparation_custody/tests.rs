@@ -701,7 +701,7 @@ fn every_retained_original_digest_preserves_actual_read_refusal_and_exact_retry(
         });
         assert!(
             matches!(refused, Err(Error::DecodeResource(ref cause))
-            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit),
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit),
             "{role:?}"
         );
         assert_eq!(
@@ -715,7 +715,7 @@ fn every_retained_original_digest_preserves_actual_read_refusal_and_exact_retry(
         source.original(&mut store, &state, R::CurrentCredential)
     });
     assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
-        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
     assert_eq!(archive::encode(&source).unwrap(), selected);
     assert_eq!(
         source
@@ -747,7 +747,7 @@ fn successor_original_refusal_leaves_the_unpublished_draft_unmodified() {
         draft.retain_successor_original(R::SchemePolicy, &original)
     });
     assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
-        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
     assert_eq!(archive::encode(&draft.snapshot()).unwrap(), before);
     assert!(!draft.updated[R::SchemePolicy.index()]);
     draft
@@ -791,7 +791,7 @@ fn unload_identity_refusal_preserves_exact_credential_and_package_binding() {
     let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
     let refused = norito::with_decode_limits_scope(limits, || read(&mut store));
     assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
-        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
     assert_eq!(archive::encode(&source).unwrap(), selected);
     let retried = read(&mut store).unwrap();
     assert_eq!(retried, expected);

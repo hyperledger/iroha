@@ -10023,6 +10023,27 @@
             "minLength": 1,
             "type": "string"
           },
+          "query_settlement_receipt_not_found": {
+            "additionalProperties": false,
+            "description": "Exact payer-owned settlement identity from a completed receipt lookup. Only HTTP 404 with code query_settlement_receipt_not_found and this exact requested owner/reference selector denotes receipt absence. It is a query observation, not proof of non-execution.",
+            "properties": {
+              "owner": {
+                "description": "Canonical domainless AccountId literal owning the payment reference.",
+                "minLength": 1,
+                "type": "string"
+              },
+              "reference": {
+                "description": "Canonical Name literal selected by the payment owner.",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "owner",
+              "reference"
+            ],
+            "type": "object"
+          },
           "queue": {
             "$ref": "#/components/schemas/QueueErrorSnapshot"
           },
@@ -89920,7 +89941,7 @@
                 }
               }
             },
-            "description": "Only code query_asset_not_found with details.query_asset_not_found equal to the exact requested AssetId denotes asset absence. Every selected dataspace route must report that same typed absence; unavailable routes remain errors. HTTP 404 alone does not establish absence. This response is not a cryptographic proof of ledger state."
+            "description": "Only code query_asset_not_found with details.query_asset_not_found equal to the exact requested AssetId denotes asset absence. Every selected dataspace route must report that same typed absence; unavailable routes remain errors. HTTP 404 alone does not establish absence. This response is not a cryptographic proof of ledger state. Code query_settlement_receipt_not_found with details.query_settlement_receipt_not_found equal to the exact requested owner/reference selector denotes receipt absence. This is a query observation only, not proof of non-execution; it cannot authorize a replacement payment."
           },
           "406": {
             "content": {

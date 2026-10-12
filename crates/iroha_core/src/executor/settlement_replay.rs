@@ -6,6 +6,7 @@ use iroha_data_model::{
     isi::{SettleAtomic, SettlementDetails, SettlementInstructionBox},
     transaction::{Executable, SignedTransaction},
 };
+use mv::storage::StorageReadOnly;
 
 use crate::{
     execution_attempt::{ExecutionAttemptError, canonical_decode_attempt_error},
@@ -19,6 +20,9 @@ pub(crate) fn reject_committed_direct_payment(
     state: &StateTransaction<'_, '_>,
     transaction: &SignedTransaction,
 ) -> Result<(), ExecutionAttemptError<ValidationFail>> {
+    if cfg!(all(test, sumeragi_core_mutation = "HC254")) {
+        return Ok(());
+    }
     let Executable::Instructions(instructions) = transaction.instructions() else {
         return Ok(());
     };
@@ -73,3 +77,7 @@ pub(crate) fn reject_committed_direct_payment(
         .into(),
     )
 }
+
+#[cfg(test)]
+#[path = "settlement_replay_tests.rs"]
+mod tests;

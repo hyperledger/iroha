@@ -122,6 +122,9 @@ pub enum PayloadError {
     /// The canonical block time overflows.
     #[error("canonical block time overflows")]
     TimeOverflow,
+    /// Original queued work is waiting for the local proposer clock; retry without new input.
+    #[error("ClockAhead: queued input is newer than the proposer clock")]
+    ClockAhead,
     /// The block could not be encoded.
     #[error("block encoding failed: {0}")]
     Encode(String),
@@ -255,6 +258,17 @@ pub fn assemble_with_merges(
     transactions: &[AcceptedTransaction<'static>],
     merges: &MergeProposal,
 ) -> Result<SignedBlock, PayloadError> {
+    assemble_with_parent_service(state, assembly, transactions, merges, None)
+}
+
+/// Same assembly kernel borrowing the original worker's already funded native source.
+pub(crate) fn assemble_with_parent_service(
+    state: &State,
+    assembly: Assembly<'_>,
+    transactions: &[AcceptedTransaction<'static>],
+    merges: &MergeProposal,
+    parent_service: Option<&super::certified_chain::ParentServicePreparation>,
+) -> Result<SignedBlock, PayloadError> {
     if transactions.is_empty() && merges.merges.is_empty() {
         return Err(PayloadError::EmptyBlock);
     }
@@ -271,7 +285,7 @@ pub fn assemble_with_merges(
         minimum.max(Duration::from_millis(merges.time_floor_ms))
     };
     let build = |time: Duration| -> Result<SignedBlock, PayloadError> {
-        build_at(state, assembly, transactions, merges, time)
+        build_at(state, assembly, transactions, merges, time, parent_service)
     };
     let first = build(minimum)?;
     let canonical = ValidBlock::sumeragi_block_time(&first, parent_time, assembly.cadence)
@@ -411,6 +425,7 @@ fn build_at(
     transactions: &[AcceptedTransaction<'static>],
     merges: &MergeProposal,
     time: Duration,
+    parent_service: Option<&super::certified_chain::ParentServicePreparation>,
 ) -> Result<SignedBlock, PayloadError> {
     #[cfg(test)]
     work_tests::record_build_at();
@@ -478,21 +493,17 @@ fn build_at(
     };
     if height > 2 {
         let view = state.view();
-        let reader = super::certified_chain::CertifiedChain::new_for_parent_service(&view)
-            .map_err(|error| match error {
-                super::certified_chain::ParentServiceError::Deferred(reason) => {
-                    PayloadError::RoutingDeferred(reason)
-                }
-                error => PayloadError::ParentService(error.to_string()),
-            })?;
-        let original = reader
-            .parent_service_proposal_original(assembly.parent)
-            .map_err(|error| match error {
-                super::certified_chain::ParentServiceError::Deferred(reason) => {
-                    PayloadError::RoutingDeferred(reason)
-                }
-                error => PayloadError::ParentService(error.to_string()),
-            })?;
+        let original = match parent_service {
+            Some(prepared) => prepared.proposal_original(&view, assembly.parent),
+            None => super::certified_chain::CertifiedChain::new_for_parent_service(&view)
+                .and_then(|reader| reader.parent_service_proposal_original(assembly.parent)),
+        }
+        .map_err(|error| match error {
+            super::certified_chain::ParentServiceError::Deferred(reason) => {
+                PayloadError::RoutingDeferred(reason)
+            }
+            error => PayloadError::ParentService(error.to_string()),
+        })?;
         effects
             .get_or_insert_with(Default::default)
             .parent_service_commit_qc = Some(original);
@@ -637,11 +648,13 @@ fn require_proposal(block: SignedBlock) -> Result<SignedBlock, PayloadError> {
 /// # Errors
 /// Preserves local routing, original-history and forgery preparation refusals. Such errors
 /// leave every queued input resident and cannot become a transaction rejection.
+/// `wall_time` is one captured proposer clock reading; future signed inputs remain queued.
 pub fn select(
     view: &crate::state::StateView<'_>,
     queue: &std::sync::Arc<Queue>,
     max_bytes: usize,
     merges: &MergeProposal,
+    wall_time: Duration,
 ) -> Result<Vec<AcceptedTransaction<'static>>, PayloadError> {
     use crate::smartcontracts::isi::sccp::admission::{
         SccpExemptBlockBudgetV1, SccpExemptClassV1, exempt_class_of_entrypoint,
@@ -686,6 +699,7 @@ pub fn select(
         .map_err(|error| PayloadError::SignatureCustodyInvariant(error.to_string()))?;
     let mut sccp_budget = SccpExemptBlockBudgetV1::new(view.world());
     let mut forgery_selected = false;
+    let mut future_input = false;
     let mut original_parent = None;
     let budget = view.execution_budget();
     for transaction in pending {
@@ -704,6 +718,14 @@ pub fn select(
         }
         let next = bytes.saturating_add(transaction.encoded_len());
         if next > max_bytes {
+            continue;
+        }
+        // CT3 is local proposal pacing, never transaction invalidity. An eligible
+        // future input must arm retry even when it is the final input on an idle chain.
+        if !cfg!(all(test, sumeragi_core_mutation = "HC259"))
+            && transaction.as_ref().creation_time() > wall_time
+        {
+            future_input = true;
             continue;
         }
         let class =
@@ -771,6 +793,9 @@ pub fn select(
         forgery_selected |= class == Some(SccpExemptClassV1::ForgeryEvidence);
         bytes = next;
         selected.push(transaction);
+    }
+    if selected.is_empty() && merges.merges.is_empty() && future_input {
+        return Err(PayloadError::ClockAhead);
     }
     Ok(selected)
 }

@@ -111,7 +111,7 @@ pub enum Error {
     /// The original canonical read stopped at an enclosing budget or allocator refusal.
     /// This is an unfinished local attempt, not invalid evidence or lost custody.
     #[error("wallet canonical read resource: {0}")]
-    DecodeResource(#[source] norito::core::DecodeAttemptError),
+    DecodeResource(#[source] norito::core::DecodeLocalRefusal),
     /// A typed trust-root read failure outside the compact binary reader's contract.
     /// Retain its original cause; callers must not infer invalidity from an unfinished read.
     #[error("wallet finality source read: {0}")]
@@ -163,12 +163,9 @@ pub(crate) fn decode_attempt_error(
     error: norito::core::DecodeAttemptError,
     invalid: Error,
 ) -> Error {
-    use norito::core::DecodeAttemptErrorKind;
-    match error.kind() {
-        DecodeAttemptErrorKind::Allocator | DecodeAttemptErrorKind::EnclosingLimit => {
-            Error::DecodeResource(error)
-        }
-        DecodeAttemptErrorKind::Invalid => invalid,
+    match error.into_local_refusal() {
+        Ok(original) => Error::DecodeResource(original),
+        Err(_) => invalid,
     }
 }
 
@@ -221,7 +218,10 @@ impl FrozenTransition {
     /// Rejects malformed objects, another wallet/credential, a mismatching statement, or
     /// successor regulatory policy/lease fields that differ from the credential.
     pub fn validate(&self) -> Result<(), Error> {
-        valid(self.capsule.body().validate())?;
+        read_model_original(
+            || self.capsule.body().validate(),
+            Error::Invalid("G1 validation"),
+        )?;
         valid(self.credential.validate())?;
         valid(
             self.capsule

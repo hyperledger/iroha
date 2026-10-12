@@ -149,6 +149,34 @@ fn every_execution_producer_retains_original_source_until_actual_release() {
 }
 
 #[test]
+fn clock_ahead_payload_retries_without_another_queue_notification() {
+    let budget = AllocationBudget::new(ExecutionRegistrations::admission_bytes() + (1 << 20));
+    let mut sched = scheduler(&budget);
+    sched.build(11, 1, 3, 1024, 100);
+    let original = sched.next(0).expect("the final original payload request");
+    for _ in 0..2 {
+        refuse(
+            &mut sched,
+            original.clone(),
+            PublicationError::Retryable("ClockAhead: original source is not due".into()),
+        );
+        assert!(sched.take_events().is_empty());
+        assert!(
+            sched.pending_ready.is_none(),
+            "clock wait is not an empty queue"
+        );
+        let wake = sched.wakeup();
+        assert!(wake > 0 && wake < Millis::MAX);
+        assert!(sched.next(wake - 1).is_none());
+        assert_eq!(
+            sched.next(wake),
+            Some(original.clone()),
+            "timed retry preserves the final source without unrelated traffic"
+        );
+    }
+}
+
+#[test]
 fn scheduler_controls_admit_all_or_none_from_the_original_pool() {
     let bytes = ExecutionRegistrations::admission_bytes();
     assert_eq!(

@@ -372,7 +372,7 @@ fn activation_signed_original_read_refusal_preserves_exact_wire_and_signature() 
         signed_activate(&wire, &ledger.network_id(), &[1; 32], &owner, &original)
     });
     assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
-        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
     let retried =
         signed_activate(&wire, &ledger.network_id(), &[1; 32], &owner, &original).unwrap();
     assert_eq!(retried, transaction);
@@ -408,7 +408,7 @@ fn activation_confirmation_checkpoint_refusal_retries_exact_selected_original() 
         confirmation.require_checkpoint_original(&checkpoint)
     });
     assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
-        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
     assert_eq!(archive::encode(&confirmation).unwrap(), exact_confirmation);
     confirmation
         .require_checkpoint_original(&checkpoint)
@@ -444,7 +444,7 @@ fn activation_confirmation_checkpoint_refusal_retries_exact_selected_original() 
         wallet.publish_activation_confirmation(root, manifest, &plan, &confirmation)
     });
     assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
-        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
     let (current_root, manifest) = wallet.sync_manifest().unwrap();
     assert_eq!(current_root, root);
     assert_eq!(archive::encode(&manifest).unwrap(), manifest_bytes);

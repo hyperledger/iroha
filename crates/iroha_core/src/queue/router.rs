@@ -12007,7 +12007,10 @@ mod tests {
             &alice_id,
             alice_keypair.private_key(),
             vec![InstructionBox::from(DvpIsi::new(
-                "commonroute".parse().expect("settlement id"),
+                iroha_data_model::isi::SettlementId::new(
+                    alice_id.clone(),
+                    "commonroute".parse().expect("settlement reference"),
+                ),
                 SettlementLeg::new(
                     delivery_definition.clone(),
                     1_u32,
@@ -12098,7 +12101,10 @@ mod tests {
             &alice_id,
             alice_keypair.private_key(),
             vec![InstructionBox::from(DvpIsi::new(
-                "crossroute".parse().expect("settlement id"),
+                iroha_data_model::isi::SettlementId::new(
+                    alice_id.clone(),
+                    "crossroute".parse().expect("settlement reference"),
+                ),
                 SettlementLeg::new(
                     delivery_definition.clone(),
                     1_u32,
@@ -12189,7 +12195,10 @@ mod tests {
             &alice_id,
             alice_keypair.private_key(),
             vec![InstructionBox::from(PvpIsi::new(
-                "pvpcrossroute".parse().expect("settlement id"),
+                iroha_data_model::isi::SettlementId::new(
+                    alice_id.clone(),
+                    "pvpcrossroute".parse().expect("settlement reference"),
+                ),
                 SettlementLeg::new(
                     primary_definition.clone(),
                     1_u32,
@@ -12319,7 +12328,10 @@ mod tests {
             (
                 "DVP",
                 InstructionBox::from(DvpIsi::new(
-                    "dvp_plan".parse().expect("settlement id"),
+                    iroha_data_model::isi::SettlementId::new(
+                        alice_id.clone(),
+                        "dvp_plan".parse().expect("settlement reference"),
+                    ),
                     SettlementLeg::new(
                         delivery_definition.clone(),
                         1_u32,
@@ -12338,7 +12350,10 @@ mod tests {
             (
                 "boxed PVP",
                 InstructionBox::from(SettlementInstructionBox::Pvp(PvpIsi::new(
-                    "pvp_plan".parse().expect("settlement id"),
+                    iroha_data_model::isi::SettlementId::new(
+                        alice_id.clone(),
+                        "pvp_plan".parse().expect("settlement reference"),
+                    ),
                     SettlementLeg::new(
                         delivery_definition.clone(),
                         1_u32,
@@ -12359,7 +12374,10 @@ mod tests {
                 InstructionBox::from(MultisigPropose::new(
                     alice_id.clone(),
                     vec![InstructionBox::from(DvpIsi::new(
-                        "multisig_dvp_plan".parse().expect("settlement id"),
+                        iroha_data_model::isi::SettlementId::new(
+                            alice_id.clone(),
+                            "multisig_dvp_plan".parse().expect("settlement reference"),
+                        ),
                         SettlementLeg::new(
                             delivery_definition.clone(),
                             1_u32,
@@ -12383,7 +12401,10 @@ mod tests {
                     alice_id.clone(),
                     vec![
                         InstructionBox::from(DvpIsi::new(
-                            "multisig_mixed_plan".parse().expect("settlement id"),
+                            iroha_data_model::isi::SettlementId::new(
+                                alice_id.clone(),
+                                "multisig_mixed_plan".parse().expect("settlement reference"),
+                            ),
                             SettlementLeg::new(
                                 delivery_definition.clone(),
                                 1_u32,
@@ -12475,7 +12496,10 @@ mod tests {
         }
 
         let global_private_instruction = InstructionBox::from(DvpIsi::new(
-            "global_private_plan".parse().expect("settlement id"),
+            iroha_data_model::isi::SettlementId::new(
+                alice_id.clone(),
+                "global_private_plan".parse().expect("settlement reference"),
+            ),
             SettlementLeg::new(global_definition, 1_u32, alice_id.clone(), bob_id.clone()),
             SettlementLeg::new(
                 delivery_definition.clone(),
@@ -12528,7 +12552,10 @@ mod tests {
             &alice_id,
             alice_keypair.private_key(),
             vec![InstructionBox::from(DvpIsi::new(
-                "same_dataspace_plan".parse().expect("settlement id"),
+                iroha_data_model::isi::SettlementId::new(
+                    alice_id.clone(),
+                    "same_dataspace_plan".parse().expect("settlement reference"),
+                ),
                 SettlementLeg::new(
                     delivery_definition.clone(),
                     1_u32,
@@ -13026,7 +13053,10 @@ mod tests {
             &alice_id,
             alice_keypair.private_key(),
             sample_proved_executable(vec![InstructionBox::from(DvpIsi::new(
-                "proved-dvp-common".parse().expect("settlement id"),
+                iroha_data_model::isi::SettlementId::new(
+                    alice_id.clone(),
+                    "proved-dvp-common".parse().expect("settlement reference"),
+                ),
                 SettlementLeg::new(
                     delivery_definition.clone(),
                     1_u32,
@@ -13107,7 +13137,10 @@ mod tests {
             &alice_id,
             alice_keypair.private_key(),
             sample_proved_executable(vec![InstructionBox::from(PvpIsi::new(
-                "proved-pvp-cross".parse().expect("settlement id"),
+                iroha_data_model::isi::SettlementId::new(
+                    alice_id.clone(),
+                    "proved-pvp-cross".parse().expect("settlement reference"),
+                ),
                 SettlementLeg::new(
                     primary_definition.clone(),
                     1_u32,
@@ -13179,7 +13212,10 @@ mod tests {
             &alice_id,
             alice_keypair.private_key(),
             sample_proved_executable(vec![InstructionBox::from(DvpIsi::new(
-                "proved-dvp-alias".parse().expect("settlement id"),
+                iroha_data_model::isi::SettlementId::new(
+                    alice_id.clone(),
+                    "proved-dvp-alias".parse().expect("settlement reference"),
+                ),
                 SettlementLeg::new(opaque_delivery, 1_u32, alice_id.clone(), bob_id.clone()),
                 SettlementLeg::new(opaque_payment, 1_u32, bob_id, alice_id.clone()),
                 SettlementPlan::new(
@@ -15685,6 +15721,7 @@ mod tests {
         source_dataspace: DataSpaceId,
         destination_dataspace: DataSpaceId,
         owner: AccountId,
+        payer: AccountId,
         _former_destination_reserve: AccountId,
         recipient: AccountId,
         settlement_id: &str,
@@ -15735,7 +15772,10 @@ mod tests {
             expected_policy_revision: corridor.revision,
             source_asset_definition_id,
             destination_asset_definition_id,
-            settlement_id: settlement_id.parse().expect("FX settlement id"),
+            settlement_id: iroha_data_model::isi::SettlementId::new(
+                payer,
+                settlement_id.parse().expect("FX settlement reference"),
+            ),
             recipient,
             source_amount: iroha_primitives::numeric::Quantity::from(10_u32),
             expected_destination_amount: 760_u32.into(),
@@ -15835,6 +15875,7 @@ mod tests {
             source_dataspace,
             destination_dataspace,
             source_sink,
+            authority.clone(),
             destination_reserve,
             recipient,
             "policy_update_route",
@@ -15934,6 +15975,7 @@ mod tests {
             source_dataspace,
             destination_dataspace,
             source_sink,
+            authority.clone(),
             destination_reserve,
             recipient,
             "same_transaction_policy",
@@ -16082,6 +16124,7 @@ mod tests {
             source_dataspace,
             destination_dataspace,
             source_sink,
+            authority.clone(),
             destination_reserve,
             recipient,
             "nested_policy_overlay",
@@ -16199,6 +16242,7 @@ mod tests {
             source_dataspace,
             destination_dataspace,
             source_sink,
+            authority.clone(),
             destination_reserve,
             recipient,
             "approved_policy_overlay",
@@ -16912,6 +16956,7 @@ mod tests {
             source_dataspace,
             destination_dataspace,
             source_sink,
+            authority.clone(),
             destination_reserve,
             recipient,
             "escrow_route",
@@ -17068,6 +17113,7 @@ mod tests {
             source_dataspace,
             destination_dataspace,
             source_sink,
+            authority.clone(),
             destination_reserve,
             recipient,
             "fx_non_deploy_first_match",
@@ -17159,6 +17205,7 @@ mod tests {
             source_dataspace,
             destination_dataspace,
             source_sink,
+            authority.clone(),
             destination_reserve,
             recipient,
             "fx_universal_deploy_policy",
@@ -17224,6 +17271,7 @@ mod tests {
             source_dataspace,
             destination_dataspace,
             source_sink,
+            authority.clone(),
             destination_reserve,
             recipient,
             "fx_duplicate_deploy_policy",
@@ -17279,6 +17327,7 @@ mod tests {
             source_dataspace,
             destination_dataspace,
             source_sink,
+            authority.clone(),
             destination_reserve,
             recipient,
             "fx_expired_sns",
@@ -17373,6 +17422,7 @@ mod tests {
             source_dataspace,
             destination_dataspace,
             source_sink,
+            authority.clone(),
             destination_reserve,
             recipient,
             "fx_missing_deploy_lane",
@@ -17454,6 +17504,7 @@ mod tests {
             source_dataspace,
             destination_dataspace,
             source_sink,
+            authority.clone(),
             destination_reserve,
             recipient,
             "fx_deploy_policy",
@@ -17554,6 +17605,7 @@ mod tests {
             source_dataspace,
             destination_dataspace,
             source_sink,
+            authority.clone(),
             destination_reserve,
             recipient,
             "fx_dynamic_sns",
@@ -17661,7 +17713,10 @@ mod tests {
             expected_policy_revision: corridor.revision,
             source_asset_definition_id,
             destination_asset_definition_id,
-            settlement_id: "mobile_fx_1".parse().expect("FX settlement id"),
+            settlement_id: iroha_data_model::isi::SettlementId::new(
+                authority.clone(),
+                "mobile_fx_1".parse().expect("FX settlement reference"),
+            ),
             recipient,
             source_amount: iroha_primitives::numeric::Quantity::from(10_u32),
             expected_destination_amount: 760_u32.into(),
@@ -17688,7 +17743,10 @@ mod tests {
             "bond".parse().expect("auxiliary DVP asset name"),
         );
         let bilateral_settlement = InstructionBox::from(DvpIsi::new(
-            "mobile_dvp_1".parse().expect("DVP settlement id"),
+            iroha_data_model::isi::SettlementId::new(
+                authority.clone(),
+                "mobile_dvp_1".parse().expect("DVP settlement reference"),
+            ),
             SettlementLeg::new(
                 dvp_source_definition.clone(),
                 1_u32,

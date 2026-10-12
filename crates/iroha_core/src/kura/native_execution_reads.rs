@@ -238,6 +238,20 @@ impl Kura {
         &self,
         store: &mut BlockStore,
     ) -> Result<StableCanonicalBlockStoreMetadata> {
+        // Failure to reacquire the original pathname is source unavailability,
+        // not proof that the retained journal's authenticated bytes are corrupt.
+        // Keep this classification at the pre-I/O identity boundary only.
+        self.native_frame_journal_binding_inner(store)
+            .map_err(|error| match error {
+                Error::IO(source, path) => Error::NativeJournalUnavailable(source, path),
+                error => error,
+            })
+    }
+
+    fn native_frame_journal_binding_inner(
+        &self,
+        store: &mut BlockStore,
+    ) -> Result<StableCanonicalBlockStoreMetadata> {
         let journals = self.canonical_block_store_metadata(&store.path_to_blockchain)?;
         let bind = |expected: &StableSidecarMetadata, file: &FileWrap| -> Result<()> {
             let opened = secure_file_metadata::from_file(&file.file)
@@ -881,10 +895,10 @@ mod native_execution_read_tests {
                     "{journal}: {kind}"
                 );
                 assert!(
-                    chain
-                        .kura()
-                        .native_frame_read(2, original.block_hash())
-                        .is_err(),
+                    matches!(
+                        chain.kura().native_frame_read(2, original.block_hash()),
+                        Err(Error::NativeJournalUnavailable(_, _))
+                    ),
                     "a fresh owner cannot adopt {journal}: {kind}"
                 );
                 assert_eq!(chain.kura().canonical_query_reads_for_test(), (0, 0));

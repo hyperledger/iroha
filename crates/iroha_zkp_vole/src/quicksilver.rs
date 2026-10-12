@@ -140,7 +140,9 @@ pub trait ConstraintSystem {
 
     /// The public bit `bit` as a constant.
     fn bit(&self, bit: bool) -> Self::Value {
-        self.constant(<Self::Field as crate::field::BinaryField>::from_bit(u8::from(bit)))
+        self.constant(<Self::Field as crate::field::BinaryField>::from_bit(
+            u8::from(bit),
+        ))
     }
 
     /// `a + bit` for a public bit.
@@ -272,10 +274,9 @@ impl Degree {
     /// Degree of a sum, with the two degrees when both are valid.
     fn sum(self, other: Self) -> (Self, Option<(usize, usize)>) {
         match (self, other) {
-            (Self::Of(a), Self::Of(b)) => (
-                Self::Of(a.max(b)),
-                Some((usize::from(a), usize::from(b))),
-            ),
+            (Self::Of(a), Self::Of(b)) => {
+                (Self::Of(a.max(b)), Some((usize::from(a), usize::from(b))))
+            }
             (Self::BadIndex, _) | (_, Self::BadIndex) => (Self::BadIndex, None),
             _ => (Self::Overflow, None),
         }
@@ -481,14 +482,13 @@ pub fn prove<F: LambdaField, R: Relation<F> + ?Sized>(
         witness_bits.saturating_mul(F::BYTES),
         inputs.tags.len(),
     )?;
-    check_length(Input::MaskValues, MASKS * F::BYTES, inputs.mask_values.len())?;
-    check_length(Input::MaskTags, MASKS * F::BYTES, inputs.mask_tags.len())?;
-    let mut system = prover::Prover::<F>::new(
-        inputs.witness,
-        inputs.tags,
-        total,
-        challenge_2,
+    check_length(
+        Input::MaskValues,
+        MASKS * F::BYTES,
+        inputs.mask_values.len(),
     )?;
+    check_length(Input::MaskTags, MASKS * F::BYTES, inputs.mask_tags.len())?;
+    let mut system = prover::Prover::<F>::new(inputs.witness, inputs.tags, total, challenge_2)?;
     system.booleanity();
     relation.emit(public, &mut system);
     system.finish(inputs.mask_values, inputs.mask_tags)
@@ -618,7 +618,8 @@ pub(crate) mod tests {
                 bits[8 + i] = public[3 + i];
             }
             bits[5] = (bits[3] & bits[4]) ^ public[1];
-            bits[22] = (bits[16] & bits[17] & bits[18] & bits[19]) ^ (bits[20] & bits[21]) ^ public[2];
+            bits[22] =
+                (bits[16] & bits[17] & bits[18] & bits[19]) ^ (bits[20] & bits[21]) ^ public[2];
             bits[31] = bits[24..31].iter().all(|&bit| bit);
             bits[35] = bits[32] & bits[33] & !bits[34];
             let mut bytes = vec![0u8; 8];
@@ -666,7 +667,10 @@ pub(crate) mod tests {
             let vanishing = cs.mul(w(6), cs.zero());
             let nothing = cs.zero();
             let cubic = cs.add(
-                cs.mul(cs.mul(cs.mul(w(32), w(33)), cs.add(w(34), cs.one())), cs.one()),
+                cs.mul(
+                    cs.mul(cs.mul(w(32), w(33)), cs.add(w(34), cs.one())),
+                    cs.one(),
+                ),
                 w(35),
             );
             cs.constrain(linear);
@@ -688,18 +692,30 @@ pub(crate) mod tests {
     fn the_plain_evaluator_reports_exactly_the_violated_constraints() {
         fn check<F: LambdaField>() {
             let witness = Mixed::witness(&PUBLIC, 5);
-            assert_eq!(is_satisfied::<F, _>(&Mixed, &PUBLIC[..], &witness), Ok(true));
+            assert_eq!(
+                is_satisfied::<F, _>(&Mixed, &PUBLIC[..], &witness),
+                Ok(true)
+            );
             assert_eq!(
                 violated_constraints::<F, _>(&Mixed, &PUBLIC[..], &witness),
                 Ok(Vec::new())
             );
             assert_eq!(total_constraints::<F, _>(&Mixed), Ok(72));
             // Flip the output bit of each constraint that has one.
-            for (bit, constraint) in [(2usize, 64usize), (9, 65), (5, 66), (22, 67), (31, 68), (35, 71)]
-            {
+            for (bit, constraint) in [
+                (2usize, 64usize),
+                (9, 65),
+                (5, 66),
+                (22, 67),
+                (31, 68),
+                (35, 71),
+            ] {
                 let mut broken = witness.clone();
                 broken[bit / 8] ^= 1 << (bit % 8);
-                assert_eq!(is_satisfied::<F, _>(&Mixed, &PUBLIC[..], &broken), Ok(false));
+                assert_eq!(
+                    is_satisfied::<F, _>(&Mixed, &PUBLIC[..], &broken),
+                    Ok(false)
+                );
                 assert_eq!(
                     violated_constraints::<F, _>(&Mixed, &PUBLIC[..], &broken),
                     Ok(vec![constraint])
@@ -751,14 +767,23 @@ pub(crate) mod tests {
     fn instance<F: LambdaField>(values: Vec<F>, seed: u64) -> Instance<F> {
         let ell = values.len();
         let delta = element::<F>(seed + 1);
-        let tags: Vec<F> = (0u64..).take(ell).map(|i| element::<F>(seed + 100 + i)).collect();
+        let tags: Vec<F> = (0u64..)
+            .take(ell)
+            .map(|i| element::<F>(seed + 100 + i))
+            .collect();
         let keys = tags
             .iter()
             .zip(&values)
             .map(|(tag, value)| *tag + *value * delta)
             .collect();
-        let mask_values: Vec<F> = (0u64..).take(MASKS).map(|m| element(seed + 10 + m)).collect();
-        let mask_tags: Vec<F> = (0u64..).take(MASKS).map(|m| element(seed + 30 + m)).collect();
+        let mask_values: Vec<F> = (0u64..)
+            .take(MASKS)
+            .map(|m| element(seed + 10 + m))
+            .collect();
+        let mask_tags: Vec<F> = (0u64..)
+            .take(MASKS)
+            .map(|m| element(seed + 30 + m))
+            .collect();
         let mask_keys: Vec<u8> = mask_tags
             .iter()
             .zip(&mask_values)
@@ -930,13 +955,9 @@ pub(crate) mod tests {
         // For a bit, the lifted constraint is V^2 * X^5 + V * X^6.
         let values = vec![Gf128::ONE; 8];
         let fixture = instance(values, 77);
-        let mut prover = prover::Prover::<Gf128>::new(
-            &[0xa5],
-            &fixture.tags,
-            8,
-            &fixture.challenge,
-        )
-        .expect("valid challenge");
+        let mut prover =
+            prover::Prover::<Gf128>::new(&[0xa5], &fixture.tags, 8, &fixture.challenge)
+                .expect("valid challenge");
         prover.record();
         prover.booleanity();
         for (index, polynomial) in prover.recorded().iter().enumerate() {
@@ -1018,7 +1039,10 @@ pub(crate) mod tests {
                     violated_constraints::<F, _>(&relation, &(), &[0]),
                     Err(error)
                 );
-                assert_eq!(total_constraints::<F, _>(&relation).err(), (fault == 5).then_some(error));
+                assert_eq!(
+                    total_constraints::<F, _>(&relation).err(),
+                    (fault == 5).then_some(error)
+                );
                 let inputs = ProverInputs {
                     witness: &[0],
                     tags: &fixture.tags,
@@ -1176,9 +1200,18 @@ pub(crate) mod tests {
         assert_eq!(one.product(six), (Degree::Of(7), Some((1, 6))));
         assert_eq!(two.product(six), (Degree::Overflow, None));
         assert_eq!(Degree::Overflow.sum(one), (Degree::Overflow, None));
-        assert_eq!(Degree::Overflow.product(Degree::ZERO), (Degree::Overflow, None));
-        assert_eq!(Degree::BadIndex.sum(Degree::Overflow), (Degree::BadIndex, None));
-        assert_eq!(Degree::Overflow.product(Degree::BadIndex), (Degree::BadIndex, None));
+        assert_eq!(
+            Degree::Overflow.product(Degree::ZERO),
+            (Degree::Overflow, None)
+        );
+        assert_eq!(
+            Degree::BadIndex.sum(Degree::Overflow),
+            (Degree::BadIndex, None)
+        );
+        assert_eq!(
+            Degree::Overflow.product(Degree::BadIndex),
+            (Degree::BadIndex, None)
+        );
         assert_eq!(six.get(), Some(6));
         assert_eq!(Degree::BadIndex.get(), None);
         assert_eq!(Degree::Overflow.get(), None);
@@ -1188,17 +1221,32 @@ pub(crate) mod tests {
     fn the_stream_latches_the_first_error() {
         let mut stream = Stream::new(2);
         assert_eq!(stream.admit(Degree::Of(7)), Some(0));
-        assert_eq!(stream.finish(), Err(QuickSilverError::ConstraintCount { expected: 2, actual: 1 }));
+        assert_eq!(
+            stream.finish(),
+            Err(QuickSilverError::ConstraintCount {
+                expected: 2,
+                actual: 1
+            })
+        );
         assert_eq!(stream.admit(Degree::Overflow), None);
         assert_eq!(stream.admit(Degree::ONE), None);
         assert_eq!(stream.admit(Degree::BadIndex), None);
-        assert_eq!(stream.finish(), Err(QuickSilverError::DegreeOverflow { constraint: 1 }));
+        assert_eq!(
+            stream.finish(),
+            Err(QuickSilverError::DegreeOverflow { constraint: 1 })
+        );
 
         let mut stream = Stream::new(1);
         assert_eq!(stream.admit(Degree::ZERO), Some(7));
         assert_eq!(stream.finish(), Ok(()));
         assert_eq!(stream.admit(Degree::ZERO), None);
-        assert_eq!(stream.finish(), Err(QuickSilverError::ConstraintCount { expected: 1, actual: 2 }));
+        assert_eq!(
+            stream.finish(),
+            Err(QuickSilverError::ConstraintCount {
+                expected: 1,
+                actual: 2
+            })
+        );
     }
 
     #[test]
@@ -1208,8 +1256,14 @@ pub(crate) mod tests {
         assert_eq!(system.value_of(system.one()), Gf192::ONE);
         assert_eq!(system.value_of(system.bit(true)), Gf192::ONE);
         assert_eq!(system.value_of(system.bit(false)), Gf192::ZERO);
-        assert_eq!(system.value_of(system.add_bit(system.witness(0), true)), Gf192::ZERO);
-        assert_eq!(system.value_of(system.add_bit(system.witness(1), true)), Gf192::ONE);
+        assert_eq!(
+            system.value_of(system.add_bit(system.witness(0), true)),
+            Gf192::ZERO
+        );
+        assert_eq!(
+            system.value_of(system.add_bit(system.witness(1), true)),
+            Gf192::ONE
+        );
         assert_eq!((DEGREE, MASKS), (7, 10));
     }
 }

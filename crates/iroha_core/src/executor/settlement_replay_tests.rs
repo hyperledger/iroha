@@ -7,22 +7,23 @@ use iroha_data_model::{
     ValidationFail,
     account::{Account, AccountId},
     asset::{AssetBalancePolicy, AssetDefinition, AssetDefinitionId, AssetId},
-    domain::{Domain, DomainId},
+    domain::Domain,
     executor::SettlementReplayDispositionV1,
     isi::{
         AtomicSettlementMovement, AtomicSettlementMovements, InstructionBox, Mint, Register,
         SettleAtomic, SettlementId,
     },
-    metadata::Metadata,
     transaction::{
         FeeChargeKind, FeeChargeLimit, FeePaymentIntent, SignedTransaction, TransactionBuilder,
         error::TransactionRejectionReason,
     },
 };
+use iroha_model_base::{domain::DomainId, metadata::Metadata};
 use iroha_primitives::numeric::Quantity;
+use mv::storage::StorageReadOnly;
 
 use crate::{
-    state::{StateReadOnly, World, WorldReadOnly},
+    state::{World, WorldReadOnly},
     sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
 };
 
@@ -189,7 +190,11 @@ fn direct_payment_replay_two_carriers_charge_once_and_recover_after_certified_re
         250_000_u32.into()
     );
     assert_eq!(balance(&chain, principal(), account()), 750_000_u32.into());
-    assert_eq!(balance(&chain, fee_asset(), account()), 99_u32.into());
+    assert_eq!(
+        balance(&chain, fee_asset(), account()),
+        99_u32.into(),
+        "same direct payment identity charges one execution fee across distinct carriers",
+    );
     assert_replay(
         &chain,
         1,

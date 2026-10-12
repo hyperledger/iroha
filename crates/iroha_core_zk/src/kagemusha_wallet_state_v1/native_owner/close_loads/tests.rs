@@ -273,11 +273,11 @@ fn close_loads_read_refusal_preserves_nonce_and_exact_publication_retry() {
     ] {
         let direct = norito::with_decode_limits_scope(limits, || plan.output(&exact));
         assert!(matches!(direct, Err(Error::DecodeResource(ref cause))
-            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
         let public =
             norito::with_decode_limits_scope(limits, || w.finish_close_loads(&plan, &exact));
         assert!(matches!(public, Err(Error::DecodeResource(ref cause))
-            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
         assert_eq!(w.manifest().unwrap().0, root);
         assert_eq!(
             archive::encode(&w.close_loads_plan([1; 32]).unwrap()).unwrap(),

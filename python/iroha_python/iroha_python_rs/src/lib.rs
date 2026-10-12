@@ -6208,6 +6208,126 @@ mod tests {
     }
 
     #[test]
+    fn bilateral_settlement_retry_is_a_rejected_carrier_for_both_dispositions() {
+        use iroha_data_model::executor::{SettlementReplayDispositionV1, SettlementReplayV1};
+        let owner = parse_account_id(&canonical_i105_from_seed(0x11)).unwrap();
+        for disposition in [
+            SettlementReplayDispositionV1::AlreadySettled,
+            SettlementReplayDispositionV1::ConflictingIntent,
+        ] {
+            let reason = TransactionRejectionReason::Validation(ValidationFail::SettlementReplay(
+                Box::new(SettlementReplayV1 {
+                    settlement_id: SettlementId::new(owner.clone(), "retry".parse().unwrap()),
+                    disposition,
+                    committed_block_height: 2,
+                    committed_block_hash: HashOf::from_untyped_unchecked(Hash::new(
+                        b"original successful payment",
+                    )),
+                }),
+            ));
+            assert_eq!(transaction_rejection_code(&reason), "SettlementReplay");
+        }
+    }
+
+    #[test]
+    fn bilateral_atomicity_rejects_retired_partial_names() {
+        ensure_python();
+        Python::attach(|_| {
+            assert_eq!(
+                parse_settlement_atomicity("all_or_nothing").unwrap(),
+                SettlementAtomicity::AllOrNothing
+            );
+            for value in [
+                "commit_first_leg",
+                "commit_second_leg",
+                "CommitFirstLeg",
+                "CommitSecondLeg",
+                "unknown",
+            ] {
+                let error = parse_settlement_atomicity(value).expect_err("closed atomicity policy");
+                assert!(error.to_string().contains("unknown settlement atomicity"));
+            }
+        });
+    }
+    #[test]
+    fn bilateral_settlement_identity_is_scoped_and_survives_native_json() {
+        use iroha_data_model::isi::SettlementInstructionBox;
+        ensure_python();
+        Python::attach(|py| {
+            let instruction_type = py.get_type::<Instruction>();
+            let payer = canonical_i105_from_seed(0x11);
+            let counterparty = canonical_i105_from_seed(0x22);
+            let unrelated = canonical_i105_from_seed(0x33);
+            let leg = |definition: &str, from: &str, to: &str| {
+                let value = PyDict::new(py);
+                value.set_item("asset_definition_id", definition).unwrap();
+                value.set_item("quantity", "10").unwrap();
+                value.set_item("from", from).unwrap();
+                value.set_item("to", to).unwrap();
+                value
+            };
+            let first = leg("7cgpbDVabB1g8uax9JkhGckEHwfe", &payer, &counterparty);
+            let second = leg("4eaant86faGEgeH21U4qTTfpvwSb", &counterparty, &payer);
+            let id = SettlementId::new(
+                parse_account_id(&payer).unwrap(),
+                "payment-42".parse().unwrap(),
+            );
+            for dvp in [true, false] {
+                let build = |text: &str| {
+                    if dvp {
+                        Instruction::settlement_dvp(
+                            &instruction_type,
+                            text,
+                            first.as_any(),
+                            second.as_any(),
+                            "delivery_then_payment",
+                            "all_or_nothing",
+                            None,
+                        )
+                    } else {
+                        Instruction::settlement_pvp(
+                            &instruction_type,
+                            text,
+                            first.as_any(),
+                            second.as_any(),
+                            "payment_then_delivery",
+                            "all_or_nothing",
+                            None,
+                        )
+                    }
+                };
+                let instruction = build(&id.to_string()).expect("scoped identity");
+                let json = instruction.to_json().unwrap();
+                let decoded = json::from_str::<InstructionBox>(&json).unwrap();
+                assert_eq!(
+                    norito::encode_canonical(&decoded).unwrap(),
+                    norito::encode_canonical(&instruction.inner).unwrap()
+                );
+                let scoped_id = match decoded
+                    .as_any()
+                    .downcast_ref::<SettlementInstructionBox>()
+                    .unwrap()
+                {
+                    SettlementInstructionBox::Dvp(value) => value.settlement_id(),
+                    SettlementInstructionBox::Pvp(value) => value.settlement_id(),
+                    _ => panic!("unexpected settlement variant"),
+                };
+                assert_eq!(scoped_id, &id);
+                for invalid in [
+                    "payment-42".to_owned(),
+                    format!("payment-42${unrelated}"),
+                    format!("payment-42${payer}@domain"),
+                ] {
+                    assert!(
+                        build(&invalid).is_err(),
+                        "accepted invalid owner identity {invalid}"
+                    );
+                }
+            }
+        });
+    }
+
+    #[test]
     fn transfer_rwa_instruction_classmethod_serializes_canonical_quantity_payload() {
         ensure_python();
         Python::attach(|py| {
@@ -8783,12 +8903,6 @@ fn parse_settlement_atomicity(value: &str) -> PyResult<SettlementAtomicity> {
     let normalized = value.replace('-', "_").to_ascii_lowercase();
     match normalized.as_str() {
         "all_or_nothing" => Ok(SettlementAtomicity::AllOrNothing),
-        "commit_first_leg" => Err(PyValueError::new_err(
-            "atomicity `commit_first_leg` is not supported yet; choose `all_or_nothing`",
-        )),
-        "commit_second_leg" => Err(PyValueError::new_err(
-            "atomicity `commit_second_leg` is not supported yet; choose `all_or_nothing`",
-        )),
         _ => Err(PyValueError::new_err(format!(
             "unknown settlement atomicity `{value}` (expected `all_or_nothing`)"
         ))),
@@ -10277,6 +10391,13 @@ impl Instruction {
         let py = cls.py();
         let delivery_leg = parse_settlement_leg(py, delivery_leg, "delivery_leg")?;
         let payment_leg = parse_settlement_leg(py, payment_leg, "payment_leg")?;
+        if settlement_id.owner() != delivery_leg.from()
+            && settlement_id.owner() != payment_leg.from()
+        {
+            return Err(PyValueError::new_err(
+                "settlement identity owner must authorize an actual debit",
+            ));
+        }
         let order = parse_settlement_order(order)?;
         let atomicity = parse_settlement_atomicity(atomicity)?;
         let plan = SettlementPlan::new(order, atomicity);
@@ -10311,6 +10432,13 @@ impl Instruction {
         let py = cls.py();
         let primary_leg = parse_settlement_leg(py, primary_leg, "primary_leg")?;
         let counter_leg = parse_settlement_leg(py, counter_leg, "counter_leg")?;
+        if settlement_id.owner() != primary_leg.from()
+            && settlement_id.owner() != counter_leg.from()
+        {
+            return Err(PyValueError::new_err(
+                "settlement identity owner must authorize an actual debit",
+            ));
+        }
         let order = parse_settlement_order(order)?;
         let atomicity = parse_settlement_atomicity(atomicity)?;
         let plan = SettlementPlan::new(order, atomicity);
@@ -12251,6 +12379,7 @@ fn transaction_rejection_code(reason: &TransactionRejectionReason) -> &str {
             ValidationFail::ContractRejected(rejection) => rejection.name.as_str(),
             ValidationFail::QueryFailed(_) => "QueryFailed",
             ValidationFail::AxtReject(_) => "AxtRejected",
+            ValidationFail::SettlementReplay(_) => "SettlementReplay",
             ValidationFail::TooComplex => "TooComplex",
             ValidationFail::InternalError(_) => "InternalError",
         },

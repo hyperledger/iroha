@@ -218,7 +218,10 @@ impl<F: LambdaField> ConstraintSystem for Prover<'_, F> {
         };
         let mut out = Polynomial::marked(degree);
         for (i, x) in a.coefficients[..=left].iter().enumerate() {
-            for (slot, y) in out.coefficients[i..].iter_mut().zip(&b.coefficients[..=right]) {
+            for (slot, y) in out.coefficients[i..]
+                .iter_mut()
+                .zip(&b.coefficients[..=right])
+            {
                 *slot += *x * *y;
             }
         }
@@ -342,7 +345,10 @@ mod tests {
         let over = system.mul(power, w);
         assert_eq!(over.degree, Degree::Overflow);
         assert_eq!(system.add(over, w).degree, Degree::Overflow);
-        assert_eq!(system.mul(over, system.constant(F::ONE)).degree, Degree::Overflow);
+        assert_eq!(
+            system.mul(over, system.constant(F::ONE)).degree,
+            Degree::Overflow
+        );
         assert_eq!(system.len(), 1);
         assert_eq!(system.coordinate(0), Some((element(2), element(1))));
         assert_eq!(system.coordinate(1), None);
@@ -374,7 +380,9 @@ mod tests {
 
         let mask_values: Vec<u8> = (20..30).flat_map(|seed| element(seed).to_bytes()).collect();
         let mask_tags: Vec<u8> = (30..40).flat_map(|seed| element(seed).to_bytes()).collect();
-        let out = system.finish(&mask_values, &mask_tags).expect("complete stream");
+        let out = system
+            .finish(&mask_values, &mask_tags)
+            .expect("complete stream");
         for (j, coefficient) in out.iter().enumerate() {
             let column: Vec<F> = recorded.iter().map(|polynomial| polynomial[j]).collect();
             let mut mask = F::ZERO;

@@ -390,8 +390,14 @@ pub trait Executor: Send {
     /// Execute `block` (hash `block_hash`) on its parent's post-state: the applied state or a
     /// cached post-state. `None` if that post-state is not held (not an error: the driver parks
     /// the request until the parent is applied or executed, O4). A `Valid` post-state is kept
-    /// until the block is applied or discarded.
-    fn execute(&mut self, block: &AvailableBody, block_hash: &Hash32) -> Option<ExecOutcome>;
+    /// until the block is applied or discarded. `certified` is the core's authenticated
+    /// PrepareQC/lock indication, forwarded unchanged; only local clock guards may use it.
+    fn execute(
+        &mut self,
+        block: &AvailableBody,
+        block_hash: &Hash32,
+        certified: bool,
+    ) -> Option<ExecOutcome>;
     /// Drop the post-states of the blocks at `height` other than `keep`.
     fn discard(&mut self, height: u64, keep: &[Hash32]);
     /// The post-state of the next committed block (its parent is the applied state): the

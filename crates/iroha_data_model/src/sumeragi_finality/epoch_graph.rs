@@ -6,7 +6,7 @@ use crate::{
     sumeragi::epoch::{ValidatorEpochBoundaryV1, ValidatorEpochContextV1},
 };
 use iroha_sumeragi::types::{
-    AppliedConfig, ConfigSlot, EpochConfig, EpochId, Hash32, HeightConfig,
+    AppliedConfig, ChainParams, ConfigSlot, EpochConfig, EpochId, Hash32, HeightConfig,
 };
 use norito::{
     NoritoDeserialize, NoritoSerialize,
@@ -53,15 +53,7 @@ impl ScheduledConfig {
         &self,
         validation: &mut EpochValidationScope,
     ) -> Result<HeightConfig, ScheduleError> {
-        let epoch = validation.core_epoch(&self.epoch)?;
-        if self.height < self.epoch.authorization.first_height
-            || self.height > self.epoch.authorization.last_height
-        {
-            return Err(ScheduleError::Epoch(
-                "scheduled height is outside its authenticated epoch".into(),
-            ));
-        }
-        self.params.validate().map_err(ScheduleError::Params)?;
+        let (epoch, params) = self.core_parameters_with_validation(validation)?;
         let committee = global_committee(
             self.epoch
                 .committee
@@ -72,11 +64,38 @@ impl ScheduledConfig {
         let config = HeightConfig {
             epoch: Box::new(epoch),
             committee,
-            params: self.params.to_core(),
+            params,
         };
         iroha_sumeragi::pacemaker::validate_height(&config, super::CHAIN_TRANSPORT_FRAME_LIMIT)
             .map_err(ScheduleError::Params)?;
         Ok(config)
+    }
+
+    /// Borrow the original scheduling context and validate its inline core fields.
+    ///
+    /// This is the same epoch, exact-height and ordinary-parameter preflight used by
+    /// [`Self::height_config_with_validation`]. It creates no owned committee or epoch
+    /// box. A consumer must still build the canonical committee and call the shared
+    /// `pacemaker::validate_height_parts` transport/layout relation. This projection
+    /// supplies no source or certificate authority and does not fund the mandatory
+    /// context validator's existing scratch allocations.
+    ///
+    /// # Errors
+    /// Returns the original epoch, containment or parameter error in the same order.
+    pub fn core_parameters_with_validation(
+        &self,
+        validation: &mut EpochValidationScope,
+    ) -> Result<(EpochConfig, ChainParams), ScheduleError> {
+        let epoch = validation.core_epoch(&self.epoch)?;
+        if self.height < self.epoch.authorization.first_height
+            || self.height > self.epoch.authorization.last_height
+        {
+            return Err(ScheduleError::Epoch(
+                "scheduled height is outside its authenticated epoch".into(),
+            ));
+        }
+        self.params.validate().map_err(ScheduleError::Params)?;
+        Ok((epoch, self.params.to_core()))
     }
 }
 

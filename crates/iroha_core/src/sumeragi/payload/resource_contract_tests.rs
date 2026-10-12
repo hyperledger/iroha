@@ -236,7 +236,8 @@ fn follower_accepts_the_assembled_maximum_and_the_reserve_is_packing_policy() {
             &chain.state().view(),
             &queue,
             INCLUDABLE as usize,
-            &MergeProposal::default()
+            &MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now()
         )
         .unwrap()
         .len(),
@@ -327,6 +328,142 @@ fn lane_chain() -> (CertifiedTestChain, KeyPair, KeyPair) {
     chain.commit_at(2_000, Vec::new());
     chain.commit_at(3_000, Vec::new());
     (chain, clock, user)
+}
+
+#[test]
+fn proposer_clock_selection_retains_future_signed_inputs_until_the_exact_time() {
+    let (chain, signer) = chain();
+    let (clock, time) = TimeSource::new_mock(Duration::from_millis(3_000));
+    let queue = Arc::new(Queue::test(
+        iroha_config::parameters::actual::Queue::default(),
+        &time,
+    ));
+    let due = sized(&chain, &signer, 4_096, 3_000);
+    let future = sized(&chain, &signer, 4_096, 3_001);
+    for original in [&future, &due] {
+        let accepted = AcceptedTransaction::accept_with_time_source(
+            original.clone(),
+            &chain.network_id(),
+            Duration::from_secs(1),
+            chain.state().view().world().parameters().transaction(),
+            &iroha_config::parameters::actual::Crypto::default(),
+            &time,
+        )
+        .unwrap();
+        queue.push(accepted, chain.state().view()).unwrap();
+        if queue.queued_len() == 1 {
+            assert!(
+                matches!(
+                    select(
+                        &chain.state().view(),
+                        &queue,
+                        INCLUDABLE as usize,
+                        &MergeProposal::default(),
+                        time.now(),
+                    ),
+                    Err(PayloadError::ClockAhead)
+                ),
+                "global proposer must leave future signed input queued"
+            );
+        }
+    }
+    let selected = select(
+        &chain.state().view(),
+        &queue,
+        INCLUDABLE as usize,
+        &MergeProposal::default(),
+        time.now(),
+    )
+    .unwrap();
+    assert_eq!(
+        selected.len(),
+        1,
+        "global proposer must leave future signed input queued"
+    );
+    assert_eq!(selected[0].hash_as_entrypoint(), due.hash_as_entrypoint());
+    assert_eq!(queue.queued_len(), 2);
+    clock.advance(Duration::from_millis(1));
+    let selected = select(
+        &chain.state().view(),
+        &queue,
+        INCLUDABLE as usize,
+        &MergeProposal::default(),
+        time.now(),
+    )
+    .unwrap();
+    assert_eq!(selected.len(), 2);
+    assert!(
+        selected
+            .iter()
+            .any(|input| input.hash_as_entrypoint() == future.hash_as_entrypoint())
+    );
+    assert_eq!(
+        queue.queued_len(),
+        2,
+        "selection does not consume original queue custody"
+    );
+    clock.rewind(Duration::from_millis(1));
+    assert_eq!(
+        select(
+            &chain.state().view(),
+            &queue,
+            INCLUDABLE as usize,
+            &MergeProposal::default(),
+            time.now()
+        )
+        .unwrap()
+        .len(),
+        1
+    );
+}
+
+#[test]
+fn lane_proposer_clock_selection_preserves_future_inputs_and_resumes_after_advance() {
+    use crate::sumeragi::lanes::executor::LaneSelectionError;
+    let (chain, _, signer) = lane_chain();
+    let (clock, time) = TimeSource::new_mock(Duration::from_millis(3_000));
+    let queue = Arc::new(Queue::test(
+        iroha_config::parameters::actual::Queue::default(),
+        &time,
+    ));
+    let future = sized(&chain, &signer, 4_096, 3_001);
+    let accepted = AcceptedTransaction::accept_with_time_source(
+        future.clone(),
+        &chain.network_id(),
+        Duration::from_secs(1),
+        chain.state().view().world().parameters().transaction(),
+        &iroha_config::parameters::actual::Crypto::default(),
+        &time,
+    )
+    .unwrap();
+    queue.push(accepted, chain.state().view()).unwrap();
+    let source =
+        QueueLaneTransactions::new(LANE_FIXTURE_ID, queue.clone(), chain.state().clone(), time);
+    let height = chain.height() + 1;
+    let skip = std::collections::BTreeSet::new();
+    assert!(
+        matches!(
+            source.candidates(height, LANE_FIXTURE_LANE as usize, &skip),
+            Err(LaneSelectionError::ClockAhead)
+        ),
+        "lane proposer must leave future signed input queued"
+    );
+    assert_eq!(queue.queued_len(), 1);
+    clock.advance(Duration::from_millis(1));
+    let selected = source
+        .candidates(height, LANE_FIXTURE_LANE as usize, &skip)
+        .unwrap();
+    assert_eq!(selected.len(), 1);
+    assert_eq!(
+        selected[0].hash_as_entrypoint(),
+        future.hash_as_entrypoint()
+    );
+    assert_eq!(queue.queued_len(), 1);
+    clock.rewind(Duration::from_millis(1));
+    assert!(matches!(
+        source.candidates(height, LANE_FIXTURE_LANE as usize, &skip),
+        Err(LaneSelectionError::ClockAhead)
+    ));
 }
 
 /// Admission uses the coherent transaction cap on either route. The lane proposer obeys
@@ -437,6 +574,7 @@ fn lane_routed_transaction_is_admitted_and_selected_within_its_lane_budget() {
         LANE_FIXTURE_ID,
         Arc::clone(&queue),
         Arc::clone(chain.state()),
+        time.clone(),
     );
     let budget = usize::try_from(LANE_FIXTURE_LANE).unwrap();
     let skip = std::collections::BTreeSet::new();
@@ -458,7 +596,8 @@ fn lane_routed_transaction_is_admitted_and_selected_within_its_lane_budget() {
             &chain.state().view(),
             &queue,
             usize::try_from(LANE_FIXTURE_GLOBAL).unwrap(),
-            &MergeProposal::default()
+            &MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now()
         )
         .unwrap()
         .is_empty()
@@ -517,7 +656,8 @@ fn proposer_selection_is_capped_by_the_fastpq_network_input_bound() {
             &chain.state().view(),
             &queue,
             budget,
-            &MergeProposal::default()
+            &MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now()
         )
         .unwrap()
         .len(),
@@ -531,7 +671,8 @@ fn proposer_selection_is_capped_by_the_fastpq_network_input_bound() {
             &MergeProposal {
                 transactions: 3,
                 ..MergeProposal::default()
-            }
+            },
+            iroha_primitives::time::TimeSource::new_system().now()
         )
         .unwrap()
         .len(),
@@ -545,7 +686,8 @@ fn proposer_selection_is_capped_by_the_fastpq_network_input_bound() {
             &MergeProposal {
                 transactions: cap,
                 ..MergeProposal::default()
-            }
+            },
+            iroha_primitives::time::TimeSource::new_system().now()
         )
         .unwrap()
         .is_empty()
@@ -598,7 +740,8 @@ fn global_rescue_carries_a_stalled_lane_transaction_only_within_the_global_budge
             &chain.state().view(),
             &both,
             budget,
-            &MergeProposal::default()
+            &MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now()
         )
         .unwrap()
         .is_empty()
@@ -621,6 +764,7 @@ fn global_rescue_carries_a_stalled_lane_transaction_only_within_the_global_budge
         &both,
         budget,
         &MergeProposal::default(),
+        iroha_primitives::time::TimeSource::new_system().now(),
     )
     .unwrap();
     assert_eq!(rescued.len(), 1);
@@ -632,7 +776,8 @@ fn global_rescue_carries_a_stalled_lane_transaction_only_within_the_global_budge
             &chain.state().view(),
             &only_above,
             budget,
-            &MergeProposal::default()
+            &MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now()
         )
         .unwrap()
         .is_empty()
@@ -642,6 +787,7 @@ fn global_rescue_carries_a_stalled_lane_transaction_only_within_the_global_budge
         &only_above,
         budget + 1,
         &MergeProposal::default(),
+        iroha_primitives::time::TimeSource::new_system().now(),
     )
     .unwrap();
     assert_eq!(carried.len(), 1);

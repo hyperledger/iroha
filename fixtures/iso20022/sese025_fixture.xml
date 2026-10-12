@@ -39,7 +39,7 @@
     <sese:SplmtryData>
       <sese:Plan>
         <sese:ExecutionOrder>PAYMENT_THEN_DELIVERY</sese:ExecutionOrder>
-        <sese:Atomicity>COMMIT_SECOND_LEG</sese:Atomicity>
+        <sese:Atomicity>ALL_OR_NOTHING</sese:Atomicity>
       </sese:Plan>
     </sese:SplmtryData>
     <sese:AddtlInf>{"counter_ccy":"EUR"}</sese:AddtlInf>

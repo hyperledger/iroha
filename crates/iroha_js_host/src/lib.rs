@@ -13981,7 +13981,10 @@ seiyaku Privacy { permission CanCommitPrivateInput;
                 DomainId::try_new("sbp", "universal").expect("destination asset domain"),
                 "pkr".parse().expect("destination asset name"),
             ),
-            settlement_id: "fx_1".parse().expect("settlement id"),
+            settlement_id: iroha_data_model::isi::SettlementId::new(
+                sample_account("payer"),
+                "fx_1".parse().expect("settlement reference"),
+            ),
             recipient: AccountId::new(
                 KeyPair::random_with_algorithm(Algorithm::Ed25519)
                     .public_key()

@@ -222,6 +222,7 @@ fn queue_admission_and_proposer_selection_share_the_includable_bound() {
             &queue,
             budget,
             &crate::sumeragi::payload::MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now(),
         )
         .unwrap();
         assert_eq!(selected.len(), 1);
@@ -234,7 +235,8 @@ fn queue_admission_and_proposer_selection_share_the_includable_bound() {
                 &state.view(),
                 &queue,
                 budget - 1,
-                &crate::sumeragi::payload::MergeProposal::default()
+                &crate::sumeragi::payload::MergeProposal::default(),
+                iroha_primitives::time::TimeSource::new_system().now()
             )
             .unwrap()
             .is_empty(),
@@ -255,7 +257,8 @@ fn queue_admission_and_proposer_selection_share_the_includable_bound() {
             &roomy.view(),
             &queue,
             budget,
-            &crate::sumeragi::payload::MergeProposal::default()
+            &crate::sumeragi::payload::MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now()
         )
         .unwrap()
         .is_empty()
@@ -265,7 +268,8 @@ fn queue_admission_and_proposer_selection_share_the_includable_bound() {
             &roomy.view(),
             &queue,
             budget + 1,
-            &crate::sumeragi::payload::MergeProposal::default()
+            &crate::sumeragi::payload::MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now()
         )
         .unwrap()
         .len(),
@@ -546,6 +550,7 @@ fn default_limits_admit_and_select_the_largest_includable_transaction() {
         &queue,
         budget,
         &crate::sumeragi::payload::MergeProposal::default(),
+        iroha_primitives::time::TimeSource::new_system().now(),
     )
     .unwrap();
     assert_eq!(selected.len(), 1);

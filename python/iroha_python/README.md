@@ -1604,7 +1604,7 @@ plan = SettlementPlan(
 )
 
 draft.settlement_dvp(
-    settlement_id="trade_dvp",
+    settlement_id=f"trade_dvp${delivery_leg.from_account}",
     delivery_leg=delivery_leg,
     payment_leg=payment_leg,
     plan=plan,
@@ -1618,14 +1618,18 @@ counter_leg = SettlementLeg(
     to_account="sorauﾛ1NcMBm2dﾌBokヱDﾑﾅekAbｶﾍﾜﾇﾐMFｽヱﾋZﾘ2u4WGUMMS63EY6",
 )
 draft.settlement_pvp(
-    settlement_id="trade_pvp",
+    settlement_id=f"trade_pvp${payment_leg.from_account}",
     primary_leg=payment_leg,
     counter_leg=counter_leg,
 )
 ```
 
-The first release supports only the `all_or_nothing` atomicity policy. The host
-rejects every other mode.
+Settlement IDs use `reference$canonical_owner`: the owner is an actual debited
+account, and the reference is unique within that account. Bare references are
+rejected. Native JSON and Norito retain the owner and reference as separate fields.
+
+`all_or_nothing` is the sole native settlement atomicity policy. Other names
+and wire tags are invalid.
 
 See `specs/finance/repo_runbook.md` for operator-facing CLI flows, determinism notes, and automation guidance covering both repo and settlement helpers.
 

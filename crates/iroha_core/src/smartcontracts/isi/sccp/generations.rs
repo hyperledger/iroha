@@ -121,7 +121,7 @@ fn member_for_peer<'a>(
         .public_lane_validators()
         .iter()
         .filter(|(key, _)| {
-            cfg!(all(test, sumeragi_core_mutation = "HC248")) || key.0 == LaneId::SINGLE
+            cfg!(all(test, sumeragi_core_mutation = "HC250")) || key.0 == LaneId::SINGLE
         })
         .filter(|(key, record)| {
             &record.peer_id == peer
@@ -617,7 +617,7 @@ pub(super) fn clear_destinations(
             .take(64);
         let mut history = store::committee_generations::iter(&*stx.world).map(|(id, _)| *id);
         let candidates: &mut dyn Iterator<Item = u64> =
-            if cfg!(all(test, sumeragi_core_mutation = "HC249")) {
+            if cfg!(all(test, sumeragi_core_mutation = "HC251")) {
                 &mut history
             } else {
                 &mut pending

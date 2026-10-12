@@ -162,9 +162,8 @@ fn witness(public: &[u8], seed: u8) -> Vec<u8> {
     for j in 0..16 {
         set(&mut bytes, 272 + j, p(32 + j));
     }
-    let bit = (get(&bytes, 288) & get(&bytes, 289))
-        ^ (290..294).all(|index| get(&bytes, index))
-        ^ p(48);
+    let bit =
+        (get(&bytes, 288) & get(&bytes, 289)) ^ (290..294).all(|index| get(&bytes, index)) ^ p(48);
     set(&mut bytes, 294, bit);
     bytes
 }
@@ -217,7 +216,10 @@ fn the_toy_relation_and_its_witness_generator_agree() {
             violated_constraints::<Gf128, _>(&Toy, &PUBLIC[..], &bytes),
             Ok(Vec::new())
         );
-        assert_eq!(is_satisfied::<Gf256, _>(&Toy, &PUBLIC[..], &bytes), Ok(true));
+        assert_eq!(
+            is_satisfied::<Gf256, _>(&Toy, &PUBLIC[..], &bytes),
+            Ok(true)
+        );
     }
     assert_eq!(total_constraints::<Gf128, _>(&Toy), Ok(351));
     // One violated constraint per flipped output bit, at its stream index.
@@ -267,7 +269,10 @@ fn reference_mode_proofs_are_byte_identical_to_the_python_prototype() {
         assert_eq!(proof.len(), len);
         assert_eq!(proof[len - 4..], counter.to_le_bytes());
         assert_eq!(shake256(&proof, 64), hex(digest), "{level:?}");
-        assert_eq!(verify::<F, _>(&context, &Toy, &PUBLIC[..], &mu, &proof), Ok(()));
+        assert_eq!(
+            verify::<F, _>(&context, &Toy, &PUBLIC[..], &mu, &proof),
+            Ok(())
+        );
     }
     check::<Gf128>(
         FAEST_128F.vole(),
@@ -297,8 +302,8 @@ struct Setup<'a> {
 fn setup<'a, F: LambdaField>(namespace: Namespace<'a>, vole: &VoleParams, salt: u8) -> Setup<'a> {
     let context = ProofContext::new(namespace, *vole);
     let public = pattern(7, 29, salt);
-    let mu = message_digest(namespace, vole.lambda(), &[b"toy statement", &public])
-        .expect("valid call");
+    let mu =
+        message_digest(namespace, vole.lambda(), &[b"toy statement", &public]).expect("valid call");
     let witness = witness(&public, salt);
     let proof = prove::<F, _>(
         &context,
@@ -346,10 +351,7 @@ fn honest_proofs_verify_on_the_standard_and_on_a_custom_row() {
         .context
         .params_for::<Gf256, _>(&Toy)
         .expect("valid row");
-    assert_eq!(
-        (params.witness_bits(), params.constraints()),
-        (320, 351)
-    );
+    assert_eq!((params.witness_bits(), params.constraints()), (320, 351));
     assert_eq!(codec::proof_bytes(&params), params.signature_bytes());
 }
 
@@ -548,7 +550,8 @@ fn wrong_lengths_and_non_canonical_padding_are_rejected() {
                 .params_for::<Gf128, _>(&Toy)
                 .expect("valid row");
             let fields = codec::decode(&params, &setup.proof).expect("canonical");
-            let hidden = bavc::decode_challenge(vole, fields.challenge).expect("zero grinding bits");
+            let hidden =
+                bavc::decode_challenge(vole, fields.challenge).expect("zero grinding bits");
             let nodes = bavc::opening_nodes(vole, &hidden).expect("valid pattern");
             (nodes < vole.t_open()).then_some((setup, params, nodes))
         })
@@ -621,7 +624,11 @@ fn proofs_are_deterministic_in_the_tape_and_differ_across_tapes() {
     let mut other_iv = iv_pre;
     other_iv[15] ^= 0x80;
     let mut proofs = vec![first.proof.clone()];
-    for (root, iv_pre) in [(&root, &other_iv), (&other_root, &iv_pre), (&other_root, &other_iv)] {
+    for (root, iv_pre) in [
+        (&root, &other_iv),
+        (&other_root, &iv_pre),
+        (&other_root, &other_iv),
+    ] {
         let proof = prove_with(&Tape::explicit(level, root, iv_pre).expect("valid tape"));
         assert_eq!(accepts::<Gf128>(&first, &proof), Ok(()));
         proofs.push(proof);
@@ -637,8 +644,14 @@ fn proofs_are_deterministic_in_the_tape_and_differ_across_tapes() {
     }
 
     // A tape derived through H_3 works like an explicit one.
-    let derived = Tape::derive(Namespace::REFERENCE, level, &first.witness[..16], &first.mu, &[0; 16])
-        .expect("valid inputs");
+    let derived = Tape::derive(
+        Namespace::REFERENCE,
+        level,
+        &first.witness[..16],
+        &first.mu,
+        &[0; 16],
+    )
+    .expect("valid inputs");
     let proof = prove_with(&derived);
     assert_eq!(accepts::<Gf128>(&first, &proof), Ok(()));
     assert_eq!(proof, prove_with(&derived));

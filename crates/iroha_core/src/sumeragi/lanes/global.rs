@@ -21,7 +21,7 @@ use parking_lot::{Condvar, Mutex};
 
 use super::{
     AnchorView, TransactionCheck,
-    executor::{AnchorSource, LaneTransactions},
+    executor::{AnchorSource, LaneSelectionError, LaneTransactions},
     routing::RoutingSnapshot,
 };
 use crate::{
@@ -194,13 +194,24 @@ pub struct QueueLaneTransactions {
     lane: LaneId,
     queue: Arc<Queue>,
     state: Arc<State>,
+    time_source: iroha_primitives::time::TimeSource,
 }
 
 impl QueueLaneTransactions {
-    /// The share of `lane` in `queue`, routed with `state`.
+    /// The share of `lane` in `queue`, routed with `state` and paced by the proposer clock.
     #[must_use]
-    pub fn new(lane: LaneId, queue: Arc<Queue>, state: Arc<State>) -> Self {
-        Self { lane, queue, state }
+    pub fn new(
+        lane: LaneId,
+        queue: Arc<Queue>,
+        state: Arc<State>,
+        time_source: iroha_primitives::time::TimeSource,
+    ) -> Self {
+        Self {
+            lane,
+            queue,
+            state,
+            time_source,
+        }
     }
 }
 
@@ -215,7 +226,7 @@ impl LaneTransactions for QueueLaneTransactions {
         height: u64,
         max_bytes: usize,
         skip: &BTreeSet<HashOf<TransactionEntrypoint>>,
-    ) -> Result<Vec<SignedTransaction>, crate::execution_attempt::ExecutionDeferred> {
+    ) -> Result<Vec<SignedTransaction>, LaneSelectionError> {
         let view = self.state.view();
         let Some(pending) = self
             .queue
@@ -227,10 +238,19 @@ impl LaneTransactions for QueueLaneTransactions {
         let inputs = routing.inputs(view.world());
         let mut selected = Vec::new();
         let mut bytes = 0usize;
+        let wall_time = self.time_source.now();
+        let mut future = false;
         for transaction in pending {
-            if skip.contains(&transaction.hash_as_entrypoint())
-                || inputs.route(&transaction, height)? != Some(self.lane)
+            if skip.contains(&transaction.hash_as_entrypoint()) {
+                continue;
+            }
+            if !cfg!(all(test, sumeragi_core_mutation = "HC259"))
+                && transaction.as_ref().creation_time() > wall_time
             {
+                future = true;
+                continue;
+            }
+            if inputs.route(&transaction, height)? != Some(self.lane) {
                 continue;
             }
             let next = bytes.saturating_add(transaction.encoded_len());
@@ -239,6 +259,9 @@ impl LaneTransactions for QueueLaneTransactions {
             }
             bytes = next;
             selected.push(AsRef::<SignedTransaction>::as_ref(&transaction).clone());
+        }
+        if selected.is_empty() && future {
+            return Err(LaneSelectionError::ClockAhead);
         }
         Ok(selected)
     }

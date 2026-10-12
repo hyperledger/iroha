@@ -1519,6 +1519,15 @@ fn vector_journal(journal: &WorkflowJournalV1) -> Value {
         "created_at_ms": journal.created_at_ms,
         "updated_at_ms": journal.updated_at_ms,
         "steps": steps,
+        "native_payment_completion": journal.native_payment_completion.as_ref().map(|completion| vector_object!({
+            "network": hex::encode(completion.network),
+            "request_digest": hex::encode(completion.request_digest),
+            "transaction_hash": hex::encode(completion.transaction_hash),
+            "block_height": completion.block_height,
+            "block_hash": hex::encode(completion.block_hash),
+            "context_id": hex::encode(completion.context_id),
+            "receipt_digest": hex::encode(completion.receipt_digest),
+        })),
     })
 }
 
@@ -1677,4 +1686,57 @@ fn canonical_byte_vectors_match_the_tracked_fixture() {
 #[ignore = "writes fixtures/zk/workflow_v1/vectors.json"]
 fn regenerate_canonical_byte_vectors() {
     std::fs::write(fixture_path("vectors.json"), pretty(&rendered_vectors())).expect("write");
+}
+
+#[test]
+fn native_payment_completion_is_bounded_and_bound_to_its_exact_plan() {
+    use super::journal::NativePaymentCompletionV1;
+    let network = iroha_data_model::NetworkId::from_genesis_hash(
+        iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::new(
+            b"workflow-payment-network",
+        )),
+    );
+    let mut plan = plan();
+    plan.kind = WorkflowKindV1::NativePayment;
+    plan.instance = "i".repeat(super::contract::MAX_WORKFLOW_LABEL_BYTES_V1);
+    plan.driver.id = "d".repeat(super::contract::MAX_WORKFLOW_LABEL_BYTES_V1);
+    plan.steps.truncate(1);
+    plan.steps[0].label = "s".repeat(super::contract::MAX_WORKFLOW_LABEL_BYTES_V1);
+    let mut binding = binding();
+    binding.network = network.to_string();
+    binding.authority = "a".repeat(super::contract::MAX_WORKFLOW_BINDING_BYTES_V1);
+    let mut journal = WorkflowJournalV1::new(&plan, &binding, 0).unwrap();
+    journal.sequence = 1;
+    to_pending(&mut journal, 0, "0#1");
+    journal.steps[0]
+        .transaction
+        .as_mut()
+        .unwrap()
+        .signed_transaction = Some(vec![0x75; MAX_WORKFLOW_TRANSACTION_BYTES_V1]);
+    journal.native_payment_completion = Some(NativePaymentCompletionV1 {
+        network: *network.as_bytes(),
+        request_digest: plan.request_context_digest,
+        transaction_hash: [255; 32],
+        block_height: u64::MAX,
+        block_hash: [255; 32],
+        context_id: [255; 32],
+        receipt_digest: [255; 32],
+    });
+    let bytes = journal.encode_record().unwrap();
+    assert!(bytes.len() <= plan.journal_bytes_bound());
+    assert!(plan.journal_bytes_bound() <= MAX_WORKFLOW_JOURNAL_BYTES_V1);
+    assert_eq!(WorkflowJournalV1::decode_record(&bytes).unwrap(), journal);
+    journal
+        .native_payment_completion
+        .as_mut()
+        .unwrap()
+        .request_digest[0] ^= 1;
+    assert!(journal.validate().is_err());
+    journal
+        .native_payment_completion
+        .as_mut()
+        .unwrap()
+        .request_digest = plan.request_context_digest;
+    journal.native_payment_completion.as_mut().unwrap().network[0] ^= 1;
+    assert!(journal.validate().is_err());
 }

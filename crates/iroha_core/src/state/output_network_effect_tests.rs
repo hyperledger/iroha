@@ -41,7 +41,7 @@ fn preparation_refusal_is_fee_free_but_admitted_business_failure_charges_actual_
                 &iroha_config::parameters::defaults::nexus::fees::fee_asset_id(),
             )
             .expect("canonical network XOR fee asset");
-            let state = fixture_with_pipeline_policy(65_536, None, Some(asset.clone()), |policy| {
+            let state = fixture_with_policy(65_536, None, Some(asset.clone()), |policy| {
                 policy.overlay_max_instructions = maximum;
                 policy.overlay_max_bytes = 0;
             });
@@ -128,7 +128,7 @@ fn preparation_refusal_is_fee_free_but_admitted_business_failure_charges_actual_
 #[test]
 fn actual_by_call_callback_keeps_its_separate_instruction_scope() {
     let root: InstructionBox = ExecuteTrigger::new("network_callback".parse().unwrap()).into();
-    let state = fixture_with_pipeline_policy(65_536, Some(512), None, |policy| {
+    let state = fixture_with_policy(65_536, Some(512), None, |policy| {
         policy.overlay_max_instructions = 1;
         policy.overlay_max_bytes = u64::try_from(root.encode().len()).unwrap();
     });
@@ -170,7 +170,7 @@ fn actual_generic_ivm_callback_output(quarantine: bool) -> (NetworkExecutionOutp
     let instruction: InstructionBox = ExecuteTrigger::new(id.clone()).into();
     // Both executions have the same committed policy. The selected signed root may
     // spend one VM cycle; the five-opcode callback keeps its own trigger scope.
-    let state = fixture_with_pipeline_policy(65_536, None, None, |policy| {
+    let state = fixture_with_policy(65_536, None, None, |policy| {
         policy.quarantine_max_txs_per_block = 1;
         policy.quarantine_tx_max_cycles = 1;
         policy.overlay_max_instructions = 1;

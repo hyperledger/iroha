@@ -26,28 +26,28 @@ fn fixture_with_fee_asset(
     callback_bytes: Option<usize>,
     fee_asset: Option<iroha_data_model::asset::AssetDefinitionId>,
 ) -> State {
-    fixture_with_policy(row_bytes, callback_bytes, fee_asset, None)
+    fixture_with_policy(row_bytes, callback_bytes, fee_asset, |_| {})
 }
 
-/// Configure validity before authentication so successor execution reads the signed policy.
-fn fixture_with_pipeline_policy(
+/// Sign the tested execution limits into genesis before acquiring any successor.
+fn fixture_with_policy(
     row_bytes: u64,
     callback_bytes: Option<usize>,
     fee_asset: Option<iroha_data_model::asset::AssetDefinitionId>,
     configure: impl FnOnce(&mut crate::pipeline_validity_policy::PipelineValidityPolicyV1),
 ) -> State {
-    let mut policy = crate::pipeline_validity_policy::PipelineValidityPolicyV1::protocol_default();
-    configure(&mut policy);
-    fixture_with_policy(row_bytes, callback_bytes, fee_asset, Some(policy))
-}
-
-fn fixture_with_policy(
-    row_bytes: u64,
-    callback_bytes: Option<usize>,
-    fee_asset: Option<iroha_data_model::asset::AssetDefinitionId>,
-    policy: Option<crate::pipeline_validity_policy::PipelineValidityPolicyV1>,
-) -> State {
     let mut state = state(row_bytes);
+    let mut expected_policy = state
+        .world
+        .parameters
+        .view()
+        .get()
+        .pipeline_policy()
+        .clone();
+    configure(&mut expected_policy);
+    expected_policy
+        .validate()
+        .expect("valid fixture execution limits");
     if let Some(asset) = &fee_asset {
         use iroha_primitives::numeric::Quantity;
         let fees = &mut state.nexus.get_mut().fees;
@@ -58,11 +58,18 @@ fn fixture_with_policy(
         fees.fee_asset_id = asset.to_string();
         fees.fee_sink_account_id = iroha_test_samples::BOB_ID.to_string();
     }
-    let state = authenticate_output_state_with_pipeline_policy(state, policy);
+    // Genesis executes under its original predecessor's policy. Its signed
+    // parameter writes install these limits for the successor being tested.
+    let state = authenticate_output_state_with_policy(state, expected_policy.clone());
+    assert_eq!(
+        state.world.parameters.view().get().pipeline_policy(),
+        &expected_policy,
+        "the signed genesis must commit the exact tested execution limits"
+    );
     assert_eq!(
         crate::pipeline_validity_policy::committed(state.view().world.parameters.get()).unwrap(),
-        policy,
-        "the exact intended validity policy must come from the original signed genesis"
+        Some(expected_policy),
+        "the exact policy must be present in signed State, including protocol-default values"
     );
     {
         let (mut setup, _setup_recording) = output_fixture_setup(&state);

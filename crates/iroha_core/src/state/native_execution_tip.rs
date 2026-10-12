@@ -204,22 +204,13 @@ impl NativeExecutionTipSnapshot {
         // predecessor and records history checkpoints for off-chain readers.
         let checkpoints = kura.history_checkpoints();
         let mut previous = if height == 2 {
-            Some(record(
-                chain
-                    .authenticated_execution(1)
-                    .map_err(TipRestoreError::from)?
-                    .committed(),
-            ))
+            Some(restored_genesis_record(&chain)?)
         } else {
             None
         };
         let mut current = None;
-        for certified in chain.walk(2, height) {
-            let block = certified
-                .map_err(TipRestoreError::from)?
-                .into_authenticated_execution()
-                .map_err(|error| error.to_string())?;
-            let block = record(block.committed());
+        let mut walk = chain.walk(2, height);
+        while let Some(block) = next_restored_record(&mut walk)? {
             checkpoints.record_sparse(block.height, checkpoint_of(block));
             previous = current.replace(block).or(previous);
         }
@@ -240,6 +231,40 @@ impl NativeExecutionTipSnapshot {
         )
         .map_err(TipRestoreError::Admission)
     }
+}
+
+// Keep the complete H1 receipt outside the restore frame. It retires before the
+// successor walk starts, leaving only the authenticated fixed-size identity.
+#[inline(never)]
+fn restored_genesis_record(
+    chain: &CertifiedChain<'_, StateView<'_>>,
+) -> Result<NativeExecutionTipRecord, TipRestoreError> {
+    let genesis = chain
+        .authenticated_execution(1)
+        .map_err(TipRestoreError::from)?;
+    Ok(record(genesis.committed()))
+}
+
+// The iterator owns the same source-bound prefix and advances in the same order.
+// Complete certificate/result return temporaries belong to one step, rather than
+// remaining reserved in restore's frame while its next native decode runs.
+#[inline(never)]
+fn next_restored_record(
+    walk: &mut impl Iterator<
+        Item = Result<
+            crate::sumeragi::certified_chain::CertifiedBlock,
+            ExecutionAttemptError<ChainReadError>,
+        >,
+    >,
+) -> Result<Option<NativeExecutionTipRecord>, TipRestoreError> {
+    let Some(certified) = walk.next() else {
+        return Ok(None);
+    };
+    let block = certified
+        .map_err(TipRestoreError::from)?
+        .into_authenticated_execution()
+        .map_err(|error| error.to_string())?;
+    Ok(Some(record(block.committed())))
 }
 
 /// The history checkpoint of an authenticated native execution identity.

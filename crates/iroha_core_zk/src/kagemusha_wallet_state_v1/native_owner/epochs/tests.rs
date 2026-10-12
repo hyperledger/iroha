@@ -26,7 +26,7 @@ fn epoch_read_resource_refusal_preserves_selected_custody_and_allows_retry() {
         };
         assert_eq!(
             original.kind(),
-            norito::core::DecodeAttemptErrorKind::EnclosingLimit
+            norito::core::DecodeLocalRefusalKind::EnclosingLimit
         );
         assert_eq!(w.custody.archive_checkpoint().unwrap(), before);
     }
@@ -41,7 +41,7 @@ fn epoch_read_resource_refusal_preserves_selected_custody_and_allows_retry() {
     let error = norito::with_decode_limits_scope(limits, || w.epoch_progress_selected(&genesis))
         .unwrap_err();
     assert!(matches!(error, Error::DecodeResource(ref cause)
-        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
     assert_eq!(w.custody.archive_checkpoint().unwrap(), after);
     assert_eq!(w.epoch_progress_selected(&genesis).unwrap(), selected);
     assert_eq!(

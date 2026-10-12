@@ -53,6 +53,22 @@ require a separate request.
 | 5 — N11, C5 / B.2–B.3, S.1–S.6; private settlement/provers/SDKs | Integration: deliver genuine confidential settlement through one asynchronous operation and its prepared form, using authoritative context, encrypted audit material and durable recovery. Consolidate existing STARK consumers under the shared backend. Depends on the authority/resource work actually consumed. | Genuine proofs and money movement, nullifier/capsule/auditor/source/fee/replay negatives and crash recovery; private-settlement N=3 topology with sixteen validators and N=2/3/4/8/16 fault coverage. Measure the unchanged five-second proof-preparation-to-verified-receipt target, p50/p95/p99, throughput, memory and leakage across payload/query/storage/log/transport. |
 
 Native payments do not wait for general proofs of arbitrary IVM invocations.
+The AMX relay must also close the idle deadline path: `SumeragiAmxState::expire`
+currently runs only in an executed block after the signed deadline. Polling or
+sleeping cannot produce that height, and Prepared/Decision relaying alone does
+not prove timeout progress when a participant is unavailable. Qualify an
+authorized obligation-progress path with its consensus/resource controls; do
+not substitute empty blocks, unrelated transactions or local-time escrow release.
+A signed time deadline plus a funded instruction that records the actual Abort
+is a candidate revision, but it depends on the application clock guards in
+[Sumeragi §4.5](specs/sumeragi.md). Those guards are not yet integrated in Core:
+a certified timestamp alone currently permits a proposer to advance time too
+far. Complete proposal pacing, committed drift bounds and the vote guard with
+certified re-proposal/replay exemptions before claiming timed abort guarantees.
+Specify the committed-time expiry semantics and clock-skew margin explicitly;
+an upper clock bound alone also does not prevent stale-time Commit decisions.
+Any required freshness guard belongs at Prepare admission, with the same certified
+exemptions, never in monetary validity or replay.
 External customer credits use durable application inbox/outbox handling; their
 database effects are not claimed to be atomic with ledger settlement. The current
 resource contract's carrier/block inequality holds numerically; X.2 still needs
@@ -166,7 +182,7 @@ with no node-schema key.
 | C6 | FHE/MKHE/Figure 9 | Crypto/model/proofs | Complete native40 correspondence/full-size eight-party replay; qPCS redesign within fixed work bounds, governed Figure 9 keys and independent measured ordinary-stack proofs. |
 | C7 | Acceleration | Native backends | Automatic target-appropriate daemon defaults, ten reproducible signed embedded CUDA PTX families, driverless daemon startup, actual CPU/Metal/CUDA KAT/root parity, authenticated library/device/calibration, fault quarantine, side-channel and RSS/throughput; unqualified T256/MKHE stay scalar. |
 | C8 | Kaigi sessions | Model/crypto/Core/SDKs | Complete authorization/usage circuits and account lifecycle/undo; keys/fixtures, suite-tagged HPKE, bounded accounting and authenticated relay recovery. |
-| C9 | Native PLONK/IPA prover | ZK/prover owners | Qualify source-bound VK-to-PK reconstruction, wallet admission and proving-buffer release across current native-finality operation stages. Resolve the real-Q one-worker timing margin: the applied lookup-mask preweight candidate passes current native and emulated-x86 proof-byte checks, but its complete three-block M3 campaign has seven passing configurations and one borderline result. All hard limits pass; one real-Q block misses the required CPU margin. Qualify the resulting candidate under the unchanged hard limits, margins, owned-witness method and process-wide 64 MiB MSM budget; retain earlier failures, borderline margins and invalid attempts. Qualify PIPA-R/PIPA-AS operation relations, corrected-claim branches, lineage, transport and CreditStatus through the complete authenticated catalog and real offline exchange; finish the soundness and joint privacy obligations under the explicitly accepted recursive Fiat–Shamir assumption, without treating that design decision as C12 closure. Rebuild and qualify the migrated, re-keyed [native consumers](specs/native_prover_migration_inventory.md) and SDK delivery. Retired vendor trees and the temporary oracle are deleted; source guards pass. First release has one production engine, with no compatibility decoder or old-key fallback. |
+| C9 | Native PLONK/IPA prover | ZK/prover owners | Qualify source-bound VK-to-PK reconstruction, wallet admission and proving-buffer release across current native-finality operation stages. Resolve the real-Q one-worker timing margin: the measured lookup-mask preweight candidate passes native and emulated-x86 proof-byte checks, but its complete three-block M3 campaign has seven passing configurations and one borderline result. All hard limits pass; one real-Q block misses the required CPU margin. Complete fresh measurements for the subsequently applied selector-factor optimization, whose 432 native engine tests, 394 emulated-x86 library tests and strict lint pass; its initial full campaign stopped on manifest drift. The fresh campaign already records a valid four-thread synthetic-Q hard failure at 11.276 seconds against 10 seconds. Complete the remaining measurements and resolve the failure before qualification. An operation-count reduction alone is insufficient. Qualify the resulting candidate under the unchanged hard limits, margins, owned-witness method and process-wide 64 MiB MSM budget; retain earlier failures, borderline margins and invalid attempts. Qualify PIPA-R/PIPA-AS operation relations, corrected-claim branches, lineage, transport and CreditStatus through the complete authenticated catalog and real offline exchange; finish the soundness and joint privacy obligations under the explicitly accepted recursive Fiat–Shamir assumption, without treating that design decision as C12 closure. Rebuild and qualify the migrated, re-keyed [native consumers](specs/native_prover_migration_inventory.md) and SDK delivery. Retired vendor trees and the temporary oracle are deleted; source guards pass. First release has one production engine, with no compatibility decoder or old-key fallback. |
 
 ## Services and deployment
 

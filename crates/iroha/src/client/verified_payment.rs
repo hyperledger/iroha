@@ -95,6 +95,41 @@ impl VerifiedPaymentReceipt {
         expected_intent: &SettleAtomic,
         evidence: CommittedTransaction,
     ) -> Result<Self, PaymentReceiptVerificationError> {
+        Self::verify_carrier(
+            block,
+            expected_network,
+            Some(expected_transaction),
+            expected_intent,
+            evidence,
+        )
+    }
+
+    /// Recover the successful original carrier from the independently retained complete intent.
+    ///
+    /// A replay locator or server-supplied transaction hash only selects candidate
+    /// evidence. The existing finality verifier and exact owner-qualified signed
+    /// terms authenticate that evidence before its original transaction hash is
+    /// returned. Use [`Self::verify`] when the exact original signed hash is known.
+    ///
+    /// # Errors
+    /// Rejects any candidate that fails the same successful-payment, network,
+    /// complete-intent, carrier and fee checks as [`Self::verify`].
+    pub fn verify_recovered(
+        block: &VerifiedSumeragiBlock,
+        expected_network: NetworkId,
+        expected_intent: &SettleAtomic,
+        evidence: CommittedTransaction,
+    ) -> Result<Self, PaymentReceiptVerificationError> {
+        Self::verify_carrier(block, expected_network, None, expected_intent, evidence)
+    }
+
+    fn verify_carrier(
+        block: &VerifiedSumeragiBlock,
+        expected_network: NetworkId,
+        expected_transaction: Option<HashOf<SignedTransaction>>,
+        expected_intent: &SettleAtomic,
+        evidence: CommittedTransaction,
+    ) -> Result<Self, PaymentReceiptVerificationError> {
         use PaymentReceiptVerificationError as Error;
 
         if expected_intent.network_id != expected_network
@@ -110,7 +145,8 @@ impl VerifiedPaymentReceipt {
         let TransactionEntrypoint::External(transaction) = evidence.entrypoint() else {
             return Err(Error::UnsupportedCarrier);
         };
-        if transaction.hash() != expected_transaction {
+        let transaction_hash = transaction.hash();
+        if expected_transaction.is_some_and(|expected| transaction_hash != expected) {
             return Err(Error::TransactionMismatch);
         }
         let Executable::Instructions(instructions) = transaction.instructions() else {
@@ -157,7 +193,7 @@ impl VerifiedPaymentReceipt {
         };
         Ok(Self {
             network: expected_network,
-            transaction_hash: expected_transaction,
+            transaction_hash,
             settlement_id: intent.settlement_id.clone(),
             context_id: block.context_id(),
             receipt,
@@ -216,3 +252,20 @@ impl VerifiedPaymentReceipt {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+/// Genuine QC-verified fixture for tests of consumers of the opaque receipt.
+pub(crate) fn payment_receipt_for_testing() -> VerifiedPaymentReceipt {
+    tests::payment_receipt()
+}
+
+#[cfg(test)]
+pub(crate) fn payment_operation_fixture_for_testing(
+    rejected: bool,
+) -> (
+    iroha_data_model::sumeragi_finality::test_fixtures::NativeFinalityFixture,
+    SettleAtomic,
+    SignedTransaction,
+) {
+    tests::payment_operation_fixture(rejected)
+}

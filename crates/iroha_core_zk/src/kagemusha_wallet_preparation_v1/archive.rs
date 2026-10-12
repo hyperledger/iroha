@@ -49,8 +49,12 @@ where
     if original.is_empty() || original.len() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 {
         return Err(Error::Authority);
     }
-    norito::decode_canonical_with_limits(original, norito::canonical_decode_limits(original.len()))
-        .map_err(|_| Error::Authority)
+    read_original(|| {
+        norito::decode_canonical_with_limits(
+            original,
+            norito::canonical_decode_limits(original.len()),
+        )
+    })
 }
 
 fn removal_original(openings: &[Vec<u8>]) -> Result<KagemushaWalletIndexedRemoveV1, Error> {

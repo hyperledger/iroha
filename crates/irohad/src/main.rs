@@ -5,6 +5,8 @@ compile_error!(
 );
 /// Metadata derived from the authenticated and executed native genesis.
 pub mod authenticated_genesis;
+/// Durable, independently verified native AMX relay delivery.
+mod amx_relay;
 /// Per-seat authenticated global-beacon DKG and exact-quorum rotation provisioning.
 #[cfg(unix)]
 pub mod beacon_bootstrap;
@@ -1036,6 +1038,8 @@ pub enum StartError {
     ListenOsSignal,
     /// Failed to start the Torii API server
     StartTorii,
+    /// Explicit AMX relay route, custody or journal initialization failed.
+    StartAmxRelay,
 }
 impl std::fmt::Display for MainError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1059,6 +1063,7 @@ impl std::fmt::Display for StartError {
             StartError::InitKura => "error.init_kura",
             StartError::ListenOsSignal => "error.listen_os_signal",
             StartError::StartTorii => "error.start_torii",
+            StartError::StartAmxRelay => return f.write_str("failed to initialize native AMX relay"),
         };
         write!(f, "{}", i18n::t(key))
     }
@@ -4286,6 +4291,18 @@ impl Iroha {
             supervisor.monitor(child);
             Some(runtime)
         };
+        // The relay only receives the authenticated replayed State. Emergency inspection
+        // cannot sign or dispatch AMX carriers. Invalid explicit custody fails activation.
+        if !emergency_fast
+            && let Some(child) = amx_relay::start(
+                Arc::clone(&state),
+                config.amx_relay.clone(),
+                supervisor.shutdown_signal(),
+            )
+            .map_err(|error| Report::new(StartError::StartAmxRelay).attach(error.to_string()))?
+        {
+            supervisor.monitor(child);
+        }
         // The SCCP keeper is a supervised task of its own and never aborts the node: its
         // public RPC delays neither block production nor any other task.
         #[cfg(unix)]

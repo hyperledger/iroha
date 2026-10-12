@@ -64,6 +64,8 @@ use std::{
     time::Duration,
 };
 use thiserror::Error;
+mod amx_relay;
+pub use amx_relay::{AmxRelay, AmxRelayRoute};
 mod kagemusha_enrollment;
 pub use kagemusha_enrollment::{
     KagemushaEnrollmentIssuer, KagemushaEnrollmentProvider, KagemushaEnrollmentWorker,
@@ -960,6 +962,8 @@ pub struct Root {
     #[config(nested)]
     musubi_publication: MusubiPublication,
     #[config(nested)]
+    amx_relay: AmxRelay,
+    #[config(nested)]
     sorafs: Sorafs,
     #[config(nested)]
     pipeline: Pipeline,
@@ -1065,6 +1069,9 @@ pub enum ParseError {
     /// Settlement engine configuration was invalid or incomplete.
     #[error("Invalid settlement configuration")]
     InvalidSettlementConfig,
+    /// Invalid native AMX relay custody, trust or local scheduling configuration.
+    #[error("invalid AMX relay configuration")]
+    InvalidAmxRelayConfig,
     /// Cryptography configuration contained invalid or unsupported values.
     #[error("Invalid crypto configuration")]
     InvalidCryptoConfig,
@@ -1499,6 +1506,7 @@ impl Root {
         }
         let crypto = self.crypto.parse(&mut emitter);
         let settlement = self.settlement.parse(&mut emitter);
+        let amx_relay = self.amx_relay.parse(&mut emitter);
         if let Err(err) = concurrency.validate() {
             emitter.emit(err);
         }
@@ -1541,6 +1549,7 @@ impl Root {
             torii,
             soracloud_runtime,
             musubi_publication,
+            amx_relay,
             kura,
             sumeragi,
             block_sync,

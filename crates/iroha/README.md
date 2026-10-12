@@ -30,7 +30,24 @@ scopes, recipients, quantities, reference metadata and the authenticated Nexus
 fee record or its explicit absence. It needs no later block and accepts no
 status-only or deserialized verification claim. PipelineGas carriers are explicitly
 unsupported until their fee outcome has an authenticated receipt. Customer credit
-still requires the application's durable settlement-ID uniqueness transaction.
+still requires the application's durable `(NetworkId, SettlementId)` uniqueness
+transaction. `SettlementId` contains the participating debit owner and a stable
+business reference. When another carrier committed that same independently
+retained intent, `verify_recovered` authenticates the original successful carrier
+and returns its hash through the same verifier. A replay outcome's block locator
+only selects evidence; it never grants receipt authority.
+
+`PaymentInbox` demonstrates the durable bank boundary over the existing
+`WorkflowStorage` compare-and-store contract. Use a dedicated
+`FileWorkflowStorage` directory or the same atomic unique-key transaction in the
+bank's database. `credit` accepts only a `VerifiedPaymentReceipt` and an
+independently selected customer/destination mapping. It publishes one immutable
+customer-credit ledger entry and its pending notification together, keyed by
+network and settlement ID. Retry the same receipt after an uncertain write;
+reverify its original evidence after restart. The journal entry itself is the
+credit, so do not follow it with a separate balance increment. Notification
+delivery uses the same key and may repeat until acknowledged. A decoded bank
+entry cannot construct a verified payment receipt.
 
 ## Setup
 
@@ -352,3 +369,23 @@ Explorer feeds use `Collection::ExplorerAccounts`, `ExplorerDomains`,
 fixed-order reads with shared filter/select/limit/cursor controls. Iterate
 until the cursor ends, including after empty pages. Account movements use
 `Collection::AccountHistory(account_id)` with the same history controls.
+
+`AccountClient::native_payment` binds a `NativePaymentRequest`, durable
+`WorkflowStorage` and independently selected `SumeragiFinalityVerifier` into a
+resumable direct Global payment. `run` returns an opaque verified original
+receipt; `recover` performs no signing or dispatch. The existing workflow journal
+retains exact carrier identities and a bounded completion locator, which is
+re-fetched and reverified after restart. A rejected duplicate carrier remains
+rejected even when original business success is recovered. Status-only expiry,
+local read limits and failed reads never authorize a new payment identity.
+Before signing or dispatching restored bytes, the operation checks their exact
+payment and fee authorization against the retained request; journal digests alone
+grant no monetary authority. See
+[`specs/zk_durable_workflow.md`](../../specs/zk_durable_workflow.md) for the exact
+first-release layout, scope and online recovery contract.
+
+`NativePaymentFullReturnRequest` derives one receiver-owned ID from an opaque
+verified original and prepares its exact full reverse payment.
+`AccountClient::native_payment_return` reuses the same durable operation and
+returns `VerifiedPaymentReturn`, retaining both successful receipts. Partial
+returns require a future consensus-owned cumulative allowance.

@@ -1013,6 +1013,7 @@ pub fn mk_minimal_root_cfg() -> iroha_config::parameters::actual::Root {
         },
         soracloud_runtime: A::SoracloudRuntime::default(),
         musubi_publication: A::MusubiPublication::default(),
+        amx_relay: A::AmxRelay::default(),
         kura: A::Kura { init_mode: iroha_config::kura::InitMode::Strict, store_dir: WithOrigin::inline(std::env::temp_dir()),
             max_disk_usage_bytes: defaults::kura::MAX_DISK_USAGE_BYTES,
             blocks_in_memory: nonzero!(10usize),

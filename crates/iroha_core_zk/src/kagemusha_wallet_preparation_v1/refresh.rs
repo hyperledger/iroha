@@ -77,11 +77,12 @@ fn certificates(
     if original.is_empty() || original.len() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 {
         return Err(Error::Authority);
     }
-    let set: KagemushaWalletCertificateSetV1 = norito::decode_canonical_with_limits(
-        original,
-        norito::canonical_decode_limits(original.len()),
-    )
-    .map_err(|_| Error::Authority)?;
+    let set: KagemushaWalletCertificateSetV1 = read_original(|| {
+        norito::decode_canonical_with_limits(
+            original,
+            norito::canonical_decode_limits(original.len()),
+        )
+    })?;
     authority(set.verify(scheme))?;
     Ok(set)
 }
@@ -124,9 +125,8 @@ fn credential_update(source: &UpdateSource<'_>) -> Result<DecodedRefresh, Error>
     let set = source.certificates;
     let current = source.current;
     let successor = source.successor;
-    let update = authority(KagemushaWalletCredentialV1::decode_canonical(
-        original, &scheme_id,
-    ))?;
+    let update =
+        read_model(|| KagemushaWalletCredentialV1::decode_canonical(original, &scheme_id))?;
     if update != *successor {
         return Err(Error::Authority);
     }
@@ -156,9 +156,8 @@ fn scheme_policy_update(source: &UpdateSource<'_>) -> Result<DecodedRefresh, Err
     let scheme_id = scheme.scheme_id();
     let original = source.original;
     let set = source.certificates;
-    let update = authority(KagemushaWalletSchemePolicyV1::decode_canonical(
-        original, &scheme_id,
-    ))?;
+    let update =
+        read_model(|| KagemushaWalletSchemePolicyV1::decode_canonical(original, &scheme_id))?;
     let certificate =
         authority(set.certificate(&update.body.signer_certificate, Role::RegulatoryPolicy))?;
     authority(update.verify(scheme, certificate))?;
@@ -187,9 +186,7 @@ fn blacklist_update(source: &UpdateSource<'_>) -> Result<DecodedRefresh, Error> 
     let scheme_id = scheme.scheme_id();
     let original = source.original;
     let set = source.certificates;
-    let update = authority(KagemushaWalletBlacklistV1::decode_canonical(
-        original, &scheme_id,
-    ))?;
+    let update = read_model(|| KagemushaWalletBlacklistV1::decode_canonical(original, &scheme_id))?;
     let certificate =
         authority(set.certificate(&update.body.signer_certificate, Role::RegulatoryPolicy))?;
     authority(update.verify(scheme, certificate))?;
@@ -219,9 +216,8 @@ fn time_anchor_update(source: &UpdateSource<'_>) -> Result<DecodedRefresh, Error
     let scheme_id = scheme.scheme_id();
     let original = source.original;
     let set = source.certificates;
-    let update = authority(KagemushaWalletTimeAnchorV1::decode_canonical(
-        original, &scheme_id,
-    ))?;
+    let update =
+        read_model(|| KagemushaWalletTimeAnchorV1::decode_canonical(original, &scheme_id))?;
     let certificate =
         authority(set.certificate(&update.body.signer_certificate, Role::TimeAnchor))?;
     authority(update.verify(scheme, certificate))?;
@@ -247,10 +243,9 @@ fn quota_update(
     source: &UpdateSource<'_>,
     retained: &KagemushaWalletQuotaRefreshWitnessV1,
 ) -> Result<DecodedRefresh, Error> {
-    let update = authority(KagemushaWalletQuotaShareV1::decode_canonical(
-        source.original,
-        &source.scheme.scheme_id(),
-    ))?;
+    let update = read_model(|| {
+        KagemushaWalletQuotaShareV1::decode_canonical(source.original, &source.scheme.scheme_id())
+    })?;
     let certificate = authority(
         source
             .certificates
@@ -334,7 +329,7 @@ fn decode_update(
         return Err(Error::Authority);
     }
     // The capsule decoder owns duplicate/operation-specific quota-role checks.
-    let _ = authority(capsule.quota_refresh_witness())?;
+    let _ = read_model(|| capsule.quota_refresh_witness())?;
     let update = retained_original(
         &capsule.retained_inputs,
         KagemushaWalletRetainedInputRoleV1::PolicyUpdate,
@@ -345,7 +340,7 @@ fn decode_update(
         update,
         original_update,
     )
-    .map_err(|_| Error::Authority)?;
+    .map_err(Error::preparation_read)?;
     let certificates = retained_original(
         &capsule.retained_inputs,
         KagemushaWalletRetainedInputRoleV1::CertificateSet,
@@ -389,9 +384,9 @@ fn decode_originals(
         no_map_openings(originals.openings)?;
     }
     let quota = match (originals.kind == Kind::QuotaShare, originals.quota) {
-        (true, Some(original)) => Some(authority(
-            KagemushaWalletQuotaRefreshWitnessV1::decode_canonical(original),
-        )?),
+        (true, Some(original)) => Some(read_model(|| {
+            KagemushaWalletQuotaRefreshWitnessV1::decode_canonical(original)
+        })?),
         (false, None) => None,
         _ => return Err(Error::Authority),
     };

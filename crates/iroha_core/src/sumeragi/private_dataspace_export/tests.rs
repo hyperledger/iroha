@@ -98,6 +98,11 @@ fn private_chain() -> CertifiedTestChain {
 }
 
 #[test]
+fn independent_dataspace_prepare_waits_for_the_same_clock_boundary() {
+    crate::sumeragi::executor::clock_tests::assert_clock_ahead_defers_original(private_chain);
+}
+
+#[test]
 fn terminal_result_scope_comes_from_the_signed_private_root() {
     let mut chain = private_chain();
     chain.commit_at(2_000, Vec::new());

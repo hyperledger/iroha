@@ -734,7 +734,8 @@ pub mod isi {
                 permission,
             )
         {
-            return account_subject_matches(permission.debited_asset.account(), account_id);
+            return account_subject_matches(permission.debited_asset.account(), account_id)
+                || account_subject_matches(permission.settlement_id.owner(), account_id);
         }
         false
     }
@@ -6619,7 +6620,7 @@ mod tests {
             Permission::from(
                 iroha_executor_data_model::permission::settlement::CanExecuteSettlement {
                     debited_asset: AssetId::new(asset_definition, target.clone()),
-                    settlement_id: "account_cleanup_consent".parse().expect("settlement id"),
+                    settlement_id: iroha_data_model::isi::SettlementId::new(target.clone(), "account_cleanup_consent".parse().expect("settlement reference")),
                     intent_hash: Hash::new(b"account cleanup consent"),
                 },
             ),
@@ -8558,7 +8559,10 @@ mod tests {
         assert_account_unregister_guard(
             |tx, domain_id, authority, account_id| {
                 let settlement_id: iroha_data_model::isi::SettlementId =
-                    "settleguard".parse().expect("settlement id");
+                    iroha_data_model::isi::SettlementId::new(
+                        account_id.clone(),
+                        "settleguard".parse().expect("settlement reference"),
+                    );
                 let receipt = iroha_data_model::isi::SettlementReceipt {
                     authority: account_id.clone(),
                     metadata: Metadata::default(),
@@ -8593,7 +8597,35 @@ mod tests {
                 quantity: leg.quantity().clone(), metadata: leg.metadata().clone(),
             } }, order: iroha_data_model::isi::SettlementExecutionOrder::DeliveryThenPayment }),
                 };
+                let consent = Permission::from(
+                    iroha_executor_data_model::permission::settlement::CanExecuteSettlement {
+                        debited_asset: receipt
+                            .details
+                            .movements()
+                            .nth(1)
+                            .expect("payment leg")
+                            .source
+                            .clone(),
+                        settlement_id: settlement_id.clone(),
+                        intent_hash: Hash::new(b"retained-owner-scoped-consent"),
+                    },
+                );
+                tx.world.account_permissions.insert(
+                    authority.clone(),
+                    std::collections::BTreeSet::from([consent.clone()]),
+                );
                 tx.world.settlement_receipts.insert(settlement_id, receipt);
+                Unregister::account(account_id.clone())
+                    .execute(authority, tx)
+                    .expect_err("receipt must prevent removing the identity owner");
+                assert!(
+                    tx.world
+                        .account_permissions
+                        .get(authority)
+                        .expect("retained permissions")
+                        .contains(&consent),
+                    "refused unregister must preserve the owner-scoped counterparty consent"
+                );
             },
             "account with a committed settlement receipt must not be unregistered",
             "committed settlement receipt",
@@ -11237,7 +11269,12 @@ mod tests {
             Permission::from(
                 iroha_executor_data_model::permission::settlement::CanExecuteSettlement {
                     debited_asset: asset_id,
-                    settlement_id: "asset_cleanup_consent".parse().expect("settlement id"),
+                    settlement_id: iroha_data_model::isi::SettlementId::new(
+                        asset_account.clone(),
+                        "asset_cleanup_consent"
+                            .parse()
+                            .expect("settlement reference"),
+                    ),
                     intent_hash: Hash::new(b"asset-definition cleanup consent"),
                 },
             ),
@@ -11427,7 +11464,10 @@ mod tests {
         .execute(&authority, &mut tx)
         .expect("register asset definition");
         let settlement_id: iroha_data_model::isi::SettlementId =
-            "settle_asset_guard".parse().expect("settlement id");
+            iroha_data_model::isi::SettlementId::new(
+                from.clone(),
+                "settle_asset_guard".parse().expect("settlement reference"),
+            );
         let receipt = iroha_data_model::isi::SettlementReceipt {
             authority: from.clone(),
             metadata: Metadata::default(),

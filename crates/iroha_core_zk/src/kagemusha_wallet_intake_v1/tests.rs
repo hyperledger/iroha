@@ -356,3 +356,144 @@ fn refused_late_begin_never_reselects_the_validated_source() {
         assert_eq!(retained, Some(original));
     }
 }
+
+#[test]
+fn canonical_account_and_asset_reads_keep_original_refusal_and_exact_retry() {
+    let (_, account_value, original) = existing_account(93, Algorithm::Ed25519);
+    let digest = kagemusha_wallet_account_digest_v1(&account_value).unwrap();
+    let all: norito::json::Value = norito::json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/kagemusha/wallet_v1_vectors.json"
+    )))
+    .unwrap();
+    let row = all["objects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["type"].as_str() == Some("KagemushaWalletAssetScopeV1"))
+        .unwrap();
+    let scope: KagemushaWalletAssetScopeV1 =
+        norito::decode_canonical(&hex::decode(row["canonical_hex"].as_str().unwrap()).unwrap())
+            .unwrap();
+    let scope_original = norito::encode_canonical(&scope).unwrap();
+    let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+    let account_error =
+        norito::with_decode_limits_scope(limits, || account(&original, &digest)).unwrap_err();
+    let asset_error = norito::with_decode_limits_scope(limits, || {
+        asset_scope(&scope_original, &scope.asset_digest())
+    })
+    .unwrap_err();
+    for error in [account_error, asset_error] {
+        let Error::DecodeResource(ref cause) = error else {
+            panic!("original local read required")
+        };
+        assert_eq!(
+            cause.kind(),
+            norito::core::DecodeLocalRefusalKind::EnclosingLimit
+        );
+        let cloned = error.clone();
+        let Error::DecodeResource(copy) = cloned else {
+            unreachable!()
+        };
+        assert_eq!(cause, &copy);
+        let mapped =
+            error.into_state_error(crate::kagemusha_wallet_state_v1::Error::Proof("unused"));
+        assert!(matches!(
+            mapped,
+            crate::kagemusha_wallet_state_v1::Error::DecodeResource(_)
+        ));
+        // Retaining the real owner must not manufacture a fresh attempt under another scope.
+        let replay = norito::with_decode_limits_scope(limits, || {
+            norito::core::classify_decode_attempt::<()>(|| Err(copy.into_error()))
+        })
+        .unwrap_err();
+        assert_eq!(replay.kind(), norito::core::DecodeAttemptErrorKind::Invalid);
+    }
+    assert_eq!(account(&original, &digest).unwrap(), account_value);
+    assert_eq!(
+        asset_scope(&scope_original, &scope.asset_digest()).unwrap(),
+        scope
+    );
+    assert!(matches!(
+        account(&[0], &digest),
+        Err(Error::Authority("canonical account frame"))
+    ));
+    assert!(matches!(
+        asset_scope(&[0], &scope.asset_digest()),
+        Err(Error::Authority("canonical asset scope original"))
+    ));
+    assert!(matches!(
+        account(&original, &[0; 32]),
+        Err(Error::Authority("enrolled account"))
+    ));
+}
+
+#[test]
+fn refused_actual_account_read_retains_same_move_only_intake_allocation() {
+    let (_, value, bytes) = existing_account(94, Algorithm::Ed25519);
+    let digest = kagemusha_wallet_account_digest_v1(&value).unwrap();
+    let retained = Box::new(bytes);
+    let identity = (&*retained) as *const Vec<u8>;
+    let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+    let (retained, error) = norito::with_decode_limits_scope(limits, || {
+        retain_checked(retained, |original| account(original, &digest))
+    })
+    .err()
+    .expect("real decoder refusal");
+    assert!(matches!(error, Error::DecodeResource(_)));
+    assert_eq!((&*retained) as *const Vec<u8>, identity);
+    let (retained, decoded) =
+        retain_checked(retained, |original| account(original, &digest)).unwrap();
+    assert_eq!((&*retained) as *const Vec<u8>, identity);
+    assert_eq!(decoded, value);
+}
+
+#[test]
+fn nested_preparation_refusals_keep_original_owner_and_semantic_fallbacks() {
+    let bytes = norito::encode_canonical(&vec![7u8; 128]).unwrap();
+    let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+    let captured = norito::with_decode_limits_scope(limits, || {
+        norito::decode_canonical_for_admission::<Vec<u8>>(
+            &bytes,
+            norito::canonical_decode_limits(bytes.len()),
+        )
+    })
+    .unwrap_err()
+    .into_local_refusal()
+    .unwrap();
+    use crate::kagemusha_wallet_proofs_v1::Error as ProofError;
+    use crate::kagemusha_wallet_state_v1::Error as StateError;
+    let expected = captured.clone();
+    let proof = ProofError::preparation_read(StateError::DecodeResource(captured));
+    let intake = Error::preparation(proof, "installed preparation source");
+    let StateError::DecodeResource(retained) = intake.into_state_error(StateError::Proof("unused"))
+    else {
+        panic!("lost original refusal")
+    };
+    assert_eq!(retained, expected);
+    let intake = Error::operation(
+        StateError::DecodeResource(retained),
+        "issuer-authenticated originals",
+    );
+    assert!(matches!(intake, Error::DecodeResource(original) if original == expected));
+    assert!(matches!(
+        ProofError::preparation_read(StateError::Invalid("bad original")),
+        ProofError::Authority
+    ));
+    assert!(matches!(
+        Error::preparation(ProofError::Authority, "installed preparation source"),
+        Error::Authority("installed preparation source")
+    ));
+    assert!(matches!(
+        Error::operation(
+            StateError::Invalid("bad original"),
+            "issuer-authenticated originals"
+        ),
+        Error::Authority("issuer-authenticated originals")
+    ));
+    assert!(matches!(
+        Error::Authority("bad account")
+            .into_state_error(StateError::Invalid("review destination account original")),
+        StateError::Invalid("review destination account original")
+    ));
+}

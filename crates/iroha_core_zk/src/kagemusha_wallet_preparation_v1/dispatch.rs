@@ -19,6 +19,7 @@ type Result<T> = core::result::Result<T, state::Error>;
 
 pub(super) fn proof<T>(result: core::result::Result<T, Error>) -> Result<T> {
     result.map_err(|error| match error {
+        Error::DecodeResource(original) => state::Error::DecodeResource(original),
         Error::Unavailable => state::Error::ArtifactsUnavailable("native operation artifact"),
         Error::Cancelled => state::Error::Cancelled,
         Error::Entropy => {
@@ -33,6 +34,11 @@ pub(super) fn proof<T>(result: core::result::Result<T, Error>) -> Result<T> {
 
 fn model<T>(result: core::result::Result<T, KagemushaWalletValidationErrorV1>) -> Result<T> {
     result.map_err(|_| state::Error::Invalid("native operation original"))
+}
+fn read_model_original<T>(
+    read: impl FnOnce() -> core::result::Result<T, KagemushaWalletValidationErrorV1>,
+) -> Result<T> {
+    state::read_model_original(read, state::Error::Invalid("native operation original"))
 }
 fn load_receipt_original(bytes: &[u8]) -> Result<KagemushaWalletLoadReceiptV1> {
     state::read_model_original(
@@ -194,18 +200,18 @@ impl PreparedOperationV1 {
         }
         let scheme = preparation.installed.verifier().scheme();
         let blacklist = if before.enforces_blacklist() {
-            Some(model(KagemushaWalletBlacklistV1::decode_canonical(
-                &required_original(custody, Original::Blacklist)?,
-                &scheme.scheme_id(),
-            ))?)
+            let original = required_original(custody, Original::Blacklist)?;
+            Some(read_model_original(|| {
+                KagemushaWalletBlacklistV1::decode_canonical(&original, &scheme.scheme_id())
+            })?)
         } else {
             None
         };
         let share = if before.is_active(KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1) {
-            Some(model(KagemushaWalletQuotaShareV1::decode_canonical(
-                &required_original(custody, Original::QuotaShare)?,
-                &scheme.scheme_id(),
-            ))?)
+            let original = required_original(custody, Original::QuotaShare)?;
+            Some(read_model_original(|| {
+                KagemushaWalletQuotaShareV1::decode_canonical(&original, &scheme.scheme_id())
+            })?)
         } else {
             None
         };
@@ -376,10 +382,9 @@ impl PreparationV1<'_> {
         certificates: &[u8],
     ) -> Result<AuthenticatedCredentialV1> {
         let scheme = self.installed.verifier().scheme();
-        let current = model(KagemushaWalletCredentialV1::decode_canonical(
-            credential,
-            &scheme.scheme_id(),
-        ))?;
+        let current = read_model_original(|| {
+            KagemushaWalletCredentialV1::decode_canonical(credential, &scheme.scheme_id())
+        })?;
         let set: KagemushaWalletCertificateSetV1 =
             decode(certificates, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1)?;
         model(set.verify(scheme))?;
@@ -482,10 +487,9 @@ impl PreparationV1<'_> {
         };
         let mut send_usage = None;
         let step = if let Some(intent) = request.archive_request() {
-            let payment = model(KagemushaWalletPaymentV1::decode_canonical(
-                &intent.payment,
-                &scheme.scheme_id(),
-            ))?;
+            let payment = read_model_original(|| {
+                KagemushaWalletPaymentV1::decode_canonical(&intent.payment, &scheme.scheme_id())
+            })?;
             let pending = model(payment.pending_outgoing_leaf())?;
             let removal = custody.maps().remove(Map::Pending, &pending.credit_id)?;
             Step::Archive(Box::new(proof(match derivation {
@@ -560,18 +564,24 @@ impl PreparationV1<'_> {
                         )?)
                     };
                     let blacklist = if before.enforces_blacklist() {
-                        Some(model(KagemushaWalletBlacklistV1::decode_canonical(
-                            &required_original(custody, Original::Blacklist)?,
-                            &scheme.scheme_id(),
-                        ))?)
+                        let original = required_original(custody, Original::Blacklist)?;
+                        Some(read_model_original(|| {
+                            KagemushaWalletBlacklistV1::decode_canonical(
+                                &original,
+                                &scheme.scheme_id(),
+                            )
+                        })?)
                     } else {
                         None
                     };
                     let share = if before.is_active(KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1) {
-                        Some(model(KagemushaWalletQuotaShareV1::decode_canonical(
-                            &required_original(custody, Original::QuotaShare)?,
-                            &scheme.scheme_id(),
-                        ))?)
+                        let original = required_original(custody, Original::QuotaShare)?;
+                        Some(read_model_original(|| {
+                            KagemushaWalletQuotaShareV1::decode_canonical(
+                                &original,
+                                &scheme.scheme_id(),
+                            )
+                        })?)
                     } else {
                         None
                     };
@@ -613,12 +623,9 @@ impl PreparationV1<'_> {
                     certificates,
                 } => {
                     let decoded: KagemushaWalletPaymentV1 = match derivation {
-                        Derivation::BeforeAdvance => {
-                            model(KagemushaWalletPaymentV1::decode_canonical(
-                                payment,
-                                &scheme.scheme_id(),
-                            ))?
-                        }
+                        Derivation::BeforeAdvance => read_model_original(|| {
+                            KagemushaWalletPaymentV1::decode_canonical(payment, &scheme.scheme_id())
+                        })?,
                         Derivation::ReleasedFold => {
                             decode(payment, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1)?
                         }
@@ -729,10 +736,12 @@ impl PreparationV1<'_> {
                     };
                     let mut openings = Vec::new();
                     if *kind == KagemushaWalletPolicyUpdateKindV1::Blacklist {
-                        let list = model(KagemushaWalletBlacklistV1::decode_canonical(
-                            update,
-                            &scheme.scheme_id(),
-                        ))?;
+                        let list = read_model_original(|| {
+                            KagemushaWalletBlacklistV1::decode_canonical(
+                                update,
+                                &scheme.scheme_id(),
+                            )
+                        })?;
                         let leaf = KagemushaWalletBlacklistHistoryLeafV1 {
                             list_version: list.body.list_version,
                             entries_root: list.body.entries_root,
@@ -791,10 +800,12 @@ impl PreparationV1<'_> {
                         )?;
                     }
                     if *kind == KagemushaWalletPolicyUpdateKindV1::QuotaShare {
-                        let share = model(KagemushaWalletQuotaShareV1::decode_canonical(
-                            update,
-                            &scheme.scheme_id(),
-                        ))?;
+                        let share = read_model_original(|| {
+                            KagemushaWalletQuotaShareV1::decode_canonical(
+                                update,
+                                &scheme.scheme_id(),
+                            )
+                        })?;
                         let usage = custody.maps().quota_usage()?;
                         let changed = model(before.refresh_policy(
                             KagemushaWalletPolicyUpdateV1::QuotaShare {
@@ -819,10 +830,12 @@ impl PreparationV1<'_> {
                 Action::Unload { amount, charge } => {
                     let online_charge = match charge {
                         Some(original) => {
-                            model(KagemushaWalletChargeQuoteV1::decode_canonical(
-                                &original.quote,
-                                &scheme.scheme_id(),
-                            ))?
+                            read_model_original(|| {
+                                KagemushaWalletChargeQuoteV1::decode_canonical(
+                                    &original.quote,
+                                    &scheme.scheme_id(),
+                                )
+                            })?
                             .body
                             .online_charge
                         }
@@ -880,6 +893,34 @@ mod error_tests {
     use super::*;
 
     #[test]
+    fn proof_mapping_keeps_original_read_refusal_and_semantic_verdicts() {
+        let bytes = norito::encode_canonical(&vec![7u8; 128]).unwrap();
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+        let captured = norito::with_decode_limits_scope(limits, || {
+            norito::decode_canonical_for_admission::<Vec<u8>>(
+                &bytes,
+                norito::canonical_decode_limits(bytes.len()),
+            )
+        })
+        .unwrap_err()
+        .into_local_refusal()
+        .unwrap();
+        let expected = captured.clone();
+        let error = proof::<()>(Err(Error::DecodeResource(captured))).unwrap_err();
+        assert!(matches!(error, state::Error::DecodeResource(original) if original == expected));
+        assert!(matches!(
+            proof::<()>(Err(Error::Cancelled)),
+            Err(state::Error::Cancelled)
+        ));
+        assert!(matches!(
+            proof::<()>(Err(Error::Authority)),
+            Err(state::Error::Proof(
+                "installed native operation preparation"
+            ))
+        ));
+    }
+
+    #[test]
     fn load_receipt_dispatch_preserves_actual_decode_refusal_and_retry() {
         let fixture: norito::json::Value = norito::json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -893,7 +934,7 @@ mod error_tests {
         let error =
             norito::with_decode_limits_scope(limits, || load_receipt_original(&bytes)).unwrap_err();
         assert!(matches!(error, state::Error::DecodeResource(ref original)
-            if original.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+            if original.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
         assert_eq!(bytes, unchanged);
         assert_eq!(load_receipt_original(&bytes).unwrap(), expected);
         assert!(matches!(
@@ -911,7 +952,7 @@ mod error_tests {
             norito::with_decode_limits_scope(limits, || decode::<Vec<u8>>(&bytes, bytes.len()))
                 .unwrap_err();
         assert!(matches!(error, state::Error::DecodeResource(ref cause)
-            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
         assert_eq!(decode::<Vec<u8>>(&bytes, bytes.len()).unwrap(), value);
         assert!(matches!(
             decode::<Vec<u8>>(&[0], bytes.len()),

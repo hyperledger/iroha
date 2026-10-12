@@ -45,6 +45,16 @@ fn account(seed: u8) -> AccountId {
 }
 
 fn fixture(rejected: bool, charged: bool, pipeline_gas: bool, composite: bool) -> Fixture {
+    fixture_with_transaction_network(rejected, charged, pipeline_gas, composite, None)
+}
+
+fn fixture_with_transaction_network(
+    rejected: bool,
+    charged: bool,
+    pipeline_gas: bool,
+    composite: bool,
+    transaction_network: Option<NetworkId>,
+) -> Fixture {
     let mut native = NativeFinalityFixture::start("sdk-verified-native-payment");
     let mut verifier = native.verifier();
     let signer = KeyPair::from_seed(vec![41; 32], Algorithm::Ed25519);
@@ -57,7 +67,7 @@ fn fixture(rejected: bool, charged: bool, pipeline_gas: bool, composite: bool) -
     );
     let intent = SettleAtomic::new(
         native.network_id(),
-        "sdk_payment_250000".parse().unwrap(),
+        SettlementId::new(authority.clone(), "sdk_payment_250000".parse().unwrap()),
         AtomicSettlementMovements::try_from(vec![AtomicSettlementMovement {
             source: AssetId::with_scope(
                 asset.clone(),
@@ -94,7 +104,7 @@ fn fixture(rejected: bool, charged: bool, pipeline_gas: bool, composite: bool) -
     }
     let header = native.next_header();
     let mut builder = TransactionBuilder::new(
-        native.network_id(),
+        transaction_network.unwrap_or_else(|| native.network_id()),
         authority.clone(),
         FeePaymentIntent::authority(fee_limits, None),
     )
@@ -195,6 +205,86 @@ fn verify(
     )
 }
 
+pub(super) fn payment_receipt() -> VerifiedPaymentReceipt {
+    let fixture = fixture(false, true, false, false);
+    verify(&fixture, evidence(fixture.verified.block())).unwrap()
+}
+
+#[test]
+fn recovered_payment_authenticates_original_carrier_from_independent_terms() {
+    let original = fixture(false, true, false, false);
+    let signer = KeyPair::from_seed(vec![41; 32], Algorithm::Ed25519);
+    let mut builder = TransactionBuilder::new(
+        original.native.network_id(),
+        original.transaction.authority().clone(),
+        original.transaction.fee_payment_intent().clone(),
+    )
+    .with_instructions([SettlementInstructionBox::Atomic(original.intent.clone())]);
+    builder.set_creation_time(original.transaction.creation_time() + Duration::from_millis(1));
+    let fresh_carrier = builder.sign(signer.private_key());
+    assert_ne!(fresh_carrier.hash(), original.transaction.hash());
+    assert!(matches!(
+        VerifiedPaymentReceipt::verify(
+            &original.verified,
+            original.native.network_id(),
+            fresh_carrier.hash(),
+            &original.intent,
+            evidence(original.verified.block()),
+        ),
+        Err(PaymentReceiptVerificationError::TransactionMismatch)
+    ));
+    let recovered = VerifiedPaymentReceipt::verify_recovered(
+        &original.verified,
+        original.native.network_id(),
+        &original.intent,
+        evidence(original.verified.block()),
+    )
+    .unwrap();
+    assert_eq!(recovered.transaction_hash(), original.transaction.hash());
+    assert_eq!(recovered.settlement_id(), original.intent.settlement_id());
+    assert_eq!(
+        recovered.nexus_fee_receipt().unwrap().fee_amount,
+        Quantity::from(2_u32)
+    );
+
+    let mut conflicting = original.intent.clone();
+    conflicting.metadata.insert(
+        "payment_reference".parse().unwrap(),
+        Json::new("changed invoice"),
+    );
+    assert!(matches!(
+        VerifiedPaymentReceipt::verify_recovered(
+            &original.verified,
+            original.native.network_id(),
+            &conflicting,
+            evidence(original.verified.block()),
+        ),
+        Err(PaymentReceiptVerificationError::IntentMismatch)
+    ));
+    let other = NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
+        b"recovery foreign genesis",
+    )));
+    assert!(matches!(
+        VerifiedPaymentReceipt::verify_recovered(
+            &original.verified,
+            other,
+            &original.intent,
+            evidence(original.verified.block()),
+        ),
+        Err(PaymentReceiptVerificationError::NetworkMismatch)
+    ));
+    let rejected = fixture(true, false, false, false);
+    assert!(matches!(
+        VerifiedPaymentReceipt::verify_recovered(
+            &rejected.verified,
+            rejected.native.network_id(),
+            &rejected.intent,
+            evidence(rejected.verified.block()),
+        ),
+        Err(PaymentReceiptVerificationError::Finality(_))
+    ));
+}
+
 #[test]
 fn verified_payment_at_final_tip_binds_exact_movements_and_authenticated_fee() {
     for charged in [false, true] {
@@ -287,7 +377,7 @@ fn independently_retained_identity_and_every_payment_term_are_required() {
         let mut expected = fixture.intent.clone();
         let mut movements = expected.movements.as_slice().to_vec();
         match field {
-            0 => expected.settlement_id = "different_payment".parse().unwrap(),
+            0 => expected.settlement_id.reference = "different_payment".parse().unwrap(),
             1 => movements[0].quantity = Quantity::from(250_001_u32),
             2 => movements[0].recipient = account(43),
             3 => movements[0].source.account = account(44),
@@ -308,13 +398,18 @@ fn independently_retained_identity_and_every_payment_term_are_required() {
             _ => unreachable!(),
         }
         expected.movements = AtomicSettlementMovements::try_from(movements).unwrap();
-        assert!(
-            matches!(
-                verify_intent(&expected),
-                Err(PaymentReceiptVerificationError::IntentMismatch)
-            ),
-            "field {field}"
-        );
+        let result = verify_intent(&expected);
+        if field == 3 {
+            assert!(matches!(
+                result,
+                Err(PaymentReceiptVerificationError::InvalidIntent(_))
+            ));
+        } else {
+            assert!(
+                matches!(result, Err(PaymentReceiptVerificationError::IntentMismatch)),
+                "field {field}"
+            );
+        }
     }
     let other = NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
         b"different authenticated genesis",
@@ -422,4 +517,83 @@ fn structural_proof_and_private_root_do_not_authorize_global_payment_receipts() 
         ),
         Err(PaymentReceiptVerificationError::WrongRootScope)
     ));
+}
+
+pub(super) fn payment_operation_fixture(
+    rejected: bool,
+) -> (NativeFinalityFixture, SettleAtomic, SignedTransaction) {
+    let fixture = fixture(rejected, true, false, false);
+    (fixture.native, fixture.intent, fixture.transaction)
+}
+
+#[test]
+fn payment_execution_authenticates_rejection_without_granting_success() {
+    let fixture = fixture(true, true, false, false);
+    let original = evidence(fixture.verified.block());
+    fixture
+        .verified
+        .verify_transaction_execution(&fixture.native.network_id(), &original)
+        .unwrap();
+    assert!(
+        fixture
+            .verified
+            .verify_committed_transaction(&fixture.native.network_id(), &original)
+            .is_err()
+    );
+    let mut altered = original.clone();
+    let iroha_data_model::block::execution_output::ExecutionOutputV1::Network(output) =
+        &mut altered.output
+    else {
+        panic!("network output");
+    };
+    output.result = TransactionResult::new(Err(TransactionRejectionReason::LimitCheck(
+        TransactionLimitError {
+            reason: "changed rejection".into(),
+        },
+    )));
+    assert!(
+        fixture
+            .verified
+            .verify_transaction_execution(&fixture.native.network_id(), &altered)
+            .is_err()
+    );
+    let foreign = NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
+        b"different independently selected genesis",
+    )));
+    assert_ne!(foreign, fixture.native.network_id());
+    assert!(
+        fixture
+            .verified
+            .verify_transaction_execution(&foreign, &original)
+            .is_err()
+    );
+}
+
+#[test]
+fn payment_execution_does_not_close_a_foreign_network_carrier() {
+    let transaction_network = NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
+        Hash::new(b"foreign signed transaction network"),
+    ));
+    let fixture =
+        fixture_with_transaction_network(true, false, false, false, Some(transaction_network));
+    let original = evidence(fixture.verified.block());
+    // The signature and rejected input/output are genuinely authenticated in this
+    // block, but that chain cannot close the carrier on its intended network.
+    assert_ne!(fixture.native.network_id(), transaction_network);
+    assert_eq!(fixture.transaction.network_id(), Some(&transaction_network));
+    fixture.transaction.verify_signature().unwrap();
+    assert!(original.verify_inclusion_in_block(fixture.verified.block()));
+    assert!(original.result().is_err());
+    assert!(
+        fixture
+            .verified
+            .verify_transaction_execution(&transaction_network, &original)
+            .is_err()
+    );
+    assert!(
+        fixture
+            .verified
+            .verify_transaction_execution(&fixture.native.network_id(), &original)
+            .is_err()
+    );
 }

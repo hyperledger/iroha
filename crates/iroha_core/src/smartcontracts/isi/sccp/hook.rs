@@ -1060,6 +1060,7 @@ mod tests {
         let view = chain.state().view();
         let budget = chain.state().ivm_execution_budget();
         let occupied = budget.reserved_bytes();
+        let original_generation = chain.state().state_view_generation();
         let original_peer = std::ptr::from_ref(
             &view
                 .world()
@@ -1119,20 +1120,27 @@ mod tests {
             std::ptr::from_ref(inputs.roster.iter().next().unwrap()),
             original_peer
         );
+        let released_bytes = external.remaining_bytes();
+        let before_release = budget.reserved_bytes();
         drop(external);
+        assert_eq!(budget.reserved_bytes(), before_release - released_bytes);
         assert_eq!(
             waiter.poll_wait(release, &mut cx),
             Poll::Pending,
-            "original World writers defer refund notification until joint release"
+            "same-thread refunds wait until every original State writer retires"
         );
+        // Native validation drops an unsealed refused overlay before returning its
+        // original proposal and release. Retry that same candidate only after the
+        // writer boundary, retaining this exact captured schedule and its borrower.
         drop(block);
         assert_eq!(waiter.poll_wait(release, &mut cx), Poll::Ready(()));
+        assert_eq!(chain.state().state_view_generation(), original_generation);
         let mut block = chain.state().block(candidate);
         let active = finalize_block(
             &mut block,
             &candidate,
             Some(&inputs),
-            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+            SumeragiRootScope::Global,
         )
         .unwrap();
         assert!(active.is_active());

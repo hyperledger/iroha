@@ -431,6 +431,25 @@ fn native_activation() {
             assert!(!original.directory().path().join("carrier.nrt").exists());
         }
     }
+    // Successful HTTP recovery retained this exact committed cut. Outage recovery must
+    // challenge that cursor, even when the fixture later advances its native chain.
+    let retained_height = coordinator
+        .authority
+        .decode_checkpoint(
+            &coordinator
+                .authority
+                .directory
+                .read(
+                    "current-checkpoint.nrt",
+                    crate::managed::native_operation::MAX_CHECKPOINT_BYTES,
+                )
+                .unwrap(),
+        )
+        .unwrap()
+        .checkpoint()
+        .height();
+    assert_eq!(retained_height, finalized.height);
+    let retained_finality_path = format!("/v1/bridge/finality/attestation/{retained_height}");
     assert!(
         verify_carrier(&current_verifier, &log).is_err(),
         "different successful envelope cannot prove the Set"
@@ -671,16 +690,19 @@ fn native_activation() {
         .unwrap(),
         wire
     );
+    let requests = unavailable.requests.lock().unwrap();
     assert!(
-        unavailable
-            .requests
-            .lock()
-            .unwrap()
+        requests
             .iter()
-            .all(|request| request.method == "GET"
-                && matches!(
-                    request.path.as_str(),
-                    "/v1/node/capabilities" | "/v1/bridge/finality/1"
-                ))
+            .any(|request| request.path == retained_finality_path),
+        "outage recovery must attempt fresh attestation of its retained cut",
     );
+    for request in requests.iter() {
+        assert_eq!(request.method, "GET");
+        assert!(
+            request.path == "/v1/node/capabilities" || request.path == retained_finality_path,
+            "unexpected recovery route {} (retained cut {retained_height})",
+            request.path,
+        );
+    }
 }

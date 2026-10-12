@@ -621,3 +621,30 @@ fn unsupported_outer_carriers_are_custody_errors_without_normalization() {
         Err(Error::Authority)
     ));
 }
+
+#[test]
+fn incoming_payment_read_refusal_preserves_original_invalid_tapes_and_retry() {
+    let mut original: KagemushaWalletPaymentV1 = object("KagemushaWalletPaymentV1");
+    // Represented invalid signature/proof material remains total-verifier input.
+    original.send.step_proof.bytes[0] ^= 1;
+    let bytes = norito::to_bytes(&original).unwrap();
+    let expected = payment(&bytes).unwrap();
+    for limits in [
+        norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+    ] {
+        let error = norito::with_decode_limits_scope(limits, || payment(&bytes))
+            .err()
+            .expect("actual read refusal");
+        assert!(matches!(error, Error::DecodeResource(ref original)
+            if original.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+        let retried = payment(&bytes).unwrap();
+        assert_eq!(retried.payment, expected.payment);
+        assert_eq!(retried.compact, expected.compact);
+        assert_eq!(retried.receipt, expected.receipt);
+        assert_eq!(retried.omega, expected.omega);
+        assert_eq!(retried.incoming_statement, expected.incoming_statement);
+        assert_eq!(retried.payment_digest, expected.payment_digest);
+    }
+    assert!(matches!(payment(&[0]), Err(Error::Authority)));
+}

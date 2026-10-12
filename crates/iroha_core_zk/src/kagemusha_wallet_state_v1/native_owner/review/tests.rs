@@ -271,7 +271,7 @@ fn unload_beneficiary_is_bound_to_the_genuine_signed_quote_before_review() {
             unload_beneficiary_original(&scheme_id, Some(&charge), Some(&original))
         });
         assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
-            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
         assert_eq!(
             unload_beneficiary_original(&scheme_id, Some(&charge), Some(&original)).unwrap(),
             Some(original.clone())

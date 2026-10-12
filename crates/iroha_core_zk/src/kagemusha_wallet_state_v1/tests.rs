@@ -1943,7 +1943,7 @@ fn earned_fee_payment_has_independent_exact_custody_and_missing_copy_is_not_paid
         let refused =
             norito::with_decode_limits_scope(limits, || w.retain_fee_claim(&mut manifest, &step));
         assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
-            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
         assert_eq!(archive::encode(&manifest).unwrap(), original_manifest);
         assert_eq!(w.manifest().unwrap().0, old);
         assert!(
@@ -1972,10 +1972,10 @@ fn earned_fee_payment_has_independent_exact_custody_and_missing_copy_is_not_paid
             w.require_fee_claim(&manifest, digests.credit_id, &bytes)
         });
         assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
-            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
         let refused = norito::with_decode_limits_scope(limits, || w.fee_claim(digests.credit_id));
         assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
-            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
         w.require_fee_claim(&manifest, digests.credit_id, &bytes)
             .unwrap();
         assert_eq!(
@@ -2839,10 +2839,58 @@ fn retained_package_read_refusal_preserves_exact_completion_and_retry() {
         })
         .unwrap_err();
         assert!(matches!(error, Error::DecodeResource(ref cause)
-            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
         assert_eq!(w.manifest().unwrap().0, root);
         w.require_retained_output(&operation, &retained).unwrap();
         assert_eq!(w.retry(&operation).unwrap(), Some(exact.clone()));
         assert_eq!(w.custody.signatures, signatures);
     }
+}
+
+#[test]
+fn frozen_quota_validation_preserves_nested_original_refusal_and_exact_retry() {
+    let before = bootstrap();
+    let mut value = frozen(
+        Some(&before),
+        KagemushaWalletEffectV1::RefreshPolicy {
+            update_kind: KagemushaWalletPolicyUpdateKindV1::TimeAnchor,
+            update: field(123),
+            accepted_time_floor_ms: 0,
+        },
+    );
+    let mut body = value.capsule.body().clone();
+    body.statement.effect = KagemushaWalletEffectV1::RefreshPolicy {
+        update_kind: KagemushaWalletPolicyUpdateKindV1::QuotaShare,
+        update: field(123),
+        accepted_time_floor_ms: 0,
+    };
+    body.retained_inputs.push(KagemushaWalletRetainedInputV1 {
+        role: KagemushaWalletRetainedInputRoleV1::QuotaRefreshWitness,
+        bytes: KagemushaWalletQuotaRefreshWitnessV1::from_usage(
+            &KagemushaWalletQuotaUsageArrayV1::empty(),
+        )
+        .unwrap()
+        .to_canonical_bytes()
+        .unwrap(),
+    });
+    rebind_frozen_successor(&mut value, body);
+    value.validate().unwrap();
+    let original = archive::encode(&value).unwrap();
+    let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+    let error = norito::with_decode_limits_scope(limits, || value.validate()).unwrap_err();
+    assert!(matches!(error, Error::DecodeResource(ref cause)
+        if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+    assert_eq!(archive::encode(&value).unwrap(), original);
+    value.validate().unwrap();
+    let mut malformed = value.capsule.body().clone();
+    malformed
+        .retained_inputs
+        .iter_mut()
+        .find(|entry| entry.role == KagemushaWalletRetainedInputRoleV1::QuotaRefreshWitness)
+        .unwrap()
+        .bytes = vec![0];
+    assert!(matches!(
+        read_model_original(|| malformed.validate(), Error::Invalid("G1 validation")),
+        Err(Error::Invalid("G1 validation"))
+    ));
 }

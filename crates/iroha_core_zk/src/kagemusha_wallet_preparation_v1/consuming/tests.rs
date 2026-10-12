@@ -304,6 +304,25 @@ fn signed_unload_charge_preserves_exact_originals_and_debits_face_amount_only() 
     let source = Source::new();
     let (quote, certificates) = source.quote(100);
     let bytes = quote.to_canonical_bytes().unwrap();
+    let unchanged = (bytes.clone(), certificates.clone());
+    let read_charge = || {
+        charge_terms(
+            &source.scheme,
+            &source.before,
+            100,
+            Some(UnloadChargeOriginalsV1 {
+                quote: &bytes,
+                certificate_set: &certificates,
+            }),
+        )
+    };
+    let expected_charge = read_charge().unwrap();
+    let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+    let error = norito::with_decode_limits_scope(limits, read_charge).unwrap_err();
+    assert!(matches!(error, Error::DecodeResource(ref cause)
+        if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+    assert_eq!((&bytes, &certificates), (&unchanged.0, &unchanged.1));
+    assert_eq!(read_charge().unwrap(), expected_charge);
     let insertion = source.insertion(100, 7);
     let derived = source
         .derive(ConsumingActionV1::Unload {

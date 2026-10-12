@@ -113,7 +113,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             &self.proofs.account_original,
             &credential.body.account_digest,
         )
-        .map_err(|_| Error::Proof("admitted account original"))?;
+        .map_err(|error| error.into_state_error(Error::Proof("admitted account original")))?;
         let asset: KagemushaWalletAssetScopeV1 = archive::decode(&self.proofs.asset_original)?;
         valid(asset.validate())?;
         if account != self.proofs.account

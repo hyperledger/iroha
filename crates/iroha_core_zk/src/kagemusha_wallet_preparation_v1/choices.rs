@@ -361,7 +361,7 @@ mod tests {
         };
         assert_eq!(
             original.kind(),
-            norito::core::DecodeAttemptErrorKind::EnclosingLimit
+            norito::core::DecodeLocalRefusalKind::EnclosingLimit
         );
         assert_eq!(bytes, unchanged);
         let restored = NativeChoicesV1::decode_original(&bytes).unwrap();

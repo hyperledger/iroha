@@ -488,7 +488,12 @@ impl Executor for FakeExecutor {
         Ok(())
     }
 
-    fn execute(&mut self, block: &AvailableBody, block_hash: &Hash32) -> Option<ExecOutcome> {
+    fn execute(
+        &mut self,
+        block: &AvailableBody,
+        block_hash: &Hash32,
+        _certified: bool,
+    ) -> Option<ExecOutcome> {
         self.wait_open();
         let mut state = self.state.lock();
         let parent = if block.header().parent_hash == state.applied.1 {

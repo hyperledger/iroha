@@ -147,15 +147,35 @@ SCENARIOS = {
 
 
 @dataclass(frozen=True)
+class ExpectedFailure:
+    """One declared assertion, with an optional original worker and fixture join."""
+    cause: str
+    source: str
+    worker_thread: str = ""
+    join_source: str = ""
+    join_message: str = ""
+
+
+@dataclass(frozen=True)
 class Mutation:
     id: str
     site: str
     tests: tuple
     scenarios: tuple
+    causes: tuple = ()
 
 
-def m(mid, site, tests, scenarios=()):
-    return Mutation(mid, site, tuple(tests), tuple(scenarios))
+def m(mid, site, tests, scenarios=(), *, causes=()):
+    tests, causes = tuple(tests), tuple(causes)
+    if causes:
+        if len(causes) != len(tests) or len(set(tests)) != len(tests) or any("::" not in name for name in tests):
+            raise ValueError("causal mutations require one exact expectation per qualified control")
+        for expected in causes:
+            if (not isinstance(expected, ExpectedFailure) or not expected.cause or not expected.source
+                    or bool(expected.worker_thread) != bool(expected.join_source)
+                    or bool(expected.worker_thread) != bool(expected.join_message)):
+                raise ValueError("causal mutation expectation is incomplete")
+    return Mutation(mid, site, tests, tuple(scenarios), causes)
 
 
 # id, site and change, named deterministic test(s), randomized scenario(s) — mirrors §13.4.
@@ -456,6 +476,17 @@ MUTATIONS = [
 # Core-owned rules use the same strict harness classifier; no simulator hook can stand in
 # for production State/custody admission. Opt in explicitly with --core.
 CORE_MUTATIONS = [
+    m("HC257", "Full State executor: omit the uncertified CT1 clock-ahead guard",
+      ["sumeragi::executor::clock_tests::prepare_withheld_while_block_time_ahead"],
+      causes=(ExpectedFailure("uncertified future block must defer before execution",
+          "crates/iroha_core/src/sumeragi/executor/clock_tests.rs",
+          worker_thread="sumeragi-publication-test",
+          join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs",
+          join_message="publication worker fixture: Any { .. }"),)),
+    m("HC258", "Driver Execute: drop the authenticated certified flag before application execution",
+      ["sumeragi::driver::tests::sched::certified_execution_flag_reaches_the_application_without_inference"],
+      causes=(ExpectedFailure("certified Execute flag reaches the application unchanged",
+          "crates/iroha_core/src/sumeragi/driver/tests/sched.rs"),)),
     m("HC1", "evidence: use native lane height instead of original retirement for replay pruning",
       ["sumeragi::evidence::tests::lane_terminal_replay_fence_uses_immutable_retirement_deadline_and_original_incarnation"]),
     m("HC2", "staking: omit original lane custody and exact registration revalidation",
@@ -708,7 +739,8 @@ CORE_MUTATIONS = [
     m("HC85", "beacon: reuse authenticated shared session under a substituted current binding",
       ["beacon::session_owner::validated::tests::shared_authenticated_session_rechecks_every_current_external_binding"]),
     m("HC86", "native execution: retry an original local custody invariant instead of requiring recovery",
-      ["sumeragi::executor::preparation::tests::original_local_custody_invariant_halts_worker_without_fee_result_or_quarantine"]),
+      ["sumeragi::executor::preparation::tests::original_local_custody_invariant_halts_worker_without_fee_result_or_quarantine",
+       "sumeragi::certified_chain::funded_authority::tests::native_authority_prepaid_custody_errors_require_recovery"]),
     m("HC88", "beacon decoder: collapse original surviving decode scope refusal into invalid input",
       ["beacon::tests::session_decoder_preserves_actual_local_scope_without_invalidity_or_fabricated_pool"]),
     m("HC89", "credential decoder: reject original inherited-scope or physical allocation refusal",
@@ -1056,9 +1088,9 @@ CORE_MUTATIONS = [
       ["smartcontracts::isi::world::isi::tests::parliament_due_sccp_control_binds_exact_certificate_and_complete_pause_state"]),
     m("HC239", "native epoch construction: leak the original ledger after partial payload unwind",
       ["sumeragi::epoch_election::owned::tests::partial_epoch_committee_unwind_refunds_retired_nested_backing"]),
-    m("HC248", "SCCP G6 resolves liability outside the canonical global election lane",
+    m("HC250", "SCCP G6 resolves liability outside the canonical global election lane",
       ["smartcontracts::isi::sccp::generations::tests::global_member_binding_ignores_participant_staking_registration"]),
-    m("HC249", "SCCP destination clearance traverses already cleared generation history",
+    m("HC251", "SCCP destination clearance traverses already cleared generation history",
       ["smartcontracts::isi::sccp::generations::tests::destination_clearance_visits_only_bounded_pending_index_after_cleared_history"]),
 
 
@@ -1076,10 +1108,82 @@ CORE_MUTATIONS = [
     m('HC245', 'Network ballot-penalty settlement: swallow the original local execution deferral as a completed rejection',
       ['state::output_capacity::producer::tests::network::penalties::refusal::actual_ballot_penalty_decoder_refusal_keeps_original_deferral_and_retry']),
     m('HC246', 'SCCP fast-pause lifecycle: omit Global G4 expiry cleanup after enactments',
-      ['smartcontracts::isi::sccp::read::control::tests::lapse::native_fast_pause_lapse_uses_exact_time_and_preserves_parliament_confirmation', 'smartcontracts::isi::sccp::read::control::tests::lapse::native_fast_pause_lapse_cancellation_keeps_original_record_and_retries_once']),
+      ['smartcontracts::isi::sccp::read::native::control_producer_tests::lapse_tests::native_fast_pause_lapse_uses_exact_time_and_preserves_parliament_confirmation', 'smartcontracts::isi::sccp::read::native::control_producer_tests::lapse_tests::native_fast_pause_lapse_cancellation_keeps_original_record_and_retries_once'],
+      causes=(
+          ExpectedFailure('the first native block at expiry must remove the original fast-pause record', 'crates/iroha_core/src/smartcontracts/isi/sccp/read/native/control_producer_tests/lapse_tests.rs'),
+          ExpectedFailure('the original native execution must stage lapse before publication', 'crates/iroha_core/src/smartcontracts/isi/sccp/read/native/control_producer_tests/lapse_tests.rs'),
+      )),
 
     m('HC247', 'Payload producer retry: erase the original resource refusal at the driver boundary',
-      ['sumeragi::executor::publication_tests::original_lane_policy_proposal_refusal_retains_worker_owner_and_exact_queued_retry', 'sumeragi::executor::publication_tests::original_staking_payload_worker_retains_pool_refusal_and_exact_queued_retry']),
+      ['sumeragi::executor::publication_tests::original_lane_policy_proposal_refusal_retains_worker_owner_and_exact_queued_retry', 'sumeragi::executor::publication_tests::original_staking_payload_worker_retains_pool_refusal_and_exact_queued_retry'],
+      causes=(
+          ExpectedFailure('original lane policy refusal must reach the driver as a typed deferral', 'crates/iroha_core/src/sumeragi/executor_publication_tests.rs', worker_thread="sumeragi-publication-test", join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs", join_message="publication worker fixture: Any { .. }"),
+          ExpectedFailure('original staking capacity must reach the driver as a typed deferral', 'crates/iroha_core/src/sumeragi/executor_publication_tests.rs', worker_thread="sumeragi-publication-test", join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs", join_message="publication worker fixture: Any { .. }"),
+      )),
+
+    m("HC248", "Native parent-service retry: drop the original source and authority preparation on refusal",
+      ['sumeragi::executor::parent_service_custody_tests::parent_service_validation_retains_original_receipts_without_waking_its_own_retry', 'sumeragi::executor::parent_service_custody_tests::parent_service_assembly_retains_original_parent_and_queue_before_capacity_retry'],
+      causes=(
+          ExpectedFailure('parent-service validation keeps original receipts instead of refunding its own waiter', 'crates/iroha_core/src/sumeragi/executor_parent_service_custody_tests.rs', worker_thread="sumeragi-publication-test", join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs", join_message="publication worker fixture: Any { .. }"),
+          ExpectedFailure('parent-service assembly retains original receipt charges at first refusal', 'crates/iroha_core/src/sumeragi/executor_parent_service_custody_tests.rs', worker_thread="sumeragi-publication-test", join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs", join_message="publication worker fixture: Any { .. }"),
+      )),
+
+    m("HC249", "Native successor authority: relabel impossible prepaid custody as active pool capacity",
+      ["sumeragi::certified_chain::funded_authority::tests::native_authority_prepaid_custody_errors_require_recovery"],
+      causes=(ExpectedFailure("prepaid authority custody violations must require recovery",
+          "crates/iroha_core/src/sumeragi/certified_chain/funded_authority/tests.rs"),)),
+
+    m("HC252", "Native commit retry: keep callback-delayed polling while original execution writers remain retained",
+      ["sumeragi::executor::payload_owner::tests::retained_partial_payload_idle_expiry_wakes_original_commit_with_live_execution"],
+      causes=(ExpectedFailure("actual original-pool retirement permits the same committed head to retry",
+          "crates/iroha_core/src/sumeragi/executor/payload_owner.rs",
+          worker_thread="sumeragi-publication-test",
+          join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs",
+          join_message="publication worker fixture: Any { .. }"),)),
+
+    m("HC254", "Direct payment replay: charge another execution fee for an already consumed business identity",
+      ["executor::settlement_replay::tests::direct_payment_replay_two_carriers_charge_once_and_recover_after_certified_restart"],
+      causes=(ExpectedFailure("same direct payment identity charges one execution fee across distinct carriers",
+          "crates/iroha_core/src/executor/settlement_replay_tests.rs"),)),
+
+    m("HC256", "Decision delivery: skip original source revalidation after funded instruction admission",
+      ["sumeragi::amx::native::tests::paid_borrowed_custody::native_amx_decision_delivery_final_namespace_refusal_preserves_original_instruction"],
+      causes=(ExpectedFailure("Decision delivery must recheck original namespace after instruction admission",
+          "crates/iroha_core/src/sumeragi/amx/native/tests/paid_borrowed_custody.rs"),)),
+
+    m("HC259", "Proposer clock: select future signed inputs on Global and routing lanes",
+      ["sumeragi::payload::resource_contract_tests::proposer_clock_selection_retains_future_signed_inputs_until_the_exact_time",
+       "sumeragi::payload::resource_contract_tests::lane_proposer_clock_selection_preserves_future_inputs_and_resumes_after_advance"],
+      causes=(ExpectedFailure("global proposer must leave future signed input queued",
+          "crates/iroha_core/src/sumeragi/payload/resource_contract_tests.rs"),
+          ExpectedFailure("lane proposer must leave future signed input queued",
+          "crates/iroha_core/src/sumeragi/payload/resource_contract_tests.rs"))),
+
+    m("HC260", "Proposer clock: publish original canonical payload before its clock boundary",
+      ["sumeragi::executor::payload_owner::tests::proposer_clock_retains_final_input_and_canonical_output_until_due",
+       "sumeragi::executor::payload_owner::tests::proposer_clock_retains_certified_lane_floor_and_completed_original"],
+      causes=tuple(ExpectedFailure(message,
+          "crates/iroha_core/src/sumeragi/executor/payload_owner.rs",
+          worker_thread=worker,
+          join_source=join_source,
+          join_message=join_message) for message, worker, join_source, join_message in (
+              ("canonical payload clock must wait after its signed input becomes due",
+               "sumeragi-publication-test",
+               "crates/iroha_core/src/sumeragi/executor_publication_tests.rs",
+               "publication worker fixture: Any { .. }"),
+              ("canonical lane merge floor must wait without empty or unrelated work",
+               "sumeragi-original-lane-merge-test",
+               "crates/iroha_core/src/sumeragi/lanes/merge_tests.rs",
+               "original lane fixture: Any { .. }")))),
+
+    m("HC253", "Native parent journal retry: classify unavailable original path bindings as corrupt history",
+      ["sumeragi::executor::payload_owner::tests::retained_partial_payload_refuses_missing_original_parent_and_resumes_same_paid_wire",
+       "sumeragi::executor::payload_owner::tests::retained_partial_payload_refuses_substituted_original_parent_and_resumes_same_paid_wire"],
+      causes=tuple(ExpectedFailure("original parent journal unavailability remains retryable",
+          "crates/iroha_core/src/sumeragi/executor/payload_owner.rs",
+          worker_thread="sumeragi-publication-test",
+          join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs",
+          join_message="publication worker fixture: Any { .. }") for _ in range(2))),
 
 ]
 
@@ -1165,16 +1269,24 @@ MODEL_MUTATIONS = [
        "sumeragi_amx::native::leg_decode::tests::invalid_native_multisig_member_replay_preserves_original_cause_without_diagnostic_allocations"]),
 
     m("DM34", "epoch validation cache: reconstruct an owning canonical epoch snapshot",
-      ["sumeragi_finality::epoch_graph::validation_tests::epoch_scope_retains_exact_context_without_a_hidden_heap_graph"]),
+      ["sumeragi_finality::epoch_graph::validation_tests::epoch_scope_retains_exact_context_without_a_hidden_heap_graph"],
+      causes=(
+          ExpectedFailure('epoch cache adds no heap graph beyond original context validation', 'crates/iroha_data_model/src/sumeragi_finality/epoch_graph/validation_tests.rs'),
+      )),
 
     m("DM35", "AMX decisions: discard authenticated authority while Yes escrow remains unresolved",
       ["sumeragi_amx::tests::sumeragi_amx_delayed_decisions_survive_three_rotations_and_restart"]),
+
+    m("DM36", "committed clock drift: omit the CT4 protocol bound",
+      ["parameter::system::tests::clock_drift_bound_accepts_exact_limit_and_rejects_excess_without_overflow"]),
 
 ]
 
 
 # Daemon integration rules execute only in the owning daemon unit-test crate.
 DAEMON_MUTATIONS = [
+    m("HC255", "AMX relay journal identity substitutes an unrelated authenticated successful carrier",
+      ["amx_relay::ledger::proof_tests::relay_journal_identity_cannot_substitute_an_unrelated_successful_carrier"]),
     m("HC105", "DKG generation restore: ignore original input marker or later producer intent",
       ["beacon_bootstrap::seat_attempt::durable_tests::input_marker_or_later_intent_cannot_restore_generation_or_grant_a_new_interval"]),
     m("HC106", "DKG generation restore: accept a replaced inherited input stream",
@@ -1340,6 +1452,40 @@ def serial_test_terminals(output):
     return results, valid and pending is None
 
 
+def captured_test_panics(output):
+    """Keep each panic inside its exact libtest captured-output owner."""
+    headers = list(re.finditer(r"^---- (\S+) stdout ----$", output, re.M))
+    boundaries = list(re.finditer(r"^(?:---- \S+ stdout ----|failures:|test result:.*)$", output, re.M))
+    generic = re.compile(r"^thread '[^']+'(?: \(\d+\))? panicked at [^\n]+:\n", re.M)
+    exact = re.compile(r"^thread '([^']+)'(?: \(\d+\))? panicked at (.+):[0-9]+:[0-9]+:\n([^\n]*)", re.M)
+    result = {}
+    accounted = 0
+    valid = True
+    for header in headers:
+        name = header.group(1)
+        end = next((boundary.start() for boundary in boundaries if boundary.start() > header.start()), len(output))
+        body = output[header.end():end]
+        panics = list(exact.finditer(body))
+        valid = valid and name not in result and len(panics) == len(list(generic.finditer(body)))
+        result[name] = [dict(thread=panic.group(1), source=panic.group(2), message=panic.group(3)) for panic in panics]
+        accounted += len(panics)
+    return result, valid and accounted == len(list(generic.finditer(output)))
+
+
+def expected_test_failure(name, expected, panics):
+    """An incidental message or fixture failure cannot kill a declared causal control."""
+    if not panics or len(panics) != (2 if expected.worker_thread else 1):
+        return False
+    first = panics[0]
+    if (first['thread'] != (expected.worker_thread or name) or first['source'] != expected.source
+            or first['message'] not in (expected.cause,
+                f"assertion `left == right` failed: {expected.cause}",
+                f"assertion `left != right` failed: {expected.cause}")):
+        return False
+    return not expected.worker_thread or panics[1] == {
+        'thread': name, 'source': expected.join_source, 'message': expected.join_message}
+
+
 @dataclass
 class Step:
     status: str  # pass | fail | build-error | execution-error | timeout | missing-test | skipped
@@ -1350,6 +1496,8 @@ class Step:
     log: str = ""
     selected: list = field(default_factory=list)
     discovery_log: str = ""
+    panics: dict = field(default_factory=dict)
+    panic_owners_valid: bool = False
 
 
 def cargo_test(args, target_dir, mutation, filters, seeds, timeout, log_path, no_run=False):
@@ -1456,8 +1604,10 @@ def run_step(args, target_dir, mutation, filters, seeds, timeout, log_path):
     results = [(name, verdict) for name, verdict, _, _ in terminals]
     ran = sorted({name for name, verdict in results if not verdict.startswith("ignored")})
     failed = sorted({name for name, verdict in results if verdict == "FAILED"})
+    panics, panic_owners_valid = captured_test_panics(out)
     step = Step(status="pass", seconds=round(elapsed, 1), failed=failed, ran=ran,
-                selected=selected, log=str(log_path), discovery_log=str(discovery_log))
+                selected=selected, log=str(log_path), discovery_log=str(discovery_log),
+                panics=panics, panic_owners_valid=panic_owners_valid)
     missing = sorted(required - set(ran))
     if code is None or (timeout and elapsed > timeout):
         step.status = "timeout"
@@ -1592,6 +1742,15 @@ def evaluate(args, target_dir, mu):
     named_failed = required_test_failures(mu.tests, named.failed)
     result["named"] = {**named.__dict__, "required_failed": named_failed}
     killed_by_test = named.status == "fail" and bool(named_failed)
+    causal_failures = None
+    if mu.causes and named.status == "fail":
+        causal_failures = {
+            name: (named.panic_owners_valid and name in named_failed
+                   and expected_test_failure(name, expected, named.panics.get(name)))
+            for name, expected in zip(mu.tests, mu.causes)
+        }
+        result["named"]["causal_failures"] = causal_failures
+        killed_by_test = all(causal_failures.values())
     scen = None
     if mu.scenarios and not args.fast:
         groups = [(scenario,) for scenario in dict.fromkeys(SCENARIOS[s] for s in mu.scenarios)]
@@ -1601,6 +1760,8 @@ def evaluate(args, target_dir, mu):
     killed_by_scenario = scen is not None and scen["status"] == "fail" and bool(scen["required_failed"])
     if named.status not in ("pass", "fail"):
         result.update(verdict="error", reason=f"named tests: {named.status}")
+    elif causal_failures is not None and not killed_by_test:
+        result.update(verdict="error", reason="named tests: every declared causal control must fail at its exact owned assertion")
     elif named.status == "fail" and not killed_by_test:
         result.update(verdict="error", reason="named tests: only additional substring-selected tests failed")
     elif scen is not None and scen["status"] not in ("pass", "fail"):

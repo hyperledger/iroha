@@ -1151,8 +1151,7 @@ pub(super) fn validate_signed_profile(
     #[cfg(all(test, sumeragi_deploy_mutation = "DEP7"))]
     let metadata = {
         let _ = metadata;
-        iroha_genesis::signed_genesis_consensus_metadata(block)
-            .map_err(|_| invalid())?
+        iroha_genesis::signed_genesis_consensus_metadata(block).map_err(|_| invalid())?
     };
     if metadata.sumeragi_context.root_scope.dataspace_id().as_u64() != prepared.context.dataspace_id
         || (metadata.sumeragi_context.root_scope == SumeragiRootScope::Global

@@ -17,6 +17,7 @@ fn original_attempt(worker: &Worker<'_>, block: &AvailableBody) -> SignatureDeco
         decoded: None,
         returned_refusal: None,
         amx_legs: None,
+        parent_service: Default::default(),
     }
 }
 
@@ -190,7 +191,7 @@ fn original_decoded_graph_survives_actual_prevalidation_policy_refusal_and_retry
                 ivm::error::ExecutionDeferral::ActiveMemoryCapacity
             );
             assert!(
-                matches!(norito::with_decode_limits_scope(limits, || worker.run_execution(&block, hash)),
+                matches!(norito::with_decode_limits_scope(limits, || worker.run_execution(&block, hash, false)),
                 Err(PublicationError::Deferred(ref source)) if source.execution() == Some(&original))
             );
             assert_eq!(worker.routing_refusal.as_ref(), Some(&original));
@@ -217,7 +218,7 @@ fn original_decoded_graph_survives_actual_prevalidation_policy_refusal_and_retry
             assert!(events.try_recv().is_err());
             assert_eq!(worker.state.view().height(), 1);
             assert!(matches!(
-                worker.execute(&block, hash),
+                worker.execute(&block, hash, false),
                 Some(ExecOutcome::Valid(_))
             ));
             let PublicationPhase::Executed { valid, .. } = &worker.live.as_ref().unwrap().phase

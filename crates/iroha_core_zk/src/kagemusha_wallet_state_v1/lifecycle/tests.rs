@@ -356,7 +356,7 @@ fn load_request_intake_preserves_actual_model_refusal_before_publication() {
         let error =
             norito::with_decode_limits_scope(limits, || request.validate(&scheme)).unwrap_err();
         assert!(matches!(error, Error::DecodeResource(ref original)
-            if original.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+            if original.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
         assert_eq!(request, unchanged);
         request.validate(&scheme).unwrap();
     }
@@ -642,10 +642,10 @@ fn model_intake_refusal_preserves_all_refresh_receive_and_unload_originals_befor
         ] {
             let direct = norito::with_decode_limits_scope(limits, || request.validate(&scheme));
             assert!(matches!(direct, Err(Error::DecodeResource(ref cause))
-                if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+                if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
             let public = norito::with_decode_limits_scope(limits, || w.execute(request.clone()));
             assert!(matches!(public, Err(Error::DecodeResource(ref cause))
-                if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+                if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
             assert_eq!(archive::encode(&request).unwrap(), exact);
             assert_eq!(w.manifest().unwrap().0, root);
             assert_eq!(w.custody.signatures, 0);

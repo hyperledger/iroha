@@ -173,7 +173,7 @@ fn load_resource_refusal_keeps_selected_epoch_and_retries_after_scope_retirement
         })
         .unwrap_err();
         assert!(matches!(error, state::Error::DecodeResource(ref cause)
-            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
         assert_eq!(reader.export_epoch_checkpoint(1).unwrap(), selected);
     }
     let authenticated =

@@ -13266,13 +13266,6 @@ impl<'state> StateBlock<'state> {
 
         Ok(())
     }
-    #[inline]
-    #[cfg(any(test, feature = "iroha-core-tests"))]
-    pub(crate) fn stateless_validation_cache(
-        &self,
-    ) -> &parking_lot::Mutex<StatelessValidationCache> {
-        self.state_ref.stateless_validation_cache()
-    }
     /// Access the DA commitments collected while applying the block.
     pub fn da_commitments(
         &self,
@@ -14976,79 +14969,6 @@ fn live_consensus_key_pop_for_peer_matching_role(
         }
     }
     None
-}
-#[cfg(any(test, feature = "iroha-core-tests"))]
-fn active_stake_elected_validator_peers_for_checkpoint_lanes<I, P>(
-    world: &impl WorldReadOnly,
-    candidate_peers: I,
-    checkpoint_lane_ids: &BTreeSet<LaneId>,
-    block_height: u64,
-    nexus: &iroha_config::parameters::actual::Nexus,
-) -> Vec<PeerId>
-where
-    I: IntoIterator<Item = P>,
-    P: std::borrow::Borrow<PeerId>,
-{
-    if checkpoint_lane_ids.is_empty() {
-        return Vec::new();
-    }
-    let candidate_peers: BTreeSet<PeerId> = candidate_peers
-        .into_iter()
-        .map(|peer| peer.borrow().clone())
-        .collect();
-    if candidate_peers.is_empty() {
-        return Vec::new();
-    }
-    let present_peers: BTreeSet<PeerId> = world.peers().iter().cloned().collect();
-    let active_lane_ids = nexus_active_lane_ids(nexus);
-    let mut peers: Vec<_> = world
-        .public_lane_validators()
-        .iter()
-        .filter(|(key, record)| public_lane_validator_record_matches_key(key, record))
-        .filter(|(_, record)| checkpoint_lane_ids.contains(&record.lane_id))
-        .filter(|(_, record)| active_lane_ids.contains(&record.lane_id))
-        .filter(|(_, record)| {
-            crate::smartcontracts::isi::staking::validator_election_eligible_at_height(
-                record,
-                block_height,
-            )
-        })
-        .filter(|(_, record)| {
-            matches!(
-                nexus
-                    .staking
-                    .validator_mode(record.lane_id, &nexus.lane_catalog),
-                iroha_config::parameters::actual::LaneValidatorMode::StakeElected
-            )
-        })
-        .filter_map(|(_, record)| {
-            let Ok(meets_min) = crate::smartcontracts::isi::staking::meets_min_stake(
-                &record.self_stake,
-                &nexus.staking.min_validator_stake,
-            ) else {
-                return None;
-            };
-            if !meets_min {
-                return None;
-            }
-            let peer = record.peer_id.clone();
-            if !candidate_peers.contains(&peer) || !present_peers.contains(&peer) {
-                return None;
-            }
-            if !peer_has_live_consensus_key_for_role(
-                world,
-                &peer,
-                block_height,
-                ConsensusKeyRole::Validator,
-            ) {
-                return None;
-            }
-            Some(peer)
-        })
-        .collect();
-    peers.sort();
-    peers.dedup();
-    peers
 }
 // TODO: Route production epoch construction through the authenticated-seed
 // committee selector before removing this expectation.
@@ -24124,42 +24044,6 @@ impl WorldTransaction<'_, '_> {
         Ok(())
     }
     #[cfg(test)]
-    /// Persist one finalized public beacon key and remove its matching active DKG snapshot.
-    pub(crate) fn put_finalized_global_beacon_key_session(
-        &mut self,
-        record: RetainedFinalizedGlobalThresholdBeaconSessionV1,
-    ) -> Result<(), GlobalThresholdBeaconError> {
-        record.validate()?;
-        if record.activated_at_height.is_some() || record.retired_at_height.is_some() {
-            return Err(GlobalThresholdBeaconError::InvalidKeyLifecycle);
-        }
-        let session_id = record.session.session_id;
-        if let Some(previous) = self.global_beacon_key_sessions.get(&session_id) {
-            return if previous == &record {
-                Ok(())
-            } else {
-                Err(GlobalThresholdBeaconError::PersistenceConflict)
-            };
-        }
-        if let Some(active_dkg) = self.global_beacon_dkg.get(&session_id) {
-            let transcript = &record.session.adaptive_dkg;
-            if active_dkg.session != transcript.session
-                || active_dkg.generator_h != transcript.generator_h
-                || active_dkg.generator_v != transcript.generator_v
-                || active_dkg.recipient_keys != transcript.recipient_keys
-                || active_dkg.dealer_commitments != transcript.dealer_commitments
-                || active_dkg.encrypted_shares != transcript.encrypted_shares
-                || active_dkg.share_acceptances != transcript.share_acceptances
-                || active_dkg.last_updated_height > transcript.finalized_at_height
-            {
-                return Err(GlobalThresholdBeaconError::PersistenceConflict);
-            }
-            self.global_beacon_dkg.remove(session_id);
-        }
-        self.global_beacon_key_sessions.insert(session_id, record);
-        Ok(())
-    }
-    #[cfg(test)]
     /// Install the singleton successor pointer and its first authorized pulse height.
     ///
     /// A lifecycle instruction in block `H` uses `H + 1`, so consensus effects
@@ -30073,40 +29957,6 @@ impl State {
         self.update_latest_block_header_cache(header);
     }
 
-    /// Replace one active lane incarnation in a unit-test fixture.
-    #[cfg(test)]
-    pub(crate) fn set_lane_incarnation_for_test(
-        &self,
-        lane_id: LaneId,
-        incarnation: Hash,
-    ) -> Option<Hash> {
-        let mut _view_generation_notice = self.state_view_publication();
-        let _view_generation = _view_generation_notice.begin();
-        let mut runtime = self.canonical_runtime.block();
-        let previous = runtime
-            .get()
-            .lane_incarnation_lineage
-            .iter()
-            .find(|entry| entry.lane_id == lane_id)?
-            .incarnation;
-        if previous == incarnation {
-            // Generation-only fixture races must preserve the authenticated
-            // current/undo runtime pair when no lineage value changed.
-            return Some(previous);
-        }
-        let entry = runtime
-            .get_mut()
-            .lane_incarnation_lineage
-            .iter_mut()
-            .find(|entry| entry.lane_id == lane_id)?;
-        entry.incarnation = incarnation;
-        runtime.commit();
-        Some(previous)
-    }
-    #[cfg(test)]
-    pub(crate) fn clear_latest_block_header_cache_for_testing(&self) {
-        *self.latest_block_header.write() = None;
-    }
     /// Produce a finalized Network input/full typed-output proof under explicit limits.
     ///
     /// Only the committed height/hash journal is captured around storage I/O;
@@ -30625,16 +30475,6 @@ impl State {
     #[track_caller]
     pub fn has_committed_entrypoint(&self, hash: HashOf<TransactionEntrypoint>) -> bool {
         self.transactions.view().get(&hash).is_some()
-    }
-    /// Seed canonical entrypoint membership for focused fixtures.
-    #[cfg(test)]
-    pub(crate) fn record_committed_entrypoints_for_tests(
-        &self,
-        entrypoints: impl IntoIterator<Item = HashOf<TransactionEntrypoint>>,
-        height: NonZeroUsize,
-    ) {
-        self.transactions
-            .record_committed_entrypoint_membership_for_tests(entrypoints, height);
     }
     /// Return the transaction admission limits used by ingress validation.
     ///

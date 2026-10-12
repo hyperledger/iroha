@@ -2868,8 +2868,6 @@ impl StateTelemetry {
     fn settlement_atomicity_label(atomicity: SettlementAtomicity) -> &'static str {
         match atomicity {
             SettlementAtomicity::AllOrNothing => "all_or_nothing",
-            SettlementAtomicity::CommitFirstLeg => "commit_first_leg",
-            SettlementAtomicity::CommitSecondLeg => "commit_second_leg",
         }
     }
     fn dvp_final_state_label(delivery_committed: bool, payment_committed: bool) -> &'static str {
@@ -10466,10 +10464,13 @@ mod tests {
         crate::status::settlement_status_reset_for_tests();
         let metrics = Arc::new(Metrics::default());
         let telemetry = StateTelemetry::new(Arc::clone(&metrics), true);
-        let dvp_id: SettlementId = "trade-1".parse().expect("settlement id");
+        let dvp_id = SettlementId::new(
+            iroha_test_samples::ALICE_ID.clone(),
+            "trade-1".parse().expect("settlement reference"),
+        );
         let dvp_plan = SettlementPlan::new(
             SettlementExecutionOrder::DeliveryThenPayment,
-            SettlementAtomicity::CommitFirstLeg,
+            SettlementAtomicity::AllOrNothing,
         );
         telemetry.record_dvp_finality(
             &dvp_id,
@@ -10486,10 +10487,13 @@ mod tests {
                 .get(),
             1
         );
-        let pvp_id: SettlementId = "fx-1".parse().expect("settlement id");
+        let pvp_id = SettlementId::new(
+            iroha_test_samples::ALICE_ID.clone(),
+            "fx-1".parse().expect("settlement reference"),
+        );
         let pvp_plan = SettlementPlan::new(
             SettlementExecutionOrder::DeliveryThenPayment,
-            SettlementAtomicity::CommitFirstLeg,
+            SettlementAtomicity::AllOrNothing,
         );
         telemetry.record_pvp_finality(
             &pvp_id,
@@ -10510,7 +10514,7 @@ mod tests {
         assert_eq!(
             metrics
                 .settlement_fx_window_ms
-                .with_label_values(&["pvp", "delivery_then_payment", "commit_first_leg"])
+                .with_label_values(&["pvp", "delivery_then_payment", "all_or_nothing"])
                 .get_sample_count(),
             1
         );

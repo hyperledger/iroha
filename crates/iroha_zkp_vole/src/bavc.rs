@@ -1194,15 +1194,15 @@ mod tests {
 
     #[test]
     fn committer_derives_the_hash_key_from_the_iv() {
-        let hashed =
-            LeafCommitter::new(REFERENCE, SecurityLevel::L128, LeafScheme::Hashed, &IV).expect("valid call");
+        let hashed = LeafCommitter::new(REFERENCE, SecurityLevel::L128, LeafScheme::Hashed, &IV)
+            .expect("valid call");
         let mut expected = [0u8; 48];
         hash(SecurityLevel::L128, Oracle::H0, &IV, &mut expected).expect("exact length");
         assert_eq!(hashed.uhash[..48], expected);
         assert!(hashed.uhash[48..].iter().all(|&byte| byte == 0));
         assert_eq!(hashed.commitment_bytes(), 48);
-        let direct =
-            LeafCommitter::new(REFERENCE, SecurityLevel::L128, LeafScheme::Direct, &IV).expect("valid call");
+        let direct = LeafCommitter::new(REFERENCE, SecurityLevel::L128, LeafScheme::Direct, &IV)
+            .expect("valid call");
         assert!(direct.uhash.iter().all(|&byte| byte == 0));
         assert_eq!(direct.commitment_bytes(), 32);
         let supplied =
@@ -1367,11 +1367,7 @@ mod tests {
 
     /// The commitment recomputed from the node keys with an independent SHAKE,
     /// with a separate prefix for `H_0`, the inner `H_1` and the outer `H_1`.
-    fn independent_commitment(
-        params: &VoleParams,
-        keys: &[u8],
-        prefixes: [&[u8]; 3],
-    ) -> Vec<u8> {
+    fn independent_commitment(params: &VoleParams, keys: &[u8], prefixes: [&[u8]; 3]) -> Vec<u8> {
         let [for_h0, for_inner, for_outer] = prefixes;
         let shape = Shape::new(params).expect("supported row");
         let lb = shape.lb;
@@ -1399,11 +1395,7 @@ mod tests {
                 .expect("valid call");
                 leaves.extend_from_slice(&com);
             }
-            digests.extend(shake(
-                shape.level,
-                &[for_inner, &leaves, &[0x01]],
-                2 * lb,
-            ));
+            digests.extend(shake(shape.level, &[for_inner, &leaves, &[0x01]], 2 * lb));
         }
         shake(shape.level, &[for_outer, &digests, &[0x01]], 2 * lb)
     }
@@ -1454,8 +1446,8 @@ mod tests {
                     let foreign = reconstruct_in(other, &params, &decommitment, &hidden, &IV)
                         .expect("well formed");
                     assert_ne!(foreign.commitment(), commitment.commitment());
-                    let plain = reconstruct(&params, &decommitment, &hidden, &IV)
-                        .expect("well formed");
+                    let plain =
+                        reconstruct(&params, &decommitment, &hidden, &IV).expect("well formed");
                     assert_eq!(
                         plain.commitment() == commitment.commitment(),
                         prefix.is_empty()

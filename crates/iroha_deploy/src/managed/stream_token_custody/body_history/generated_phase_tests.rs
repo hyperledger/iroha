@@ -424,107 +424,121 @@ fn native_generated_reread_discovery_closes_before_first_wallet_callback() {
     let _resources = crate::managed::native_test_guard();
     for point in [Point::BeforeFirstRead, Point::BeforeFinalRead] {
         for corrupt_at_close in [false, true] {
-            let (fixture, history) = shared_snapshot_tests::history_with_bodies(2);
-            let mut turn = fixture.renewal_turn();
-            let authorization = turn
-                .authorize_retained(&fixture.owner, &history, fixture.options.deadline)
-                .unwrap();
-            let (directory, original, scope) = history.dispatch().unwrap();
-            let deadline = fixture.options.deadline;
-            let Action::Enroll { validity, .. } = &original.action else {
-                unreachable!()
-            };
-            let body_expiry = validity.expires_at_unix_ms;
-            let (_, current) = fixture.current();
-            let observation = fixture
-                .owner
-                .fresh_predecessor_observation(original, &current, &current, deadline)
-                .unwrap();
-            let mut reservation = Some((
-                authorization.origin().unwrap(),
-                authorization.terms(deadline, Some(body_expiry)).unwrap(),
-                observation,
-            ));
-            let after_writer = Rc::new(RefCell::new(None));
-            let saved_writer = Rc::clone(&after_writer);
-            let changed = Rc::new(RefCell::new(None));
-            let saved = Rc::clone(&changed);
-            let oldest = Arc::clone(&history.bodies[0].directory);
-            let root = history.root.path().to_owned();
-            let closed = Rc::new(Cell::new(false));
-            let observed_closed = Rc::clone(&closed);
-            let hook: Hook = Box::new(move |at, head| {
-                if at == point {
-                    let (origin, terms, observation) =
-                        reservation.take().expect("writer runs once");
-                    head.test_generated_reserve_observed(origin, terms, observation)?;
-                    *saved_writer.borrow_mut() = Some(Evidence::capture(&root));
-                }
-                if at == Point::BeforeClose && corrupt_at_close {
-                    *saved.borrow_mut() = Some(ChangedRecord::replace(&oldest, "original.nrt"));
-                }
-                if at == Point::AfterClose {
-                    observed_closed.set(true);
-                }
-                Ok(())
-            });
-            let account = fixture.owner.wallet().unwrap();
-            let inspector = NativeClosureInspector::new(original, &account, deadline);
-            let callbacks = Cell::new(0);
-            let (result, points) = observe(Some(hook), || {
-                attempts::generated_native(
-                    directory,
-                    original.dispatch_purpose().unwrap(),
-                    original.digest().unwrap(),
-                    scope,
-                    authorization,
-                    deadline,
-                    Some(body_expiry),
-                    &inspector,
-                    |_| {
-                        assert!(
-                            closed.get(),
-                            "wallet callback entered before all source exits"
-                        );
-                        callbacks.set(callbacks.get() + 1);
-                        Err(invalid("wallet callback after generated prefix"))
-                    },
-                    |_| panic!("no retirement before discovered wallet inspection"),
-                    |_, _, _| panic!("no request publication before discovered wallet inspection"),
-                    |_, _| panic!("no prerequisite effect before discovered wallet inspection"),
-                    |_| panic!("no observation callback before discovered wallet inspection"),
-                )
-            });
-            let error = result
-                .err()
-                .expect("callback or persistent source refusal must escape");
-            assert_eq!(callbacks.get(), usize::from(!corrupt_at_close));
-            assert_eq!(closed.get(), !corrupt_at_close);
-            assert_eq!(points.contains(&Point::AfterClose), !corrupt_at_close);
-            assert_eq!(
-                error.to_string() == invalid("wallet callback after generated prefix").to_string(),
-                !corrupt_at_close
+            shared_snapshot_tests::history_with_bodies_in_final_turn(
+                2,
+                |fixture, history, authorization, current| {
+                    let (directory, original, scope) = history.dispatch().unwrap();
+                    let deadline = fixture.options.deadline;
+                    let Action::Enroll { validity, .. } = &original.action else {
+                        unreachable!()
+                    };
+                    let body_expiry = validity.expires_at_unix_ms;
+                    let observation = fixture
+                        .owner
+                        .fresh_predecessor_observation(original, current, current, deadline)
+                        .unwrap_or_else(|error| {
+                            panic!(
+                                "generated reread setup failed at {point:?}, corrupt_at_close={corrupt_at_close}: {error:?}; body_remaining_ms={}",
+                                body_expiry.saturating_sub(now_ms().unwrap()),
+                            )
+                        });
+                    let mut reservation = Some((
+                        authorization.origin().unwrap(),
+                        authorization.terms(deadline, Some(body_expiry)).unwrap(),
+                        observation,
+                    ));
+                    let after_writer = Rc::new(RefCell::new(None));
+                    let saved_writer = Rc::clone(&after_writer);
+                    let changed = Rc::new(RefCell::new(None));
+                    let saved = Rc::clone(&changed);
+                    let oldest = Arc::clone(&history.bodies[0].directory);
+                    let root = history.root.path().to_owned();
+                    let closed = Rc::new(Cell::new(false));
+                    let observed_closed = Rc::clone(&closed);
+                    let hook: Hook = Box::new(move |at, head| {
+                        if at == point {
+                            let (origin, terms, observation) =
+                                reservation.take().expect("writer runs once");
+                            head.test_generated_reserve_observed(origin, terms, observation)?;
+                            *saved_writer.borrow_mut() = Some(Evidence::capture(&root));
+                        }
+                        if at == Point::BeforeClose && corrupt_at_close {
+                            *saved.borrow_mut() =
+                                Some(ChangedRecord::replace(&oldest, "original.nrt"));
+                        }
+                        if at == Point::AfterClose {
+                            observed_closed.set(true);
+                        }
+                        Ok(())
+                    });
+                    let account = fixture.owner.wallet().unwrap();
+                    let inspector = NativeClosureInspector::new(original, &account, deadline);
+                    let callbacks = Cell::new(0);
+                    let (result, points) = observe(Some(hook), || {
+                        attempts::generated_native(
+                            directory,
+                            original.dispatch_purpose().unwrap(),
+                            original.digest().unwrap(),
+                            scope,
+                            authorization,
+                            deadline,
+                            Some(body_expiry),
+                            &inspector,
+                            |_| {
+                                assert!(
+                                    closed.get(),
+                                    "wallet callback entered before all source exits"
+                                );
+                                callbacks.set(callbacks.get() + 1);
+                                Err(invalid("wallet callback after generated prefix"))
+                            },
+                            |_| panic!("no retirement before discovered wallet inspection"),
+                            |_, _, _| {
+                                panic!("no request publication before discovered wallet inspection")
+                            },
+                            |_, _| {
+                                panic!("no prerequisite effect before discovered wallet inspection")
+                            },
+                            |_| {
+                                panic!(
+                                    "no observation callback before discovered wallet inspection"
+                                )
+                            },
+                        )
+                    });
+                    let error = result
+                        .err()
+                        .expect("callback or persistent source refusal must escape");
+                    assert_eq!(callbacks.get(), usize::from(!corrupt_at_close));
+                    assert_eq!(closed.get(), !corrupt_at_close);
+                    assert_eq!(points.contains(&Point::AfterClose), !corrupt_at_close);
+                    assert_eq!(
+                        error.to_string()
+                            == invalid("wallet callback after generated prefix").to_string(),
+                        !corrupt_at_close
+                    );
+                    drop(changed.borrow_mut().take());
+                    after_writer
+                        .borrow()
+                        .as_ref()
+                        .expect("canonical writer ran")
+                        .unchanged(history.root.path());
+                    let head = history
+                        .current_history()
+                        .unwrap()
+                        .test_owned_closure_history()
+                        .unwrap();
+                    assert_eq!(head.reserved_attempt_count(), 1);
+                    let attempt = head.last().unwrap();
+                    assert!(!attempt.directory().path().join("transaction").exists());
+                    assert!(attempt.observation().is_ok());
+                    // A subsequent existing-attempt call takes the literal Initial continuation.
+                    let (result, points, _, _) = run(head, authorization, &inspector, true, None);
+                    assert_eq!(result.unwrap().1, 0);
+                    assert!(points.is_empty());
+                    assert_eq!(fixture.native.chain.height(), 4);
+                },
             );
-            drop(changed.borrow_mut().take());
-            after_writer
-                .borrow()
-                .as_ref()
-                .expect("canonical writer ran")
-                .unchanged(history.root.path());
-            let head = history
-                .current_history()
-                .unwrap()
-                .test_owned_closure_history()
-                .unwrap();
-            assert_eq!(head.reserved_attempt_count(), 1);
-            let attempt = head.last().unwrap();
-            assert!(!attempt.directory().path().join("transaction").exists());
-            assert!(attempt.observation().is_ok());
-            // A subsequent existing-attempt call takes the literal Initial continuation.
-            let (result, points, _, _) = run(head, authorization, &inspector, true, None);
-            assert_eq!(result.unwrap().1, 0);
-            assert!(points.is_empty());
-            assert_eq!(fixture.native.chain.height(), 4);
         }
     }
 }

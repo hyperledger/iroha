@@ -65,8 +65,9 @@ fn send_destination_original(
     original: &[u8],
     request: &KagemushaWalletRequestV1,
 ) -> Result<Vec<u8>, Error> {
-    intake::account(original, &request.body.receiver_account_digest)
-        .map_err(|_| Error::Invalid("review destination account original"))?;
+    intake::account(original, &request.body.receiver_account_digest).map_err(|error| {
+        error.into_state_error(Error::Invalid("review destination account original"))
+    })?;
     Ok(original.to_vec())
 }
 
@@ -83,8 +84,9 @@ fn unload_beneficiary_original(
                 || KagemushaWalletChargeQuoteV1::decode_canonical(&charge.quote, scheme),
                 Error::Invalid("G1 validation"),
             )?;
-            intake::account(original, &quote.body.beneficiary_account_digest)
-                .map_err(|_| Error::Invalid("review Unload beneficiary original"))?;
+            intake::account(original, &quote.body.beneficiary_account_digest).map_err(|error| {
+                error.into_state_error(Error::Invalid("review Unload beneficiary original"))
+            })?;
             Ok(Some(original.to_vec()))
         }
         _ => Err(Error::Invalid("review Unload beneficiary presence")),

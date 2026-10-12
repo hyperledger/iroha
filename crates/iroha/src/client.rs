@@ -41,6 +41,9 @@ mod runtime_governance_client_auth;
 /// Public SCCP v1 read API.
 pub mod sccp;
 pub use nexus::Nexus;
+mod native_payment;
+mod payment_inbox;
+mod payment_return;
 pub mod status;
 #[cfg(test)]
 mod status_http_tests;
@@ -49,6 +52,15 @@ mod transaction_dispatch_error;
 mod transaction_wait;
 mod validator_committee;
 mod verified_payment;
+pub use native_payment::{
+    NativePaymentError, NativePaymentObservationError, NativePaymentOperation, NativePaymentRecovery,
+    NativePaymentRequest, NativePaymentRunOptions, NativePaymentSettlement,
+};
+pub use payment_return::{
+    NativePaymentFullReturnRequest, NativePaymentReturnLink, NativePaymentReturnOperation,
+    NativePaymentReturnRecovery, NativePaymentReturnSettlement, VerifiedPaymentReturn,
+};
+pub use payment_inbox::{PaymentCreditEntry, PaymentCreditStatus, PaymentInbox, PaymentInboxError};
 pub use transaction_wait::TransactionFinalityFailure;
 pub use verified_payment::{PaymentReceiptVerificationError, VerifiedPaymentReceipt};
 #[cfg(test)]

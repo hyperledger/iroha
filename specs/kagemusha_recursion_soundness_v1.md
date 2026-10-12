@@ -211,34 +211,70 @@ R-last quotient-group mask. The test-only strict-catalog checker can establish
 these algebraic conditions for the current Omega and all public sigma keys;
 historical artifacts and sampled proof tests do not establish that current join.
 
-The proposed composition first simulates Omega on its genuine public tuple,
-then replaces the hidden final P/V folds under the same total simulator and
-shared oracle, and finally simulates the public sigma proofs after their
-private consumers have been erased. This order does not require an Omega
-witness for an intermediate sampled pair. Remaining obligations are an explicit
-coherent reached-source/recursive game and elimination of retained private source
-state from the final public-only simulator. A fresh sigma replacement must occur
-before its proof digest, capsule, receipt signature and Payment are published;
-the same causal suffix must recompute them and any later credit root. An existing
-signed receipt cannot be retained around a newly simulated proof, and a later
-genuine root cannot silently be fixed while replacing its ancestor Payment.
-Under auxiliary-input local ZK, a hybrid reduction can retain the original
-private prepared state and key and run the actual signing/storage suffix on
-either proof, including every refusal and retry. This needs no new signing grant
-or pointwise branch-equality premise, but does not supply that private state to
-the final public simulator. The [local auxiliary-input lemma](kagemusha_local_zk_v1.md)
-is now derived for admitted M(K) keys with ideal fresh scalar masks and the
-normalized shared transcript oracle, including the residual query service and
-joint final c/f law. Its concrete OS, hedging and ChaCha conversion costs remain
-explicit; they are not proved negligible by collision resistance or the selected
-recursive-FS assumption. Recursive shared-oracle valid-cut composition and the
-final public-only proof simulator remain unproved. The original private
-admission, signing and storage checks may remain in a common experiment wrapper
-outside that simulator; terminal proof privacy does not require those predicates
-to become publicly decidable. The actual recursive source must still be shown
-to refine that same wrapper after consumer erasure. Fresh-fold query/collision bounds
-apply to all bounded attempts without conditioning on successful release;
-exact selected replay reuses its original output and oracle answers.
+The proposed order erases Omega, then the hidden final P/V folds it consumes, then
+public sigma proofs. A finite reverse-dependency hybrid can replace each fresh
+proof before its digest, receipt signature and Payment are published, then rerun
+the adaptive causal suffix, including later credit roots, refusals and restarts.
+Exact selected replay reuses the original bytes and oracle answers. This ordering
+requires no witness for an intermediate sampled Omega tuple, but only applies
+once its initial source and each remaining genuine proof cut are valid.
+
+A coherent local endpoint experiment is available: the private source may
+prepare a genuine witness and P/V using fixed Poseidon F, while only the new
+outer Omega proof uses the shared transcript oracle H. The local lemma compares
+that real Omega with its public-instance simulator for the same P/V and residual
+oracle service. It does not require all private ancestors to use H. This local
+cut is established in the independently agreeing source reviews
+`c12-endpoint-outer-first-quotient-review-1` and
+`c12-endpoint-only-rom-boundary-1` under `target/qualification`.
+
+Erasing Omega leaves the exported P/V and any original public sigma proofs with
+their F-derived joint law. The fresh-H fold lemma does not compare that law with
+its own independent challenge tapes. The full argument still needs that
+surviving-carrier comparison under the common query interface, or an alternative
+coherent source and valid-cut comparison chain. A replacement witness for the
+simulated Omega is unnecessary. Existing transcript domains separate encoded
+addresses; they neither justify changing the surviving law nor give the same
+address different answers when a public proof becomes a private input or replay.
+
+Substituting H in native producers while retaining their genuine fixed-F
+consumers does not supply that alternative construction: the no-incoming Load
+and Send Q branches bind the native own-claim challenges to round cells computed
+by fixed Pow5 constraints. Generating fixed-Pow5 proofs and forcing H to their
+answers instead changes the fresh-oracle law; Send later publishes the queried
+proof prefix. These failures rule out those adapters, not the valid local
+endpoint experiment, a different composition proof or the production design.
+
+The [local auxiliary-input lemma](kagemusha_local_zk_v1.md) is derived for admitted
+M(K) keys with ideal fresh scalar masks and the normalized shared oracle,
+including the residual query service and joint final c/f law. A hybrid may retain
+private prepared state and run the actual signing/storage suffix on either
+proof. The final public-only proof simulator must eliminate that private proof
+state; original private admission, signing and storage checks may remain in a
+common experiment wrapper. It must preserve the experiment's observable typed
+outcomes, durable publication order and exact replay without conditioning on
+success. This logical terminal-proof claim adds no timing-obliviousness claim
+or independence assumption for actual mid-call cancellation.
+
+Existing primary results do not yet supply the remaining joint-law or
+source-composition bridge.
+[Arithmetized-random-oracle PCD](https://eprint.iacr.org/2023/587) adds oracle
+interfaces and query accumulation absent from these fixed constraints;
+[Plonk Without Random Oracles](https://eprint.iacr.org/2026/200) uses a
+hash/commitment zero-testing condition whose reduction to this PIPA/IPA protocol
+has not been established. Neither extension is adopted here. The accepted
+recursive Fiat–Shamir knowledge/accumulation heuristic supplies no privacy premise.
+
+C12 closes only with the surviving-carrier comparison or alternative coherent
+source/valid-cut argument above and a total final public simulator, actual
+current-key M(K) reports, and justified concrete OS/hedging/ChaCha conversion
+bounds. If a chosen construction needs changed recursive transcript constraints
+or an oracle-aware verification relation, those changes must be implemented,
+re-keyed and proved; renaming the existing Pow5 gates is insufficient. No such
+change is established by the current local lemma. Fresh-fold bounds apply to
+all bounded attempts without conditioning on success. No unconditional
+fixed-hash indistinguishability theorem or executable fixed-hash simulator is
+required.
 
 For terminal proof privacy with public18 and public sigma statements fixed,
 the head and map roots are public inputs, so no head-hash hiding premise is

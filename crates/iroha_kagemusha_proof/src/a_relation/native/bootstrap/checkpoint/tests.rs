@@ -203,3 +203,93 @@ fn terminal_data_carrier_binds_exact_source_key_salt_and_original_length() {
         assert!(other_payload.check(&layout, context).is_err());
     }
 }
+
+#[test]
+fn checkpoint_read_refusal_preserves_original_and_exact_retry() {
+    for kind in [CheckpointKind::First, CheckpointKind::Wrapper] {
+        let (layout, payload, context) = data(kind);
+        let bytes = payload.encode(&layout, context).unwrap();
+        for limits in [
+            norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+        ] {
+            let error = norito::with_decode_limits_scope(limits, || {
+                Payload::decode(&bytes, &layout, context)
+            })
+            .err()
+            .expect("actual enclosing decoder refusal");
+            let Error::DecodeResource(ref original) = error else {
+                panic!("lost original checkpoint refusal: {error:?}")
+            };
+            assert_eq!(
+                original.kind(),
+                norito::core::DecodeLocalRefusalKind::EnclosingLimit
+            );
+            assert_eq!(error.clone(), error);
+            assert!(!error.is_cancelled());
+            assert!(std::error::Error::source(&error).is_some());
+            assert_eq!(
+                Payload::decode(&bytes, &layout, context)
+                    .unwrap()
+                    .encode(&layout, context)
+                    .unwrap(),
+                bytes
+            );
+            assert!(matches!(
+                norito::with_decode_limits_scope(limits, || {
+                    Payload::decode(&bytes[..bytes.len() - 1], &layout, context)
+                }),
+                Err(Error::Input)
+            ));
+        }
+    }
+}
+
+#[test]
+fn terminal_checkpoint_read_refusal_preserves_original_and_exact_retry() {
+    // Grammar-only data, never an admitted terminal or proof.
+    let layout = CheckpointLayout::new(CheckpointKind::Terminal, [1; 32], [2; 32], 64).unwrap();
+    let context = [3; 32];
+    let payload = TerminalPayload {
+        version: 1,
+        descriptor_digest: [1; 32],
+        verifying_key_digest: [2; 32],
+        source_context: context,
+        fold_salt: super::super::Fp::from(7).to_repr(),
+        proof: vec![4; 64],
+    };
+    let bytes = payload.encode(&layout, context).unwrap();
+    for limits in [
+        norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+    ] {
+        let error = norito::with_decode_limits_scope(limits, || {
+            TerminalPayload::decode(&bytes, &layout, context)
+        })
+        .err()
+        .expect("actual enclosing decoder refusal");
+        let Error::DecodeResource(ref original) = error else {
+            panic!("lost original terminal checkpoint refusal: {error:?}")
+        };
+        assert_eq!(
+            original.kind(),
+            norito::core::DecodeLocalRefusalKind::EnclosingLimit
+        );
+        assert_eq!(error.clone(), error);
+        assert!(!error.is_cancelled());
+        assert!(std::error::Error::source(&error).is_some());
+        assert_eq!(
+            TerminalPayload::decode(&bytes, &layout, context)
+                .unwrap()
+                .encode(&layout, context)
+                .unwrap(),
+            bytes
+        );
+        assert!(matches!(
+            norito::with_decode_limits_scope(limits, || {
+                TerminalPayload::decode(&bytes[..bytes.len() - 1], &layout, context)
+            }),
+            Err(Error::Input)
+        ));
+    }
+}

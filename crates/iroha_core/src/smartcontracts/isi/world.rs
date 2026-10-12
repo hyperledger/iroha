@@ -18036,8 +18036,9 @@ pub mod isi {
                         ));
                     }
                 }
-                // Sumeragi chain parameters take effect at `h + 2` through the consensus
-                // schedule; the demotion window is a genesis constant (`specs/sumeragi.md` §10.1).
+                // Scheduled chain parameters take effect at `h + 2`; clock drift belongs
+                // to the application State read from the committed parent (`h + 1`).
+                // The demotion window is a genesis constant (`specs/sumeragi.md` §10.1).
                 crate::sumeragi::schedule::validate_parameter_change(
                     state_transaction.world.parameters.get().sumeragi(),
                     change,
@@ -28242,7 +28243,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             let counterparty = AccountId::new(checked_keypair().public_key().clone());
             Register::account(new_account_in_domain(&counterparty))
                 .expect_execute(&ALICE_ID, &mut stx, "register settlement counterparty");
-            let settlement_id = "domain_receipt_guard".parse().expect("settlement id");
+            let settlement_id = iroha_data_model::isi::SettlementId::new(ALICE_ID.clone(), "domain_receipt_guard".parse().expect("settlement reference"));
             stx.world.settlement_receipts.insert(
                 settlement_id,
                 iroha_data_model::isi::SettlementReceipt {
@@ -28754,7 +28755,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             );
             stx.world.insert_repo_agreement_entry(agreement);
             let settlement_id: iroha_data_model::isi::SettlementId =
-                "settleguard".parse().expect("settlement id");
+                iroha_data_model::isi::SettlementId::new(account_id.clone(), "settleguard".parse().expect("settlement reference"));
             let receipt = iroha_data_model::isi::SettlementReceipt {
                 authority: account_id.clone(),
                 metadata: Metadata::default(),
@@ -32108,6 +32109,35 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 .expect_execute(&ALICE_ID, &mut stx, "max clock drift is the mutable first-release Sumeragi parameter");
             let params = stx.world.parameters.get().sumeragi().clone();
             assert_eq!(params.max_clock_drift_ms(), 333);
+        });
+        world_test!(set_parameter_clock_drift_bound_rejects_excess_without_changing_state {
+            use iroha_data_model::parameter::system::MAX_CLOCK_DRIFT_BOUND_MS;
+            for height in [1, 2] {
+                let state = blank_state();
+                let block = new_dummy_block_at_height(NonZeroU64::new(height).unwrap());
+                let mut state_block = state.block(block.as_ref().header());
+                let mut stx = state_block.transaction();
+                SetParameter(Parameter::Sumeragi(SumeragiParameter::MaxClockDriftMs(
+                    MAX_CLOCK_DRIFT_BOUND_MS,
+                )))
+                    .expect_execute(&ALICE_ID, &mut stx, "exact CT4 bound");
+                for value in [MAX_CLOCK_DRIFT_BOUND_MS + 1, u64::MAX] {
+                    SetParameter(Parameter::Sumeragi(SumeragiParameter::MaxClockDriftMs(value)))
+                        .execute(&ALICE_ID, &mut stx)
+                        .expect_err("excess clock drift must fail before parameter mutation");
+                    assert_eq!(
+                        stx.world.parameters.get().sumeragi().max_clock_drift_ms(),
+                        MAX_CLOCK_DRIFT_BOUND_MS,
+                    );
+                }
+                // A speculative update does not replace the committed parent parameter.
+                drop(stx);
+                drop(state_block);
+                assert_eq!(
+                    state.view().world().parameters().sumeragi().max_clock_drift_ms(),
+                    iroha_data_model::parameter::system::defaults::sumeragi::max_clock_drift_ms(),
+                );
+            }
         });
         world_test!(set_parameter_validates_sumeragi_chain_parameters_and_genesis_constants {
             // Genesis (height 1) accepts the demotion window and defers the §9.4 combination

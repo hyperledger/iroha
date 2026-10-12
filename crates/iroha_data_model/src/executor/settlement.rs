@@ -23,6 +23,7 @@ use crate::{block::BlockHeader, isi::SettlementId};
     norito::NoritoSchema,
 )]
 #[norito_schema(name = "iroha_data_model::executor::settlement::SettlementReplayDispositionV1")]
+#[norito(tag = "kind", content = "value")]
 pub enum SettlementReplayDispositionV1 {
     /// The complete signed payment intent already succeeded.
     AlreadySettled,

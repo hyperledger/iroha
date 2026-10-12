@@ -81,7 +81,7 @@ fn signed_hash(identity: &TransactionIdentityV1) -> HashOf<SignedTransaction> {
     HashOf::from_untyped_unchecked(Hash::prehashed(identity.signed_transaction_hash))
 }
 
-fn decode_signed(signed_transaction: &[u8]) -> Result<SignedTransaction, StepFailure> {
+pub(super) fn decode_signed(signed_transaction: &[u8]) -> Result<SignedTransaction, StepFailure> {
     let non_canonical = || {
         StepFailure::new(
             WorkflowErrorCode::NonCanonicalEncoding,
@@ -103,7 +103,7 @@ fn decode_signed(signed_transaction: &[u8]) -> Result<SignedTransaction, StepFai
     Ok(transaction)
 }
 
-fn decode_unsigned(unsigned_payload: &[u8]) -> Result<TransactionPayload, StepFailure> {
+pub(super) fn decode_unsigned(unsigned_payload: &[u8]) -> Result<TransactionPayload, StepFailure> {
     norito::core::classify_decode_attempt(|| norito::decode_canonical(unsigned_payload)).map_err(
         |error| match error.kind() {
             norito::core::DecodeAttemptErrorKind::Allocator

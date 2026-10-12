@@ -5757,6 +5757,11 @@ fn canonical_error_response(
             details.query_asset_not_found = None;
         }
         if parts.status != StatusCode::NOT_FOUND
+            || envelope.code != "query_settlement_receipt_not_found"
+        {
+            details.query_settlement_receipt_not_found = None;
+        }
+        if parts.status != StatusCode::NOT_FOUND
             || envelope.code != iroha_torii_shared::PIPELINE_TRANSACTION_STATUS_NOT_FOUND_CODE
         {
             details.pipeline_transaction_status_not_found = None;
@@ -27821,24 +27826,40 @@ async fn handler_iso_lifecycle_submit(
         .map_err(|err| Error::Query(map_iso_error(err)))?;
     let msg_id = Iso20022BridgeRuntime::lifecycle_message_id(message_type, &parsed)
         .map_err(|err| Error::Query(map_iso_error(err)))?;
+    let settlement_transaction_hash = lifecycle_authorization
+        .settlement_transaction_hash(message_type, &parsed)
+        .map_err(|err| Error::Query(map_iso_error(err)))?;
+    let applied_transaction_hash = match settlement_transaction_hash {
+        Some(transaction_hash) => {
+            let hash = parse_signed_transaction_hash(transaction_hash).map_err(|_| {
+                pipeline_status_projection_error(format!(
+                    "ISO bridge retained a non-canonical signed transaction hash: {transaction_hash}"
+                ))
+            })?;
+            match reconcile_pending_pipeline_transaction(&app, &hash)? {
+                Some(CanonicalTransactionOutcome::Applied { .. }) => Some(transaction_hash),
+                Some(CanonicalTransactionOutcome::Rejected { .. }) => None,
+                None => {
+                    return Err(Error::AppServiceUnavailable {
+                        code: "iso_settlement_outcome_pending",
+                        message: "ISO settlement requires a canonical execution outcome; retry after finality"
+                            .to_owned(),
+                    });
+                }
+            }
+        }
+        None => None,
+    };
+    // A failed authenticated carrier read must leave this lifecycle identity retryable.
     runtime
         .admit_authenticated_inbound(&msg_id, metadata, lifecycle_authorization.parties().clone())
         .map_err(map_iso_admission_error)?;
-    let committed_transaction_hash = lifecycle_authorization
-        .settlement_transaction_hash(message_type, &parsed)
-        .map_err(|err| Error::Query(map_iso_error(err)))?
-        .filter(|hash| {
-            hash.parse::<HashOf<SignedTransaction>>()
-                .ok()
-                .is_some_and(|hash| app.state.has_committed_entrypoint(entrypoint_hash(hash)))
-        })
-        .map(ToOwned::to_owned);
     let (outcome, status_snapshot) = match runtime.apply_inbound_lifecycle_message_with_evidence(
         &msg_id,
         message_type,
         &parsed,
         &lifecycle_authorization,
-        committed_transaction_hash.as_deref(),
+        applied_transaction_hash,
     ) {
         Ok(result) => result,
         Err(error) => return Err(map_iso_lifecycle_apply_error(&runtime, &msg_id, error)),
@@ -43468,6 +43489,22 @@ fn public_validation_fail_envelope(
     if status == StatusCode::NOT_FOUND
         && let iroha_data_model::ValidationFail::QueryFailed(
             iroha_data_model::query::error::QueryExecutionFail::Find(
+                iroha_data_model::query::error::FindError::SettlementReceipt(settlement_id),
+            ),
+        ) = fail
+    {
+        return ErrorEnvelope::new(
+            "query_settlement_receipt_not_found",
+            validation_fail_message(fail),
+        )
+        .with_details(ErrorDetails {
+            query_settlement_receipt_not_found: Some(settlement_id.clone()),
+            ..Default::default()
+        });
+    }
+    if status == StatusCode::NOT_FOUND
+        && let iroha_data_model::ValidationFail::QueryFailed(
+            iroha_data_model::query::error::QueryExecutionFail::Find(
                 iroha_data_model::query::error::FindError::Asset(asset_id),
             ),
         ) = fail
@@ -43979,6 +44016,7 @@ impl Error {
             }
             IvmFault(_) => StatusCode::UNPROCESSABLE_ENTITY,
             AxtReject(_) => StatusCode::BAD_REQUEST,
+            SettlementReplay(_) => StatusCode::CONFLICT,
             QueryFailed(query_error)
             | InstructionFailed(InstructionExecutionError::Query(query_error)) => match query_error
             {

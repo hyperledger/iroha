@@ -65,13 +65,20 @@ fn authenticated_state(row_bytes: u64) -> State {
 }
 
 fn authenticate_output_state(component: State) -> State {
-    authenticate_output_state_with_pipeline_policy(component, None)
+    let policy = component
+        .world
+        .parameters
+        .view()
+        .get()
+        .pipeline_policy()
+        .clone();
+    authenticate_output_state_with_policy(component, policy)
 }
 
-/// Install optional validity limits in the original signed genesis, never as node overrides.
-fn authenticate_output_state_with_pipeline_policy(
+/// Install exact validity limits in the original signed genesis, never as node overrides.
+fn authenticate_output_state_with_policy(
     component: State,
-    policy: Option<crate::pipeline_validity_policy::PipelineValidityPolicyV1>,
+    policy: crate::pipeline_validity_policy::PipelineValidityPolicyV1,
 ) -> State {
     use crate::sumeragi::{startup, test_chain::CertifiedTestChain};
     let config = output_fixture_config(component, policy);
@@ -95,7 +102,7 @@ fn authenticate_output_state_with_pipeline_policy(
 /// Preserve the same original signed configuration for one-shot and multi-height fixtures.
 fn output_fixture_config(
     component: State,
-    policy: Option<crate::pipeline_validity_policy::PipelineValidityPolicyV1>,
+    policy: crate::pipeline_validity_policy::PipelineValidityPolicyV1,
 ) -> crate::sumeragi::test_chain::TestChainConfig {
     use crate::sumeragi::test_chain::TestChainConfig;
     let nexus = component.nexus_snapshot();
@@ -112,12 +119,10 @@ fn output_fixture_config(
             block_parameters.max_time_trigger_invocations(),
         )),
     ]);
-    if let Some(policy) = policy {
-        policy.validate().expect("valid fixture pipeline policy");
-        config
-            .genesis_parameters
-            .push(Parameter::Custom(policy.into_custom_parameter()));
-    }
+    policy.validate().expect("valid fixture pipeline policy");
+    config
+        .genesis_parameters
+        .push(Parameter::Custom(policy.into_custom_parameter()));
     config.chain_id = component.chain_id;
     config.pipeline = component.pipeline;
     config.governance = Some(component.gov);

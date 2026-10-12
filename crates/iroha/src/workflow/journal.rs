@@ -431,6 +431,13 @@ impl WorkflowPlanV1 {
         }
         // A plan that could outgrow the record is refused here, before any journal exists
         // and before any irreversible step runs.
+        if self.kind == WorkflowKindV1::NativePayment
+            && (self.steps.len() != 1 || self.steps[0].kind != StepKindV1::Transaction)
+        {
+            return Err(invalid(
+                "native payment requires exactly one transaction step".into(),
+            ));
+        }
         let bound = self.journal_bytes_bound();
         if bound > MAX_WORKFLOW_JOURNAL_BYTES_V1 {
             return Err(WorkflowError::limit(
@@ -1427,6 +1434,23 @@ impl StepRecordV1 {
     }
 }
 
+/// Bounded locator of an independently verified native payment business outcome.
+///
+/// This is untrusted after decoding: online recovery must re-fetch the original
+/// certified block and repeat exact intent, fee and finality verification. It is
+/// never a constructor for an opaque verified receipt, nor the current carrier status.
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, norito::NoritoSchema)]
+#[norito_schema(name = "iroha::workflow::NativePaymentCompletionV1")]
+pub(crate) struct NativePaymentCompletionV1 {
+    pub network: Digest32,
+    pub request_digest: Digest32,
+    pub transaction_hash: Digest32,
+    pub block_height: u64,
+    pub block_hash: Digest32,
+    pub context_id: Digest32,
+    pub receipt_digest: Digest32,
+}
+
 /// The durable journal of one workflow.
 #[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha::workflow::WorkflowJournalV1")]
@@ -1453,6 +1477,8 @@ pub struct WorkflowJournalV1 {
     pub updated_at_ms: u64,
     /// Steps in plan order.
     pub steps: Vec<StepRecordV1>,
+    /// Independently verified business completion; decoded metadata requires re-verification.
+    pub(crate) native_payment_completion: Option<NativePaymentCompletionV1>,
 }
 
 /// The stored record: the journal and the digest of its canonical encoding.
@@ -1498,6 +1524,7 @@ impl WorkflowJournalV1 {
             created_at_ms: now_ms,
             updated_at_ms: now_ms,
             steps: plan.steps.iter().cloned().map(StepRecordV1::new).collect(),
+            native_payment_completion: None,
         })
     }
 
@@ -1689,6 +1716,23 @@ impl WorkflowJournalV1 {
             return Err(invalid(
                 "workflow identifier does not match its identity".to_owned(),
             ));
+        }
+        if let Some(completion) = &self.native_payment_completion {
+            if self.identity.kind != WorkflowKindV1::NativePayment
+                || completion.block_height < 2
+                || completion.request_digest != self.identity.request_context_digest
+                || self
+                    .identity
+                    .network
+                    .parse::<iroha_data_model::NetworkId>()
+                    .ok()
+                    .map(|network| *network.as_bytes())
+                    != Some(completion.network)
+            {
+                return Err(invalid(
+                    "native payment completion differs from its workflow binding".into(),
+                ));
+            }
         }
         let current = self.current_step();
         for (index, step) in self.steps.iter().enumerate() {

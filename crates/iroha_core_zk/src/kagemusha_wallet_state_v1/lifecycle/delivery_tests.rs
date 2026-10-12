@@ -194,12 +194,12 @@ fn delivery_read_refusal_preserves_collected_send_and_exact_retry_without_signin
             wallet.credited_status_for_send(&send, &credited)
         });
         assert!(matches!(status, Err(Error::DecodeResource(ref cause))
-            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
         let retry = norito::with_decode_limits_scope(limits, || {
             wallet.accept_credited_for_send(&send, &credited)
         });
         assert!(matches!(retry, Err(Error::DecodeResource(ref cause))
-            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
         assert_eq!(wallet.manifest().unwrap().0, root);
         assert_eq!(
             wallet.credited_status_for_send(&send, &credited).unwrap(),

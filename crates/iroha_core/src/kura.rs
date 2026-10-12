@@ -5779,15 +5779,6 @@ impl Kura {
             commit_marker: required(COUNT_FILE_NAME)?,
         })
     }
-    fn canonical_block_store_metadata_unchanged(
-        left: &StableCanonicalBlockStoreMetadata,
-        right: &StableCanonicalBlockStoreMetadata,
-    ) -> bool {
-        Self::stable_sidecar_metadata_unchanged(&left.data, &right.data)
-            && Self::stable_sidecar_metadata_unchanged(&left.index, &right.index)
-            && Self::stable_sidecar_metadata_unchanged(&left.hashes, &right.hashes)
-            && Self::stable_sidecar_metadata_unchanged(&left.commit_marker, &right.commit_marker)
-    }
     #[cfg(test)]
     pub(crate) fn canonical_body_bytes_read_for_test(&self) -> u64 {
         self.block_store

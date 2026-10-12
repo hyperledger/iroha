@@ -1164,3 +1164,105 @@ def test_main_private_backend_scope_is_complete_and_disjoint_before_output(tmp_p
         assert not output.exists()
     assert MODULE.main(base + scoped) == 0
     assert "listen 192.168.64.3:18083;" in output.read_text(encoding="utf-8")
+
+
+def test_bootstrap_routes_expose_only_explicit_public_export_pair() -> None:
+    validators = MODULE.load_edge_validators(EXAMPLE_ROSTER_PATH)
+    directory = "/srv/iroha-taira/public-bootstrap/release-1197"
+    rendered = MODULE.render_edge_nginx_conf(
+        validators, bootstrap_publication_dir=directory,
+    )
+    public_server = rendered.split("server_name taira.sora.org;", 1)[1].split(
+        "\n}\n", 1
+    )[0]
+    assert "location = /bootstrap { return 404; }" in public_server
+    assert "location ^~ /bootstrap/ { return 404; }" in public_server
+    assert rendered.count("location = /bootstrap/checkpoint.nrt {") == 1
+    assert rendered.count("location = /bootstrap/network-profiles.nrt {") == 1
+    assert rendered.count(directory) == 2
+    for name in ("checkpoint.nrt", "network-profiles.nrt"):
+        block = _location_block(public_server, f"location = /bootstrap/{name} {{")
+        assert f"alias {directory}/{name};" in block
+        assert "disable_symlinks on;" in block
+        assert "autoindex off;" in block
+        assert "types { }" in block
+        assert "default_type application/octet-stream;" in block
+        assert "open_file_cache off;" in block
+        assert "etag off;" in block
+        assert "if_modified_since off;" in block
+        assert 'add_header Cache-Control "no-store" always;' in block
+        # Nginx's GET exception includes HEAD. Other content requests are denied.
+        assert "limit_except GET { deny all; }" in block
+        assert "proxy_pass" not in block
+        assert "root " not in block
+        assert "$" not in next(line for line in block.splitlines() if "alias " in line)
+        # Location-level Cache-Control must not remove the server's CORS response policy.
+        assert "add_header Access-Control-Allow-Origin $taira_public_torii_cors_origin always;" in block
+        assert 'add_header Vary "Origin" always;' in block
+        server_headers = [line.strip() for line in public_server.split("  location ", 1)[0].splitlines()
+                          if line.strip().startswith("add_header ")]
+        for header in server_headers:
+            assert header in block
+    # Public Torii is still routed normally outside the reserved bootstrap prefix.
+    fallback = _location_block(public_server, "location ^~ / {")
+    assert "proxy_pass http://taira_public_edge_upstream;" in fallback
+    assert "alias " not in fallback and "root " not in fallback
+
+
+def test_bootstrap_without_explicit_public_directory_has_no_file_mapping() -> None:
+    lines = MODULE._render_bootstrap_locations(None)
+    assert lines == [
+        "  # Bootstrap is an explicit public pair, separate from private preparation inputs.",
+        "  location = /bootstrap { return 404; }",
+        "  location ^~ /bootstrap/ { return 404; }",
+        "",
+    ]
+    rendered = MODULE.render_edge_nginx_conf(MODULE.load_edge_validators(EXAMPLE_ROSTER_PATH))
+    assert "location = /bootstrap { return 404; }" in rendered
+    assert "location ^~ /bootstrap/ { return 404; }" in rendered
+    assert re.search(r"^\s*alias\s", rendered, re.MULTILINE) is None
+
+
+def test_bootstrap_directory_rejects_noncanonical_paths_and_nginx_injection() -> None:
+    for directory in (
+        "", "/", "relative/path", "//srv/bootstrap", "/srv//bootstrap",
+        "/srv/bootstrap/", "/srv/./bootstrap", "/srv/../bootstrap",
+        "/srv/bootstrap\n", "/srv/boot strap", "/srv/bootstrap;autoindex on",
+        '/srv/"bootstrap"', "/srv/'bootstrap'", "/srv/$host", "/srv/\\bootstrap",
+        "/srv/bootstrap#ignored", "/srv/{bootstrap}", "/srv/é",
+    ):
+        try:
+            MODULE._render_bootstrap_locations(directory)
+        except ValueError as error:
+            assert "canonical absolute nginx file path" in str(error)
+        else:
+            raise AssertionError(f"accepted an unsafe public directory {directory!r}")
+
+
+def test_main_threads_public_bootstrap_directory_and_refuses_scoped_listeners(tmp_path: Path) -> None:
+    roster = tmp_path / "roster.toml"
+    output = tmp_path / "edge.conf"
+    _write_roster(roster)
+    arguments = ["--roster", str(roster), "--output", str(output),
+                 "--bootstrap-publication-dir", "/srv/iroha-taira/public-bootstrap/release-1197"]
+    assert MODULE.main(arguments) == 0
+    original = output.read_bytes()
+    assert b"alias /srv/iroha-taira/public-bootstrap/release-1197/checkpoint.nrt;" in original
+    for scope in (
+        "--validator-listeners-only", "--validator-verification-listeners-only",
+        "--private-backend-listeners-only",
+    ):
+        try:
+            MODULE.main([*arguments, scope])
+        except SystemExit as error:
+            assert error.code == 2
+        else:
+            raise AssertionError(f"accepted bootstrap publication for {scope}")
+        assert output.read_bytes() == original
+    try:
+        MODULE.main([*arguments[:-1], "/srv/public;$host"])
+    except SystemExit as error:
+        assert error.code == 2
+    else:
+        raise AssertionError("CLI accepted an unsafe public directory")
+    assert output.read_bytes() == original

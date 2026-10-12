@@ -89,10 +89,9 @@ impl PreparationV1<'_> {
     ) -> Result<ArchiveStepV1, Error> {
         let scheme = self.installed.verifier().scheme();
         let request: KagemushaWalletRequestV1 = decode(&intent.request)?;
-        let payment = authority(KagemushaWalletPaymentV1::decode_canonical(
-            &intent.payment,
-            &scheme.scheme_id(),
-        ))?;
+        let payment = read_model(|| {
+            KagemushaWalletPaymentV1::decode_canonical(&intent.payment, &scheme.scheme_id())
+        })?;
         let credited: KagemushaWalletCreditedV1 = decode(&intent.credited)?;
         authority(credited.verify_for(scheme, &request, &payment))?;
         match &credited.evidence {

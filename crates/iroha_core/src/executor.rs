@@ -96,6 +96,8 @@ use std::{
 #[path = "executor_execution_fee.rs"]
 mod execution_fee;
 mod fee_sponsor_multisig;
+mod settlement_replay;
+pub(crate) use settlement_replay::reject_committed_direct_payment;
 pub(crate) mod private_fees;
 /// Authenticated root scope for native and contract-generated instruction effects.
 pub(crate) mod root_scope;
@@ -267,6 +269,9 @@ fn native_singular_query_access(query: &SingularQueryBox) -> NativeQueryAccess {
         SingularQueryBox::FindFeeSponsorProgramById(query) => {
             NativeQueryAccess::Account(query.id().sponsor.clone())
         }
+        SingularQueryBox::FindSettlementReceiptById(query) => {
+            NativeQueryAccess::Account(query.id.owner().clone())
+        }
         // Runtime/control-plane definitions and explicitly routed subsystem state do not expose
         // the general account roster, balances, or transaction history. Alias reads still pass
         // through their separate exact-scope gate below, and protected SoraFS records pass
@@ -364,7 +369,6 @@ fn native_singular_query_access(query: &SingularQueryBox) -> NativeQueryAccess {
         | SingularQueryBox::FindDaPinIntentByLaneEpochSequence(_)
         | SingularQueryBox::FindFxCorridorPolicyRegistry(_)
         | SingularQueryBox::FindFxCorridorPolicyById(_)
-        | SingularQueryBox::FindSettlementReceiptById(_)
         | SingularQueryBox::FindSorafsCitizenBondBySerialCommitment(_)
         | SingularQueryBox::FindSorafsCitizenBondSnapshot(_)
         | SingularQueryBox::FindNftById(_)
@@ -7091,6 +7095,8 @@ impl Executor {
                 "signed authority mismatch".into(),
             ));
         }
+        reject_committed_direct_payment(state_transaction, &transaction)
+            .map_err(|error| state_transaction.attempt_error_to_validation_fail(error))?;
         trace!("Running transaction execution");
         let privacy_intent_binding =
             crate::privacy::signed_privacy_transaction_intent_binding_v1(&transaction)?;
@@ -8944,6 +8950,7 @@ fn map_migration_fail_to_vm_error(fail: ValidationFail) -> VMError {
             VMError::DecodeError
         }
         ValidationFail::IvmFault(_) => VMError::DecodeError,
+        ValidationFail::SettlementReplay(_) => VMError::PermissionDenied,
         ValidationFail::ContractRejected(rejection) => {
             debug!(
                 ?rejection,
@@ -10638,22 +10645,29 @@ mod tests {
         AccountId::new(checked_keypair().public_key().clone())
     }
     #[test]
-    fn native_settlement_receipt_query_requires_all_ledger_access() {
+    fn native_settlement_receipt_query_uses_exact_payer_read_access() {
+        let fixture = initial_batch_fixture();
         let query = SingularQueryBox::from(
             iroha_data_model::query::settlement::FindSettlementReceiptById::new(
-                "business_receipt".parse().expect("settlement id"),
+                iroha_data_model::isi::SettlementId::new(
+                    fixture.source.clone(),
+                    "business_receipt".parse().expect("settlement reference"),
+                ),
             ),
         );
         assert_eq!(
             native_singular_query_access(&query),
-            NativeQueryAccess::AllLedger
+            NativeQueryAccess::Account(fixture.source.clone())
         );
-        let fixture = initial_batch_fixture();
-        let authority = fixture.source.clone();
+        let payer = fixture.source.clone();
+        let authority = fixture.delegate.clone();
+        let foreign_payer = fixture.foreign_source.clone();
         let state = state_for_testing(fixture.world);
         let mut block = state.block(BlockHeader::new(nonzero!(2_u64), None, None, 0, 0));
         let mut tx = block.transaction();
         let request = QueryRequest::Singular(query);
+        validate_builtin_native_query_permission(tx.world(), &payer, &request, 0)
+            .expect("payer can read its own receipt without a ledger-wide grant");
         assert!(
             validate_builtin_native_query_permission(tx.world(), &authority, &request, 0).is_err()
         );
@@ -10664,6 +10678,29 @@ mod tests {
             }
             .into()]),
         );
+        assert!(
+            validate_builtin_native_query_permission(tx.world(), &authority, &request, 0).is_err()
+        );
+        tx.world.account_permissions.insert(
+            authority.clone(),
+            BTreeSet::from([executor_permission::query::CanReadAccountData {
+                account: foreign_payer,
+            }
+            .into()]),
+        );
+        assert!(
+            validate_builtin_native_query_permission(tx.world(), &authority, &request, 0).is_err()
+        );
+        tx.world.account_permissions.insert(
+            authority.clone(),
+            BTreeSet::from([executor_permission::query::CanReadAccountData {
+                account: payer,
+            }
+            .into()]),
+        );
+        validate_builtin_native_query_permission(tx.world(), &authority, &request, 0)
+            .expect("reader has the exact payer-scoped grant");
+        tx.world.account_permissions.remove(authority.clone());
         assert!(
             validate_builtin_native_query_permission(tx.world(), &authority, &request, 0).is_err()
         );
@@ -13756,7 +13793,12 @@ mod tests {
                 "CanExecuteSettlement",
                 executor_permission::settlement::CanExecuteSettlement {
                     debited_asset: root_asset,
-                    settlement_id: "grant_policy_settlement".parse().expect("settlement id"),
+                    settlement_id: iroha_data_model::isi::SettlementId::new(
+                        legitimate_root.clone(),
+                        "grant_policy_settlement"
+                            .parse()
+                            .expect("settlement reference"),
+                    ),
                     intent_hash: Hash::new(b"grant-policy-settlement"),
                 }
                 .into(),

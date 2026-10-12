@@ -44,11 +44,33 @@ fn instruction(count: usize) -> SettleAtomic {
         network_id: NetworkId::from_genesis_hash(HashOf::<BlockHeader>::from_untyped_unchecked(
             Hash::new(b"atomic-network"),
         )),
-        settlement_id: "atomic_fixture".parse().expect("business id"),
+        settlement_id: SettlementId::new(
+            from,
+            "atomic_fixture".parse().expect("business reference"),
+        ),
         movements: AtomicSettlementMovements::try_from(values).expect("canonical movements"),
         expires_at_height: NonZeroU64::new(500).expect("nonzero expiry"),
         metadata: Metadata::default(),
     }
+}
+
+#[test]
+#[ignore = "explicit current typed capture of the owner-qualified atomic settlement"]
+fn print_scoped_settlement_atomic_fixture_rows() {
+    let value = instruction(3);
+    let record = crate::isi::generated_record_identity_tests::capture(value.clone());
+    let boxed = crate::isi::generated_box_identity_tests::case(
+        "Atomic",
+        SettlementInstructionBox::Atomic(value),
+    );
+    println!(
+        "SCOPED_SETTLEMENT_RECORD={}",
+        json::to_json(&record).unwrap()
+    );
+    println!(
+        "SCOPED_SETTLEMENT_BOX_CASE={}",
+        json::to_json(&boxed).unwrap()
+    );
 }
 
 #[test]
@@ -67,6 +89,45 @@ fn atomic_settlement_canonical_roundtrips_minimum_and_maximum() {
             value
         );
     }
+}
+
+#[test]
+fn atomic_settlement_rejects_namespace_owner_outside_its_debits() {
+    for count in [1, 3] {
+        let mut value = instruction(count);
+        value.settlement_id.owner = account(3);
+        assert!(
+            value
+                .validate()
+                .unwrap_err()
+                .contains("settlement id owner")
+        );
+        assert!(value.intent_hash().is_err());
+        let frame = norito::encode_canonical(&value).unwrap();
+        assert!(norito::decode_canonical::<SettleAtomic>(&frame).is_err());
+        let json = json::to_json(&value).unwrap();
+        // Derived JSON captures structure; consensus/SDK must apply the shared static check.
+        assert!(
+            json::from_str::<SettleAtomic>(&json)
+                .unwrap()
+                .validate()
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn atomic_settlement_intent_binds_the_explicit_participating_namespace_owner() {
+    let mut value = instruction(2);
+    let mut movements = value.movements.as_slice().to_vec();
+    movements[1].source.account = account(4);
+    movements.sort_by(|left, right| {
+        (&left.source, &left.recipient).cmp(&(&right.source, &right.recipient))
+    });
+    value.movements = AtomicSettlementMovements::try_from(movements).unwrap();
+    let original = value.intent_hash().unwrap();
+    value.settlement_id.owner = account(4);
+    assert_ne!(value.intent_hash().unwrap(), original);
 }
 
 #[test]
@@ -241,7 +302,7 @@ fn atomic_settlement_intent_binds_every_authorized_field() {
     );
     variants.push(changed);
     let mut changed = value.clone();
-    changed.settlement_id = "another_business_id".parse().expect("id");
+    changed.settlement_id.reference = "another_business_id".parse().expect("reference");
     variants.push(changed);
     let mut changed = value.clone();
     changed.expires_at_height = NonZeroU64::new(501).expect("expiry");

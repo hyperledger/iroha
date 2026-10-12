@@ -826,3 +826,24 @@ fn cancelled_verification_never_reports_acceptance_or_invalidity() {
         Err(Error::Authority)
     );
 }
+
+#[test]
+fn retained_request_read_preserves_original_refusal_and_exact_retry() {
+    let (scheme, mut capsule, payer) = send_capsule_data();
+    let before = capsule.clone();
+    let expected = retained_request(&capsule).unwrap();
+    let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+    for error in [
+        norito::with_decode_limits_scope(limits, || retained_request(&capsule)).unwrap_err(),
+        norito::with_decode_limits_scope(limits, || capsule_selector(&scheme, &capsule, &payer))
+            .unwrap_err(),
+    ] {
+        assert!(matches!(error, Error::DecodeResource(ref cause)
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+    }
+    assert_eq!(capsule, before);
+    assert_eq!(retained_request(&capsule).unwrap(), expected);
+    assert!(capsule_selector(&scheme, &capsule, &payer).is_ok());
+    *request_original(&mut capsule) = vec![0];
+    assert_eq!(retained_request(&capsule), Err(Error::Authority));
+}

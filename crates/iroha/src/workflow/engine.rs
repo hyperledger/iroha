@@ -15,8 +15,8 @@ use super::{
     },
     error::{WorkflowBounds, WorkflowError},
     journal::{
-        CustodyHandleV1, Digest32, DriverIdentityV1, RoundInputV1, StepDescriptorV1,
-        TransactionIdentityV1, TransactionInputV1, WorkflowBindingV1, WorkflowId,
+        CustodyHandleV1, Digest32, DriverIdentityV1, NativePaymentCompletionV1, RoundInputV1,
+        StepDescriptorV1, TransactionIdentityV1, TransactionInputV1, WorkflowBindingV1, WorkflowId,
         WorkflowIdentityV1, WorkflowJournalV1, WorkflowPlanV1, WorkflowProgressV1, record_digest,
         round_identity,
     },
@@ -834,6 +834,13 @@ impl WorkflowEngine {
     ) -> Result<(), WorkflowError> {
         let mut retransmitted = false;
         loop {
+            if session.journal.native_payment_completion.is_some() {
+                return Err(WorkflowError::new(
+                    WorkflowErrorCode::UnsupportedOperation,
+                    WorkflowStage::Reconcile,
+                    "native payment business completion requires receipt re-verification; further dispatch is disabled",
+                ));
+            }
             let status = session.journal.status;
             if status.is_terminal() && mode == Mode::Recover {
                 return Ok(());
@@ -1495,6 +1502,41 @@ fn round_pending_error(journal: &WorkflowJournalV1, index: usize) -> WorkflowErr
 }
 
 impl WorkflowHandle {
+    /// Read the existing engine-owned journal without granting receipt authority.
+    pub(crate) fn native_payment_journal(
+        &self,
+    ) -> Result<Option<WorkflowJournalV1>, WorkflowError> {
+        Ok(self.engine.load(&self.id)?.map(|(journal, _)| journal))
+    }
+
+    /// Record an already verified business outcome under the engine's runner lease and CAS.
+    /// The concrete carrier state is left intact, including a rejected duplicate carrier.
+    pub(crate) fn record_native_payment_completion(
+        &self,
+        completion: NativePaymentCompletionV1,
+    ) -> Result<WorkflowProgressV1, WorkflowError> {
+        let mut session = self.engine.open(self.id, Some(&self.plan))?;
+        if session.journal.native_payment_completion.as_ref() == Some(&completion) {
+            return Ok(session.journal.progress());
+        }
+        session.record(|journal| {
+            if journal
+                .native_payment_completion
+                .as_ref()
+                .is_some_and(|stored| stored != &completion)
+            {
+                return Err(WorkflowError::new(
+                    WorkflowErrorCode::BindingMismatch,
+                    WorkflowStage::Store,
+                    "native payment already binds another business completion",
+                ));
+            }
+            journal.native_payment_completion = Some(completion.clone());
+            Ok(())
+        })?;
+        Ok(session.journal.progress())
+    }
+
     /// The workflow identifier.
     #[must_use]
     pub const fn id(&self) -> WorkflowId {

@@ -36,6 +36,49 @@ fn registered_world(context: &iroha_data_model::sumeragi::epoch::ValidatorEpochC
 }
 
 #[test]
+fn executed_genesis_clock_drift_bound_cannot_be_bypassed_by_raw_state() {
+    use iroha_data_model::parameter::system::MAX_CLOCK_DRIFT_BOUND_MS;
+    let signed = crate::sumeragi::epoch::tests::genesis_fixture(
+        SumeragiConsensusMode::Permissioned,
+        10,
+        false,
+    );
+    let context = crate::sumeragi::epoch::authenticated_genesis(&signed)
+        .map(|genesis| genesis.into_parts().0)
+        .unwrap();
+    let mut world = registered_world(&context);
+    for value in [
+        0,
+        MAX_CLOCK_DRIFT_BOUND_MS,
+        MAX_CLOCK_DRIFT_BOUND_MS + 1,
+        u64::MAX,
+    ] {
+        {
+            let mut parameters = world.parameters.block();
+            parameters
+                .set_parameter(iroha_data_model::parameter::Parameter::Sumeragi(
+                    iroha_data_model::parameter::SumeragiParameter::MaxClockDriftMs(value),
+                ))
+                .expect("raw State bypasses instruction admission for this control");
+            parameters.commit();
+        }
+        let result = validate_executed_genesis(&world.view(), &context);
+        if value <= MAX_CLOCK_DRIFT_BOUND_MS {
+            result.expect("inclusive protocol bound");
+        } else {
+            let expected = iroha_data_model::parameter::system::validate_max_clock_drift_ms(value)
+                .unwrap_err();
+            assert!(matches!(
+                result,
+                Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+                    ScheduleError::Epoch(message)
+                )) if message == expected.to_string()
+            ));
+        }
+    }
+}
+
+#[test]
 fn executed_genesis_must_retain_every_exact_signed_registration() {
     let signed = crate::sumeragi::epoch::tests::genesis_fixture(
         SumeragiConsensusMode::Permissioned,

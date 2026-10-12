@@ -68,6 +68,7 @@ pub struct NativeWalletProofsV1<F: KagemushaWalletFsV1, P, S> {
 
 fn proof<T>(value: Result<T, ProofError>) -> Result<T, Error> {
     value.map_err(|error| match error {
+        ProofError::DecodeResource(original) => Error::DecodeResource(original),
         ProofError::Unavailable => Error::ArtifactsUnavailable("native operation artifact"),
         ProofError::Cancelled => Error::Cancelled,
         ProofError::Entropy => {
@@ -410,5 +411,36 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             &mut *originals,
             custody.ok_or(Error::WitnessLost("native fold custody"))?,
         )
+    }
+}
+
+#[cfg(test)]
+mod resource_tests {
+    use super::*;
+
+    #[test]
+    fn proof_mapping_keeps_original_read_refusal_and_semantic_verdicts() {
+        let bytes = norito::encode_canonical(&vec![7u8; 128]).unwrap();
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+        let captured = norito::with_decode_limits_scope(limits, || {
+            norito::decode_canonical_for_admission::<Vec<u8>>(
+                &bytes,
+                norito::canonical_decode_limits(bytes.len()),
+            )
+        })
+        .unwrap_err()
+        .into_local_refusal()
+        .unwrap();
+        let expected = captured.clone();
+        let error = proof::<()>(Err(ProofError::DecodeResource(captured))).unwrap_err();
+        assert!(matches!(error, Error::DecodeResource(original) if original == expected));
+        assert!(matches!(
+            proof::<()>(Err(ProofError::Cancelled)),
+            Err(Error::Cancelled)
+        ));
+        assert!(matches!(
+            proof::<()>(Err(ProofError::Authority)),
+            Err(Error::Proof("native operation source or proof"))
+        ));
     }
 }

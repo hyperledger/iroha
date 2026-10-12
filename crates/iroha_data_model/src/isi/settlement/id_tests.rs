@@ -62,8 +62,20 @@ fn settlement_id_rejects_unqualified_and_ambiguous_text() {
         "invoice_250000$".to_owned(),
         format!("invoice_250000${}$extra", owner(71)),
         "invoice_250000$not-an-account".to_owned(),
+        format!(
+            "invoice_250000${}",
+            KeyPair::from_seed(vec![71; 32], Algorithm::Ed25519).public_key()
+        ),
+        format!("invoice_250000${}@domain", owner(71)),
+        format!("invoice_250000${} ", owner(71)),
+        format!("e\u{301}${}", owner(71)),
     ] {
         assert!(text.parse::<SettlementId>().is_err(), "{text}");
+        let map = format!("{{{}:1}}", norito::json::to_json(&text).unwrap());
+        assert!(
+            norito::json::from_str::<BTreeMap<SettlementId, u64>>(&map).is_err(),
+            "map key {text}"
+        );
     }
 }
 

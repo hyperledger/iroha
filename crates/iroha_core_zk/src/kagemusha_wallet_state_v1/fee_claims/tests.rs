@@ -425,7 +425,7 @@ fn fee_original_read_refusals_preserve_exact_pair_and_ledger_transport_retry() {
             .unwrap_err(),
         ] {
             assert!(matches!(error, Error::DecodeResource(ref cause)
-                if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+                if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
         }
         assert_eq!(retained, unchanged);
         assert_eq!(retained.to_canonical_bytes(&scheme).unwrap(), original);

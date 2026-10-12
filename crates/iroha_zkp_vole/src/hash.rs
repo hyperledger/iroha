@@ -850,7 +850,14 @@ mod tests {
             assert_eq!(seen.len(), prefixes.len(), "{level:?}");
         }
         assert_eq!(
-            h5_in(Namespace::REFERENCE, SecurityLevel::L128, &iv, 0, &[0; 3], 10),
+            h5_in(
+                Namespace::REFERENCE,
+                SecurityLevel::L128,
+                &iv,
+                0,
+                &[0; 3],
+                10
+            ),
             Err(HashError::InvalidInputLength {
                 expected: 16,
                 actual: 3

@@ -21,6 +21,29 @@ use std::sync::LazyLock;
 mod npos_json;
 pub use npos_json::{AdmittedSumeragiNposParameters, SumeragiNposJsonAdmissionError};
 pub mod resource_coherence;
+/// Largest committed clock-drift allowance in milliseconds (`specs/sumeragi.md` §4.5 CT4).
+pub const MAX_CLOCK_DRIFT_BOUND_MS: u64 = 60_000;
+
+/// A proposed clock-drift allowance exceeds the protocol bound.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("max_clock_drift_ms {actual_ms} exceeds the protocol bound {bound_ms}", bound_ms = MAX_CLOCK_DRIFT_BOUND_MS)]
+pub struct ClockDriftAboveBound {
+    /// Proposed allowance in milliseconds.
+    pub actual_ms: u64,
+}
+
+/// Check the committed clock-drift allowance without consulting a local clock.
+///
+/// # Errors
+/// Returns [`ClockDriftAboveBound`] when the allowance exceeds [`MAX_CLOCK_DRIFT_BOUND_MS`].
+pub const fn validate_max_clock_drift_ms(actual_ms: u64) -> Result<(), ClockDriftAboveBound> {
+    if actual_ms <= MAX_CLOCK_DRIFT_BOUND_MS || cfg!(all(test, sumeragi_model_mutation = "DM36")) {
+        Ok(())
+    } else {
+        Err(ClockDriftAboveBound { actual_ms })
+    }
+}
+
 /// Maximum governed IVM heap size in bytes for ABI V1.
 ///
 /// The ABI V1 address map reserves the half-open range `0x0010_0000..0x0020_0000` for the heap.
@@ -438,11 +461,11 @@ mod model {
         // `SumeragiParameter` variant scheduled at `h + 2` like the other chain parameters.
         #[norito(default = "defaults::sumeragi::block_cadence_ms")]
         pub block_cadence_ms: NonZeroU64,
-        /// Maximal allowed random deviation from the nominal rate
+        /// Committed local clock-drift allowance, bounded by [`MAX_CLOCK_DRIFT_BOUND_MS`].
         ///
-        /// # Warning
-        ///
-        /// This value should be kept as low as possible to not affect soundness of the consensus
+        /// Unlike the lag-two `ChainParamsRecord` fields, this value belongs to the
+        /// application State. A clock guard for height `h` reads the committed parent
+        /// State: a change executed at `h` first governs height `h + 1`.
         #[norito(default = "defaults::sumeragi::max_clock_drift_ms")]
         pub max_clock_drift_ms: u64,
         /// Minimum lead time (blocks) between publishing a new consensus key and activation.
@@ -1245,11 +1268,7 @@ impl SumeragiParameters {
     pub fn max_clock_drift_ms(&self) -> u64 {
         self.max_clock_drift_ms
     }
-    /// Maximal allowed random deviation from the nominal rate
-    ///
-    /// # Warning
-    ///
-    /// This value should be kept as low as possible to not affect soundness of the consensus
+    /// Committed clock-drift allowance as a duration.
     pub fn max_clock_drift(&self) -> Duration {
         Duration::from_millis(self.max_clock_drift_ms)
     }
@@ -2880,6 +2899,23 @@ mod tests {
     use iroha_primitives::json::Json;
     use norito::codec::{DecodeAll as _, Encode as _};
     use norito::json::{Number, Value};
+    #[test]
+    fn clock_drift_bound_accepts_exact_limit_and_rejects_excess_without_overflow() {
+        for value in [
+            0,
+            defaults::sumeragi::max_clock_drift_ms(),
+            MAX_CLOCK_DRIFT_BOUND_MS,
+        ] {
+            assert_eq!(validate_max_clock_drift_ms(value), Ok(()));
+        }
+        for value in [MAX_CLOCK_DRIFT_BOUND_MS + 1, u64::MAX] {
+            assert_eq!(
+                validate_max_clock_drift_ms(value),
+                Err(ClockDriftAboveBound { actual_ms: value })
+            );
+        }
+    }
+
     #[test]
     fn set_custom_parameter() {
         let mut params = Parameters::default();

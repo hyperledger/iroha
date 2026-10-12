@@ -177,19 +177,19 @@ fn actual_c_confirms_executed_unload_after_process_restart() {
         });
         assert!(
             matches!(refused, Err(state::Error::DecodeResource(ref cause))
-            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit)
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit)
         );
         let refused = norito::with_decode_limits_scope(limits, || c.ledger_instruction(2, &claim));
         assert!(
             matches!(refused, Err(state::Error::DecodeResource(ref cause))
-            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit)
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit)
         );
         let refused = norito::with_decode_limits_scope(limits, || {
             c.confirm_ledger_unload(transaction, &claim)
         });
         assert!(
             matches!(refused, Err(state::Error::DecodeResource(ref cause))
-            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit)
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit)
         );
         assert_eq!(c.ledger_instruction(2, &claim).unwrap(), exact_instruction);
         assert_eq!(
@@ -225,7 +225,7 @@ fn actual_c_confirms_executed_unload_after_process_restart() {
             });
             assert!(
                 matches!(refused, Err(state::Error::DecodeResource(ref cause))
-                if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit)
+                if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit)
             );
             assert_eq!(
                 c.unload_finality_progress(transaction, &claim).unwrap(),

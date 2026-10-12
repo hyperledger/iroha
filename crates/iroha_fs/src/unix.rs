@@ -929,19 +929,29 @@ impl Directory {
 
     pub(super) fn open_mutable(&self, name: &OsStr, append: bool) -> io::Result<File> {
         self.revalidate()?;
-        let flags =
-            OFlags::RDWR | OFlags::CREATE | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
+        let flags = OFlags::RDWR | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
         let flags = if append {
             flags | OFlags::APPEND
         } else {
             flags
         };
-        let file = File::from(rustix::fs::openat(
+        // Distinguish creation from opening the winner. Concurrent Darwin opens
+        // with CREATE | NOFOLLOW can report NOENT for an existing creator's name.
+        // Only EXIST selects the existing-file path; absence or custody refusal
+        // is never retried, and both paths retain the same identity checks below.
+        let descriptor = match rustix::fs::openat(
             &self.current().file,
             name,
-            flags,
+            flags | OFlags::CREATE | OFlags::EXCL,
             Mode::from_raw_mode(0o600),
-        )?);
+        ) {
+            Ok(descriptor) => descriptor,
+            Err(rustix::io::Errno::EXIST) => {
+                rustix::fs::openat(&self.current().file, name, flags, Mode::empty())?
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let file = File::from(descriptor);
         validate_file(&file, true)?;
         let named = self.open_read(name)?;
         if identity(&named)? != identity(&file)? {

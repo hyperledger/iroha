@@ -1243,9 +1243,8 @@ fn pipeline_status_terminal_or_state_entry_with_carrier_reader(
     }
     Ok(None)
 }
-// Test convenience delegates to the actual production reconciliation stage below. It
-// observes that stage before the HTTP scalar's separate Applied promotion.
-#[cfg(test)]
+// HTTP consumers authenticate the exact carrier with request-owned capacity and use the
+// canonical outcome kernel. A cached status or membership alone cannot authorize settlement.
 fn reconcile_pending_pipeline_transaction(
     app: &SharedAppState,
     hash: &HashOf<SignedTransaction>,

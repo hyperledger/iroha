@@ -26,6 +26,8 @@ fn certificate_capacity_refusal_reaches_scheduler_with_original_release_and_exec
             let mut registration = crate::unit_test_support::release_registration(
                 &chain.state().ivm_execution_budget(),
             );
+            let original_thread = std::thread::current();
+            registration.bind_thread(original_thread.clone());
             let scheduler_registration =
                 crate::sumeragi::driver::exec::ExecutionRegistrations::admit(
                     &chain.state().ivm_execution_budget(),
@@ -49,6 +51,7 @@ fn certificate_capacity_refusal_reaches_scheduler_with_original_release_and_exec
                 _ => panic!("retain original executed phase"),
             };
             let mut scheduler = ExecSched::new(1, Backoff::default(), scheduler_registration);
+            scheduler.bind_release_thread(original_thread);
             scheduler.commit(body.clone(), qc.clone());
             let Some(ExecOp::Prepare(original)) = scheduler.next(0) else {
                 panic!("prepare same original commit");
@@ -424,6 +427,8 @@ fn cold_prepare_refusal_retains_original_finishing_owner_and_exact_release() {
             let mut registration = crate::unit_test_support::release_registration(
                 &chain.state().ivm_execution_budget(),
             );
+            let original_thread = std::thread::current();
+            registration.bind_thread(original_thread.clone());
             let scheduler_registration =
                 crate::sumeragi::driver::exec::ExecutionRegistrations::admit(
                     &chain.state().ivm_execution_budget(),
@@ -434,20 +439,21 @@ fn cold_prepare_refusal_retains_original_finishing_owner_and_exact_release() {
             assert!(worker.live.is_none());
             let budget = worker.state.ivm_execution_budget();
             let mut occupied = None;
-            let initial = worker.run_execution_with_finisher(&body, qc.block_hash, |worker| {
-                if phase >= 1 {
-                    worker.prepare_original_result().unwrap();
-                }
-                if phase >= 2 {
-                    worker.prepare_original_context_archive().unwrap();
-                }
-                occupied = Some(
-                    budget
-                        .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
-                        .expect("occupy the actual original execution pool"),
-                );
-                worker.finish_execution_with_encoder(encode_result_preimage)
-            });
+            let initial =
+                worker.run_execution_with_finisher(&body, qc.block_hash, false, |worker| {
+                    if phase >= 1 {
+                        worker.prepare_original_result().unwrap();
+                    }
+                    if phase >= 2 {
+                        worker.prepare_original_context_archive().unwrap();
+                    }
+                    occupied = Some(
+                        budget
+                            .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
+                            .expect("occupy the actual original execution pool"),
+                    );
+                    worker.finish_execution_with_encoder(encode_result_preimage)
+                });
             assert!(matches!(initial, Err(PublicationError::Deferred(_))));
             let pending = worker
                 .finishing
@@ -464,6 +470,7 @@ fn cold_prepare_refusal_retains_original_finishing_owner_and_exact_release() {
             }));
             let retained = budget.reserved_bytes();
             let mut scheduler = ExecSched::new(1, Backoff::default(), scheduler_registration);
+            scheduler.bind_release_thread(original_thread);
             scheduler.commit(body.clone(), qc.clone());
             let Some(ExecOp::Prepare(original)) = scheduler.next(0) else {
                 panic!("cold prepare retains the original queued decision");
@@ -486,7 +493,7 @@ fn cold_prepare_refusal_retains_original_finishing_owner_and_exact_release() {
                                 .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
                                 .unwrap(),
                         );
-                        worker.run_execution(block, hash)
+                        worker.run_execution(block, hash, true)
                     },
                 )
                 .unwrap_err();
@@ -974,7 +981,7 @@ fn original_local_custody_invariant_halts_worker_without_fee_result_or_quarantin
         let cache = worker.state.view().prepared_contract_cache();
         let reason = ivm::error::ExecutionDeferral::LocalInvariantViolation;
         cache.set_checkout_refusal_for_test(Some(reason));
-        let outcome = worker.execute(&body, hash);
+        let outcome = worker.execute(&body, hash, false);
         cache.set_checkout_refusal_for_test(None);
         let Some(super::super::ExecOutcome::Failed(message)) = outcome else {
             panic!("an original local custody invariant cannot become a validity verdict")
@@ -994,7 +1001,7 @@ fn original_local_custody_invariant_halts_worker_without_fee_result_or_quarantin
         assert_eq!(worker.state.view().height(), original_height);
         assert_eq!(body.payload().as_slice().as_ptr(), original_payload);
         assert!(
-            matches!(worker.execute(&body, hash), Some(super::super::ExecOutcome::Failed(again)) if again == message)
+            matches!(worker.execute(&body, hash, false), Some(super::super::ExecOutcome::Failed(again)) if again == message)
         );
         assert!(
             worker.live.is_none() && worker.finishing.is_none(),

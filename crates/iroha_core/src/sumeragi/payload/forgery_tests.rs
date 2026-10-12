@@ -294,7 +294,14 @@ fn stale_fifo_forgery_spends_no_count_bytes_or_quota_and_retains_original_lease(
             let selection = queue
                 .begin_pending_payload_selection(state, state.state_view_generation())
                 .unwrap();
-            let mut selected = select(&view, &queue, budget, &MergeProposal::default()).unwrap();
+            let mut selected = select(
+                &view,
+                &queue,
+                budget,
+                &MergeProposal::default(),
+                iroha_primitives::time::TimeSource::new_system().now(),
+            )
+            .unwrap();
             assert_eq!(
                 selected.len(),
                 1,
@@ -336,9 +343,15 @@ fn stale_fifo_forgery_spends_no_count_bytes_or_quota_and_retains_original_lease(
             }
         }
         assert!(
-            select(&view, &queue, budget - 1, &MergeProposal::default())
-                .unwrap()
-                .is_empty()
+            select(
+                &view,
+                &queue,
+                budget - 1,
+                &MergeProposal::default(),
+                iroha_primitives::time::TimeSource::new_system().now()
+            )
+            .unwrap()
+            .is_empty()
         );
         assert_eq!(
             chain.height(),
@@ -367,6 +380,7 @@ fn proposal_selection_local_refusal_never_retires_queued_claims_and_retries_orig
             &queue,
             valid.encoded_len(),
             &MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now(),
         )
         .unwrap_err();
         match error {
@@ -392,6 +406,7 @@ fn proposal_selection_local_refusal_never_retires_queued_claims_and_retries_orig
             &queue,
             valid.encoded_len(),
             &MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now(),
         )
         .unwrap();
         assert_eq!(selected.len(), 1);
@@ -429,6 +444,7 @@ fn current_parent_selection_keeps_exact_one_valid_forgery() {
             &queue,
             first.encoded_len() + second.encoded_len(),
             &MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now(),
         )
         .unwrap();
         assert_eq!(
@@ -458,7 +474,14 @@ fn only_now_genuine_queued_evidence_cannot_authorize_an_empty_proposal() {
         ));
         queue.push(stale, lagging).unwrap();
         let view = state.view();
-        let selected = select(&view, &queue, 1 << 20, &MergeProposal::default()).unwrap();
+        let selected = select(
+            &view,
+            &queue,
+            1 << 20,
+            &MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now(),
+        )
+        .unwrap();
         assert!(selected.is_empty());
         let parent = view.latest_block().unwrap().unwrap();
         assert!(matches!(

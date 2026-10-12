@@ -373,6 +373,7 @@ mod tests {
                 })
             })
             .collect();
+        let grace_ms = SCCP_MIN_FORGERY_EVIDENCE_GRACE_MS_V1;
         SccpGenerationV1 {
             generation: 1,
             committee_root: committee_root(&keys).unwrap(),
@@ -384,9 +385,9 @@ mod tests {
             start_lc: 1000,
             validity_ms: 100,
             deadline_ms: 1100,
-            grace_ms: SCCP_MIN_FORGERY_EVIDENCE_GRACE_MS_V1,
+            grace_ms,
             progress_cap_ms: 30,
-            liable_until_lc: 1100 + SCCP_MIN_FORGERY_EVIDENCE_GRACE_MS_V1,
+            liable_until_lc: 1100 + grace_ms,
             dest_cleared_lc: None,
             end: None,
             liable: true,
@@ -589,11 +590,22 @@ mod tests {
         let mut wrong_root = row.clone();
         wrong_root.committee_root[0] ^= 1;
         assert!(authenticate_record(&world, 1, wrong_root, 1100).is_err());
-        let mut changed = row.clone();
-        changed.grace_ms += 1;
-        changed.liable_until_lc += 1;
-        assert!(native_record(changed.clone()).is_well_formed());
-        assert!(authenticate_record(&world, 1, changed, 1100).is_err());
+        let mut changed_grace = row.clone();
+        changed_grace.grace_ms += 1;
+        changed_grace.liable_until_lc += 1;
+        // Genesis binds its creation and liability clocks together. Keep both
+        // altered records structurally valid and within the pin horizon so only
+        // their mismatch with the certified World rejects the substitutions.
+        let mut changed_clocks = row.clone();
+        changed_clocks.start_timestamp_ms += 1;
+        changed_clocks.start_lc += 1;
+        changed_clocks.deadline_ms += 1;
+        changed_clocks.liable_until_lc += 1;
+        for changed in [changed_grace, changed_clocks] {
+            assert!(native_record(changed.clone()).is_well_formed());
+            assert!(changed.deadline_ms >= 1100);
+            assert!(authenticate_record(&world, 1, changed, 1100).is_err());
+        }
         let mut discovery_only = row;
         discovery_only.liable = false;
         assert!(

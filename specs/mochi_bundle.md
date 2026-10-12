@@ -43,6 +43,19 @@ and selects `https://taira.sora.org/bootstrap/checkpoint.nrt`. Its SHA-256 is
 the release owner must commit those exact bytes. Checkpoints remain fetched artifacts with
 bounded signed validity; recurring publication is an operator responsibility. The packager
 generates no authority. Developers using an installed official bundle supply no file.
+The edge renderer and `configs/soranexus/taira/install_taira_edge_nginx_conf.sh`
+accept `--bootstrap-publication-dir` for a separately promoted public pair. It maps
+only `/bootstrap/checkpoint.nrt` and `/bootstrap/network-profiles.nrt`; other
+`/bootstrap` paths return 404. Files are served through direct paths with symlink
+traversal disabled, GET/HEAD only (the existing CORS preflight remains available),
+and no cache retention. `kagami advanced network-bootstrap prepare` creates an
+owner-private directory containing the pair. The operator must copy only those
+two verified output images into a dedicated nginx-readable directory, preserving
+bytes and keeping signing keys and private inputs outside it. Never relax the
+preparation directory's permissions or point nginx at it. The renderer does not
+read or authenticate remote-host files; activation must check native nginx,
+file custody/readability and exact public readback. Renew the signed checkpoint
+before expiry; routing and HTTP success do not establish current artifact trust.
 Debug/development bundles may omit profiles or use explicit fixture installation input.
 The same xtask selection owner gates the CLI-only `kagami-bundle` release path, which
 installs the identical original preset beside Kagami and the daemon and records its

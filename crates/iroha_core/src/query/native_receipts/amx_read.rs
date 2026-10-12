@@ -444,8 +444,7 @@ impl<'v, V: StateReadOnly> NativeAmxRecordProofReadV1<'v, V> {
 
     // Borrow the same authenticated complete write graph; no count supplied by .ami
     // can substitute for the original certified witness.
-    #[cfg(not(all(test, sumeragi_core_mutation = "HC218")))]
-    pub(super) fn authenticated_prepared_count(
+    pub(super) fn authenticated_relay_record_count(
         &self,
     ) -> Result<usize, NativeAmxRecordProofErrorV1> {
         let source = self
@@ -453,7 +452,7 @@ impl<'v, V: StateReadOnly> NativeAmxRecordProofReadV1<'v, V> {
             .as_ref()
             .filter(|source| source.completed && source.authenticated)
             .ok_or(NativeAmxRecordProofErrorV1::Source(
-                "Prepared count needs completed original verification",
+                "relay row count needs completed original verification",
             ))?;
         let projection = source
             .projection
@@ -482,6 +481,45 @@ impl<'v, V: StateReadOnly> NativeAmxRecordProofReadV1<'v, V> {
                         && certified.commitment().execution.ordinary_writes_root == root
                 })
         })
+    }
+
+    // A sibling delivery owner can borrow only this reader's completed native authority.
+    // Recheck its original namespace after instruction admission; copied proof coordinates
+    // cannot replace this retained carrier or the captured State history.
+    pub(super) fn completed_original(
+        &self,
+    ) -> Result<&CertifiedBlock, NativeAmxRecordProofErrorV1> {
+        use NativeAmxRecordProofErrorV1 as Error;
+        let source = self
+            .source
+            .as_ref()
+            .filter(|source| source.completed && source.authenticated)
+            .ok_or(Error::Source(
+                "delivery requires completed original verification",
+            ))?;
+        source
+            .read
+            .as_ref()
+            .ok_or(Error::Source("original archive descriptor missing"))?
+            .recheck_namespace()?;
+        let certified = source
+            .certified
+            .as_ref()
+            .ok_or(Error::Source("original certified carrier missing"))?;
+        let index = source
+            .height
+            .checked_sub(1)
+            .and_then(|height| usize::try_from(height).ok())
+            .ok_or(Error::Source("original carrier height is invalid"))?;
+        if self.view.block_hashes().get(index).copied() != Some(certified.block_hash())
+            || *self.view.network_id() != source.network_id
+            || certified.commitment().schedule.current.network_id != source.network_id
+        {
+            return Err(Error::Source(
+                "original carrier differs from captured history",
+            ));
+        }
+        Ok(certified)
     }
 
     #[cfg(test)]

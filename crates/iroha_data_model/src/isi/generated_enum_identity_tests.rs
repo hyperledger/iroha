@@ -113,7 +113,7 @@ fn generated_instruction_enums() -> Vec<Value> {
         record::<SetKeyValueType>(5),
         record::<RegisterType>(7),
         record::<UnregisterType>(7),
-        record::<SettlementAtomicity>(3),
+        record::<SettlementAtomicity>(1),
         record::<SettlementExecutionOrder>(2),
         record::<TransferType>(4),
     ]
@@ -127,7 +127,7 @@ fn generated_instruction_enums_preserve_captured_frames() {
         rows.iter()
             .map(|row| row.get("cases").unwrap().as_array().unwrap().len())
             .sum::<usize>(),
-        53
+        51
     );
     let captured: Value = json::from_str(include_str!(
         "../../tests/fixtures/instruction_enum_generated_identity_frames.json"

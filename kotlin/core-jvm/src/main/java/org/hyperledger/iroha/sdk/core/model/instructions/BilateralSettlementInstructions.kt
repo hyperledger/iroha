@@ -9,6 +9,7 @@ import java.text.Normalizer
 import java.util.Collections
 import java.util.LinkedHashMap
 import java.util.Optional
+import org.hyperledger.iroha.sdk.address.AccountAddress
 import org.hyperledger.iroha.sdk.address.requireCanonicalI105Address
 import org.hyperledger.iroha.sdk.core.model.InstructionBox
 import org.hyperledger.iroha.sdk.core.model.JsonValue
@@ -36,6 +37,40 @@ object BilateralSettlementInstructions {
 
         /** Apply the payment leg before delivering the reciprocal asset. */
         PAYMENT_THEN_DELIVERY(1),
+    }
+
+    /** An immutable payer-scoped business reference, shared by all carriers of one intent. */
+    class SettlementId(owner: String, reference: String) {
+        /** Canonical default-network spelling of the actual account identity. */
+        val owner: String = AccountAddress.fromI105(
+            requireCanonicalI105Address(owner, "settlementId.owner"),
+            null,
+        ).toI105Default()
+
+        /** Exact canonical customer reference within this payer's namespace. */
+        val reference: String = requireName(reference, "settlementId.reference")
+
+        override fun equals(other: Any?): Boolean =
+            this === other || other is SettlementId && owner == other.owner && reference == other.reference
+
+        override fun hashCode(): Int = 31 * owner.hashCode() + reference.hashCode()
+
+        /** Human input form; native JSON and binary encoders retain both typed fields. */
+        override fun toString(): String = "$reference\$$owner"
+
+        companion object {
+            /** Parse exactly REFERENCE$CANONICAL_ACCOUNT; bare references are never accepted. */
+            @JvmStatic
+            fun parse(value: String): SettlementId {
+                val separator = value.indexOf('$')
+                require(separator > 0 && separator == value.lastIndexOf('$')) {
+                    "settlementId must use REFERENCE\$CANONICAL_ACCOUNT"
+                }
+                val id = SettlementId(value.substring(separator + 1), value.substring(0, separator))
+                require(id.toString() == value) { "settlementId must use canonical spelling" }
+                return id
+            }
+        }
     }
 
     /** One exact debit and credit leg in a bilateral settlement. */
@@ -79,26 +114,24 @@ object BilateralSettlementInstructions {
 
     /** Atomic delivery-versus-payment instruction. */
     class Dvp(
-        settlementId: String,
+        val settlementId: SettlementId,
         val deliveryLeg: SettlementLeg,
         val paymentLeg: SettlementLeg,
         val order: ExecutionOrder = ExecutionOrder.DELIVERY_THEN_PAYMENT,
         metadata: Map<String, JsonValue> = emptyMap(),
     ) : InstructionTemplate {
-        /** Canonical one-shot settlement identifier. */
-        val settlementId: String = requireName(settlementId, "settlementId")
-
         /** Immutable metadata included in the exact consent commitment. */
         val metadata: Map<String, JsonValue> = immutableMetadata(metadata)
 
         init {
             requireReciprocalLegs(deliveryLeg, paymentLeg, "DvP")
+            requireSettlementOwner(settlementId, deliveryLeg, paymentLeg)
         }
 
         override val kind: InstructionKind = InstructionKind.CUSTOM
 
         override val arguments: Map<String, String> = mapOf(
-            "settlement_id" to this.settlementId,
+            "settlement_id" to this.settlementId.toString(),
             "delivery_asset_definition_id" to deliveryLeg.assetDefinitionId,
             "payment_asset_definition_id" to paymentLeg.assetDefinitionId,
             "order" to order.name,
@@ -117,26 +150,24 @@ object BilateralSettlementInstructions {
 
     /** Atomic payment-versus-payment instruction. */
     class Pvp(
-        settlementId: String,
+        val settlementId: SettlementId,
         val primaryLeg: SettlementLeg,
         val counterLeg: SettlementLeg,
         val order: ExecutionOrder = ExecutionOrder.PAYMENT_THEN_DELIVERY,
         metadata: Map<String, JsonValue> = emptyMap(),
     ) : InstructionTemplate {
-        /** Canonical one-shot settlement identifier. */
-        val settlementId: String = requireName(settlementId, "settlementId")
-
         /** Immutable metadata included in the exact consent commitment. */
         val metadata: Map<String, JsonValue> = immutableMetadata(metadata)
 
         init {
             requireReciprocalLegs(primaryLeg, counterLeg, "PvP")
+            requireSettlementOwner(settlementId, primaryLeg, counterLeg)
         }
 
         override val kind: InstructionKind = InstructionKind.CUSTOM
 
         override val arguments: Map<String, String> = mapOf(
-            "settlement_id" to this.settlementId,
+            "settlement_id" to this.settlementId.toString(),
             "primary_asset_definition_id" to primaryLeg.assetDefinitionId,
             "counter_asset_definition_id" to counterLeg.assetDefinitionId,
             "order" to order.name,
@@ -294,7 +325,7 @@ object BilateralSettlementInstructions {
         fun canonicalInstructionBytes(): ByteArray = BilateralSettlementWire.encodeRepoConcrete(this)
 
         /** The one-shot settlement id used by both repo permission grants. */
-        fun settlementId(): String = agreementId
+        fun settlementId(): SettlementId = SettlementId(initiator, agreementId)
 
         /** Exact hash authorizing the counterparty cash debit at repo initiation. */
         fun initiationIntentHash(): ByteArray = BilateralSettlementWire.repoInitiationIntentHash(this)
@@ -313,6 +344,12 @@ object BilateralSettlementInstructions {
 
         /** Returns the canonical boxed instruction accepted by the native registry. */
         override fun toInstructionBox(): InstructionBox = BilateralSettlementWire.encodeReverseRepo(this)
+    }
+
+    private fun requireSettlementOwner(id: SettlementId, first: SettlementLeg, second: SettlementLeg) {
+        require(sameAccount(id.owner, first.from) || sameAccount(id.owner, second.from)) {
+            "settlement identity owner must authorize an actual debit"
+        }
     }
 
     private fun requireReciprocalLegs(first: SettlementLeg, second: SettlementLeg, label: String) {
@@ -369,7 +406,10 @@ object BilateralSettlementInstructions {
             require(Character.getType(codePoint) != Character.SURROGATE.toInt()) {
                 "$field must contain valid Unicode scalar values"
             }
-            require(!Character.isISOControl(codePoint) && !Character.isWhitespace(codePoint)) {
+            require(
+                !Character.isISOControl(codePoint) &&
+                    !Character.isWhitespace(codePoint) && !Character.isSpaceChar(codePoint),
+            ) {
                 "$field must not contain controls or whitespace"
             }
             require(!isBidiControl(codePoint)) { "$field must not contain bidirectional controls" }
@@ -503,7 +543,7 @@ private object BilateralSettlementWire {
         encoder: NoritoEncoder,
         value: BilateralSettlementInstructions.Dvp,
     ) {
-        sizedRaw(encoder, encodeNameId(value.settlementId))
+        sizedRaw(encoder, encodeSettlementId(value.settlementId))
         sizedRaw(encoder, encodeSettlementLeg(value.deliveryLeg))
         sizedRaw(encoder, encodeSettlementLeg(value.paymentLeg))
         sizedRaw(encoder, encodePlan(value.order))
@@ -514,7 +554,7 @@ private object BilateralSettlementWire {
         encoder: NoritoEncoder,
         value: BilateralSettlementInstructions.Pvp,
     ) {
-        sizedRaw(encoder, encodeNameId(value.settlementId))
+        sizedRaw(encoder, encodeSettlementId(value.settlementId))
         sizedRaw(encoder, encodeSettlementLeg(value.primaryLeg))
         sizedRaw(encoder, encodeSettlementLeg(value.counterLeg))
         sizedRaw(encoder, encodePlan(value.order))
@@ -564,6 +604,11 @@ private object BilateralSettlementWire {
     private fun encodeRepoGovernance(value: BilateralSettlementInstructions.RepoGovernance): ByteArray = bare {
         sized(it, U16, value.haircutBps.toLong())
         sized(it, U64Adapter, value.marginFrequencySecs)
+    }
+
+    private fun encodeSettlementId(value: BilateralSettlementInstructions.SettlementId): ByteArray = bare {
+        sizedRaw(it, TransferWirePayloadEncoder.encodeAccountIdPayload(value.owner))
+        sized(it, STRING, value.reference)
     }
 
     private fun encodeNameId(value: String): ByteArray = bare { sized(it, STRING, value) }

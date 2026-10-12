@@ -2141,9 +2141,12 @@ impl ChaosState {
     fn plan_dvp_settlement(&mut self, rng: &mut StdRng) -> Result<TransactionPlan> {
         let seller = self.treasury.clone();
         let buyer = self.random_user_except(rng, &seller.id)?;
-        let settlement_id: SettlementId = format!("settlement_{}", self.bump_settlement())
-            .parse()
-            .map_err(|_| eyre!("failed to parse settlement id"))?;
+        let settlement_id = SettlementId::new(
+            seller.id.clone(),
+            format!("settlement_{}", self.bump_settlement())
+                .parse()
+                .map_err(|_| eyre!("failed to parse settlement reference"))?,
+        );
         let delivery_quantity = Quantity::from(rng.random_range(1_u32..=25_u32));
         let payment_quantity = Quantity::from(rng.random_range(1_u32..=25_u32));
         let delivery_asset = AssetId::new(self.asset_quantity.clone(), seller.id.clone());

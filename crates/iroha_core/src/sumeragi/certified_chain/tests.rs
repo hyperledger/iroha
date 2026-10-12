@@ -1282,6 +1282,25 @@ fn authenticated_scope_rejects_active_non_global_without_redecoding_result() {
     assert!(
         matches!(private, Err(ChainReadError::Malformed { height: 3, reason }) if reason == CertifiedResultError::ActiveOutsideGlobal.to_string())
     );
+    let context = PrefixVerifierContext {
+        instance: chain.instance(),
+        root_scope: non_global,
+    };
+    let budget = iroha_allocation::AllocationBudget::new(0);
+    for (parent, current) in [
+        (chain.committed(2), retained.clone()),
+        (retained, chain.committed(4)),
+    ] {
+        let refused = context.verify_executed_successor(&parent, current, &budget);
+        assert!(matches!(
+            refused,
+            Err(VerificationReadError::Source(ChainReadError::Malformed {
+                height: 3,
+                reason,
+            })) if reason == CertifiedResultError::ActiveOutsideGlobal.to_string()
+        ));
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
     let id = ChainId::from("sumeragi-certified-test-chain");
     let prefix = CertifiedPrefix::new(&id, chain.network_id(), frame(&chain, 1)).unwrap();
     assert_eq!(

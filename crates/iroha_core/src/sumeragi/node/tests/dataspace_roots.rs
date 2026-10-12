@@ -657,7 +657,8 @@ fn preaccepted_foreign_input_reaches_private_executor_but_cannot_publish_or_spen
             &state.view(),
             &queue,
             1024 * 1024,
-            &crate::sumeragi::payload::MergeProposal::default()
+            &crate::sumeragi::payload::MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now()
         )
         .expect("completed routing read")
         .is_empty()

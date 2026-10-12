@@ -75,7 +75,7 @@ mod evaluation;
 use evaluation::{EvaluatedRow, TilePlan};
 
 mod gate_fold;
-use gate_fold::GateFold;
+use gate_fold::{GateFold, GatePlan};
 
 mod workspace;
 pub use workspace::{QuotientWorkspace, WorkspaceError};
@@ -855,6 +855,8 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
         y,
     } = challenges;
     let gate_fold = GateFold::new(y);
+    let gate_plan = GatePlan::new(compiled);
+    let compiled = gate_plan.compiled();
     let one = C::ScalarExt::ONE;
     // Public powers shared by every row and lookup; no inverse of y is used.
     let y2 = y.square();
@@ -1012,7 +1014,7 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
                         let row = start + offset;
                         let r_next = (row + 1) & mask;
                         let scratch = EvaluatedRow::new(&scratch, tile_plan.width, lane);
-                        let mut value = gate_fold.evaluate(&compiled.gates, scratch, filter);
+                        let mut value = gate_plan.evaluate(&gate_fold, scratch, filter);
                         // Every term is computed; a filtered term adds zero but
                         // keeps its power of y.
                         let mut push = |term: ConstraintTerm, contribution: C::ScalarExt| {

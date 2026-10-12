@@ -6,6 +6,7 @@ struct IsoPaymentOutcomeFixture {
     operator: KeyPair,
     chain: iroha_core::sumeragi::test_chain::CertifiedTestChain,
     _store: tempfile::TempDir,
+    _reference: tempfile::NamedTempFile,
 }
 
 impl IsoPaymentOutcomeFixture {
@@ -21,6 +22,12 @@ impl IsoPaymentOutcomeFixture {
         let recipient = AccountId::new(recipient_key.public_key().clone());
         let definition = SumeragiNposParameters::default().xor_asset_definition_id;
         let store = tempfile::tempdir().expect("durable ISO store");
+        let reference = tempfile::NamedTempFile::new().expect("BIC reference snapshot");
+        std::fs::write(
+            reference.path(),
+            br#"{"version":"2026-01-01","source":"ISO outcome test","entries":[{"bic":"DEUTDEFF","lei":"5493001KJTIIGC8Y1R12"},{"bic":"MARKDEFF","lei":"5493001KJTIIGC8Y1R12"}]}"#,
+        )
+        .expect("write BIC reference snapshot");
         let config = actual::IsoBridge {
             enabled: true,
             max_body_bytes: defaults::torii::ISO_BRIDGE_MAX_BODY_BYTES,
@@ -63,7 +70,10 @@ impl IsoPaymentOutcomeFixture {
                 asset_definition: definition.to_string(),
                 max_amount: Quantity::from(1_000_u32),
             }],
-            reference_data: actual::IsoReferenceData::default(),
+            reference_data: actual::IsoReferenceData {
+                bic_lei_path: Some(reference.path().to_owned()),
+                ..actual::IsoReferenceData::default()
+            },
         };
         let world = World::with_assets(
             [],
@@ -161,6 +171,7 @@ impl IsoPaymentOutcomeFixture {
             operator,
             chain,
             _store: store,
+            _reference: reference,
         }
     }
 
@@ -272,6 +283,30 @@ async fn iso_settlement_rejects_absent_canonical_payment() {
             .unwrap()
             .pacs002_code(),
         "ACSC"
+    );
+    assert!(
+        fixture
+            .app
+            .iso_bridge
+            .as_ref()
+            .unwrap()
+            .message_status("outcome-settlement")
+            .is_none(),
+        "missing finality must leave the lifecycle identity retryable"
+    );
+    let mut membership = fixture.app.state.transactions.block_and_revert();
+    membership.insert_block(
+        HashSet::from([entrypoint_hash(fixture.hash)]),
+        NonZeroUsize::new(2).unwrap(),
+    );
+    membership.commit().expect("restore canonical membership");
+    assert_eq!(
+        fixture
+            .submit_settlement()
+            .await
+            .expect("the same notification resumes when finality is available")
+            .0,
+        StatusCode::ACCEPTED
     );
 }
 

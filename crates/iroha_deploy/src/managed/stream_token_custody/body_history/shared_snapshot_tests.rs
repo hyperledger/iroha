@@ -51,6 +51,45 @@ pub(super) fn history() -> (Fixture, BodyHistory) {
 }
 
 pub(super) fn history_with_bodies(count: usize) -> (Fixture, BodyHistory) {
+    build_history_with_bodies(
+        count,
+        None::<
+            fn(
+                &Fixture,
+                &BodyHistory,
+                &renewal::GeneratedRenewalAuthorization,
+                &VerifiedStreamTokenCustodyStateV1,
+            ),
+        >,
+    )
+}
+
+// Exercise a live continuation before its real final turn ends. The references cannot escape
+// this callback. The native chain remains at the same executed height while local body custody
+// is assembled; the original certified cut and finite authorization are borrowed, never renewed.
+pub(super) fn history_with_bodies_in_final_turn(
+    count: usize,
+    final_body: impl FnOnce(
+        &Fixture,
+        &BodyHistory,
+        &renewal::GeneratedRenewalAuthorization,
+        &VerifiedStreamTokenCustodyStateV1,
+    ),
+) -> (Fixture, BodyHistory) {
+    build_history_with_bodies(count, Some(final_body))
+}
+
+fn build_history_with_bodies(
+    count: usize,
+    mut final_body: Option<
+        impl FnOnce(
+            &Fixture,
+            &BodyHistory,
+            &renewal::GeneratedRenewalAuthorization,
+            &VerifiedStreamTokenCustodyStateV1,
+        ),
+    >,
+) -> (Fixture, BodyHistory) {
     assert!((2..=3).contains(&count), "small genuine parser fixture");
     let fixture = Fixture::enrolled_with_renewal_validity(4_000, 8_000);
     wait_until(
@@ -162,8 +201,20 @@ pub(super) fn history_with_bodies(count: usize) -> (Fixture, BodyHistory) {
                     .exists()
             );
         }
-        drop(turn);
-        retained = Some(finished.reopen(&fixture.owner).unwrap());
+        if ordinal == count
+            && let Some(final_body) = final_body.take()
+        {
+            let finished = finished.reopen(&fixture.owner).unwrap();
+            assert_eq!(fixture.native.chain.height(), current.height());
+            final_body(&fixture, &finished, authorization, &current);
+            assert_eq!(fixture.native.chain.height(), current.height());
+            drop(turn);
+            retained = Some(finished);
+        } else {
+            // Material-only callers retain the original end-turn-before-reopen recipe.
+            drop(turn);
+            retained = Some(finished.reopen(&fixture.owner).unwrap());
+        }
     }
     (fixture, retained.unwrap())
 }

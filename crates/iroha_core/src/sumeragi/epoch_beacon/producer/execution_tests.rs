@@ -198,6 +198,7 @@ fn executor(chain: &CertifiedTestChain) -> StateExecutor {
 /// A separate cold worker over `chain`'s published State in the chain's own consensus mode.
 fn executor_in(chain: &CertifiedTestChain, consensus_mode: ConsensusMode) -> StateExecutor {
     StateExecutor::spawn(ExecutorContext {
+        time_source: iroha_primitives::time::TimeSource::new_system(),
         state: Arc::clone(chain.state()),
         native_context_archive: Arc::new(
             crate::query::native_context_archive::NativeContextArchive::open(
@@ -231,7 +232,7 @@ fn invalid(executor: &mut StateExecutor, chain: &CertifiedTestChain, candidate: 
         .header()
         .hash(&crate::sumeragi::crypto::BlsCrypto::new());
     assert!(matches!(
-        executor.execute(candidate, &hash),
+        executor.execute(candidate, &hash, false),
         Some(ExecOutcome::Invalid)
     ));
     // The fixture chain's own tip never moves through this separate worker: a refusal leaves
@@ -390,7 +391,7 @@ fn native_pulse_refusals_preserve_the_exact_predecessor_and_require_actual_work(
         .hash(&crate::sumeragi::crypto::BlsCrypto::new());
     assert!(
         matches!(
-            executor(&unrequested).execute(&requested_nothing, &hash),
+            executor(&unrequested).execute(&requested_nothing, &hash, false),
             Some(ExecOutcome::Valid(_))
         ),
         "without the unrequested witness the same ordinary body is valid"
@@ -673,8 +674,11 @@ fn pending_parliament_slots_create_no_native_control_demand_and_never_block_unre
         .hash(&crate::sumeragi::crypto::BlsCrypto::new());
     assert!(
         matches!(
-            executor_in(&custody.chain, ConsensusMode::Permissioned)
-                .execute(&requested_nothing, &hash),
+            executor_in(&custody.chain, ConsensusMode::Permissioned).execute(
+                &requested_nothing,
+                &hash,
+                false
+            ),
             Some(ExecOutcome::Valid(_))
         ),
         "without the unrequested witness the same body is valid at the governance slot"

@@ -278,6 +278,7 @@ mod tests {
     use super::*;
     use crate::{
         smartcontracts::isi::sccp::test_support::{blank_state, header},
+        state::World,
         sumeragi::schedule::{ChainParamsRecord, ConsensusSchedule, ScheduledConfig},
     };
 
@@ -436,12 +437,16 @@ mod tests {
         use iroha_allocation::AllocationRefusal;
         let state = blank_state();
         let budget = state.ivm_execution_budget();
+        // The empty parent's admitted SCCP fields and this schedule use the same
+        // original pool. Keep those independent fields live throughout the graph
+        // refund measurement; only the unpublished overlay owns the schedule.
+        let world = World::try_with_execution_budget([], [], [], &budget).unwrap();
         let baseline = budget.reserved_bytes();
         let graph = authenticated_schedule();
         let original = RetainedConsensusSchedule::admit(&graph, &budget).unwrap();
         let charged = budget.reserved_bytes();
         assert!(charged > baseline);
-        let mut source_block = state.world.try_block(&budget).unwrap();
+        let mut source_block = world.try_block(&budget).unwrap();
         *source_block.consensus_schedule.get_mut() = original;
         let view = &source_block;
         let source = view.consensus_schedule().ready(2).unwrap();
@@ -506,6 +511,10 @@ mod tests {
         );
         assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
         drop(source_block);
+        assert!(
+            world.consensus_schedule.view().get().entries().is_empty(),
+            "the empty parent World cannot retain the private schedule graph"
+        );
         drop(external);
         let original = captured.unwrap();
         assert_eq!(
@@ -547,11 +556,15 @@ mod tests {
     fn height_capture_retires_original_charges_after_unwind_and_final_reader() {
         let state = blank_state();
         let budget = state.ivm_execution_budget();
+        // The empty parent's admitted SCCP fields and this schedule use the same
+        // original pool. Keep those independent fields live throughout the graph
+        // refund measurement; only the unpublished overlay owns the schedule.
+        let world = World::try_with_execution_budget([], [], [], &budget).unwrap();
         let baseline = budget.reserved_bytes();
         let graph = authenticated_schedule();
         let original = RetainedConsensusSchedule::admit(&graph, &budget).unwrap();
         let charged = budget.reserved_bytes();
-        let mut source_block = state.world.try_block(&budget).unwrap();
+        let mut source_block = world.try_block(&budget).unwrap();
         *source_block.consensus_schedule.get_mut() = original;
         let survivor = RetainedSccpHeightInputsV1::from_sumeragi_schedule(
             &source_block,
@@ -563,6 +576,10 @@ mod tests {
         let original_peer =
             std::ptr::from_ref(survivor.inputs().unwrap().roster.iter().next().unwrap());
         drop(source_block);
+        assert!(
+            world.consensus_schedule.view().get().entries().is_empty(),
+            "the empty parent World cannot retain the private schedule graph"
+        );
         let attempt = survivor.clone();
         let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
             let inputs = attempt.inputs().unwrap();
@@ -626,6 +643,10 @@ mod tests {
     fn original_ready_slots_preserve_lookup_and_boundary_overflow_refusal() {
         let state = blank_state();
         let budget = state.ivm_execution_budget();
+        // The empty parent's admitted SCCP fields and this schedule use the same
+        // original pool. Keep those independent fields live throughout the graph
+        // refund measurement; only the unpublished overlay owns the schedule.
+        let world = World::try_with_execution_budget([], [], [], &budget).unwrap();
         let baseline = budget.reserved_bytes();
         // Permissioned genesis authenticates its original epoch through u64::MAX. This
         // structural window exercises arithmetic only; it does not claim execution at MAX.
@@ -652,7 +673,7 @@ mod tests {
                 .collect(),
         )
         .unwrap();
-        let mut source_block = state.world.try_block(&budget).unwrap();
+        let mut source_block = world.try_block(&budget).unwrap();
         *source_block.consensus_schedule.get_mut() =
             RetainedConsensusSchedule::admit(&graph, &budget).unwrap();
         let view = &source_block;
@@ -703,6 +724,10 @@ mod tests {
         assert_eq!(allocations, 0);
         assert_eq!(budget.reserved_bytes(), charged);
         drop(source_block);
+        assert!(
+            world.consensus_schedule.view().get().entries().is_empty(),
+            "the empty parent World cannot retain the private schedule graph"
+        );
         assert_eq!(budget.reserved_bytes(), baseline);
     }
 }

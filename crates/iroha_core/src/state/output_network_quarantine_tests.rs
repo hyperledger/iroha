@@ -22,7 +22,7 @@ fn quarantine_fixture(
     fee_asset: Option<iroha_data_model::asset::AssetDefinitionId>,
     quota: usize,
 ) -> State {
-    fixture_with_pipeline_policy(row_bytes, callback_bytes, fee_asset, |policy| {
+    fixture_with_policy(row_bytes, callback_bytes, fee_asset, |policy| {
         policy.quarantine_max_txs_per_block = u64::try_from(quota).unwrap();
     })
 }
@@ -546,17 +546,29 @@ fn signed_batch_and_ballot_cannot_bypass_a_zero_quarantine_quota() {
 
 #[test]
 fn sealed_reveal_quota_uses_actual_pending_commitments_and_outer_source_hashes() {
+    use crate::sumeragi::test_chain::{CertifiedTestChain, Signers};
+
     for quota in [0, 1] {
-        let mut policy =
-            crate::pipeline_validity_policy::PipelineValidityPolicyV1::protocol_default();
+        let component = state(65_536);
+        let mut policy = component
+            .world
+            .parameters
+            .view()
+            .get()
+            .pipeline_policy()
+            .clone();
         policy.quarantine_max_txs_per_block = u64::try_from(quota).unwrap();
-        let mut config = output_fixture_config(state(65_536), Some(policy));
+        let mut config = output_fixture_config(component, policy.clone());
         config
             .genesis_instructions
             .push(Register::account(Account::new(ALICE_ID.clone())).into());
-        let mut chain = crate::sumeragi::test_chain::CertifiedTestChain::start(config)
-            .expect("original signed quarantine policy and account");
+        let mut chain =
+            CertifiedTestChain::start(config).expect("actual signed quarantine genesis");
         let state = std::sync::Arc::clone(chain.state());
+        assert_eq!(
+            state.world.parameters.view().get().pipeline_policy(),
+            &policy
+        );
         assert_eq!(
             crate::pipeline_validity_policy::committed(state.view().world.parameters.get())
                 .unwrap(),
@@ -596,29 +608,65 @@ fn sealed_reveal_quota_uses_actual_pending_commitments_and_outer_source_hashes()
                 SealedTransactionReveal::new(commitment, signed, salt),
             ));
         }
-        let prior_pending_count = state.view().world.smart_contract_state().iter().count();
-        let committed = chain.commit_entrypoints(commits);
-        assert_eq!(chain.height(), 2);
+        let source = chain.proposal_entrypoints(commits);
+        assert_eq!(source.header().height().get(), 2);
+        let (mut committing, committing_recording) = recorded_network_block(&state, &source);
+        let prior_pending_count = committing.world.smart_contract_state().iter().count();
+        execute(&mut committing, &source).unwrap();
         for index in 0..2 {
-            assert_plain_success(
-                committed
-                    .block()
-                    .network_output_at(u32::try_from(index).unwrap())
-                    .unwrap()
-                    .1,
-                index,
-            );
+            assert_plain_success(network_row(&committing, index), index);
         }
-        let pending: Vec<_> = state
-            .view()
+        let pending: Vec<_> = committing
             .world
             .smart_contract_state()
             .iter()
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect();
         assert_eq!(pending.len(), prior_pending_count + 2);
-        // Actual commitment publication advances the authenticated lag-two schedule.
-        // The reveal remains a component execution against that original committed parent.
+        let component_rows = (0..2)
+            .map(|index| network_row(&committing, index).clone())
+            .collect::<Vec<_>>();
+        // Retire only this disposable component observation. The exact same
+        // original proposal now executes, certifies and applies through the node
+        // worker, advancing the authentic successor schedule for reveal height 3.
+        drop(committing);
+        drop(committing_recording);
+        let committed = chain.commit_proposal(source.clone(), Signers::Quorum, Default::default());
+        assert_eq!(committed.height(), 2);
+        assert_eq!(chain.height(), 2);
+        let native_rows = committed
+            .block()
+            .execution_outputs()
+            .iter()
+            .filter_map(|output| match output {
+                ExecutionOutputV1::Network(row) => Some(row.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(native_rows, component_rows);
+        assert_eq!(
+            committed
+                .block()
+                .network_entrypoints()
+                .map(|input| input.hash())
+                .collect::<Vec<_>>(),
+            source
+                .network_entrypoints()
+                .map(|input| input.hash())
+                .collect::<Vec<_>>(),
+        );
+        {
+            let view = state.view();
+            assert_eq!(view.height(), 2);
+            assert!(view.world().consensus_schedule().ready(4).is_ok());
+            let certified_pending = view
+                .world()
+                .smart_contract_state()
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect::<Vec<_>>();
+            assert_eq!(certified_pending, pending);
+        }
         let selected = reveals
             .iter()
             .enumerate()

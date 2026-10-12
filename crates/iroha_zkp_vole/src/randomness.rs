@@ -225,10 +225,10 @@ mod tests {
             roots.dedup();
             assert_eq!(roots.len(), prefixes.len());
             // Padding `rho` with zeros is a different input.
-            let short = Tape::derive(Namespace::REFERENCE, level, &secret, &mu, &[0; 16])
-                .expect("valid");
-            let long = Tape::derive(Namespace::REFERENCE, level, &secret, &mu, &[0; 17])
-                .expect("valid");
+            let short =
+                Tape::derive(Namespace::REFERENCE, level, &secret, &mu, &[0; 16]).expect("valid");
+            let long =
+                Tape::derive(Namespace::REFERENCE, level, &secret, &mu, &[0; 17]).expect("valid");
             assert_ne!(short.root(), long.root());
         }
     }
@@ -269,7 +269,9 @@ mod tests {
         erases_on_drop::<Tape>();
         for level in SecurityLevel::ALL {
             let lb = level.bytes();
-            let root: Vec<u8> = (1..=lb).map(|byte| u8::try_from(byte).expect("small")).collect();
+            let root: Vec<u8> = (1..=lb)
+                .map(|byte| u8::try_from(byte).expect("small"))
+                .collect();
             let mut tape = Tape::explicit(level, &root, &[0x7e; 16]).expect("valid");
             assert_eq!(tape.root(), root);
             assert_eq!(tape.iv_pre(), &[0x7e; 16]);

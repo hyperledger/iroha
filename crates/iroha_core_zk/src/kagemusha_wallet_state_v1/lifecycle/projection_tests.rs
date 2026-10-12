@@ -184,7 +184,7 @@ fn receiver_projection_updates_at_covering_fold_before_collection_and_new_unfold
         let refused =
             norito::with_decode_limits_scope(limits, || wallet.receive_credit_projection(&id));
         assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
-            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
         assert_eq!(wallet.manifest().unwrap().0, root);
         assert_eq!(
             wallet.receive_credit_projection(&id).unwrap().bytes(),
@@ -566,7 +566,7 @@ fn payer_projection_observes_later_credit_status_after_send_collection_without_a
             payer.delivery_credit_projection(&send, &anchor, &newer)
         });
         assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
-            if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
         assert_eq!(payer.manifest().unwrap().0, root);
         assert_eq!(
             payer

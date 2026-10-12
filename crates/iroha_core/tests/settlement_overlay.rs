@@ -210,7 +210,7 @@ fn dvp_overlay_rejects_underfunded_leg() {
     let mut stx = block
         .transaction_for_fastpq_testing(iroha_crypto::Hash::new(b"settlement-overlay-component"));
     let instruction = DvpIsi {
-        settlement_id: "overlay_underfunded".parse().unwrap(),
+        settlement_id: SettlementId::new(ALICE_ID.clone(), "overlay_underfunded".parse().unwrap()),
         delivery_leg: SettlementLeg::new(
             delivery_def_id.clone(),
             Quantity::from(5u32),
@@ -284,7 +284,7 @@ fn pvp_overlay_executes_when_funded() {
     let mut stx = block
         .transaction_for_fastpq_testing(iroha_crypto::Hash::new(b"settlement-overlay-component"));
     let instruction = PvpIsi {
-        settlement_id: "overlay_funded_fx".parse().unwrap(),
+        settlement_id: SettlementId::new(ALICE_ID.clone(), "overlay_funded_fx".parse().unwrap()),
         primary_leg: SettlementLeg::new(
             primary_def_id.clone(),
             Quantity::from(5u32),
@@ -326,7 +326,7 @@ fn pvp_overlay_executes_when_funded() {
     );
 }
 #[test]
-fn dvp_overlay_rejects_commit_first_without_moving_assets() {
+fn dvp_overlay_delivery_first_rejects_invalid_precision_without_moving_assets() {
     let (chain, delivery_def_id, payment_def_id) =
         settlement_state_with_payment_spec(NumericSpec::fractional(2));
     let state = chain.state();
@@ -354,7 +354,10 @@ fn dvp_overlay_rejects_commit_first_without_moving_assets() {
     let mut stx = block
         .transaction_for_fastpq_testing(iroha_crypto::Hash::new(b"settlement-overlay-component"));
     let instruction = DvpIsi {
-        settlement_id: "overlay_commit_first".parse().unwrap(),
+        settlement_id: SettlementId::new(
+            ALICE_ID.clone(),
+            "overlay_precision_delivery_first".parse().unwrap(),
+        ),
         delivery_leg: SettlementLeg::new(
             delivery_def_id.clone(),
             Quantity::from(5u32),
@@ -369,7 +372,7 @@ fn dvp_overlay_rejects_commit_first_without_moving_assets() {
         ),
         plan: SettlementPlan::new(
             SettlementExecutionOrder::DeliveryThenPayment,
-            SettlementAtomicity::CommitFirstLeg,
+            SettlementAtomicity::AllOrNothing,
         ),
         metadata: Metadata::default(),
     };
@@ -380,10 +383,11 @@ fn dvp_overlay_rejects_commit_first_without_moving_assets() {
         instruction.intent_hash(),
     );
     let err = apply_overlay(&mut stx, &ALICE_ID, vec![InstructionBox::from(instruction)])
-        .expect_err("partial-commit DvP must fail admission");
+        .expect_err("invalid payment precision must fail admission");
     match err {
-        ValidationFail::InstructionFailed(exec_err)
-            if exec_err.to_string().contains("AllOrNothing") => {}
+        ValidationFail::InstructionFailed(InstructionExecutionError::Evaluate(
+            iroha_data_model::isi::error::InstructionEvaluationError::Type(_),
+        )) => {}
         ValidationFail::InstructionFailed(exec_err) => panic!("unexpected error: {exec_err:?}"),
         other => panic!("unexpected validation error: {other:?}"),
     }
@@ -397,7 +401,7 @@ fn dvp_overlay_rejects_commit_first_without_moving_assets() {
     assert_eq!(bob_cash, Quantity::from(2u32));
 }
 #[test]
-fn dvp_overlay_rejects_commit_second_without_moving_assets() {
+fn dvp_overlay_payment_first_rejects_invalid_precision_without_moving_assets() {
     let (chain, delivery_def_id, payment_def_id) =
         settlement_state_with_payment_spec(NumericSpec::fractional(2));
     let state = chain.state();
@@ -428,7 +432,10 @@ fn dvp_overlay_rejects_commit_second_without_moving_assets() {
     let bob_delivery_before = asset_balance(&stx, &delivery_def_id, &BOB_ID);
     let bob_cash_before = asset_balance(&stx, &payment_def_id, &BOB_ID);
     let instruction = DvpIsi {
-        settlement_id: "overlay_commit_second".parse().unwrap(),
+        settlement_id: SettlementId::new(
+            ALICE_ID.clone(),
+            "overlay_precision_payment_first".parse().unwrap(),
+        ),
         delivery_leg: SettlementLeg::new(
             delivery_def_id.clone(),
             Quantity::from(5u32),
@@ -442,8 +449,8 @@ fn dvp_overlay_rejects_commit_second_without_moving_assets() {
             ALICE_ID.clone(),
         ),
         plan: SettlementPlan::new(
-            SettlementExecutionOrder::DeliveryThenPayment,
-            SettlementAtomicity::CommitSecondLeg,
+            SettlementExecutionOrder::PaymentThenDelivery,
+            SettlementAtomicity::AllOrNothing,
         ),
         metadata: Metadata::default(),
     };
@@ -454,10 +461,11 @@ fn dvp_overlay_rejects_commit_second_without_moving_assets() {
         instruction.intent_hash(),
     );
     let err = apply_overlay(&mut stx, &ALICE_ID, vec![InstructionBox::from(instruction)])
-        .expect_err("partial-commit DvP must fail admission");
+        .expect_err("invalid payment precision must fail admission");
     match err {
-        ValidationFail::InstructionFailed(exec_err)
-            if exec_err.to_string().contains("AllOrNothing") => {}
+        ValidationFail::InstructionFailed(InstructionExecutionError::Evaluate(
+            iroha_data_model::isi::error::InstructionEvaluationError::Type(_),
+        )) => {}
         ValidationFail::InstructionFailed(exec_err) => panic!("unexpected error: {exec_err:?}"),
         other => panic!("unexpected validation error: {other:?}"),
     }

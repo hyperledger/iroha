@@ -13,6 +13,9 @@ impl From<state::NativeOpenErrorV1> for Failure {
     fn from(error: state::NativeOpenErrorV1) -> Self {
         match error {
             state::NativeOpenErrorV1::State(error) => error.into(),
+            state::NativeOpenErrorV1::Intake(intake::Error::DecodeResource(original)) => {
+                state::Error::DecodeResource(original).into()
+            }
             state::NativeOpenErrorV1::Intake(intake::Error::Provider(error)) => error.into(),
             state::NativeOpenErrorV1::Intake(intake::Error::SourceChanged) => Self::code(CONFLICT),
             state::NativeOpenErrorV1::Intake(_) => Self::code(INVALID),

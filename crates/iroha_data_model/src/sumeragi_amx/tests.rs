@@ -1031,6 +1031,85 @@ fn sumeragi_amx_state_relays_handoffs_to_the_registered_tracker() {
     state.validate().unwrap();
 }
 
+#[test]
+fn sumeragi_amx_registered_destination_lineage_survives_handoffs_and_restart() {
+    let first = fixture(4);
+    let second = rotated(&first, [5, 6, 7, 8]);
+    let third = rotated(&second, [9, 10, 11, 12]);
+    let fourth = rotated(&third, [13, 14, 15, 16]);
+    let original_network = first.network_id;
+    let original_instance = instance(DS1);
+    let mut state = state_with(&[DS1]);
+
+    // A separately valid tracker cannot replace the registered bank at the same DsId.
+    let mut foreign = first.clone();
+    foreign.network_id = crate::NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
+        Hash::new(b"another registered bank root"),
+    ));
+    foreign.authorization.network_id = foreign.network_id;
+    foreign.authorization.authority_id = foreign.generation().generation_id().unwrap();
+    foreign.validate().unwrap();
+    let replacement =
+        AmxForeignInstanceV1::new(instance(DS2), foreign, CertifiedResultScope::NonGlobal).unwrap();
+    let before = state.clone();
+    assert!(state.register_dataspace(DS1, replacement).is_err());
+    assert_eq!(state, before);
+
+    // Even a genuine quorum over an otherwise valid boundary of another instance
+    // cannot replace that registered instance's committee or destination identity.
+    let other_instance = AmxHandoffProofV1 {
+        block: certify(instance(DS2), &first, 10, &[], Some(&second), 3),
+    };
+    assert!(state.relay_handoff(DS1, &other_instance).is_err());
+    assert_eq!(state, before);
+
+    // A complete, individually valid context from another network cannot be a
+    // successor. It is rejected before a canonical certified result can be built.
+    let mut relabeled = second.clone();
+    relabeled.network_id = crate::NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
+        Hash::new(b"relabeled bank network"),
+    ));
+    relabeled.authorization.network_id = relabeled.network_id;
+    relabeled.authorization.authority_id = relabeled.generation().generation_id().unwrap();
+    relabeled.validate().unwrap();
+    assert!(relabeled.validate_successor(&first).is_err());
+    let boundary = ValidatorEpochBoundaryV1 {
+        version: 1,
+        height: 10,
+        predecessor_context_id: first.context_id().unwrap(),
+        selection_anchor: HashOf::from_untyped_unchecked(Hash::new(b"boundary parent")),
+        next: relabeled,
+        preparation: None,
+    };
+    assert!(boundary.validate_against(&first).is_err());
+
+    for (previous, next) in [(&first, &second), (&second, &third), (&third, &fourth)] {
+        let handoff = AmxHandoffProofV1 {
+            block: certify(
+                original_instance,
+                previous,
+                previous.authorization.last_height,
+                &[],
+                Some(next),
+                3,
+            ),
+        };
+        assert!(matches!(
+            state.relay_handoff(DS1, &handoff).unwrap(),
+            AmxHandoffOutcome::Advanced { .. }
+        ));
+        let wire = norito::encode_canonical(&state).unwrap();
+        let restored: SumeragiAmxState = norito::decode_canonical(&wire).unwrap();
+        restored.validate().unwrap();
+        assert_eq!(restored, state);
+        state = restored;
+        let tracker = &state.dataspace(DS1).unwrap().tracker;
+        assert_eq!(tracker.instance, original_instance);
+        assert_eq!(tracker.current.network_id, original_network);
+        assert_eq!(tracker.current, *next);
+    }
+}
+
 const GLOBAL: [u8; 32] = [0x47; 32];
 
 /// An in-memory dataspace ledger: a leg `[from, to, amount_be64]` moves `amount` from `from` to

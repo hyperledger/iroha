@@ -266,8 +266,12 @@ fn current_payload_selects_full_block_gas_call_with_idle_catalog_route() {
     queue
         .push_with_lane_with_state_and_routing_plan(accepted.clone(), &state, plan.clone())
         .unwrap();
-    let lane_inputs =
-        QueueLaneTransactions::new(busy_route.lane_id, Arc::clone(&queue), Arc::clone(&state));
+    let lane_inputs = QueueLaneTransactions::new(
+        busy_route.lane_id,
+        Arc::clone(&queue),
+        Arc::clone(&state),
+        time.clone(),
+    );
     // Fresh native-lane work belongs to its lane, while idle catalog lanes do
     // not divide this original input's gas budget or transfer pending ownership.
     for _ in 0..2 {
@@ -276,7 +280,8 @@ fn current_payload_selects_full_block_gas_call_with_idle_catalog_route() {
                 &state.view(),
                 &queue,
                 max_bytes,
-                &crate::sumeragi::payload::MergeProposal::default()
+                &crate::sumeragi::payload::MergeProposal::default(),
+                iroha_primitives::time::TimeSource::new_system().now()
             )
             .expect("completed original routing read")
             .is_empty(),
@@ -367,6 +372,7 @@ fn current_native_fifo_survives_unrelated_global_application_on_consensus_stack(
                 &queue,
                 1024 * 1024,
                 &crate::sumeragi::payload::MergeProposal::default(),
+                iroha_primitives::time::TimeSource::new_system().now(),
             )
             .expect("completed routing read");
             assert_eq!(

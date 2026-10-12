@@ -158,11 +158,13 @@ impl<F: LambdaField> ConstraintSystem for Verifier<'_, F> {
     type Value = Key<F>;
 
     fn witness(&self, index: usize) -> Key<F> {
-        self.coordinate(index)
-            .map_or_else(|| Key::marked(Degree::BadIndex), |key| Key {
+        self.coordinate(index).map_or_else(
+            || Key::marked(Degree::BadIndex),
+            |key| Key {
                 key,
                 degree: Degree::ONE,
-            })
+            },
+        )
     }
 
     fn constant(&self, value: F) -> Key<F> {
@@ -231,8 +233,8 @@ mod tests {
         let delta = element(1);
         let keys: Vec<u8> = (10..26).flat_map(|seed| element(seed).to_bytes()).collect();
         let masked = [0b0000_0101u8, 0x80];
-        let system = Verifier::<F>::new(&masked, &keys, delta, 16, &[1u8; 104])
-            .expect("valid challenge");
+        let system =
+            Verifier::<F>::new(&masked, &keys, delta, 16, &[1u8; 104]).expect("valid challenge");
         assert_eq!(system.len(), 16);
         for index in 0..16u64 {
             let bit = [0u64, 2, 15].contains(&index);
@@ -250,7 +252,10 @@ mod tests {
         assert_eq!(system.coordinate(16), None);
         assert_eq!(system.witness(16).degree, Degree::BadIndex);
         assert_eq!(system.powers[0], F::ONE);
-        assert_eq!(system.powers[7], delta.square().square() * delta.square() * delta);
+        assert_eq!(
+            system.powers[7],
+            delta.square().square() * delta.square() * delta
+        );
     }
 
     #[test]
@@ -261,7 +266,10 @@ mod tests {
             Verifier::<F>::with_keys(&keys, delta, 3, &[1u8; 104]).expect("valid challenge");
         let w: Vec<Key<F>> = (0..3).map(|i| system.witness(i)).collect();
         let product = system.mul(w[0], w[1]);
-        assert_eq!((product.key, product.degree), (keys[0] * keys[1], Degree::TWO));
+        assert_eq!(
+            (product.key, product.degree),
+            (keys[0] * keys[1], Degree::TWO)
+        );
         let c = system.constant(element(6));
         for sum in [
             system.add(system.add(product, w[2]), c),
@@ -275,7 +283,10 @@ mod tests {
         }
         assert_eq!(system.add(w[0], w[1]).key, keys[0] + keys[1]);
         let scaled = system.scale(product, element(7));
-        assert_eq!((scaled.key, scaled.degree), (product.key * element(7), Degree::TWO));
+        assert_eq!(
+            (scaled.key, scaled.degree),
+            (product.key * element(7), Degree::TWO)
+        );
         let missing = system.witness(3);
         assert_eq!(system.add(w[0], missing).degree, Degree::BadIndex);
         assert_eq!(system.mul(missing, w[0]).degree, Degree::BadIndex);

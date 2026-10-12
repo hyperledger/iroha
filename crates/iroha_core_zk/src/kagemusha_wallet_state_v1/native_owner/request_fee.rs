@@ -193,7 +193,7 @@ mod tests {
         ] {
             let refused = norito::with_decode_limits_scope(limits, || fee_policy(&scheme, &a, &b));
             assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
-                if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+                if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
             assert_eq!(fee_policy(&scheme, &a, &b).unwrap(), (actual, issuer));
         }
     }

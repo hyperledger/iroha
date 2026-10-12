@@ -17,7 +17,7 @@ use super::recipe::InstalledSourceSealV1;
 use super::*;
 
 /// A logical route failed exact source reconstruction or original-key intake.
-#[derive(Clone, Copy, Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 pub enum OperationQualificationErrorV1 {
     /// The caller cancelled original import; the source was not rejected.
     #[error("operation source import cancelled")]

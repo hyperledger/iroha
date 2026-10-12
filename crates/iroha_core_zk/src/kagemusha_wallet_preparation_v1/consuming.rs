@@ -92,20 +92,20 @@ fn charge_terms(
     let Some(original) = original else {
         return Ok((0, [0; 32]));
     };
-    let quote = authority(KagemushaWalletChargeQuoteV1::decode_canonical(
-        original.quote,
-        &scheme.scheme_id(),
-    ))?;
+    let quote = read_model(|| {
+        KagemushaWalletChargeQuoteV1::decode_canonical(original.quote, &scheme.scheme_id())
+    })?;
     if original.certificate_set.is_empty()
         || original.certificate_set.len() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1
     {
         return Err(Error::Authority);
     }
-    let certificates: KagemushaWalletCertificateSetV1 = norito::decode_canonical_with_limits(
-        original.certificate_set,
-        norito::canonical_decode_limits(original.certificate_set.len()),
-    )
-    .map_err(|_| Error::Authority)?;
+    let certificates: KagemushaWalletCertificateSetV1 = read_original(|| {
+        norito::decode_canonical_with_limits(
+            original.certificate_set,
+            norito::canonical_decode_limits(original.certificate_set.len()),
+        )
+    })?;
     authority(certificates.verify(scheme))?;
     let signer = authority(certificates.certificate(
         &quote.body.signer_certificate,
