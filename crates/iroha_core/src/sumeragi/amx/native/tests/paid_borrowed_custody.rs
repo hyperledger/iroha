@@ -100,6 +100,8 @@ fn paid_global_sign(
         view.pipeline(),
         &signed,
         created_ms,
+        crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+            .expect("original committed fixture time"),
         chain.height() + 1,
         Some(DataSpaceId::UNIVERSAL),
     )
@@ -301,7 +303,7 @@ fn authenticate_original_prepared(
     assert_eq!(registration.tracker.instance, chain.instance().0);
     let verified = registration
         .tracker
-        .verify_record(proof)
+        .verify_record(proof, chain.root_scope().into())
         .expect("genuine exact registered source certificate and writes");
     assert_eq!(verified.height, chain.height());
     assert!(

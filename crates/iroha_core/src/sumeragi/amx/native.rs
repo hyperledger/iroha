@@ -839,7 +839,10 @@ impl Execute for RelayGlobalAmxHandoffV1 {
         let source = original.canonical().expect("checked participant");
         let global = &source.participant.global;
         let verified = global
-            .verify_block(&self.proof.block)
+            .verify_block(
+                &self.proof.block,
+                iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+            )
             .map_err(|error| super::amx_error(error, state))?;
         if verified.epoch != global.epoch() {
             return Ok(());
@@ -850,7 +853,7 @@ impl Execute for RelayGlobalAmxHandoffV1 {
             ));
         }
         let boundary = verified
-            .commitment
+            .commitment()
             .schedule
             .boundary
             .as_ref()

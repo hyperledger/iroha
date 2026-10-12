@@ -2109,6 +2109,8 @@ impl NativeCompletionPayloadBuilderV1 {
             &view.pipeline,
             &payload,
             payload.creation_time_ms,
+            iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                .map_err(|_| ProviderIngestCompletionPayloadErrorV1::Unavailable)?,
             next_height,
             Some(route.route.dataspace_id),
         )

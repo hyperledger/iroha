@@ -126,6 +126,12 @@ fn revision(number: u32, activation: SccpRouteActivationV1) -> SccpRouteRevision
         ..SccpRouteRevisionV1::staged(
             number,
             evm(u8::try_from(number).expect("small revision")),
+            iroha_data_model::sccp::deployment::SccpCommitteePinV1 {
+                generation: 1,
+                committee_root: [0x44; 32],
+                start_height: 1,
+                until_ms: 1_801_209_600_000,
+            },
             21_000_000_000_000_000,
             100,
         )
@@ -1006,11 +1012,14 @@ fn leaf_control_and_record_roundtrips() {
         roundtrip(&SccpLeafRefV1::control(network, 2, u64::MAX));
     }
     roundtrip(&SccpControlRecordV1 {
-        paused: false,
+        track: 1,
+        parliament_paused: false,
+        fast_pause_until_ms: 0,
         height: 99,
         commitment_index: 511,
         leaf: [3; 32],
-        proposal_id: [4; 32],
+        certificate_id: [4; 32],
+        effect_hash: [5; 32],
     });
     for status in outbound_statuses() {
         roundtrip(&status);
@@ -1027,6 +1036,7 @@ fn leaf_control_and_record_roundtrips() {
         SccpPendingReasonV1::CreditRefused,
         SccpPendingReasonV1::FeeSinkUnavailable,
         SccpPendingReasonV1::BlockLeavesFull,
+        SccpPendingReasonV1::Held,
     ] {
         roundtrip(&reason);
         roundtrip(&inbound(SccpInboundStatusV1::pending(reason)));
@@ -1380,6 +1390,7 @@ fn enum_json_tags_are_snake_case() {
             json_tag(&SccpPendingReasonV1::BlockLeavesFull, "reason"),
             "block_leaves_full",
         ),
+        (json_tag(&SccpPendingReasonV1::Held, "reason"), "held"),
         (
             json_tag(&SccpRouteActivationV1::InboundOnly, "activation"),
             "inbound_only",
@@ -1425,7 +1436,7 @@ fn unknown_binary_tags_are_rejected() {
     assert_rejects_tags::<SccpLeafRefV1>(&[2, u32::MAX], 64);
     assert_rejects_tags::<SccpVoidKindV1>(&[2, u32::MAX], 0);
     assert_rejects_tags::<SccpOutboundStatusV1>(&[4, u32::MAX], 64);
-    assert_rejects_tags::<SccpPendingReasonV1>(&[6, u32::MAX], 0);
+    assert_rejects_tags::<SccpPendingReasonV1>(&[7, u32::MAX], 0);
     assert_rejects_tags::<SccpInboundStatusV1>(&[3, u32::MAX], 64);
     assert_rejects_tags::<SccpRouteActivationV1>(&[5, u32::MAX], 0);
     assert_rejects_tags::<SccpLcFreezeReasonV1>(&[2, u32::MAX], 64);
@@ -1795,7 +1806,18 @@ fn registry_rules() {
     assert!(!SccpRouteActivationV1::Retired.can_transition_to(SccpRouteActivationV1::Staged));
     assert!(!SccpRouteActivationV1::Staged.can_transition_to(SccpRouteActivationV1::Paused));
 
-    let staged = SccpRouteRevisionV1::staged(1, evm(9), 1_000, 40);
+    let staged = SccpRouteRevisionV1::staged(
+        1,
+        evm(9),
+        iroha_data_model::sccp::deployment::SccpCommitteePinV1 {
+            generation: 1,
+            committee_root: [0x44; 32],
+            start_height: 1,
+            until_ms: 1_801_209_600_000,
+        },
+        1_000,
+        40,
+    );
     assert_eq!(staged.destination_word, evm(9).destination_word());
     assert_eq!(staged.next_control_nonce, SCCP_FIRST_CONTROL_NONCE_V1);
     assert_eq!(staged.next_outbound_nonce, 0);

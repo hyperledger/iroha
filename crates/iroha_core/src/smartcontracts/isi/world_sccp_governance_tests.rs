@@ -232,3 +232,183 @@ world_test!(sccp_governance_proposals_list_open_proposals_with_their_admissibili
     let listed = read::governance_proposals(&*stx.world);
     assert!(!listed[0].admissible);
 });
+
+// This fixture establishes a route and retained pause before running the real stored,
+// validated due-certificate executor. It qualifies effect/cause binding and rollback, not
+// route registration, current PQ ballot production, or emergency-pause establishment.
+fn seed_due_sccp_control_certificate(
+    stx: &mut StateTransaction<'_, '_>,
+    paused: bool,
+) -> DueParliamentCertificateFixture {
+    use crate::smartcontracts::isi::sccp::{
+        pause_record::RetainedSccpFastPause, store, test_support,
+    };
+    use iroha_data_model::{
+        bridge::SccpNetworkV1,
+        sccp::{
+            governance::{
+                SccpGovernanceActionV1, SccpGovernanceProposalV1, SccpGovernanceSubjectV1,
+                SccpSetDestinationPausedActionV1,
+            },
+            params::SccpParametersV1,
+        },
+    };
+    let network = SccpNetworkV1::EthereumMainnet;
+    store::parameters::set(stx, Some(SccpParametersV1::taira_default()));
+    let mut route = test_support::sample_route(network);
+    route.revisions.get_mut(&1).unwrap().destination_paused = !paused;
+    store::routes::insert(stx, network, route).unwrap();
+    let mut pause = test_support::sample_fast_pause(1);
+    pause.enacted_at_ms = stx.block_unix_timestamp_ms();
+    pause.until_ms = pause.enacted_at_ms.checked_add(10_000).unwrap();
+    let retained = RetainedSccpFastPause::admit(&pause, &stx.execution_budget()).unwrap();
+    store::fast_pauses::insert(stx, network, retained).unwrap();
+    let proposal = SccpGovernanceProposalV1 {
+        network_id: stx.network_id,
+        base_revisions: vec![(SccpGovernanceSubjectV1::RouteControl(network), 0).into()],
+        actions: vec![SccpGovernanceActionV1::SetDestinationPaused(
+            SccpSetDestinationPausedActionV1 {
+                network,
+                revision: 1,
+                paused,
+            },
+        )],
+    };
+    seed_due_parliament_certificate(stx, sccp_route_governance_test_kind(&proposal))
+}
+
+#[test]
+fn parliament_due_sccp_control_binds_exact_certificate_and_complete_pause_state() {
+    use crate::smartcontracts::isi::sccp::store;
+    use iroha_data_model::{bridge::SccpNetworkV1, sccp::events::SccpEvent};
+    use iroha_sccp::v1::control::{ControlLeafV1, control_leaf};
+
+    for paused in [false, true] {
+        let state = blank_test_state();
+        let block =
+            new_dummy_block_at_height(NonZeroU64::new(PARLIAMENT_DUE_CERTIFICATE_HEIGHT).unwrap());
+        let mut state_block = state.block(block.as_ref().header());
+        let fixture = {
+            let mut seed = state_block.transaction();
+            let fixture = seed_due_sccp_control_certificate(&mut seed, paused);
+            seed.apply();
+            fixture
+        };
+        let network = SccpNetworkV1::EthereumMainnet;
+        let original_pause = store::fast_pauses::get(&state_block.world, &network)
+            .unwrap()
+            .clone();
+        let mut execution = state_block.transaction();
+        assert_eq!(
+            execute_due_parliament_certificate_v1(fixture.governance_attempt_id, &mut execution)
+                .unwrap(),
+            DueParliamentCertificateExecutionV1::Applied
+        );
+        let expected_id = *GovernanceCertificateId::derive_v1(&fixture.certificate).as_bytes();
+        assert_ne!(expected_id, fixture.proposal_id);
+        let row = *store::control_messages::get(&*execution.world, &(network, 1, 1)).unwrap();
+        assert_eq!(
+            (row.track, row.parliament_paused, row.fast_pause_until_ms),
+            (1, paused, original_pause.until_ms),
+            "control record must preserve both original pause owners"
+        );
+        assert_eq!(
+            row.certificate_id, expected_id,
+            "control record must bind the exact enacting governance certificate"
+        );
+        assert_eq!(row.effect_hash, fixture.certificate.effect_preimage_hash);
+        assert_eq!(
+            (row.height, row.commitment_index),
+            (PARLIAMENT_DUE_CERTIFICATE_HEIGHT, 0)
+        );
+        let revision = &store::routes::get(&*execution.world, &network)
+            .unwrap()
+            .revisions[&1];
+        assert_eq!(
+            row.leaf,
+            control_leaf(
+                execution.network_id.as_bytes(),
+                network,
+                &revision.destination_word,
+                &ControlLeafV1 {
+                    route_revision: 1,
+                    control_nonce: 1,
+                    track: 1,
+                    parliament_paused: u8::from(paused),
+                    fast_pause_until_ms: original_pause.until_ms,
+                    certificate_id: expected_id,
+                    effect_hash: fixture.certificate.effect_preimage_hash,
+                }
+            )
+            .unwrap()
+        );
+        assert_eq!(revision.destination_paused, paused);
+        assert_eq!(revision.next_control_nonce, 2);
+        assert_eq!(
+            store::fast_pauses::get(&*execution.world, &network),
+            Some(&original_pause)
+        );
+        assert!(execution.world.internal_event_buf.iter().any(
+            |event| matches!(event.as_ref(), DataEvent::Sccp(SccpEvent::ControlRecorded(event))
+                if event.certificate_id == expected_id && event.track == 1
+                    && event.parliament_paused == paused
+                    && event.fast_pause_until_ms == original_pause.until_ms)
+        ));
+        assert_automatic_parliament_execution_event(
+            &execution,
+            &fixture,
+            gov::ParliamentAutomaticExecutionOutcomeV1::Enacted,
+        );
+        execute_due_parliament_certificate_v1(fixture.governance_attempt_id, &mut execution)
+            .expect_err("the same certificate cannot record a second control");
+        assert_eq!(store::control_messages::len(&*execution.world), 1);
+    }
+}
+
+#[test]
+fn parliament_due_sccp_control_full_block_rolls_back_flag_nonce_and_cause() {
+    use crate::smartcontracts::isi::sccp::{leaves, store};
+    use iroha_data_model::{bridge::SccpNetworkV1, sccp::control::SccpLeafRefV1};
+    let state = blank_test_state();
+    let block =
+        new_dummy_block_at_height(NonZeroU64::new(PARLIAMENT_DUE_CERTIFICATE_HEIGHT).unwrap());
+    let mut state_block = state.block(block.as_ref().header());
+    let fixture = {
+        let mut seed = state_block.transaction();
+        let fixture = seed_due_sccp_control_certificate(&mut seed, true);
+        for index in 0..leaves::MAX_LEAVES_PER_BLOCK {
+            leaves::allocate_leaf(&mut seed, SccpLeafRefV1::transfer([index as u8; 32])).unwrap();
+        }
+        seed.apply();
+        fixture
+    };
+    let network = SccpNetworkV1::EthereumMainnet;
+    let original_route = store::routes::get(&state_block.world, &network)
+        .unwrap()
+        .clone();
+    let original_pause = store::fast_pauses::get(&state_block.world, &network)
+        .unwrap()
+        .clone();
+    {
+        let mut execution = state_block.transaction();
+        assert!(
+            matches!(execute_due_parliament_certificate_v1(fixture.governance_attempt_id, &mut execution).unwrap(),
+            DueParliamentCertificateExecutionV1::EffectFailed { failure_root }
+                if failure_root == parliament_execution_failure_root_v1(&fixture.certificate, PARLIAMENT_DUE_CERTIFICATE_HEIGHT))
+        );
+        // The actual production block-start caller drops this isolated effect on failure.
+    }
+    assert_eq!(
+        store::routes::get(&state_block.world, &network),
+        Some(&original_route)
+    );
+    assert_eq!(
+        store::fast_pauses::get(&state_block.world, &network),
+        Some(&original_pause)
+    );
+    assert!(store::control_messages::is_empty(&state_block.world));
+    assert_eq!(
+        leaves::leaf_count_at(&state_block.world, PARLIAMENT_DUE_CERTIFICATE_HEIGHT),
+        leaves::MAX_LEAVES_PER_BLOCK as usize
+    );
+}

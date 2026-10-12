@@ -284,6 +284,8 @@ mod initial_publication_admission {
                 view.pipeline(),
                 builder.payload(),
                 view.authenticated_query_ledger_time_ms().unwrap(),
+                crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                    .expect("original committed fixture time"),
                 self.chain.height() + 1,
                 Some(DataSpaceId::UNIVERSAL),
             )

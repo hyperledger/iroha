@@ -24,8 +24,12 @@ fn sccp_exempt_cap_is_judged_against_the_committed_parent_world() {
         .expect("deterministic leader key");
     let block = ValidBlock::new_dummy(key_pair.private_key());
     let signed: &SignedBlock = block.as_ref();
-    ValidBlock::validate_sccp_exempt_cap_against(signed, &state.world.view())
-        .expect("no transaction is exempt without SCCP");
+    ValidBlock::validate_sccp_exempt_cap_against(
+        signed,
+        &crate::smartcontracts::isi::sccp::eligibility::Current(&state.world.view()),
+        None,
+    )
+    .expect("no transaction is exempt without SCCP");
     {
         let mut state_block = state.block(signed.header());
         {
@@ -41,9 +45,10 @@ fn sccp_exempt_cap_is_judged_against_the_committed_parent_world() {
             "the block overlay holds the uncommitted parameters"
         );
         assert!(
-            !crate::smartcontracts::isi::sccp::params::exists(
-                &state_block.sccp_parent_world_view()
-            ),
+            crate::smartcontracts::isi::sccp::eligibility::EligibilityRead::parameters(
+                &crate::smartcontracts::isi::sccp::eligibility::BlockParent(&state_block.world)
+            )
+            .is_none(),
             "block-start writes are invisible to the parent view the cap is judged against"
         );
         ValidBlock::validate_sccp_exempt_cap(signed, &state_block)
@@ -51,9 +56,12 @@ fn sccp_exempt_cap_is_judged_against_the_committed_parent_world() {
     }
     sccp_call_site_parameters_committed(&state);
     let state_block = state.block(signed.header());
-    assert!(crate::smartcontracts::isi::sccp::params::exists(
-        &state_block.sccp_parent_world_view()
-    ));
+    assert!(
+        crate::smartcontracts::isi::sccp::eligibility::EligibilityRead::parameters(
+            &crate::smartcontracts::isi::sccp::eligibility::BlockParent(&state_block.world)
+        )
+        .is_some()
+    );
     ValidBlock::validate_sccp_exempt_cap(signed, &state_block)
         .expect("no transaction of the block is fee-exempt");
 }
@@ -127,7 +135,11 @@ fn sccp_exempt_cap_counts_eligible_entry_points_of_the_block() {
         let mut world = state.world.block();
         *world.sccp_parameters.get_mut() = Some(parameters);
         world.commit();
-        ValidBlock::validate_sccp_exempt_cap_against(&block, &state.world.view())
+        ValidBlock::validate_sccp_exempt_cap_against(
+            &block,
+            &crate::smartcontracts::isi::sccp::eligibility::Current(&state.world.view()),
+            None,
+        )
     };
     with_cap(2).expect("two eligible transactions fit a cap of two");
     let error = with_cap(1).expect_err("the second eligible transaction exceeds the cap");
@@ -136,7 +148,7 @@ fn sccp_exempt_cap_counts_eligible_entry_points_of_the_block() {
 
 #[test]
 fn sccp_hook_receives_scheduled_height_inputs_on_the_sumeragi_core_path() {
-    use crate::smartcontracts::isi::sccp::{height::SccpHeightInputsV1, hook::observed};
+    use crate::smartcontracts::isi::sccp::hook::observed;
     use crate::sumeragi::{
         startup::GENESIS_HEIGHT,
         test_chain::{CertifiedTestChain, Signers, TestChainConfig},
@@ -179,7 +191,7 @@ fn sccp_hook_receives_scheduled_height_inputs_on_the_sumeragi_core_path() {
                 .map(|member| member.validator.clone())
                 .collect()
         });
-        SccpHeightInputsV1 {
+        observed::HeightInputsSnapshot {
             mode: ConsensusMode::Permissioned,
             height,
             epoch,
@@ -211,6 +223,49 @@ fn sccp_hook_receives_scheduled_height_inputs_on_the_sumeragi_core_path() {
         .map(|(peer, _)| peer.clone())
         .collect::<Vec<_>>();
     assert_eq!(genesis_inputs.roster, validators);
+    {
+        use crate::smartcontracts::isi::sccp::height::SccpHeightSourceV1;
+        use iroha_data_model::block::consensus::SumeragiRootScope;
+        let block = state.block(chain.genesis().header());
+        let original = ValidBlock::sccp_height_inputs(
+            chain.genesis(),
+            &block,
+            SccpHeightSourceV1::SumeragiSchedule {
+                genesis_height: GENESIS_HEIGHT,
+                mode: ConsensusMode::Permissioned,
+                root_scope: chain.root_scope(),
+            },
+        )
+        .expect("the original Global schedule remains available");
+        assert_eq!(
+            observed::HeightInputsSnapshot::from(&original.inputs().unwrap()),
+            genesis_inputs
+        );
+        assert_eq!(
+            ValidBlock::sccp_height_inputs(
+                chain.genesis(),
+                &block,
+                SccpHeightSourceV1::Unauthenticated
+            ),
+            None
+        );
+        assert_eq!(
+            ValidBlock::sccp_height_inputs(
+                chain.genesis(),
+                &block,
+                SccpHeightSourceV1::SumeragiSchedule {
+                    genesis_height: GENESIS_HEIGHT,
+                    mode: ConsensusMode::Permissioned,
+                    root_scope: SumeragiRootScope::Dataspace {
+                        parent_network_id: chain.network_id(),
+                        dataspace_id: iroha_model_base::topology::DataSpaceId::new(7),
+                    },
+                },
+            ),
+            None,
+            "non-Global provenance cannot acquire global hook authority even with a ready schedule"
+        );
+    }
     // Block 2 executes exactly as `StateExecutor::run_execution` does.
     let view = state.view();
     let parent = view
@@ -269,7 +324,11 @@ fn sccp_unauthed_genesis_writes_never_supply_committee_authority() {
             &block,
             SccpHeightSourceV1::SumeragiSchedule {
                 genesis_height: 1,
-                mode: iroha_data_model::parameter::system::ConsensusMode::Npos
+                mode: iroha_data_model::parameter::system::ConsensusMode::Npos,
+                // This malformed fixture has no signed native authority; obtain the expected
+                // scope from an independent genuine fixture, never its untrusted writes.
+                root_scope: iroha_data_model::sumeragi_finality::test_fixtures::NativeFinalityFixture::start("sccp-missing-native-authority")
+                    .verifier().root_scope(),
             }
         ),
         None,

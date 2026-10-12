@@ -1,41 +1,45 @@
 {
   "blocks": [
     {
-      "block_hash": "97d48b100c2f6b79d21b8a800623f0ecda4206b6421370793c2ea36daec5d957",
-      "bytes": 17175,
+      "block_hash": "b71cfbb83e53322717a8976ae49d485f341d0516ea6ffde3363f92c473599c91",
+      "bytes": 17423,
       "file": "block-1.wire",
       "height": 1,
-      "sha256": "cb1d89f2a9fdb8a5a4e7a79db446c0a15adddd60fcf64f76fd9e040bdb4812c0"
+      "sha256": "d8e61f6747e3e37756bd8747515708099d9f85218d6389a3a9626d87f7cf59d9"
     },
     {
-      "block_hash": "1149324686651c8edeec3cfdb1b183fc9d4777d0a816b07b0bce28d110596803",
-      "bytes": 12936,
+      "block_hash": "823ee7b5086f8083d489969e801094a6c46f5bef8755fba31482ad140b60367f",
+      "bytes": 13166,
       "file": "block-2.wire",
       "height": 2,
-      "sha256": "a92136d23fac14d51362208c4dd8341d3ff381fabaa2fc3f7298f84549f88fee"
+      "sha256": "802410662bbf4007795d6164005adc8c8af3af3a1d324e337a6dce63c4b492ae"
     },
     {
-      "block_hash": "e29f0ed6ef272660209963497c0d01ba3d24cf2d0fcc73bc028c9403ff88a42b",
-      "bytes": 13321,
+      "block_hash": "1eea4397b654a91a4d31525c37d26263cd498ee19deda0cdc199bdaf01cb7b3b",
+      "bytes": 13551,
       "file": "block-3.wire",
       "height": 3,
-      "sha256": "b3ec42953ae79ba5d325428dd160c55bd23dc5712578149d02c9fe8f9804845e"
+      "sha256": "741295ee8796c0b59fb5216c02035e21ceb268917fff7412efb38fd37e51fe9b"
     }
   ],
   "chain_id": "sumeragi-node-test",
   "execution_tip": {
-    "core_hash": "62C112855E25E501FCEF9098244C07293E0A02128EEB09200C651DDC89831CF5",
-    "creation_time_ms": 1791562915320,
+    "core_hash": "2A5DAD91067B4E2E53A910E7127A5FFB162DDB874E4CCE2CB6BA37F81804375B",
+    "creation_time_ms": 1791766301039,
     "height": 3,
-    "iroha_hash": "hash:E29F0ED6EF272660209963497C0D01BA3D24CF2D0FCC73BC028C9403FF88A42B#7DE2",
-    "result": "5B4560D1ACDED33CF88950C1BE31260759D044E73FA52301AD3658FCF27ECFA7"
+    "iroha_hash": "hash:1EEA4397B654A91A4D31525C37D26263CD498EE19DEDA0CDC199BDAF01CB7B3B#25E6",
+    "result": "252B29B73AA9FAE16FA9C22A4DB3F37B8A78F61F195B91A6FB4A44FB6CA83744",
+    "root_scope": {
+      "kind": "global",
+      "value": null
+    }
   },
   "format": "iroha.first_release_history.pinned.v1",
   "generator": {
     "path": "crates/iroha_core/src/sumeragi/node/tests/history_cutover_tests.rs",
     "test": "sumeragi::node::tests::history_cutover_tests::capture_pinned_first_release_history"
   },
-  "history_sha256": "fe6db5a27c5a98387f23cafa330051f2e97926e8e4e02373757102fd8013a9eb",
+  "history_sha256": "0a5f43cc000eec85bf1cd47cb3b2428f2654198909b161300c6f199350ee6e65",
   "validators": 4,
-  "world_state_root": "4810d0eef0a6e7cee4b4d3b86875362d66dd32d6aff41027faadca7244dd3793"
+  "world_state_root": "7075f782cfc7d8d52f4c59dc4f50e41f61812a38a6ff5201fd4b62a3cc87f713"
 }

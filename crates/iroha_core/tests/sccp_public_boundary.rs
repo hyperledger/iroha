@@ -236,7 +236,7 @@ fn a_network_without_sccp_is_unchanged() {
         transaction.authority()
     ));
     assert!(admission::block_exempt_cap_ok(world, &[]));
-    assert!(!fees::exempt_on_success(world, transaction.payload()));
+    assert!(!fees::exempt_on_success(world, transaction.payload(), None));
     let log = InstructionBox::from(iroha_data_model::isi::Log::new(
         iroha_data_model::Level::INFO,
         "ordinary".to_owned(),

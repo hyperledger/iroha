@@ -1378,6 +1378,8 @@ fn funded_original_lane_slashing_scenario(complete_replacement: bool) {
             view.pipeline(),
             draft.payload(),
             created_at_ms,
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                .expect("original committed fixture time"),
             chain.height() + 1,
             Some(iroha_model_base::topology::DataSpaceId::UNIVERSAL),
         )

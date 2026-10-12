@@ -550,6 +550,9 @@ impl<'a> CanonicalHistorySource<'a> {
             let receipt = crate::sumeragi::certified_chain::AdmittedCommittedBlock::read(
                 block,
                 source_height,
+                self.tip
+                    .ok_or_else(|| invalid("native execution scope is unavailable".into()))?
+                    .root_scope(),
                 &mut validation,
                 &self.budget,
             )

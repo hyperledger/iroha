@@ -22,6 +22,8 @@ pub mod control;
 pub mod deployment;
 pub mod escrow;
 pub mod events;
+pub mod fast_pause;
+pub mod generation;
 pub mod governance;
 pub mod inbound;
 pub mod light_client;

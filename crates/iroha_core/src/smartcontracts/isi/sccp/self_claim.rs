@@ -2,7 +2,7 @@
 //!
 //! A recipient that holds no XOR claims alone and fee-exempt; the self-claim fee is deducted
 //! from the proceeds at release. [`eligible`] is the self-claim arm of the shared eligibility
-//! predicate ([`super::fees::exempt_class`]): a pure function of the committed parent World,
+//! predicate ([`super::fees::exempt_class`]): a pure function of the committed parent World and its original time,
 //! the authority and the instructions. A claim that is not eligible (a relayer, a third-party
 //! settle, an amount at or below the fee, a settle that cannot progress) is not refused: it
 //! pays the ordinary fee. Admission pre-verifies an eligible claim ([`preverify`]) and rejects
@@ -16,7 +16,7 @@ use super::{
     admission::{SccpAdmissionKeysV1, SccpAdmissionRejectV1, SccpAdmissionView, SccpExemptClassV1},
     inbound::{bind_transfer_event, decode_inbound_payload, recipient_account},
     light_clients::{WorldLightClientView, admission_profiles},
-    settle, store,
+    store,
 };
 use crate::state::WorldReadOnly;
 use iroha_data_model::{
@@ -118,7 +118,7 @@ fn recipient_claims(payload: &SccpTransferPayloadV1, authority: &AccountId, fee:
 /// * the payload (decoded from the proof submission, or from the stored record of a settle)
 ///   names `authority` as its recipient and its amount exceeds `inbound_self_claim_fee`;
 /// * for a settle, the record is `Pending` and settlement can progress
-///   ([`settle::inbound_settlement_may_progress`]).
+///   ([`super::settle::inbound_settlement_may_progress`]).
 ///
 /// Nothing here verifies a proof; admission does that in [`preverify`].
 #[must_use]
@@ -126,9 +126,25 @@ pub fn eligible(
     world: &(impl WorldReadOnly + ?Sized),
     authority: &AccountId,
     instructions: &Executable,
+    committed_time_ms: Option<u64>,
 ) -> bool {
-    let Some(fee) = store::parameters::get(world)
-        .as_ref()
+    eligible_from(
+        &super::eligibility::Current(world),
+        authority,
+        instructions,
+        committed_time_ms,
+    )
+}
+
+/// Shared actual eligibility kernel for current and acquired original preimages.
+pub(super) fn eligible_from(
+    source: &(impl super::eligibility::EligibilityRead + ?Sized),
+    authority: &AccountId,
+    instructions: &Executable,
+    committed_time_ms: Option<u64>,
+) -> bool {
+    let Some(fee) = source
+        .parameters()
         .map(|params| params.inbound_self_claim_fee)
     else {
         return false;
@@ -139,18 +155,18 @@ pub fn eligible(
             decode_inbound_payload(submit.network, submit.revision, &submit.payload)
                 .is_ok_and(|payload| recipient_claims(&payload, authority, fee))
         }
-        Some(Claim::Settle(message_id)) => store::inbound_messages::get(world, &message_id)
-            .is_some_and(|record| {
-                record.status.is_pending()
-                    && SccpTransferPayloadV1::decode(&record.payload).is_ok_and(|payload| {
-                        recipient_claims(&payload, authority, fee)
-                            && settle::inbound_settlement_may_progress(
-                                world,
-                                record,
-                                payload.amount,
-                            )
-                    })
-            }),
+        Some(Claim::Settle(message_id)) => source.inbound(&message_id).is_some_and(|record| {
+            record.status.is_pending()
+                && SccpTransferPayloadV1::decode(&record.payload).is_ok_and(|payload| {
+                    recipient_claims(&payload, authority, fee)
+                        && super::eligibility::inbound_may_progress(
+                            source,
+                            record,
+                            payload.amount,
+                            committed_time_ms,
+                        )
+                })
+        }),
     }
 }
 
@@ -244,7 +260,8 @@ mod tests {
         assert!(!eligible(
             &*view.world(),
             &authority(1),
-            sample_signed_transaction().instructions()
+            sample_signed_transaction().instructions(),
+            None
         ));
     }
 

@@ -56,12 +56,7 @@ impl HistoryAccumulatorV1 {
     /// Returns [`HistoryError::SizeTooLarge`] for `size > 2^32` and
     /// [`HistoryError::PeakCountMismatch`] unless `peaks.len() == size.count_ones()`.
     pub fn from_parts(size: u64, peaks: Vec<[u8; 32]>) -> Result<Self, HistoryError> {
-        if size > MAX_HISTORY_SIZE {
-            return Err(HistoryError::SizeTooLarge);
-        }
-        if peaks.len() != size.count_ones() as usize {
-            return Err(HistoryError::PeakCountMismatch);
-        }
+        Self::validate_parts(size, peaks.len())?;
         Ok(Self { size, peaks })
     }
 
@@ -117,11 +112,29 @@ impl HistoryAccumulatorV1 {
     /// `history_root(size)`: the right-bagged peaks, or zero when empty.
     #[must_use]
     pub fn root(&self) -> [u8; 32] {
-        let mut peaks = self.peaks.iter().rev();
+        Self::root_from_parts(self.size, &self.peaks).expect("owned accumulator invariant")
+    }
+
+    /// Read a canonical root from borrowed stored peaks without allocating a second graph.
+    ///
+    /// # Errors
+    /// Rejects a size above `2^32` or a peak count that differs from its popcount.
+    pub fn root_from_parts(size: u64, peaks: &[[u8; 32]]) -> Result<[u8; 32], HistoryError> {
+        Self::validate_parts(size, peaks.len())?;
+        let mut peaks = peaks.iter().rev();
         let Some(last) = peaks.next() else {
-            return [0; 32];
+            return Ok([0; 32]);
         };
-        peaks.fold(*last, |acc, peak| node(peak, &acc))
+        Ok(peaks.fold(*last, |acc, peak| node(peak, &acc)))
+    }
+    fn validate_parts(size: u64, peak_count: usize) -> Result<(), HistoryError> {
+        if size > MAX_HISTORY_SIZE {
+            return Err(HistoryError::SizeTooLarge);
+        }
+        if peak_count != size.count_ones() as usize {
+            return Err(HistoryError::PeakCountMismatch);
+        }
+        Ok(())
     }
 }
 
@@ -280,5 +293,33 @@ mod tests {
         );
         assert_eq!(history_path(&all, 7), Err(MerkleError::IndexOutOfRange));
         assert_eq!(history_path(&[], 0), Err(MerkleError::Empty));
+    }
+    #[test]
+    fn borrowed_root_matches_owned_and_rejects_every_invalid_shape() {
+        let mut original = HistoryAccumulatorV1::new();
+        let mut leaves = Vec::new();
+        for index in 0u64..257 {
+            assert_eq!(
+                HistoryAccumulatorV1::root_from_parts(original.size(), original.peaks()),
+                history_root(&leaves)
+            );
+            assert_eq!(
+                HistoryAccumulatorV1::root_from_parts(original.size(), original.peaks()),
+                Ok(original.root())
+            );
+            let extra = vec![[0; 32]; original.peaks().len() + 1];
+            assert_eq!(
+                HistoryAccumulatorV1::root_from_parts(original.size(), &extra),
+                Err(HistoryError::PeakCountMismatch)
+            );
+            let leaf = [index.to_le_bytes()[0]; 32];
+            original.append(&leaf).unwrap();
+            leaves.push(leaf);
+        }
+        assert_eq!(
+            HistoryAccumulatorV1::root_from_parts(MAX_HISTORY_SIZE + 1, &[[0; 32]; 2]),
+            Err(HistoryError::SizeTooLarge)
+        );
+        assert_eq!(HistoryAccumulatorV1::root_from_parts(0, &[]), Ok([0; 32]));
     }
 }

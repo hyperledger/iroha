@@ -36,8 +36,7 @@ use crate::{
         AmxCertifiedBlockV1, AmxForeignInstanceV1, MAX_AMX_HEADER_BYTES, MAX_AMX_QC_BYTES,
     },
     sumeragi_finality::{
-        ExecutionResultCommitment, FinalityValidator, MAX_RESULT_PREIMAGE_BYTES, ProofCrypto,
-        ScheduledSlot,
+        CertifiedResultV1, FinalityValidator, MAX_RESULT_PREIMAGE_BYTES, ProofCrypto, ScheduledSlot,
     },
 };
 
@@ -320,7 +319,7 @@ impl PrivateDataspaceAnchor {
             header.instance.0 == registration.instance,
             "exported certificate belongs to another private root",
         )?;
-        registration.fixed_context(&result.schedule.current)?;
+        registration.fixed_context(&result.commitment().schedule.current)?;
         Ok(anchor)
     }
 
@@ -350,9 +349,7 @@ impl PrivateDataspaceAnchor {
         Ok(self.public_parts()?.0.height)
     }
 
-    fn public_parts(
-        &self,
-    ) -> Result<(CoreHeader, ExecutionResultCommitment), PrivateDataspaceAnchorError> {
+    fn public_parts(&self) -> Result<(CoreHeader, CertifiedResultV1), PrivateDataspaceAnchorError> {
         let block = &self.certificate;
         bounds(
             &block.consensus_header,
@@ -367,9 +364,13 @@ impl PrivateDataspaceAnchor {
         let _: Qc =
             norito::decode_canonical_with_limits(&block.commit_qc, part_limits(MAX_AMX_QC_BYTES))
                 .map_err(failure)?;
-        let result = ExecutionResultCommitment::decode(&block.result_preimage).map_err(failure)?;
+        let result = CertifiedResultV1::decode(
+            &block.result_preimage,
+            crate::sumeragi_finality::CertifiedResultScope::NonGlobal,
+        )
+        .map_err(failure)?;
         require(
-            header.control_witness.is_empty() && result.beacon.is_none(),
+            header.control_witness.is_empty() && result.commitment().beacon.is_none(),
             "private developer anchors cannot export application control witnesses",
         )?;
         Ok((header, result))
@@ -504,10 +505,14 @@ impl PrivateDataspaceAnchorState {
                 && anchor.child_network_id == self.registration.child_network_id,
             "anchor differs from registered parent, dataspace or child",
         )?;
-        let (header, commitment) = anchor.public_parts()?;
+        let (header, certified_result) = anchor.public_parts()?;
+        let commitment = certified_result.commitment();
         let verified = self
             .tracker
-            .verify_block(&anchor.certificate)
+            .verify_block(
+                &anchor.certificate,
+                crate::sumeragi_finality::CertifiedResultScope::NonGlobal,
+            )
             .map_err(failure)?;
         self.registration
             .fixed_context(&commitment.schedule.current)?;

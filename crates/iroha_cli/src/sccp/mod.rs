@@ -7,11 +7,15 @@
 //! assigned at execution) and prints it. `status` shows the status union of any message id and
 //! `recent` the newest records.
 //!
-//! `finalize`, `roster-sync` and `deploy` act on every destination: the Solidity deployments
+//! `finalize`, `committee-sync` and `deploy` act on every destination: the Solidity deployments
 //! (Ethereum and BSC over JSON-RPC, signed with an owner-only secp256k1 key file) and the TON
 //! minter (over ADNL liteservers, sent from the user's `v5r1` wallet with an owner-only Ed25519
-//! key file). They read the deployment's roster state, verify Taira's bundle or rotation chain
-//! locally and submit the destination call.
+//! key file). They read the deployment's committee state, verify Taira's bundle or rotation chain
+//! locally and submit the destination call. `deploy` additionally requires an independently
+//! selected signed genesis, verifier key/hash and manifest, plus `--at-height`, a complete
+//! `--world-snapshot` and its independently selected `--world-schema-hash`. Contiguous native
+//! certificates authenticate that cut; exact World preimages authenticate the deployment pin.
+//! This does not bypass Parliament registration or the separately enforced launch gates.
 //!
 //! `claim`, `lc-advance` and `lc-bootstrap` build Ethereum, BSC and TON light-client evidence
 //! from the source chain's public RPC (for Ethereum also a beacon light-client API, for TON ADNL
@@ -25,12 +29,13 @@
 
 mod evm;
 mod governance;
+mod origin;
 mod ton;
 
 use eyre::{Result, WrapErr as _, eyre};
 use iroha::{
     blocking::Client as BlockingClient,
-    client::sccp::{SccpAttestation, SccpDirection},
+    client::sccp::{SccpDirection, SccpProofHeightV1},
     data_model::{
         bridge::SccpNetworkV1,
         isi::{InstructionBox, sccp::RecordSccpMessage},
@@ -53,7 +58,7 @@ use crate::{Run, RunContext};
 /// `iroha sccp` subcommands.
 #[derive(clap::Subcommand, Debug)]
 pub enum Command {
-    /// Show the Taira identity, SCCP parameters and attestation health.
+    /// Show the Taira identity, SCCP parameters and native finality metadata.
     Info,
     /// List the routes with their revisions, escrows and liabilities.
     Routes,
@@ -63,16 +68,16 @@ pub enum Command {
     Status(MessageArgs),
     /// List the newest outbound or inbound records.
     Recent(RecentArgs),
-    /// Fetch the attestation proof bundle of one outbound message.
+    /// Fetch the native certificate proof bundle of one outbound message.
     Proof(ProofArgs),
-    /// Show a roster generation (the current one by default).
-    Roster(RosterArgs),
+    /// Show a committee generation (the current one by default).
+    Committee(CommitteeArgs),
     /// Fetch the catch-up rotation chain from a generation.
     Rotations(RotationsArgs),
-    /// Mint an attested outbound message on its EVM or TON destination.
+    /// Mint a certified outbound message on its EVM or TON destination.
     Finalize(FinalizeArgs),
-    /// Rotate an EVM or TON destination's roster forward to Taira's current generation.
-    RosterSync(RosterSyncArgs),
+    /// Advance an EVM or TON committee by at most sixteen generations; rerun after confirmation.
+    CommitteeSync(CommitteeSyncArgs),
     /// SCCP proposals to the SORA Parliament.
     #[command(subcommand)]
     Governance(governance::Command),
@@ -155,6 +160,9 @@ pub struct LcProfileArgs {
 /// Arguments of `iroha sccp deploy`.
 #[derive(clap::Args, Debug)]
 pub struct DeployArgs {
+    /// Original authority and complete certified World snapshot for the deployment pin.
+    #[command(flatten)]
+    origin: origin::OriginArgs,
     /// Destination network (`ethereum-mainnet`, `bsc-mainnet`, `ton-mainnet`).
     #[arg(long)]
     pub network: String,
@@ -164,7 +172,7 @@ pub struct DeployArgs {
     /// Supply cap in XOR.
     #[arg(long)]
     pub max_supply: String,
-    /// Taira roster generation to pin; the current one when absent.
+    /// Taira committee generation to pin; the current one when absent.
     #[arg(long)]
     pub generation: Option<u64>,
     /// EVM: creation bytecode from `scripts/contract_artifact_corridor.py build` (hex text); it
@@ -239,14 +247,14 @@ pub struct FinalizeArgs {
     /// TON: the raw `0:<hex>` address of the deployed `v5r1` wallet the key file controls.
     #[arg(long)]
     pub ton_wallet: Option<String>,
-    /// Attesting subject: `own`, `latest` or a Taira height.
-    #[arg(long, default_value = "own")]
-    pub attestation: String,
+    /// Proof height: `record`, `latest` or a positive Taira height.
+    #[arg(long, default_value = "record")]
+    pub at: String,
 }
 
-/// Arguments of `iroha sccp roster-sync`.
+/// Arguments of `iroha sccp committee-sync`.
 #[derive(clap::Args, Debug)]
-pub struct RosterSyncArgs {
+pub struct CommitteeSyncArgs {
     /// External network of the deployment.
     #[arg(long)]
     pub network: String,
@@ -314,14 +322,14 @@ pub struct ProofArgs {
     /// Message id (32-byte hex).
     #[arg(long)]
     pub message_id: String,
-    /// Attesting subject: `own`, `latest` or a Taira height.
-    #[arg(long, default_value = "own")]
-    pub attestation: String,
+    /// Proof height: `record`, `latest` or a positive Taira height.
+    #[arg(long, default_value = "record")]
+    pub at: String,
 }
 
-/// Arguments of `iroha sccp roster`.
+/// Arguments of `iroha sccp committee`.
 #[derive(clap::Args, Debug)]
-pub struct RosterArgs {
+pub struct CommitteeArgs {
     /// Generation; the current one when absent.
     #[arg(long)]
     pub generation: Option<u64>,
@@ -361,16 +369,9 @@ pub(crate) fn parse_direction(text: &str) -> Result<SccpDirection> {
     }
 }
 
-/// Parse `attestation` choices.
-pub(crate) fn parse_attestation(text: &str) -> Result<SccpAttestation> {
-    match text {
-        "own" => Ok(SccpAttestation::Own),
-        "latest" => Ok(SccpAttestation::Latest),
-        height => height
-            .parse()
-            .map(SccpAttestation::At)
-            .map_err(|_| eyre!("attestation must be `own`, `latest` or a height")),
-    }
+/// Parse only the shared current proof-height selector.
+pub(crate) fn parse_proof_height(text: &str) -> Result<SccpProofHeightV1> {
+    text.parse().map_err(|error| eyre!("proof height: {error}"))
 }
 
 /// Encode `text` as the target network's recipient bytes (§3.1).
@@ -440,17 +441,17 @@ impl Run for Command {
             Self::Proof(args) => {
                 let bundle = blocking(context)?.sccp().message_proof(
                     &parse_word(&args.message_id)?,
-                    parse_attestation(&args.attestation)?,
+                    parse_proof_height(&args.at)?,
                 )?;
                 context.print_data(&bundle)
             }
-            Self::Roster(args) => {
+            Self::Committee(args) => {
                 let client = blocking(context)?;
-                let roster = match args.generation {
-                    Some(generation) => client.sccp().roster(generation)?,
-                    None => client.sccp().current_roster()?,
+                let committee = match args.generation {
+                    Some(generation) => client.sccp().committee(generation)?,
+                    None => client.sccp().current_committee()?,
                 };
-                context.print_data(&roster)
+                context.print_data(&committee)
             }
             Self::Rotations(args) => {
                 let chain = blocking(context)?
@@ -459,7 +460,7 @@ impl Run for Command {
                 context.print_data(&chain)
             }
             Self::Finalize(args) => finalize(context, args),
-            Self::RosterSync(args) => roster_sync(context, args),
+            Self::CommitteeSync(args) => committee_sync(context, args),
             Self::Governance(command) => command.run(context),
             Self::Deploy(args) => deploy(context, args),
             Self::Claim(args) => claim(context, args),
@@ -516,9 +517,13 @@ fn evm_destination(
 ) -> Result<evm::EvmDestination> {
     use iroha::data_model::sccp::deployment::SccpDeploymentV1;
     match route_deployment(client, network, revision)? {
-        (SccpDeploymentV1::Evm(deployment), destination) => {
-            evm::EvmDestination::connect(rpc_url, network, deployment.address, destination)
-        }
+        (SccpDeploymentV1::Evm(deployment), destination) => evm::EvmDestination::connect(
+            rpc_url,
+            network,
+            deployment.address,
+            destination,
+            deployment.runtime_code_hash,
+        ),
         (SccpDeploymentV1::Ton(_), _) => {
             Err(eyre!("{} is a TON destination", network.profile_key()))
         }
@@ -550,6 +555,14 @@ fn ton_destination(
     Ok((destination, wallet))
 }
 
+fn require_requested_message(requested: &[u8; 32], returned: &[u8; 32]) -> Result<()> {
+    eyre::ensure!(
+        requested == returned,
+        "proof bundle names a different requested message"
+    );
+    Ok(())
+}
+
 /// `iroha sccp finalize`: verify the bundle against the destination and mint.
 fn finalize<C: RunContext>(context: &mut C, args: FinalizeArgs) -> Result<()> {
     let client = blocking(context)?;
@@ -560,10 +573,11 @@ fn finalize<C: RunContext>(context: &mut C, args: FinalizeArgs) -> Result<()> {
         .outbound()
         .map(|view| view.record.clone())
         .ok_or_else(|| eyre!("{} is not an outbound message", args.message_id))?;
-    let taira_network_id = client.sccp().capabilities()?.network_id;
+    let capabilities = client.sccp().capabilities()?;
     let bundle = client
         .sccp()
-        .message_proof(&message_id, parse_attestation(&args.attestation)?)?;
+        .message_proof(&message_id, parse_proof_height(&args.at)?)?;
+    require_requested_message(&message_id, &bundle.message_id)?;
     if record.network == SccpNetworkV1::TonMainnet {
         let (destination, wallet) = ton_destination(
             &client,
@@ -573,7 +587,12 @@ fn finalize<C: RunContext>(context: &mut C, args: FinalizeArgs) -> Result<()> {
             args.ton_wallet.as_deref(),
             &args.key_file,
         )?;
-        let hash = destination.finalize(&bundle, taira_network_id, &wallet)?;
+        let hash = destination.finalize(
+            &bundle,
+            capabilities.network_id,
+            capabilities.consensus_instance,
+            &wallet,
+        )?;
         return context.println(hex::encode(hash));
     }
     let destination = evm_destination(
@@ -582,7 +601,11 @@ fn finalize<C: RunContext>(context: &mut C, args: FinalizeArgs) -> Result<()> {
         Some(record.revision),
         &args.rpc_url,
     )?;
-    let calldata = destination.finalize_call(&bundle, taira_network_id)?;
+    let calldata = destination.finalize_call(
+        &bundle,
+        capabilities.network_id,
+        capabilities.consensus_instance,
+    )?;
     let key = evm::load_key(&args.key_file)?;
     let hash = destination.send(&key, calldata)?;
     context.println(format!("0x{}", hex::encode(hash)))
@@ -649,23 +672,21 @@ fn deploy_ton<C: RunContext>(context: &mut C, args: DeployArgs) -> Result<()> {
     })?;
     let max_wrapped_supply = iroha_sccp::v1::amount::taira_units(&max_supply)
         .map_err(|error| eyre!("max supply: {error}"))?;
-    let client = blocking(context)?;
-    let taira_network_id = client.sccp().capabilities()?.network_id;
-    let view = match args.generation {
-        Some(generation) => client.sccp().roster(generation)?,
-        None => client.sccp().current_roster()?,
-    };
-    let roster = view
-        .to_roster()
-        .map_err(|error| eyre!("Taira served an invalid roster: {error:?}"))?;
-    if roster.digest(&taira_network_id).ok() != Some(view.digest) {
-        return Err(eyre!("Taira served a roster whose digest does not match"));
+    if max_wrapped_supply == 0 {
+        return Err(eyre!("max supply must be positive"));
     }
+    if max_wrapped_supply >= (1_u128 << 96) {
+        return Err(eyre!("TON supply cap must be below 2^96"));
+    }
+    let client = blocking(context)?;
+    let original = origin::authenticate(context, &client, &args.origin, args.generation)?;
     let init = TonMinterInitV1 {
-        taira_network_id,
+        taira_network_id: original.network,
+        consensus_instance: original.instance,
         route_revision: args.revision,
         max_supply: max_wrapped_supply,
-        roster: roster.clone(),
+        pin: original.pin,
+        keys: original.keys,
         wallet_code: code_ref(&wallet_code),
         bucket_code: code_ref(&bucket_code),
     };
@@ -675,6 +696,15 @@ fn deploy_ton<C: RunContext>(context: &mut C, args: DeployArgs) -> Result<()> {
         .map_err(|error| eyre!("minter StateInit: {error}"))?;
     let minter = *state.hash();
     let lite = ton::connect(&args.rpc_url)?;
+    let now_ms = u64::from(
+        lite.get_time()
+            .map_err(|error| eyre!("getTime: {error}"))?
+            .now,
+    ) * 1000;
+    eyre::ensure!(
+        iroha_sccp::v1::destination::init_until_ms_is_valid(now_ms, original.pin.until_ms),
+        "the authenticated pin is outside the current TON initialization window"
+    );
     let wallet = ton::TonWallet::load(
         &lite,
         args.ton_wallet
@@ -711,7 +741,7 @@ fn deploy_ton<C: RunContext>(context: &mut C, args: DeployArgs) -> Result<()> {
             bucket_code: code_ref(&bucket_code),
         }),
         max_wrapped_supply,
-        initial_roster_generation: roster.generation,
+        initial_committee: original.pin,
     });
     context.print_data(&vec![action])
 }
@@ -744,31 +774,24 @@ fn deploy<C: RunContext>(context: &mut C, args: DeployArgs) -> Result<()> {
     })?;
     let max_wrapped_supply = iroha_sccp::v1::amount::taira_units(&max_supply)
         .map_err(|error| eyre!("max supply: {error}"))?;
-    let client = blocking(context)?;
-    let taira_network_id = client.sccp().capabilities()?.network_id;
-    let view = match args.generation {
-        Some(generation) => client.sccp().roster(generation)?,
-        None => client.sccp().current_roster()?,
-    };
-    let roster = view
-        .to_roster()
-        .map_err(|error| eyre!("Taira served an invalid roster: {error:?}"))?;
-    if roster.digest(&taira_network_id).ok() != Some(view.digest) {
-        return Err(eyre!("Taira served a roster whose digest does not match"));
+    if max_wrapped_supply == 0 {
+        return Err(eyre!("max supply must be positive"));
     }
+    let client = blocking(context)?;
+    let original = origin::authenticate(context, &client, &args.origin, args.generation)?;
     let mut data = bytecode;
     data.extend(evm::constructor_args(
-        &taira_network_id,
+        &original.network,
+        &original.instance,
         network,
         args.revision,
         max_wrapped_supply,
-        &roster,
+        &original.pin,
     ));
     let key = evm::load_key(&args.key_file)?;
     // Deploy, then wait for the code to appear and print the Parliament action.
     let chain = evm::connect_chain(&args.rpc_url, network)?;
-    let (hash, nonce) = evm::send_transaction(&chain, network, &key, None, data)?;
-    let address = evm::created_address(&key.address(), nonce);
+    let (hash, address) = evm::deploy_current(&chain, network, &key, data)?;
     context.println(format!(
         "deployment transaction 0x{}; contract 0x{}",
         hex::encode(hash),
@@ -783,7 +806,7 @@ fn deploy<C: RunContext>(context: &mut C, args: DeployArgs) -> Result<()> {
             runtime_code_hash,
         }),
         max_wrapped_supply,
-        initial_roster_generation: roster.generation,
+        initial_committee: original.pin,
     });
     context.print_data(&vec![action])
 }
@@ -1124,8 +1147,18 @@ fn lc_profile_action(
     ))
 }
 
-/// `iroha sccp roster-sync`: rotate the destination to Taira's current generation.
-fn roster_sync<C: RunContext>(context: &mut C, args: RosterSyncArgs) -> Result<()> {
+/// Select one bounded catch-up step; untrusted discovery cannot make an ahead destination regress.
+fn sync_target(from: u64, current: u64) -> Result<u64> {
+    eyre::ensure!(
+        from > 0 && current >= from,
+        "discovery is older than the destination committee"
+    );
+    Ok(current
+        .min(from.saturating_add(iroha_sccp::v1::destination::MAX_CERTIFICATES_PER_CALL as u64)))
+}
+
+/// `iroha sccp committee-sync`: submit one bounded catch-up step, then re-observe on the next run.
+fn committee_sync<C: RunContext>(context: &mut C, args: CommitteeSyncArgs) -> Result<()> {
     let client = blocking(context)?;
     let network = parse_network(&args.network)?;
     if network == SccpNetworkV1::TonMainnet {
@@ -1138,18 +1171,25 @@ fn roster_sync<C: RunContext>(context: &mut C, args: RosterSyncArgs) -> Result<(
             &args.key_file,
         )?;
         let capabilities = client.sccp().capabilities()?;
-        let from = destination.roster_state()?.generation;
+        let from = destination.committee_state()?.generation;
         let chain = client
             .sccp()
-            .rotations(from, iroha_sccp::v1::constants::MAX_ROTATIONS_PER_CALL)?;
+            .rotations(from, iroha_sccp::v1::destination::MAX_CERTIFICATES_PER_CALL)?;
         let sent = destination.rotate(
             &chain,
-            capabilities.current_generation,
+            sync_target(
+                from,
+                capabilities
+                    .current_generation
+                    .ok_or_else(|| eyre!("SCCP is not initialized"))?
+                    .generation,
+            )?,
             capabilities.network_id,
+            capabilities.consensus_instance,
             &wallet,
         )?;
         if sent.is_empty() {
-            return context.println("the destination roster is current");
+            return context.println("the destination committee is current");
         }
         for hash in sent {
             context.println(hex::encode(hash))?;
@@ -1158,17 +1198,24 @@ fn roster_sync<C: RunContext>(context: &mut C, args: RosterSyncArgs) -> Result<(
     }
     let destination = evm_destination(&client, network, args.revision, &args.rpc_url)?;
     let capabilities = client.sccp().capabilities()?;
-    let from = destination.roster_state()?.generation;
+    let from = destination.committee_state()?.generation;
     let chain = client
         .sccp()
-        .rotations(from, iroha_sccp::v1::constants::MAX_ROTATIONS_PER_CALL)?;
+        .rotations(from, iroha_sccp::v1::destination::MAX_CERTIFICATES_PER_CALL)?;
     let calls = destination.rotation_calls(
         &chain,
-        capabilities.current_generation,
+        sync_target(
+            from,
+            capabilities
+                .current_generation
+                .ok_or_else(|| eyre!("SCCP is not initialized"))?
+                .generation,
+        )?,
         capabilities.network_id,
+        capabilities.consensus_instance,
     )?;
     if calls.is_empty() {
-        return context.println("the destination roster is current");
+        return context.println("the destination committee is current");
     }
     let key = evm::load_key(&args.key_file)?;
     for call in calls {
@@ -1306,6 +1353,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn finalize_refuses_a_different_message_before_destination_work() {
+        assert!(require_requested_message(&[1; 32], &[1; 32]).is_ok());
+        assert!(require_requested_message(&[1; 32], &[2; 32]).is_err());
+    }
+    #[test]
+    fn committee_sync_bounds_progress_and_refuses_older_discovery() {
+        assert_eq!(sync_target(1, 1).unwrap(), 1);
+        assert_eq!(sync_target(1, 7).unwrap(), 7);
+        assert_eq!(sync_target(1, 100).unwrap(), 17);
+        assert_eq!(sync_target(u64::MAX - 1, u64::MAX).unwrap(), u64::MAX);
+        assert!(sync_target(2, 1).is_err());
+        assert!(sync_target(0, 1).is_err());
+    }
+
+    #[test]
     fn profile_activations_name_only_compiled_later_versions() {
         let error = lc_profile_action(SccpNetworkV1::EthereumMainnet, None)
             .expect_err("this release compiles only version 1");
@@ -1314,7 +1376,7 @@ mod tests {
         assert!(error.to_string().contains("active from genesis"), "{error}");
         let error = lc_profile_action(SccpNetworkV1::BscMainnet, Some(2)).expect_err("unknown");
         assert!(error.to_string().contains("does not compile"), "{error}");
-        lc_profile_action(SccpNetworkV1::SoraTaira, Some(2)).expect_err("Taira has none");
+        drop(lc_profile_action(SccpNetworkV1::SoraTaira, Some(2)).expect_err("Taira has none"));
     }
 
     #[test]
@@ -1340,7 +1402,7 @@ mod tests {
     }
 
     #[test]
-    fn networks_words_and_attestations_parse() {
+    fn networks_words_and_current_proof_heights_parse() {
         assert_eq!(
             parse_network("bsc-mainnet").expect("bsc"),
             SccpNetworkV1::BscMainnet
@@ -1352,12 +1414,25 @@ mod tests {
         );
         assert_eq!(parse_word(&"ab".repeat(32)).expect("word"), [0xab; 32]);
         assert!(parse_word("ab").is_err());
-        assert_eq!(parse_attestation("own").expect("own"), SccpAttestation::Own);
         assert_eq!(
-            parse_attestation("9").expect("height"),
-            SccpAttestation::At(9)
+            parse_proof_height("record").expect("record"),
+            SccpProofHeightV1::Record
         );
-        assert!(parse_attestation("later").is_err());
+        assert_eq!(
+            parse_proof_height("9").expect("height"),
+            SccpProofHeightV1::At(9)
+        );
+        for invalid in [
+            "own",
+            "later",
+            "0",
+            "+1",
+            " 1",
+            "1 ",
+            "18446744073709551616",
+        ] {
+            assert!(parse_proof_height(invalid).is_err(), "{invalid}");
+        }
         assert_eq!(
             parse_direction("inbound").expect("inbound"),
             SccpDirection::Inbound

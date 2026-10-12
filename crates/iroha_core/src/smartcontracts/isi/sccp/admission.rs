@@ -191,14 +191,30 @@ pub fn exempt_shape(payload: &TransactionPayload) -> Option<SccpExemptClassV1> {
 pub fn exempt_class_of_entrypoint(
     world: &(impl WorldReadOnly + ?Sized),
     entrypoint: &TransactionEntrypoint,
+    committed_time_ms: Option<u64>,
+) -> Option<SccpExemptClassV1> {
+    exempt_class_of_entrypoint_from(
+        &super::eligibility::Current(world),
+        entrypoint,
+        committed_time_ms,
+    )
+}
+
+/// Classify the original entrypoint against borrowed current or pre-block facts.
+pub(crate) fn exempt_class_of_entrypoint_from(
+    source: &(impl super::eligibility::EligibilityRead + ?Sized),
+    entrypoint: &TransactionEntrypoint,
+    committed_time_ms: Option<u64>,
 ) -> Option<SccpExemptClassV1> {
     match entrypoint {
         TransactionEntrypoint::External(transaction) => {
-            super::fees::exempt_class(world, transaction.payload())
+            super::fees::exempt_class_from(source, transaction.payload(), committed_time_ms)
         }
-        TransactionEntrypoint::SealedReveal(reveal) => {
-            super::fees::exempt_class(world, reveal.signed_transaction().payload())
-        }
+        TransactionEntrypoint::SealedReveal(reveal) => super::fees::exempt_class_from(
+            source,
+            reveal.signed_transaction().payload(),
+            committed_time_ms,
+        ),
         TransactionEntrypoint::SealedCommitment(_) => None,
     }
 }
@@ -210,6 +226,11 @@ pub trait SccpAdmissionView {
     fn taira_network_id(&self) -> iroha_data_model::NetworkId;
     /// Return the Taira time of the latest committed block (admission-time freshness checks).
     fn committed_time_ms(&self) -> u64;
+    /// Exact original executed time for pause expiry, distinct from fee observation time.
+    ///
+    /// # Errors
+    /// Returns a source failure if the original tip and captured prefix disagree.
+    fn sccp_committed_time_ms(&self) -> Result<Option<u64>, super::hold::SccpCommittedTimeError>;
 }
 
 impl<T: StateReadOnly + ?Sized> SccpAdmissionView for T {
@@ -218,6 +239,9 @@ impl<T: StateReadOnly + ?Sized> SccpAdmissionView for T {
     }
     fn committed_time_ms(&self) -> u64 {
         self.query_ledger_time_ms()
+    }
+    fn sccp_committed_time_ms(&self) -> Result<Option<u64>, super::hold::SccpCommittedTimeError> {
+        super::hold::committed_time_ms(self)
     }
 }
 
@@ -232,7 +256,8 @@ impl<T: StateReadOnly + ?Sized> SccpAdmissionView for T {
 ///
 /// # Errors
 ///
-/// Returns [`SccpAdmissionRejectV1`] when an eligible transaction fails pre-verification.
+/// Returns [`SccpAdmissionRejectV1`] when an eligible transaction fails pre-verification,
+/// or the captured committed history cannot supply a consistent original time.
 pub fn classify(
     world: &(impl WorldReadOnly + ?Sized),
     view: &(impl SccpAdmissionView + ?Sized),
@@ -240,7 +265,13 @@ pub fn classify(
     transaction: &SignedTransaction,
 ) -> Result<Option<SccpAdmissionKeysV1>, SccpAdmissionRejectV1> {
     let payload = transaction.payload();
-    let Some(class) = super::fees::exempt_class(world, payload) else {
+    if super::store::parameters::get(world).is_none() || exempt_shape(payload).is_none() {
+        return Ok(None);
+    }
+    let committed_time_ms = view
+        .sccp_committed_time_ms()
+        .map_err(|error| SccpAdmissionRejectV1::new(error.to_string()))?;
+    let Some(class) = super::fees::exempt_class(world, payload, committed_time_ms) else {
         return Ok(None);
     };
     match class {
@@ -475,8 +506,15 @@ impl SccpExemptBlockBudgetV1 {
     /// transaction is then exempt).
     #[must_use]
     pub fn new(world: &(impl WorldReadOnly + ?Sized)) -> Self {
+        Self::from_parameters(super::store::parameters::get(world).as_ref())
+    }
+
+    /// Use original borrowed parameters from the acquired block preimage.
+    pub(crate) fn from_parameters(
+        parameters: Option<&iroha_data_model::sccp::params::SccpParametersV1>,
+    ) -> Self {
         Self {
-            remaining: exempt_cap(world),
+            remaining: parameters.map(|params| params.max_exempt_transactions_per_block),
             advanced_networks: BTreeSet::new(),
         }
     }
@@ -750,22 +788,30 @@ mod tests {
         let advance = signed(0x63, vec![eligible_advance().into()]);
         let external = TransactionEntrypoint::External(advance.clone());
         assert_eq!(
-            exempt_class_of_entrypoint(&*stx.world, &external),
+            exempt_class_of_entrypoint(&*stx.world, &external, None),
             None,
             "nothing is eligible without SCCP"
         );
         store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
-        assert_eq!(exempt_class_of_entrypoint(&*stx.world, &external), class);
+        assert_eq!(
+            exempt_class_of_entrypoint(&*stx.world, &external, None),
+            class
+        );
         let reveal = SealedTransactionReveal::new(Hash::new(b"commitment"), advance, [7; 32]);
         assert_eq!(
-            exempt_class_of_entrypoint(&*stx.world, &TransactionEntrypoint::SealedReveal(reveal)),
+            exempt_class_of_entrypoint(
+                &*stx.world,
+                &TransactionEntrypoint::SealedReveal(reveal),
+                None
+            ),
             class,
             "a sealed reveal counts like the transaction it reveals"
         );
         assert_eq!(
             exempt_class_of_entrypoint(
                 &*stx.world,
-                &TransactionEntrypoint::External(sample_signed_transaction())
+                &TransactionEntrypoint::External(sample_signed_transaction()),
+                None
             ),
             None
         );
@@ -773,7 +819,8 @@ mod tests {
         assert_eq!(
             exempt_class_of_entrypoint(
                 &*stx.world,
-                &TransactionEntrypoint::External(paid_backfill)
+                &TransactionEntrypoint::External(paid_backfill),
+                None
             ),
             None,
             "a keeper-advance shape that is not eligible pays and is not counted"

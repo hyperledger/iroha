@@ -39,7 +39,7 @@ use iroha_core::soracloud_runtime::{
     SoracloudRuntimeReplicaPlan, SoracloudRuntimeRevisionRole, SoracloudRuntimeServicePlan,
     SoracloudRuntimeSnapshot,
 };
-use iroha_core::state::{State, StateView, WorldReadOnly};
+use iroha_core::state::{State, StateReadOnly, StateView, WorldReadOnly};
 use iroha_core::{
     executor::quote_nexus_fee_admission_draft, queue::Queue, tx::AcceptedTransaction,
 };
@@ -796,23 +796,22 @@ impl SoracloudRuntimeMutationSink for QueuedSoracloudRuntimeMutationSink {
         let iroha_core::queue::RoutingPlan::Single(route) = route else {
             eyre::bail!("Soracloud runtime submission requires one resolved route");
         };
-        let latest_header = self.state.latest_block_header_fast();
-        let observation_time_ms = latest_header
-            .as_ref()
-            .map_or(0, |header| header.creation_time_ms);
-        let next_block_height = latest_header
-            .as_ref()
-            .map_or(1, |header| header.height().get().saturating_add(1));
-        let nexus = self.state.nexus_snapshot();
-        let pipeline = self.state.pipeline_snapshot();
+        let quote_view = self.state.query_view();
+        let sccp_committed_time_ms =
+            iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&quote_view)
+                .map_err(|error| eyre::eyre!("fee quote has invalid committed time: {error:?}"))?;
+        let observation_time_ms = sccp_committed_time_ms.unwrap_or(0);
+        let next_block_height = u64::try_from(quote_view.height())?
+            .checked_add(1)
+            .ok_or_else(|| eyre::eyre!("fee quote committed height overflow"))?;
         let quote = {
-            let world = self.state.world_view();
             quote_nexus_fee_admission_draft(
-                &world,
-                &nexus,
-                &pipeline,
+                quote_view.world(),
+                quote_view.nexus(),
+                quote_view.pipeline(),
                 &payload,
                 observation_time_ms,
+                sccp_committed_time_ms,
                 next_block_height,
                 Some(route.route.dataspace_id),
             )
@@ -820,6 +819,7 @@ impl SoracloudRuntimeMutationSink for QueuedSoracloudRuntimeMutationSink {
         .map_err(|error| {
             eyre::eyre!("quote internal Soracloud runtime mutation at `{endpoint}`: {error:?}")
         })?;
+        drop(quote_view);
         payload.fee_payment = quote.recommended_intent;
         let tx = self
             .signer

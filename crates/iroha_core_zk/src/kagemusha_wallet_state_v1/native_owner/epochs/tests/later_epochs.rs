@@ -3,8 +3,8 @@
 
 use super::*;
 use iroha_data_model::sumeragi_finality::{
-    ExecutionResultCommitment, NativeLaneStateProof, ScheduledConfig, ScheduledSlot, core_epoch,
-    result_of_preimage,
+    CertifiedResultV1, NativeLaneStateProof, SccpFinalityHeaderV1, ScheduledConfig, ScheduledSlot,
+    core_epoch, result_of_preimage,
 };
 use iroha_sumeragi::{
     message::{BlockHeader, Qc},
@@ -27,7 +27,10 @@ fn second_boundary(
         current.authorization.authorization_id().unwrap();
     next.leader_seed = [2; 32];
     next.validate_successor(current).unwrap();
-    let mut result = ExecutionResultCommitment::decode(&first.result_preimage).unwrap();
+    let (original_x, mut result) =
+        CertifiedResultV1::decode(&first.result_preimage, native.root_scope().into())
+            .unwrap()
+            .into_parts();
     result.height = height;
     result.schedule.height = height;
     result.schedule.current = current.clone();
@@ -54,14 +57,24 @@ fn second_boundary(
     let mut header: BlockHeader = norito::decode_canonical(&first.consensus_header).unwrap();
     header.height = height;
     header.epoch = core_epoch(current).unwrap().id;
-    let result_preimage = result.preimage().unwrap();
+    // This synthetic boundary has no SCCP initialization; retain the fixture timestamp.
+    let original_x = SccpFinalityHeaderV1::inactive(
+        *native.network_id().as_bytes(),
+        height,
+        original_x.timestamp_ms(),
+    )
+    .unwrap();
+    let result_preimage = CertifiedResultV1::new(original_x, result, native.root_scope().into())
+        .unwrap()
+        .preimage()
+        .unwrap();
     let mut qc: Qc = norito::decode_canonical(&first.commit_qc).unwrap();
     qc.height = height;
     qc.epoch = header.epoch;
     qc.block_hash = Hash32(
         iroha_crypto::Hash::new(iroha_sumeragi::preimage::block_hash_preimage(&header)).into(),
     );
-    qc.result = result_of_preimage(&result_preimage);
+    qc.result = result_of_preimage(&result_preimage).unwrap();
     let mut keys: Vec<_> = (1..=4)
         .map(|seed| {
             iroha_crypto::KeyPair::from_seed(vec![seed; 32], iroha_crypto::Algorithm::BlsNormal)
@@ -71,7 +84,12 @@ fn second_boundary(
     qc.signers = Bitmap::from_indices(4, [0, 1, 2]).unwrap();
     let shares: Vec<_> = keys[..3]
         .iter()
-        .map(|key| iroha_crypto::Signature::try_new(key.private_key(), &qc.preimage()).unwrap())
+        .map(|key| {
+            iroha_crypto::Signature::from_bytes(
+                &iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &qc.preimage())
+                    .unwrap(),
+            )
+        })
         .collect();
     let references: Vec<_> = shares
         .iter()

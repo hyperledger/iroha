@@ -39,10 +39,16 @@ pub(super) fn make_phase_vote_evidence(height: u64, seed: u8) -> Evidence {
             sig: NativeSignature([0; SIGNATURE_LEN]),
         };
         vote.sig = NativeSignature(
-            Signature::new(keys[0].private_key(), &vote.preimage())
-                .payload()
-                .try_into()
-                .expect("native BLS signature width"),
+            Signature::from_bytes(
+                &iroha_crypto::bls::consensus::sign_preimage(
+                    keys[0].private_key(),
+                    &vote.preimage(),
+                )
+                .unwrap(),
+            )
+            .payload()
+            .try_into()
+            .expect("native BLS signature width"),
         );
         vote
     };

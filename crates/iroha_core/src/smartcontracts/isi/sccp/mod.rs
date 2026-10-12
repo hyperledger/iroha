@@ -18,12 +18,17 @@
 //! transaction as SCCP-exempt, so block production and queue behavior are unchanged.
 
 pub mod admission;
+pub mod anchor_record;
 pub mod commitment;
 pub mod controls;
+pub(crate) mod eligibility;
 pub mod escrow;
 pub mod fees;
+pub mod generation_record;
+pub(super) mod generations;
 pub mod governance;
 pub mod height;
+pub mod hold;
 pub mod hook;
 pub mod inbound;
 pub mod init;
@@ -32,6 +37,7 @@ pub mod light_clients;
 pub mod outbound;
 pub mod params;
 pub mod parliament_iface;
+pub mod pause_record;
 pub mod read;
 pub mod recipients;
 pub mod registry;

@@ -4,8 +4,7 @@
 //! nodes, destination contracts, wallets and tools must agree on byte for
 //! byte: profile identities and lanes, the transfer payload codec and amount
 //! rules, payload and message hashes, block commitment and history trees,
-//! EIP-712 digests, roster digests, signature checks, the node-local bridge
-//! key file, TON cell hashing and EVM ABI helpers. Nothing here performs I/O;
+//! native BLS certificates, external transaction signatures, TON cell hashing and EVM ABI helpers. Nothing here performs I/O;
 //! network access lives in `iroha_sccp_rpc`.
 //!
 //! The revision-5 finality reference (`specs/sccp.md` §3.4, §3.6–§3.8, §5.1, §5.2.2) is in
@@ -18,11 +17,8 @@
 //! ([`destination::Destination`]); [`destination_abi`] their selectors, event topics and
 //! the shared error table with its TON exit codes.
 //!
-//! TODO: WP-S1 deletes the attestation-model modules ([`eip712`], [`roster`], [`signature`],
-//! [`key_file`]), the attestation-based verifiers of [`proof`] and the revision-4 parts of
-//! [`constants`]; WP-S4 deletes the 126-byte control leaf of [`hashes`]. Until then they
-//! stay beside the revision-5 modules, and a name that exists in both is the revision-5
-//! one only in the six modules above.
+//! TODO(WP-S4): migrate Core control enactment to authenticated 199-byte control leaves
+//! and remove the old control-only hash helpers still used by that owner.
 
 /// Declare a field-less error enum with `Debug`, `Display` and `std::error::Error`.
 macro_rules! unit_error {
@@ -56,18 +52,15 @@ pub mod constants;
 pub mod control;
 pub mod destination;
 pub mod destination_abi;
-pub mod eip712;
 pub mod evidence;
 pub mod evm_abi;
 pub mod finality;
 pub mod hashes;
 pub mod history;
-pub mod key_file;
 pub mod merkle;
 pub mod network;
 pub mod payload;
 pub mod proof;
-pub mod roster;
 pub mod signature;
 pub mod ton_cell;
 

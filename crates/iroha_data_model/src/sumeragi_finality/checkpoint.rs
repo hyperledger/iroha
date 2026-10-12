@@ -105,6 +105,7 @@ impl SumeragiFinalityCheckpoint {
     pub fn with_independently_authenticated_decision_data(
         &self,
         proofs: &[SumeragiFinalityProof],
+        scope: CertifiedResultScope,
     ) -> Result<Self, FinalityError> {
         self.validate_bounds()?;
         let tip = proofs
@@ -122,7 +123,7 @@ impl SumeragiFinalityCheckpoint {
                 proof.height() == first + u64::try_from(offset).map_err(malformed)?,
                 "native decision data is discontinuous",
             )?;
-            let decoded = proof.decode_checked()?;
+            let decoded = proof.decode_checked(scope)?;
             if proof.height() == 1 {
                 need(
                     decoded

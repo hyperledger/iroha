@@ -10,6 +10,9 @@ use crate::queue::RoutingDecision;
 pub(crate) struct ExecutionOutputSealMetadata {
     /// Actual fragment count after the finalizer's deterministic State changes.
     pub(crate) committed_fragment_count: u64,
+    /// Exact fixed-size finality header produced by this execution's SCCP tail.
+    pub(crate) sccp_finality_header:
+        iroha_data_model::sumeragi_finality::certified_result::SccpFinalityHeaderV1,
 }
 
 /// Keep source-specific validation errors intact across State's consuming seal.
@@ -90,6 +93,21 @@ impl SealedExecutionOutputs {
 }
 
 impl StateBlock<'_> {
+    /// Return the original header after rejoining the exact completed output owner.
+    /// No current World view can replace or recompute this retained fixed-size value.
+    pub(crate) fn sealed_sccp_finality_header(
+        &self,
+        block: &SignedBlock,
+    ) -> Result<iroha_data_model::sumeragi_finality::certified_result::SccpFinalityHeaderV1, String>
+    {
+        self.verify_execution_output_seal(block)?;
+        let Some(ExecutionOutputPlanState::Sealed(sealed)) = self.execution_output_plan.as_ref()
+        else {
+            return Err("SCCP header requires the original completed output seal".into());
+        };
+        Ok(sealed.sccp_finality_header)
+    }
+
     /// Bind the recorder's actual complete witness before extraction. A second
     /// capture cannot replace the first witness owned by this execution.
     pub(in crate::state) fn bind_execution_output_witness(
@@ -423,6 +441,14 @@ impl StateBlock<'_> {
             if !state.batch_transfer_outcomes.is_empty() {
                 return Err("output finalizer introduced unowned business receipts".into());
             }
+            if metadata.sccp_finality_header.network_id() != *state.network_id.as_bytes()
+                || metadata.sccp_finality_header.height() != block.header().height().get()
+                || metadata.sccp_finality_header.timestamp_ms() != block.header().creation_time_ms
+            {
+                return Err(
+                    "SCCP finality header differs from the original execution carrier".into(),
+                );
+            }
             let fragments = u64::try_from(state.committed_fragment_count())
                 .map_err(|_| "committed fragment count exceeds u64")?;
             if fragments != metadata.committed_fragment_count {
@@ -487,6 +513,7 @@ impl StateBlock<'_> {
                 .executed_block_wire_identity()
                 .map_err(|error| error.to_string())?;
             Ok(SealedExecutionOutputs {
+                sccp_finality_header: metadata.sccp_finality_header,
                 witness_hash: None,
                 witness_surface: None,
                 _sources: sources,

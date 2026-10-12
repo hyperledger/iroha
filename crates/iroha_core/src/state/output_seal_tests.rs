@@ -147,6 +147,13 @@ fn metadata(
 ) -> Result<ExecutionOutputSealMetadata, String> {
     assert_eq!(routes.len(), 1);
     Ok(ExecutionOutputSealMetadata {
+        sccp_finality_header:
+            iroha_data_model::sumeragi_finality::certified_result::SccpFinalityHeaderV1::inactive(
+                *block.network_id.as_bytes(),
+                block._curr_block.height().get(),
+                block._curr_block.creation_time_ms,
+            )
+            .expect("original component carrier"),
         committed_fragment_count: u64::try_from(block.committed_fragment_count()).unwrap(),
     })
 }
@@ -464,4 +471,62 @@ fn seal_verification_uses_values_instead_of_noop_or_rolled_back_touch_history() 
         block.commit().unwrap_err(),
         TransactionsBlockError::ExecutionOutputCapacity
     ));
+}
+
+#[test]
+fn sccp_header_requires_original_completed_seal_and_rejects_later_world_changes() {
+    let (state, mut source) = seal_fixture();
+    let (mut block, _recording) = recorded_network_block(&state, &source);
+    let expected =
+        iroha_data_model::sumeragi_finality::certified_result::SccpFinalityHeaderV1::inactive(
+            *state.network_id.as_bytes(),
+            source.header().height().get(),
+            source.header().creation_time_ms,
+        )
+        .unwrap();
+    assert!(block.sealed_sccp_finality_header(&source).is_err());
+    run(&mut block, &source);
+    assert!(block.sealed_sccp_finality_header(&source).is_err());
+    block.seal_execution_outputs(&mut source, metadata).unwrap();
+    assert_eq!(
+        block.sealed_sccp_finality_header(&source).unwrap(),
+        expected
+    );
+    *block.world.sccp_degraded_run.get_mut() = 1;
+    assert!(block.sealed_sccp_finality_header(&source).is_err());
+}
+
+#[test]
+fn substituted_sccp_header_identity_poisoned_before_attachment() {
+    use iroha_data_model::sumeragi_finality::certified_result::SccpFinalityHeaderV1;
+    for changed in 0..3 {
+        let (state, mut source) = seal_fixture();
+        let (mut block, _recording) = recorded_network_block(&state, &source);
+        run(&mut block, &source);
+        let result = block.seal_execution_outputs(&mut source, |state, source, routes| {
+            let mut result = metadata(state, source, routes)?;
+            let mut network = *state.network_id.as_bytes();
+            let mut height = source.header().height().get();
+            let mut timestamp = source.header().creation_time_ms;
+            match changed {
+                0 => network[0] ^= 1,
+                1 => height += 1,
+                2 => timestamp += 1,
+                _ => unreachable!(),
+            }
+            result.sccp_finality_header =
+                SccpFinalityHeaderV1::inactive(network, height, timestamp).unwrap();
+            Ok::<_, String>(result)
+        });
+        assert!(
+            matches!(result, Err(ExecutionOutputSealError::Owner(ref error))
+            if error.contains("SCCP finality header"))
+        );
+        assert!(!source.has_results());
+        assert!(block.sealed_sccp_finality_header(&source).is_err());
+        assert!(matches!(
+            block.execution_output_plan,
+            Some(ExecutionOutputPlanState::Poisoned)
+        ));
+    }
 }

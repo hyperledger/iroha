@@ -212,7 +212,8 @@ impl BuildIdentity {
 /// ([`WireMessage`](iroha_sumeragi::message::WireMessage) plus native
 /// [`Evidence`](iroha_sumeragi::message::Evidence) frames), and the canonical
 /// [`ExecutionResultCommitment`](iroha_data_model::sumeragi_finality::ExecutionResultCommitment)
-/// payload carried inside result witnesses, with the IVM ABI hash of
+/// body carried inside result witnesses, the actual fixed SCCP header field placement,
+/// result/body domain tags, size bounds and current outer hash contract, with the IVM ABI hash of
 /// the sole first-release syscall policy through
 /// [`wire_schema_hash_of`](iroha_data_model::wire_schema::wire_schema_hash_of). Each
 /// root is rendered against its own types because the wires describe different
@@ -229,11 +230,53 @@ pub fn wire_schema_hash() -> [u8; 32] {
     static HASH: std::sync::OnceLock<[u8; 32]> = std::sync::OnceLock::new();
     *HASH.get_or_init(|| {
         let [block, consensus, execution] = covered_wire_roots();
-        iroha_data_model::wire_schema::wire_schema_hash_of(
+        native_wire_schema_hash_of(
             &[&block, &consensus, &execution],
             ivm::syscalls::compute_abi_hash(ivm::SyscallPolicy::AbiV1),
         )
     })
+}
+
+/// Bind the fixed non-Norito result envelope and hash contract in addition to typed schemas.
+fn native_wire_schema_hash_of(roots: &[&iroha_schema::MetaMap], abi: [u8; 32]) -> [u8; 32] {
+    let schemas = iroha_data_model::wire_schema::wire_schema_hash_of(roots, abi);
+    bind_result_contract(schemas, certified_result_contract())
+}
+
+fn bind_result_contract(schemas: [u8; 32], contract: [u8; 32]) -> [u8; 32] {
+    Hash::new_from_chunks(&[b"iroha/native-wire-identity/v1", &schemas, &contract]).into()
+}
+
+/// Hash actual field placement with the exact current result domains and byte bounds.
+fn certified_result_contract() -> [u8; 32] {
+    use iroha_data_model::sumeragi_finality::{
+        MAX_RESULT_PREIMAGE_BYTES, RESULT_TAG,
+        certified_result::{MAX_RESULT_BODY_BYTES, RESULT_BODY_TAG, SccpFinalityHeaderFieldsV1},
+    };
+    // Distinct byte patterns expose changed offsets or endianness through the real encoder.
+    // This is a layout descriptor, never a validated finality header or execution authority.
+    let layout = SccpFinalityHeaderFieldsV1 {
+        network_id: [1; 32],
+        height: 0x0203040506070809,
+        timestamp_ms: 0x0a0b0c0d0e0f1011,
+        flags: 0x12,
+        message_count: 0x13141516,
+        sccp_root: [0x17; 32],
+        history_size: 0x18191a1b1c1d1e1f,
+        history_root: [0x20; 32],
+        generation: 0x2122232425262728,
+        committee_root: [0x29; 32],
+        validity_ms: 0x2a2b2c2d2e2f3031,
+        next_committee_root: [0x32; 32],
+    }
+    .to_bytes();
+    Hash::new_from_chunks(&[
+        b"iroha/certified-result-wire-contract/v1",
+        b"R=raw-SHA256(RESULT_TAG||X||H_iroha(RESULT_BODY_TAG||body));stored=X||canonical-Norito-body",
+        RESULT_TAG, RESULT_BODY_TAG, &layout,
+        &(MAX_RESULT_PREIMAGE_BYTES as u64).to_be_bytes(),
+        &(MAX_RESULT_BODY_BYTES as u64).to_be_bytes(),
+    ]).into()
 }
 
 /// Compiled wire roots in identity order: block, consensus and canonical execution result.
@@ -308,7 +351,8 @@ pub fn genesis_identity(
 
 #[cfg(test)]
 mod tests {
-    use iroha_data_model::wire_schema::{wire_root_defects, wire_schema_hash_of};
+    use super::native_wire_schema_hash_of as wire_schema_hash_of;
+    use iroha_data_model::wire_schema::wire_root_defects;
 
     use super::*;
     const SOURCE: &str = "1234567890abcdef1234567890abcdef12345678";
@@ -492,6 +536,27 @@ mod tests {
         assert_eq!(status.cargo_features, "telemetry");
         assert_eq!(status.target_triple, "aarch64-apple-darwin");
         assert_eq!(status.wire_schema_hash, hex::encode(wire_schema_hash()));
+    }
+
+    #[test]
+    fn wire_schema_hash_binds_fixed_result_header_and_outer_hash_contract() {
+        let abi = ivm::syscalls::compute_abi_hash(ivm::SyscallPolicy::AbiV1);
+        let [block, consensus, execution] = covered_wire_roots();
+        let roots = [&block, &consensus, &execution];
+        let schemas = iroha_data_model::wire_schema::wire_schema_hash_of(&roots, abi);
+        let contract = certified_result_contract();
+        assert_ne!(
+            wire_schema_hash(),
+            schemas,
+            "body-only schemas omit X and the result hash contract"
+        );
+        assert_eq!(wire_schema_hash(), bind_result_contract(schemas, contract));
+        assert_eq!(contract, certified_result_contract());
+        for index in 0..contract.len() {
+            let mut changed = contract;
+            changed[index] ^= 1;
+            assert_ne!(wire_schema_hash(), bind_result_contract(schemas, changed));
+        }
     }
 
     #[test]

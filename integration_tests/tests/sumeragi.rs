@@ -721,6 +721,9 @@ mod rs16_hold {
         );
         let client = peer.client().with_request_deadline(deadline)?;
         let genesis = network.genesis().0;
+        let root_scope = iroha_genesis::signed_genesis_consensus_metadata(&genesis)?
+            .sumeragi_context
+            .root_scope;
         let budget = iroha_core::state::AllocationBudget::new(32 * 1024 * 1024);
         let mut prefix = None;
         let mut target = None;
@@ -731,12 +734,12 @@ mod rs16_hold {
             );
             let proof = client
                 .client()
-                .get_sumeragi_finality_proof(NonZeroU64::new(at).unwrap())?;
+                .get_sumeragi_finality_proof(NonZeroU64::new(at).unwrap(), root_scope)?;
             ensure!(
                 proof.height() == at,
                 "finality source substituted requested height"
             );
-            proof.decode_checked()?;
+            proof.decode_checked(root_scope.into())?;
             let block = iroha_data_model::block::decode_framed_signed_block(&proof.block_wire)?;
             let block = iroha_data_model::block::SharedSignedBlock::try_new(block, &budget)
                 .map_err(|(_, error)| error)?;

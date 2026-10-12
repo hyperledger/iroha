@@ -263,6 +263,10 @@ impl ServiceAuthority {
     }
 
     pub(super) fn source(&self, height: u64, deadline: Instant) -> Result<HttpFinalitySource> {
+        let root_scope = iroha_genesis::signed_genesis_consensus_metadata(&self.genesis.genesis)
+            .map_err(|_| invalid("invalid native operation signed genesis metadata"))?
+            .sumeragi_context
+            .root_scope;
         HttpFinalitySource::new(
             self.config.network_id,
             NonZeroU64::new(height).ok_or_else(|| invalid("zero native operation checkpoint"))?,
@@ -272,6 +276,7 @@ impl ServiceAuthority {
                 .collect(),
             self.peers.clone(),
             deadline,
+            root_scope,
         )
         .map_err(|_| invalid("invalid native operation finality source"))
     }

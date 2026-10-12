@@ -95,6 +95,7 @@ impl Dataspace {
                 .iter()
                 .map(|write| (write.key.as_slice(), write.value.as_slice())),
             record.clone(),
+            self.chain.root_scope().into(),
         )
         .unwrap()
     }

@@ -217,7 +217,18 @@ pub(crate) fn sample_route(network: SccpNetworkV1) -> SccpRouteV1 {
     });
     route.revisions.insert(
         1,
-        SccpRouteRevisionV1::staged(1, deployment, 1_000_000_000_000, 2),
+        SccpRouteRevisionV1::staged(
+            1,
+            deployment,
+            iroha_data_model::sccp::deployment::SccpCommitteePinV1 {
+                generation: 1,
+                committee_root: [0x44; 32],
+                start_height: 1,
+                until_ms: 1_801_209_600_000,
+            },
+            1_000_000_000_000,
+            2,
+        ),
     );
     route
 }
@@ -235,13 +246,94 @@ pub(crate) fn sample_proposal(network_id: NetworkId) -> SccpGovernanceProposalV1
     }
 }
 
+/// A structurally valid retained generation with real canonical BLS keys and an original binding.
+pub(crate) fn sample_generation(
+    seed: u8,
+) -> iroha_data_model::sccp::generation::SccpCommitteeGenerationV1 {
+    use iroha_data_model::sccp::generation::{
+        SccpCommitteeGenerationV1, SccpGenerationCauseV1, SccpGenerationMemberV1,
+    };
+    let mut keys = (1..=4)
+        .map(|index| {
+            let mut bytes = vec![seed; 32];
+            bytes[0] = index;
+            let pair = KeyPair::try_from_seed(bytes, Algorithm::BlsNormal).expect("BLS key");
+            pair.public_key()
+                .try_to_bytes()
+                .expect("BLS bytes")
+                .1
+                .try_into()
+                .expect("48-byte BLS key")
+        })
+        .collect::<Vec<[u8; 48]>>();
+    keys.sort();
+    let parameters = SccpParametersV1::taira_default();
+    let time = u64::from(seed) * 1_000;
+    SccpCommitteeGenerationV1 {
+        generation: u64::from(seed),
+        committee_root: iroha_data_model::sumeragi_finality::certified_result::committee_root(
+            &keys,
+        )
+        .expect("committee root"),
+        members: vec![
+            Some(SccpGenerationMemberV1 {
+                lane_id: iroha_model_base::topology::LaneId::SINGLE,
+                validator: authority(seed),
+                activation_height: 1,
+            }),
+            None,
+            None,
+            None,
+        ],
+        keys,
+        cause: if seed == 1 {
+            SccpGenerationCauseV1::Genesis
+        } else {
+            SccpGenerationCauseV1::Heartbeat
+        },
+        start_height: u64::from(seed),
+        start_timestamp_ms: time,
+        start_lc: time,
+        validity_ms: parameters.committee_validity_ms,
+        deadline_ms: time + parameters.committee_validity_ms,
+        grace_ms: parameters.forgery_evidence_grace_ms,
+        progress_cap_ms: parameters.destination_progress_cap_ms,
+        liable_until_lc: time
+            + parameters.committee_validity_ms
+            + parameters.forgery_evidence_grace_ms,
+        dest_cleared_lc: None,
+        end: None,
+    }
+}
+
 /// Populate every SCCP world map and cell of `block` with `seed`-distinct values, so a
 /// snapshot or projection test exercises the complete SCCP field inventory.
-pub(crate) fn populate_every_sccp_map(block: &mut WorldBlock<'_>, seed: u8) {
+pub(crate) fn populate_every_sccp_map(
+    block: &mut WorldBlock<'_>,
+    seed: u8,
+    budget: &iroha_allocation::AllocationBudget,
+) {
     let network = SccpNetworkV1::EthereumMainnet;
     let height = u64::from(seed) + 10;
     *block.sccp_parameters.get_mut() = Some(SccpParametersV1::taira_default());
     *block.sccp_reset_nonce.get_mut() = Some(word(seed | 1));
+    block.sccp_committee_generations.insert(
+        u64::from(seed),
+        super::generation_record::RetainedSccpGeneration::admit(&sample_generation(seed), budget)
+            .unwrap(),
+    );
+    *block.sccp_committee_current.get_mut() = u64::from(seed);
+    *block.sccp_liability_clock.get_mut() = u64::from(seed) * 1_000;
+    *block.sccp_degraded_run.get_mut() = u32::from(seed);
+    *block.sccp_anchor_open.get_mut() = super::anchor_record::RetainedSccpAnchors::admit(
+        &[iroha_data_model::sccp::generation::SccpAnchorV1 {
+            core_hash: word(seed),
+            result: word(seed.wrapping_add(1)),
+        }],
+        budget,
+    )
+    .unwrap();
+    block.sccp_anchor_chunks.insert(u64::from(seed), word(seed));
     block
         .sccp_block_leaves
         .insert((height, 0), SccpLeafRefV1::transfer(word(seed)));
@@ -279,14 +371,40 @@ pub(crate) fn populate_every_sccp_map(block: &mut WorldBlock<'_>, seed: u8) {
     block
         .sccp_outbound_by_nonce
         .insert((network, 1, u64::from(seed)), word(seed));
+    block.sccp_fast_pauses.insert(
+        network,
+        super::pause_record::RetainedSccpFastPause::admit(&sample_fast_pause(seed), budget)
+            .expect("funded pause"),
+    );
+    block
+        .sccp_fast_pause_suspended_until_ms
+        .insert(network, u64::from(seed) * 1_000);
+    block.sccp_fast_pause_rounds.insert(
+        (
+            network,
+            iroha_data_model::sccp::fast_pause::SccpPanelRoleV1::Primary,
+        ),
+        super::pause_record::RetainedSccpFastPauseRound::admit(
+            &sample_fast_pause_round(seed),
+            budget,
+        )
+        .expect("funded round"),
+    );
+    *block.sccp_pause_panel.get_mut() = Some(
+        super::pause_record::RetainedSccpPausePanel::admit(&sample_pause_panel(seed), budget)
+            .expect("funded panel"),
+    );
     block.sccp_control_messages.insert(
         (network, 1, u64::from(seed)),
         SccpControlRecordV1 {
-            paused: seed % 2 == 0,
+            track: 1,
+            parliament_paused: seed % 2 == 0,
+            fast_pause_until_ms: 0,
             height,
             commitment_index: 1,
             leaf: word(seed),
-            proposal_id: word(seed),
+            certificate_id: word(seed),
+            effect_hash: [5; 32],
         },
     );
     block.sccp_routes.insert(network, sample_route(network));
@@ -391,6 +509,12 @@ pub(crate) fn install_outbound_route(
             address: OUTBOUND_FIXTURE_CONTRACT,
             runtime_code_hash: word(0x34),
         }),
+        iroha_data_model::sccp::deployment::SccpCommitteePinV1 {
+            generation: 1,
+            committee_root: [0x44; 32],
+            start_height: 1,
+            until_ms: 1_801_209_600_000,
+        },
         max_wrapped_supply,
         2,
     );
@@ -500,6 +624,12 @@ pub(crate) fn install_value_route(
             address: address(0xc0),
             runtime_code_hash: word(0x34),
         }),
+        iroha_data_model::sccp::deployment::SccpCommitteePinV1 {
+            generation: 1,
+            committee_root: [0x44; 32],
+            start_height: 1,
+            until_ms: 1_801_209_600_000,
+        },
         max_wrapped_supply,
         2,
     );
@@ -557,4 +687,104 @@ pub(crate) fn assert_escrow_invariant(
             route.stranded
         );
     }
+}
+
+/// Structurally valid current fast-pause DTO; it does not establish panel authority.
+pub(crate) fn sample_fast_pause(seed: u8) -> iroha_data_model::sccp::fast_pause::SccpFastPauseV1 {
+    use iroha_data_model::sccp::fast_pause::{SccpFastPauseV1, SccpPassPositionV1};
+    SccpFastPauseV1 {
+        certificate_id: [seed; 32],
+        effect_hash: [seed.wrapping_add(1); 32],
+        panel_id: [seed.wrapping_add(2); 32],
+        enacted_at: SccpPassPositionV1 {
+            height: u64::from(seed),
+            position: 0,
+        },
+        enacted_at_ms: u64::from(seed) * 1_000,
+        until_ms: u64::from(seed) * 1_000 + 10_000,
+        taira: true,
+        revisions: vec![1, 3],
+    }
+}
+
+/// Structurally valid nine-seat panel DTO, solely for codec/custody State fixtures.
+pub(crate) fn sample_pause_panel(seed: u8) -> iroha_data_model::sccp::fast_pause::SccpPausePanelV1 {
+    use iroha_crypto::{Algorithm, KeyPair};
+    let drawn: Vec<_> = (1..=27)
+        .map(|member| {
+            AccountId::new(
+                KeyPair::try_from_seed(vec![member; 32], Algorithm::Ed25519)
+                    .unwrap()
+                    .public_key()
+                    .clone(),
+            )
+        })
+        .collect();
+    let accepted = [drawn[0].clone(), drawn[18].clone()].into_iter().collect();
+    iroha_data_model::sccp::fast_pause::SccpPausePanelV1 {
+        panel_seq: u64::from(seed),
+        pulse_id: [seed; 32],
+        seated_height: u64::from(seed),
+        seated_at_ms: u64::from(seed) * 1_000,
+        accept_until_ms: u64::from(seed) * 1_000 + 1_000,
+        term_ends_at_ms: u64::from(seed) * 1_000 + 5_000,
+        drawn,
+        accepted,
+        primary_id: [seed.wrapping_add(2); 32],
+        backup_id: [seed.wrapping_add(3); 32],
+    }
+}
+
+/// Structurally valid unready round with a real account graph, not an approved certificate.
+pub(crate) fn sample_fast_pause_round(
+    seed: u8,
+) -> iroha_data_model::sccp::fast_pause::SccpFastPauseRoundV1 {
+    let panel = sample_pause_panel(seed);
+    iroha_data_model::sccp::fast_pause::SccpFastPauseRoundV1 {
+        panel_id: panel.primary_id,
+        panel_seq: panel.panel_seq,
+        head: u64::from(seed),
+        opened_at_ms: panel.seated_at_ms,
+        closes_at_ms: panel.seated_at_ms + 1_000,
+        endorsers: [(
+            panel.drawn[0].clone(),
+            iroha_data_model::sccp::fast_pause::SccpFastPauseEndorsementV1 {
+                incident_digest: [seed; 32],
+                recorded_at_height: u64::from(seed),
+            },
+        )]
+        .into_iter()
+        .collect(),
+        certify_due: false,
+    }
+}
+
+/// Non-authority cause for isolated effect/commitment tests. Production derives both fields
+/// from World's exact authenticated due certificate; these fixed bytes grant no authority.
+pub(crate) fn effect_cause() -> super::controls::ControlCauseV1 {
+    super::controls::ControlCauseV1 {
+        track: 1,
+        certificate_id: [0x31; 32],
+        effect_hash: [0x33; 32],
+    }
+}
+
+/// Install an originally funded pause as an effect-consumer fixture precondition.
+/// This grants no panel/enactment authority and does not qualify the unfinished producer.
+pub(crate) fn install_consumer_fast_pause(
+    stx: &mut crate::state::StateTransaction<'_, '_>,
+    network: SccpNetworkV1,
+    taira: bool,
+    revisions: Vec<u32>,
+    until_ms: u64,
+) {
+    let mut pause = sample_fast_pause(1);
+    pause.enacted_at_ms = 1;
+    pause.until_ms = until_ms;
+    pause.taira = taira;
+    pause.revisions = revisions;
+    let budget = crate::state::StateReadOnly::execution_budget(stx);
+    let pause = super::pause_record::RetainedSccpFastPause::admit(&pause, &budget)
+        .expect("original fixture pause custody");
+    super::store::fast_pauses::insert(stx, network, pause).expect("fixture pause State");
 }

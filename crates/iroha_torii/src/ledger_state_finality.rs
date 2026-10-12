@@ -81,7 +81,12 @@ fn load(app: &AppState, height: u64) -> Result<StateFinalityResponse, Error> {
     // This decode extracts the root from the already authenticated exact proof;
     // candidate-committee decoding alone would not grant finality authority.
     let witnessed_post_state_root = finality_proof
-        .decode_checked()
+        .decode_checked(
+            view.native_execution_tip()
+                .ok_or_else(|| internal_error("native execution scope unavailable"))?
+                .root_scope()
+                .into(),
+        )
         .map_err(|error| internal_error(format!("invalid native proof framing: {error}")))?
         .execution()
         .post_state_root;

@@ -256,7 +256,10 @@ fn build_interval(
                     limits.deadline,
                 )?;
                 progress()?;
-                retained.proof.decode_checked().map_err(ProofError::from)?;
+                retained
+                    .proof
+                    .decode_checked(reader.root_scope().into())
+                    .map_err(ProofError::from)?;
                 progress()?;
                 let length = norito::canonical_frame_len(&retained.proof)
                     .map_err(|_| NativeFinalityProofIntervalError::Request)?;

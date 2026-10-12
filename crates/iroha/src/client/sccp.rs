@@ -1,7 +1,8 @@
 //! Public asynchronous SCCP v1 reads on one immutable client context (`specs/sccp.md` §6).
 //!
 //! Every response is data from one Taira peer; nothing here is trusted. Wallets verify proof
-//! bundles and rotation chains locally (`iroha_sccp_wallet::pure`) before using them.
+//! bundles locally before using them.
+//! Proofs select a committed certificate height; readers independently verify its authority.
 
 use super::{Client, dispatch, join_torii_url};
 use crate::{Error, Result, http::Method};
@@ -9,36 +10,18 @@ use iroha_data_model::{
     account::address::ChainDiscriminantGuard, bridge::SccpNetworkV1, sccp::registry::SccpRouteV1,
 };
 use iroha_sccp::api::{
-    SccpCapabilitiesV1, SccpControlPageV1, SccpControlProofBundleV1,
+    SccpCapabilitiesV1, SccpControlPageV1, SccpControlProofBundleV1, SccpGenerationV1,
     SccpGovernanceProposalDetailV1, SccpHistoryPathViewV1, SccpLcCheckpointCoverV1,
     SccpLightClientDetailV1, SccpMessageProofBundleV1, SccpMessageStatusV1, SccpOutboundPageV1,
-    SccpRecentMessagesV1, SccpRosterViewV1, SccpRotationChainV1,
+    SccpRecentMessagesV1, SccpRotationV1,
 };
 use iroha_torii_shared::route_catalog::{RouteDescriptor, sccp};
 use norito::json::JsonDeserialize;
 
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 
-/// Which attestation a proof bundle uses (`?attestation=`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SccpAttestation {
-    /// The subject of the block that holds the leaf (direct mode).
-    Own,
-    /// The newest attested subject at or above that block (historical mode when later).
-    Latest,
-    /// The subject at this height.
-    At(u64),
-}
-
-impl SccpAttestation {
-    fn query(self) -> String {
-        match self {
-            Self::Own => "own".to_owned(),
-            Self::Latest => "latest".to_owned(),
-            Self::At(height) => height.to_string(),
-        }
-    }
-}
+/// Select the committed certificate height of a proof bundle (`?at=`).
+pub use iroha_sccp::api::SccpProofHeightV1;
 
 /// Direction filter of [`Sccp::recent_messages`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,6 +42,20 @@ impl SccpDirection {
 }
 
 /// Public SCCP read routes.
+///
+/// Committee reads carry native BLS generation metadata; attestation roster reads are absent:
+///
+/// ```compile_fail,E0599
+/// fn removed_current_roster(api: &iroha::client::sccp::Sccp<'_>) {
+///     let _ = api.current_roster();
+/// }
+/// ```
+///
+/// ```compile_fail,E0599
+/// fn removed_roster(api: &iroha::client::sccp::Sccp<'_>) {
+///     let _ = api.roster(1);
+/// }
+/// ```
 #[derive(Clone, Copy, Debug)]
 pub struct Sccp<'a> {
     client: &'a Client,
@@ -118,13 +115,55 @@ impl Sccp<'_> {
         decode_body(operation, response.body())
     }
 
-    /// Read the Taira identity, parameters and attestation health.
+    /// Read the Taira identity, parameters and light-client profiles.
     ///
     /// # Errors
     /// Returns structured transport, HTTP or decoding errors.
     pub async fn capabilities(&self) -> Result<SccpCapabilitiesV1> {
         self.get(sccp::CAPABILITIES, sccp::CAPABILITIES.path())
             .await
+    }
+
+    /// Read current committee metadata; authenticate its keys through signed history.
+    ///
+    /// # Errors
+    /// Returns structured transport, HTTP or strict decoding errors.
+    pub async fn current_committee(&self) -> Result<SccpGenerationV1> {
+        self.get(sccp::CURRENT_COMMITTEE, sccp::CURRENT_COMMITTEE.path())
+            .await
+    }
+
+    /// Read one generation's retained keys and current liability.
+    ///
+    /// # Errors
+    /// Returns structured transport, HTTP or strict decoding errors, including pruned history.
+    pub async fn committee(&self, generation: u64) -> Result<SccpGenerationV1> {
+        self.get(
+            sccp::COMMITTEE,
+            &path(sccp::COMMITTEE, &[&generation.to_string()]),
+        )
+        .await
+    }
+
+    /// Read current native rotation certificates after an independently pinned generation.
+    /// The caller authenticates every step before changing its destination committee.
+    ///
+    /// # Errors
+    /// Returns structured transport, HTTP or strict decoding errors. An unavailable
+    /// native archive is an explicit service error; it never supplies a synthetic rotation.
+    pub async fn rotations(
+        &self,
+        after_generation: u64,
+        limit: usize,
+    ) -> Result<Vec<SccpRotationV1>> {
+        self.get(
+            sccp::COMMITTEE_ROTATIONS,
+            &format!(
+                "{}?after_generation={after_generation}&limit={limit}",
+                sccp::COMMITTEE_ROTATIONS.path()
+            ),
+        )
+        .await
     }
 
     /// Read the nonzero per-subject governance revisions (absent subjects are at 0).
@@ -237,7 +276,7 @@ impl Sccp<'_> {
     }
 
     /// Read the destination controls of `(network, revision)` above `after_nonce`, at most
-    /// `limit` (≤ 64), with their attestation progress.
+    /// `limit` (≤ 64), with their committed record heights.
     ///
     /// # Errors
     /// Returns structured transport, HTTP (404 for an unknown revision) or decoding errors.
@@ -316,36 +355,57 @@ impl Sccp<'_> {
         .await
     }
 
-    /// Read the proof bundle of one outbound message.
+    /// Read the requested message's proof at the selected certificate height.
+    /// Identity and height equality do not authenticate the proof; the caller still verifies
+    /// certificate authority, payload identity and inclusion. `Latest` supplies no freshness guarantee.
     ///
     /// # Errors
-    /// Returns structured transport, HTTP (409 until attested) or decoding errors.
+    /// Invalid zero height, structured transport/HTTP/decoding error, or response binding mismatch.
     pub async fn message_proof(
         &self,
         message_id: &[u8; 32],
-        attestation: SccpAttestation,
+        at: SccpProofHeightV1,
     ) -> Result<SccpMessageProofBundleV1> {
+        let operation = sccp::MESSAGE_PROOF.stable_route_id();
+        validate_proof_selector(operation, at)?;
         let path = format!(
-            "{}?attestation={}",
+            "{}?at={}",
             path(sccp::MESSAGE_PROOF, &[&hex32(message_id)]),
-            attestation.query()
+            at
         );
-        self.get(sccp::MESSAGE_PROOF, &path).await
+        let response: SccpMessageProofBundleV1 = self.get(sccp::MESSAGE_PROOF, &path).await?;
+        if response.message_id != *message_id {
+            return Err(Error::ResponseBinding {
+                operation,
+                field: "message_id",
+            });
+        }
+        bind_proof_height(
+            operation,
+            at,
+            response.block.height,
+            response.certificate.height,
+        )?;
+        Ok(response)
     }
 
-    /// Read the proof bundle of one destination control.
+    /// Read the exact network, revision and nonce's proof at the selected certificate height.
+    /// Equality does not authenticate the control or its cause; the caller still verifies
+    /// certificate authority and inclusion. `Latest` supplies no freshness guarantee.
     ///
     /// # Errors
-    /// Returns structured transport, HTTP (409 until attested) or decoding errors.
+    /// Invalid zero height, structured transport/HTTP/decoding error, or response binding mismatch.
     pub async fn control_proof(
         &self,
         network: SccpNetworkV1,
         revision: u32,
         control_nonce: u64,
-        attestation: SccpAttestation,
+        at: SccpProofHeightV1,
     ) -> Result<SccpControlProofBundleV1> {
+        let operation = sccp::CONTROL_PROOF.stable_route_id();
+        validate_proof_selector(operation, at)?;
         let path = format!(
-            "{}?attestation={}",
+            "{}?at={}",
             path(
                 sccp::CONTROL_PROOF,
                 &[
@@ -354,47 +414,65 @@ impl Sccp<'_> {
                     &control_nonce.to_string()
                 ]
             ),
-            attestation.query()
+            at
         );
-        self.get(sccp::CONTROL_PROOF, &path).await
+        let response: SccpControlProofBundleV1 = self.get(sccp::CONTROL_PROOF, &path).await?;
+        if response.network != network {
+            return Err(Error::ResponseBinding {
+                operation,
+                field: "network",
+            });
+        }
+        if response.revision != revision {
+            return Err(Error::ResponseBinding {
+                operation,
+                field: "revision",
+            });
+        }
+        if response.control_nonce != control_nonce {
+            return Err(Error::ResponseBinding {
+                operation,
+                field: "control_nonce",
+            });
+        }
+        bind_proof_height(
+            operation,
+            at,
+            response.block.height,
+            response.certificate.height,
+        )?;
+        Ok(response)
     }
+}
 
-    /// Read the current roster generation.
-    ///
-    /// # Errors
-    /// Returns structured transport, HTTP or decoding errors.
-    pub async fn current_roster(&self) -> Result<SccpRosterViewV1> {
-        self.get(sccp::ROSTER_CURRENT, sccp::ROSTER_CURRENT.path())
-            .await
+fn validate_proof_selector(operation: &'static str, at: SccpProofHeightV1) -> Result<()> {
+    if matches!(at, SccpProofHeightV1::At(0)) {
+        return Err(Error::InvalidRequest {
+            operation,
+            details: "explicit SCCP proof height must be positive".to_owned(),
+        });
     }
+    Ok(())
+}
 
-    /// Read one roster generation.
-    ///
-    /// # Errors
-    /// Returns structured transport, HTTP or decoding errors.
-    pub async fn roster(&self, generation: u64) -> Result<SccpRosterViewV1> {
-        self.get(
-            sccp::ROSTER,
-            &path(sccp::ROSTER, &[&generation.to_string()]),
-        )
-        .await
+fn bind_proof_height(
+    operation: &'static str,
+    at: SccpProofHeightV1,
+    record_height: u64,
+    certificate_height: u64,
+) -> Result<()> {
+    let expected = match at {
+        SccpProofHeightV1::Record => record_height,
+        SccpProofHeightV1::At(height) => height,
+        SccpProofHeightV1::Latest => return Ok(()),
+    };
+    if certificate_height != expected {
+        return Err(Error::ResponseBinding {
+            operation,
+            field: "certificate.height",
+        });
     }
-
-    /// Read the catch-up rotation chain from `after_generation`, at most `limit` (≤ 16) steps.
-    ///
-    /// # Errors
-    /// Returns structured transport, HTTP or decoding errors.
-    pub async fn rotations(
-        &self,
-        after_generation: u64,
-        limit: usize,
-    ) -> Result<SccpRotationChainV1> {
-        let path = format!(
-            "{}?after_generation={after_generation}&limit={limit}",
-            sccp::ROSTER_ROTATIONS.path()
-        );
-        self.get(sccp::ROSTER_ROTATIONS, &path).await
-    }
+    Ok(())
 }
 
 /// The path and query of a recent-messages request.
@@ -437,6 +515,15 @@ mod tests {
     #[test]
     fn paths_fill_placeholders_in_order() {
         assert_eq!(
+            sccp::CURRENT_COMMITTEE.path(),
+            "/v1/sccp/committees/current"
+        );
+        assert_eq!(path(sccp::COMMITTEE, &["7"]), "/v1/sccp/committees/7");
+        assert_eq!(
+            sccp::COMMITTEE_ROTATIONS.path(),
+            "/v1/sccp/committees/rotations"
+        );
+        assert_eq!(
             path(sccp::MESSAGE_PROOF, &["ab"]),
             "/v1/sccp/messages/ab/proof"
         );
@@ -444,7 +531,7 @@ mod tests {
             path(sccp::CONTROL_PROOF, &["ton-mainnet", "2", "7"]),
             "/v1/sccp/controls/ton-mainnet/2/7/proof"
         );
-        assert_eq!(path(sccp::ROSTER, &["4"]), "/v1/sccp/rosters/4");
+        assert_eq!(path(sccp::HISTORY, &["4"]), "/v1/sccp/history/4");
         assert_eq!(
             path(sccp::OUTBOUND_BY_NONCE, &["bsc-mainnet", "3"]),
             "/v1/sccp/outbound/bsc-mainnet/3"
@@ -571,9 +658,12 @@ mod tests {
     }
 
     #[test]
-    fn attestation_queries_are_canonical() {
-        assert_eq!(SccpAttestation::Own.query(), "own");
-        assert_eq!(SccpAttestation::Latest.query(), "latest");
-        assert_eq!(SccpAttestation::At(12).query(), "12");
+    fn proof_height_queries_are_canonical() {
+        assert_eq!(SccpProofHeightV1::Record.to_string(), "record");
+        assert_eq!(SccpProofHeightV1::Latest.to_string(), "latest");
+        assert_eq!(SccpProofHeightV1::At(12).to_string(), "12");
     }
 }
+
+#[cfg(test)]
+mod proof_binding_tests;

@@ -71,6 +71,7 @@ pub(super) fn validate(
         chain.genesis_account(),
         Duration::from_millis(scheduled.params.block_time_ms),
         iroha_data_model::parameter::system::ConsensusMode::Permissioned,
+        chain.root_scope(),
         expansion,
         header,
         &bytes,

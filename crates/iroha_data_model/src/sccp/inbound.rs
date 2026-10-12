@@ -103,7 +103,7 @@ pub enum SccpPendingReasonV1 {
     #[codec(index = 0)]
     #[norito(rename = "disabled")]
     Disabled,
-    /// The revision is neither `Bidirectional` nor `InboundOnly` (it is `Paused`).
+    /// The revision is neither `Bidirectional` nor `InboundOnly` (`Staged`, `Paused` or `Retired`).
     #[codec(index = 1)]
     #[norito(rename = "revision_not_settleable")]
     RevisionNotSettleable,
@@ -125,6 +125,10 @@ pub enum SccpPendingReasonV1 {
     #[codec(index = 5)]
     #[norito(rename = "block_leaves_full")]
     BlockLeavesFull,
+    /// The otherwise settleable revision is held on Taira (§4.14.2).
+    #[codec(index = 6)]
+    #[norito(rename = "held")]
+    Held,
 }
 
 /// Payload of [`SccpInboundStatusV1::Pending`].
@@ -277,13 +281,14 @@ mod tests {
     use crate::sccp::test_support::{assert_rejects_unknown_field, roundtrip};
     use norito::{codec::DecodeAll as _, core::DecodeFromSlice as _};
 
-    const REASONS: [SccpPendingReasonV1; 6] = [
+    const REASONS: [SccpPendingReasonV1; 7] = [
         SccpPendingReasonV1::Disabled,
         SccpPendingReasonV1::RevisionNotSettleable,
         SccpPendingReasonV1::LiabilityShortfall,
         SccpPendingReasonV1::CreditRefused,
         SccpPendingReasonV1::FeeSinkUnavailable,
         SccpPendingReasonV1::BlockLeavesFull,
+        SccpPendingReasonV1::Held,
     ];
 
     fn statuses() -> [SccpInboundStatusV1; 5] {

@@ -82,6 +82,9 @@ impl StateBlock<'_> {
                     return Err("SNS inspection requires its empty Network producer".to_owned());
                 }
                 Ok::<_, String>(super::output_capacity::ExecutionOutputSealMetadata {
+                sccp_finality_header: iroha_data_model::sumeragi_finality::certified_result::SccpFinalityHeaderV1::inactive(
+                    *state.network_id.as_bytes(), state._curr_block.height().get(), state._curr_block.creation_time_ms,
+                ).expect("original component carrier"),
                     committed_fragment_count: u64::try_from(state.committed_fragment_count())
                         .map_err(|_| "SNS fragment count exceeds u64".to_owned())?,
                 })

@@ -112,6 +112,12 @@ fn ensure_word_unused(
 
 /// Apply every action of the certified `proposal` in order and increment the revision of each
 /// of its subjects (§4.14.3 step 4). Runs inside the isolated effect transaction.
+/// The authenticated World owner derives `cause` from the exact due certificate. This
+/// function receives no substitute certificate or independent verification authority.
+///
+/// TODO: the current Parliament reducer must carry its actual Policy Jury casting-open
+/// anchor through the shared millisecond pass before the §4.14.7 selective lift can run.
+/// The current recorder preserves any active fast-pause part; it does not fabricate s0.
 ///
 /// # Errors
 ///
@@ -121,6 +127,7 @@ pub fn enact(
     state_transaction: &mut StateTransaction<'_, '_>,
     proposal: &SccpGovernanceProposalV1,
     proposal_id: [u8; 32],
+    cause: controls::ControlCauseV1,
 ) -> Result<(), Error> {
     if proposal.network_id != *state_transaction.network_id() {
         return Err(refuse("the proposal belongs to a different NetworkId"));
@@ -128,8 +135,14 @@ pub fn enact(
     if store::parameters::get(&*state_transaction.world).is_none() {
         return Err(refuse("SCCP does not exist on this network"));
     }
+    if cause.track != iroha_sccp::v1::control::TRACK_PARLIAMENT
+        || cause.certificate_id == [0; 32]
+        || cause.effect_hash == [0; 32]
+    {
+        return Err(refuse("the enacted Parliament cause is malformed"));
+    }
     for (index, action) in proposal.actions.iter().enumerate() {
-        apply_action(state_transaction, action, proposal_id)
+        apply_action(state_transaction, action, proposal_id, cause)
             .map_err(|error| refuse(format_args!("action {index}: {error}")))?;
     }
     let subjects = proposal.subjects();
@@ -154,6 +167,7 @@ fn apply_action(
     state_transaction: &mut StateTransaction<'_, '_>,
     action: &SccpGovernanceActionV1,
     proposal_id: [u8; 32],
+    cause: controls::ControlCauseV1,
 ) -> Result<(), Error> {
     match action {
         SccpGovernanceActionV1::RegisterRoute(register) => register_route(register),
@@ -185,12 +199,22 @@ fn apply_action(
                 .is_some_and(|revision| revision.activation != SccpRouteActivationV1::Retired);
             // A revision retired or removed since the proposal has nothing left to mint.
             if recordable {
+                // Parliament owns its flag. The recorder observes the resulting complete
+                // state and preserves any independent active fast-pause destination part.
+                let mut route = store::routes::get(&*state_transaction.world, &action.network)
+                    .cloned()
+                    .ok_or_else(|| refuse("the recordable route disappeared"))?;
+                route
+                    .revisions
+                    .get_mut(&action.revision)
+                    .ok_or_else(|| refuse("the recordable revision disappeared"))?
+                    .destination_paused = action.paused;
+                store::routes::insert(state_transaction, action.network, route)?;
                 controls::record_control(
                     state_transaction,
                     action.network,
                     action.revision,
-                    action.paused,
-                    proposal_id,
+                    cause,
                 )?;
             }
             Ok(())
@@ -222,10 +246,10 @@ fn apply_action(
 /// [`parliament_iface::parliament_binding_ballot_available`] is false, so no route is
 /// registered and the registry keeps the empty routes of genesis. The rules that follow P0 bind
 /// the deployment to a committee generation (P1, P2, P5) and recompute its address from that
-/// pin (P3, P4); the pin does not exist yet, so an open gate alone does not make the action
-/// enactable either.
+/// pin (P3, P4); these authenticated enactment checks remain incomplete, so an open gate
+/// alone does not make the action enactable either.
 ///
-/// TODO: WP-S4: add `initial_committee: SccpCommitteePinV1` and enact the registration under
+/// TODO: WP-S4: authenticate the required `initial_committee` and enact registration under
 /// P1–P5 with the revision, destination-word and supply-cap rules.
 ///
 /// TODO: WP-S9: the launch gate also needs `sccp_reconciliation_available()` (§10.2).
@@ -239,8 +263,7 @@ fn register_route(register: &SccpRegisterRouteActionV1) -> Result<(), Error> {
         )));
     }
     Err(refuse(format_args!(
-        "RegisterRoute of {route} revision {revision}: this release has no committee pin to \
-         register a deployment under"
+        "RegisterRoute of {route} revision {revision}: authenticated committee pin and deployment checks are incomplete"
     )))
 }
 
@@ -444,7 +467,7 @@ fn set_taira_paused(
 mod tests {
     use super::*;
     use crate::smartcontracts::isi::sccp::test_support::{
-        blank_state, header, sample_proposal, set_sccp_staking_profile,
+        blank_state, effect_cause, header, sample_proposal, set_sccp_staking_profile,
     };
     use iroha_data_model::sccp::{
         deployment::SccpEvmDeploymentV1,
@@ -481,6 +504,12 @@ mod tests {
             network: NETWORK,
             revision,
             deployment: evm(seed),
+            initial_committee: iroha_data_model::sccp::deployment::SccpCommitteePinV1 {
+                generation: 1,
+                committee_root: [0x44; 32],
+                start_height: 1,
+                until_ms: 1_801_209_600_000,
+            },
             max_wrapped_supply: 1_000_000_000_000,
         })
     }
@@ -501,7 +530,18 @@ mod tests {
             .expect("route");
         route.revisions.insert(
             revision,
-            SccpRouteRevisionV1::staged(revision, deployment, 1_000_000_000_000, 5),
+            SccpRouteRevisionV1::staged(
+                revision,
+                deployment,
+                iroha_data_model::sccp::deployment::SccpCommitteePinV1 {
+                    generation: 1,
+                    committee_root: [0x44; 32],
+                    start_height: 1,
+                    until_ms: 1_801_209_600_000,
+                },
+                1_000_000_000_000,
+                5,
+            ),
         );
         store::routes::insert(stx, NETWORK, route).expect("route");
         store::destination_words::insert(stx, word, (NETWORK, revision)).expect("word");
@@ -574,7 +614,8 @@ mod tests {
         let route = SccpGovernanceSubjectV1::Route(NETWORK);
         let bring_up = proposal(id, vec![(route, 0)], vec![register(1, 7)]);
         preflight_attempt(&stx, &bring_up).expect("the attempt preflight does not read the gate");
-        let error = enact(&mut stx, &bring_up, [1; 32]).expect_err("the launch gate is closed");
+        let error = enact(&mut stx, &bring_up, [1; 32], effect_cause())
+            .expect_err("the launch gate is closed");
         assert!(error.to_string().contains("launch gate"), "{error}");
         assert_eq!(activation(&stx, 1), None, "no revision is registered");
         assert!(store::destination_words::is_empty(&*stx.world));
@@ -617,7 +658,8 @@ mod tests {
                 },
             )],
         );
-        let error = enact(&mut stx, &activate, [2; 32]).expect_err("no light client");
+        let error =
+            enact(&mut stx, &activate, [2; 32], effect_cause()).expect_err("no light client");
         assert!(error.to_string().contains("light client"), "{error}");
         assert_eq!(store::governance_revision(&*stx.world, &route), 0);
 
@@ -639,12 +681,22 @@ mod tests {
                 }),
             ],
         );
-        enact(&mut stx, &pause, [3; 32]).expect("pause");
+        enact(&mut stx, &pause, [3; 32], effect_cause()).expect("pause");
         assert_eq!(activation(&stx, 1), Some(SccpRouteActivationV1::Paused));
         assert!(registry::destination_paused(&*stx.world, NETWORK, 1));
         assert_eq!(store::governance_revision(&*stx.world, &route), 1);
         assert_eq!(store::governance_revision(&*stx.world, &control), 1);
         assert_eq!(store::control_messages::len(&*stx.world), 1);
+        let recorded = store::control_messages::get(&*stx.world, &(NETWORK, 1, 1)).unwrap();
+        let cause = effect_cause();
+        assert_eq!(recorded.track, 1);
+        assert_eq!(recorded.certificate_id, cause.certificate_id);
+        assert_ne!(
+            recorded.certificate_id, [3; 32],
+            "the proposal id is not the certificate id"
+        );
+        assert_eq!(recorded.effect_hash, cause.effect_hash);
+        assert!(recorded.parliament_paused);
         // Ensure semantics: pausing again changes nothing and never fails.
         set_taira_paused(&mut stx, NETWORK, true).expect("ensure");
         assert_eq!(activation(&stx, 1), Some(SccpRouteActivationV1::Paused));
@@ -665,10 +717,10 @@ mod tests {
         let mut next = SccpParametersV1::taira_default();
         next.outbound_ttl_ms = 2 * 86_400_000;
         // L1: without the staking profile the node policy does not cover the liability window.
-        let error = apply_action(&mut stx, &set(next), [1; 32]).expect_err("L1");
+        let error = apply_action(&mut stx, &set(next), [1; 32], effect_cause()).expect_err("L1");
         assert!(error.to_string().contains("unbonding_delay_ms"), "{error}");
         set_sccp_staking_profile(&mut stx);
-        apply_action(&mut stx, &set(next), [1; 32]).expect("a valid table");
+        apply_action(&mut stx, &set(next), [1; 32], effect_cause()).expect("a valid table");
         assert_eq!(*store::parameters::get(&*stx.world), Some(next));
         // An own bound, a joint rule and the staking floor each refuse, and the stored value
         // stays.
@@ -683,7 +735,8 @@ mod tests {
             (short_validity, "committee_validity_ms"),
             (long_grace, "unbonding_delay_ms"),
         ] {
-            let error = apply_action(&mut stx, &set(invalid), [2; 32]).expect_err(field);
+            let error =
+                apply_action(&mut stx, &set(invalid), [2; 32], effect_cause()).expect_err(field);
             assert!(error.to_string().contains(field), "{error}");
             assert_eq!(*store::parameters::get(&*stx.world), Some(next));
         }
@@ -711,6 +764,7 @@ mod tests {
                 to: 2,
             }),
             [2; 32],
+            effect_cause(),
         )
         .expect("switch");
         assert_eq!(
@@ -727,6 +781,7 @@ mod tests {
             &mut stx,
             &SccpGovernanceActionV1::RetireRevision(revision(1)),
             [3; 32],
+            effect_cause(),
         )
         .expect_err("pending");
         store::set_pending_counts(&mut stx, (NETWORK, 1), (0, 0));
@@ -734,6 +789,7 @@ mod tests {
             &mut stx,
             &SccpGovernanceActionV1::RetireRevision(revision(1)),
             [3; 32],
+            effect_cause(),
         )
         .expect("retire");
         assert_eq!(activation(&stx, 1), Some(SccpRouteActivationV1::Retired));
@@ -746,6 +802,7 @@ mod tests {
                 paused: true,
             }),
             [4; 32],
+            effect_cause(),
         )
         .expect("no-op");
         assert_eq!(store::control_messages::len(&*stx.world), 0);
@@ -755,6 +812,7 @@ mod tests {
             &mut stx,
             &SccpGovernanceActionV1::RemoveStaged(revision(3)),
             [6; 32],
+            effect_cause(),
         )
         .expect("remove");
         assert_eq!(activation(&stx, 3), None);
@@ -766,6 +824,7 @@ mod tests {
             &mut stx,
             &SccpGovernanceActionV1::RemoveStaged(revision(2)),
             [7; 32],
+            effect_cause(),
         )
         .expect_err("live revisions cannot be removed");
     }
@@ -799,6 +858,7 @@ mod tests {
                 &mut stx,
                 &proposal(id, vec![(subject, 0)], vec![activate(1)]),
                 [1; 32],
+                effect_cause(),
             )
             .expect_err("not above version 1");
             assert!(error.to_string().contains("does not exceed"), "{error}");
@@ -815,6 +875,7 @@ mod tests {
                 &mut stx,
                 &proposal(id, vec![(subject, 0)], vec![activate(2)]),
                 [2; 32],
+                effect_cause(),
             )
             .expect_err("version 2 is not compiled");
             assert!(stx.execution_deferral().is_some());
@@ -829,13 +890,65 @@ mod tests {
         let mut stx = block.transaction();
         let id = stx.network_id;
         let proposal = sample_proposal(id);
-        enact(&mut stx, &proposal, [1; 32]).expect_err("no SCCP");
+        enact(&mut stx, &proposal, [1; 32], effect_cause()).expect_err("no SCCP");
         let mut foreign = proposal;
         foreign.network_id = iroha_data_model::NetworkId::from_genesis_hash(
             iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::new([9; 32])),
         );
         setup(&mut stx);
-        let error = enact(&mut stx, &foreign, [1; 32]).expect_err("foreign network");
+        let error =
+            enact(&mut stx, &foreign, [1; 32], effect_cause()).expect_err("foreign network");
         assert!(error.to_string().contains("NetworkId"), "{error}");
+    }
+
+    #[test]
+    fn enactment_rejects_non_parliament_or_empty_cause_before_effects() {
+        let state = blank_state();
+        let mut block = state.block(header(5));
+        let mut stx = block.transaction();
+        setup(&mut stx);
+        stage(&mut stx, 1, 7);
+        let proposal = proposal(
+            stx.network_id,
+            vec![(SccpGovernanceSubjectV1::RouteControl(NETWORK), 0)],
+            vec![SccpGovernanceActionV1::SetDestinationPaused(
+                SccpSetDestinationPausedActionV1 {
+                    network: NETWORK,
+                    revision: 1,
+                    paused: true,
+                },
+            )],
+        );
+        let original = store::routes::get(&*stx.world, &NETWORK).unwrap().clone();
+        for cause in [
+            controls::ControlCauseV1 {
+                track: 2,
+                ..effect_cause()
+            },
+            controls::ControlCauseV1 {
+                track: 0,
+                ..effect_cause()
+            },
+            controls::ControlCauseV1 {
+                certificate_id: [0; 32],
+                ..effect_cause()
+            },
+            controls::ControlCauseV1 {
+                effect_hash: [0; 32],
+                ..effect_cause()
+            },
+        ] {
+            let error = enact(&mut stx, &proposal, [8; 32], cause).expect_err("invalid cause");
+            assert!(error.to_string().contains("Parliament cause"), "{error}");
+            assert_eq!(store::routes::get(&*stx.world, &NETWORK), Some(&original));
+            assert!(store::control_messages::is_empty(&*stx.world));
+            assert_eq!(
+                store::governance_revision(
+                    &*stx.world,
+                    &SccpGovernanceSubjectV1::RouteControl(NETWORK)
+                ),
+                0
+            );
+        }
     }
 }

@@ -393,6 +393,9 @@ Root {
         query_fanout_max_working_set_bytes: Bytes(
             48000000,
         ),
+        sccp_history_cache_max_bytes: Bytes(
+            8000000,
+        ),
         require_api_token: false,
         api_tokens: [REDACTED; 0 Torii API token(s)],
         peer_telemetry_urls: [REDACTED; 0 configured],

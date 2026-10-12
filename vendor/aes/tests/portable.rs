@@ -14,8 +14,7 @@ const CIPHERTEXT_128: [u8; 16] = hex!("69c4e0d86a7b0430d8cdb78070b4c55a");
 const KEY_192: [u8; 24] = hex!("000102030405060708090a0b0c0d0e0f1011121314151617");
 const CIPHERTEXT_192: [u8; 16] = hex!("dda97ca4864cdfe06eaf70a0ec0d7191");
 /// FIPS 197 Appendix C.3 (AES-256).
-const KEY_256: [u8; 32] =
-    hex!("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+const KEY_256: [u8; 32] = hex!("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
 const CIPHERTEXT_256: [u8; 16] = hex!("8ea2b7ca516745bfeafc49904b496089");
 
 /// Compile-time reachability of the portable module. This file is also built
@@ -39,11 +38,11 @@ const _: fn() = || {
 /// Without `hardware` (or with `--cfg aes_force_soft`) the top-level types are
 /// the portable types themselves, not wrappers.
 #[cfg(any(not(feature = "hardware"), aes_force_soft))]
-const _: fn(aes::Aes128, aes::Aes192, aes::Aes256) -> (
-    aes::soft::Aes128,
-    aes::soft::Aes192,
-    aes::soft::Aes256,
-) = |a, b, c| (a, b, c);
+const _: fn(
+    aes::Aes128,
+    aes::Aes192,
+    aes::Aes256,
+) -> (aes::soft::Aes128, aes::soft::Aes192, aes::soft::Aes256) = |a, b, c| (a, b, c);
 
 /// Deterministic SplitMix64 byte stream; test inputs only.
 struct SplitMix64(u64);
@@ -143,9 +142,33 @@ macro_rules! backend_tests {
     };
 }
 
-backend_tests!(aes128, Aes128, Aes128Enc, Aes128Dec, KEY_128, CIPHERTEXT_128, 0x0128);
-backend_tests!(aes192, Aes192, Aes192Enc, Aes192Dec, KEY_192, CIPHERTEXT_192, 0x0192);
-backend_tests!(aes256, Aes256, Aes256Enc, Aes256Dec, KEY_256, CIPHERTEXT_256, 0x0256);
+backend_tests!(
+    aes128,
+    Aes128,
+    Aes128Enc,
+    Aes128Dec,
+    KEY_128,
+    CIPHERTEXT_128,
+    0x0128
+);
+backend_tests!(
+    aes192,
+    Aes192,
+    Aes192Enc,
+    Aes192Dec,
+    KEY_192,
+    CIPHERTEXT_192,
+    0x0192
+);
+backend_tests!(
+    aes256,
+    Aes256,
+    Aes256Enc,
+    Aes256Dec,
+    KEY_256,
+    CIPHERTEXT_256,
+    0x0256
+);
 
 /// Reports which backend the default types resolved to in this test build, so
 /// a `hardware` run that silently compared the portable backend with itself is

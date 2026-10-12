@@ -24,11 +24,7 @@ use crate::armv8::hazmat as intrinsics;
 use crate::ni::hazmat as intrinsics;
 
 #[cfg(all(
-    any(
-        target_arch = "x86",
-        target_arch = "x86_64",
-        target_arch = "aarch64"
-    ),
+    any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"),
     feature = "hardware",
     not(aes_force_soft)
 ))]
@@ -39,11 +35,7 @@ cpufeatures::new!(aes_intrinsics, "aes");
 macro_rules! if_intrinsics_available {
     ($body:expr) => {{
         #[cfg(all(
-            any(
-                target_arch = "x86",
-                target_arch = "x86_64",
-                target_arch = "aarch64"
-            ),
+            any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"),
             feature = "hardware",
             not(aes_force_soft)
         ))]

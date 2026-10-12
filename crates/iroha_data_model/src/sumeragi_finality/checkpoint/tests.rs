@@ -25,7 +25,9 @@ fn extend(
     tx: SignedTransaction,
     succeeds: bool,
 ) -> SumeragiFinalityProof {
-    let parent = parent.decode_checked().unwrap();
+    let parent = parent
+        .decode_checked(CertifiedResultScope::TairaGlobal)
+        .unwrap();
     let height = parent.block.header().height().get() + 1;
     let mut builder = BlockBuilder::new(BlockHeader::new(
         NonZeroU64::new(height).unwrap(),
@@ -44,7 +46,10 @@ fn extend(
         ))
     };
     output_test_support::install_network(&mut block, vec![output]).unwrap();
-    let result = result(&block, &parent.commitment.schedule.current);
+    let result = result(
+        &block,
+        &parent.certified_result.commitment().schedule.current,
+    );
     certify_successor(
         &fixture.keys,
         &fixture.validators,
@@ -267,7 +272,9 @@ fn publication_proof_authenticates_both_phases_and_canonical_current_wire() {
         assert_eq!(verified.completed(), complete);
         assert_eq!(verified.finality().tip(), &tip);
         assert_eq!(tip.committee.len(), 4);
-        let block = tip.decode_checked().unwrap();
+        let block = tip
+            .decode_checked(CertifiedResultScope::TairaGlobal)
+            .unwrap();
         let qc: Qc =
             norito::decode_canonical(block.block.commit_certificate().unwrap().commit_qc())
                 .unwrap();
@@ -303,15 +310,20 @@ fn publication_proof_rejects_signed_failure_replay_phase_and_output_substitution
         );
     }
     let failed_tip = extend(&fixture, &fixture.second, tx.clone(), false);
-    failed_tip.decode_checked().unwrap();
+    failed_tip
+        .decode_checked(CertifiedResultScope::TairaGlobal)
+        .unwrap();
     let failed = SorafsPublicationProofV1 {
         lineage: vec![fixture.second.clone(), failed_tip.clone()],
     };
     assert!(verify_sorafs_publication_v1(&fixture.network, &checkpoint, &tx, &failed).is_err());
     let mut substituted = valid.clone();
-    let mut failed_block = failed_tip.decode_checked().unwrap().block;
+    let mut failed_block = failed_tip
+        .decode_checked(CertifiedResultScope::TairaGlobal)
+        .unwrap()
+        .block;
     let valid_certificate = valid.lineage[1]
-        .decode_checked()
+        .decode_checked(CertifiedResultScope::TairaGlobal)
         .unwrap()
         .block
         .commit_certificate()
@@ -323,7 +335,10 @@ fn publication_proof_rejects_signed_failure_replay_phase_and_output_substitution
         verify_sorafs_publication_v1(&fixture.network, &checkpoint, &tx, &substituted).is_err()
     );
     let mut corrupt = valid.clone();
-    let mut block = corrupt.lineage[1].decode_checked().unwrap().block;
+    let mut block = corrupt.lineage[1]
+        .decode_checked(CertifiedResultScope::TairaGlobal)
+        .unwrap()
+        .block;
     let certificate = block.commit_certificate().unwrap();
     let consensus_header = certificate.consensus_header().to_vec();
     let result_preimage = certificate.result_preimage().to_vec();
@@ -412,8 +427,12 @@ fn retained_decision_verifier_uses_selected_checkpoint_commitments() {
     let header = cert.consensus_header().to_vec();
     let availability = cert.availability().to_vec();
     let mut qc: Qc = norito::decode_canonical(cert.commit_qc()).unwrap();
-    let mut result = ExecutionResultCommitment::decode(cert.result_preimage()).unwrap();
+    let (original_x, mut result) =
+        CertifiedResultV1::decode(cert.result_preimage(), CertifiedResultScope::TairaGlobal)
+            .unwrap()
+            .into_parts();
     result.execution.parent_state_root = Hash::new(b"different retained execution");
+    let result = CertifiedResultV1::from_parts_unvalidated(original_x, result);
     qc.result = result.result().unwrap();
     sign_qc(&mut qc, &fixture.keys, &[0, 1, 2]);
     block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
@@ -423,7 +442,11 @@ fn retained_decision_verifier_uses_selected_checkpoint_commitments() {
         availability,
     )));
     forged.block_wire = block.encode_wire().unwrap();
-    assert!(forged.decode_checked().is_ok());
+    assert!(
+        forged
+            .decode_checked(CertifiedResultScope::TairaGlobal)
+            .is_ok()
+    );
     assert!(verifier.verify_retained_decision(&forged).is_err());
 }
 
@@ -497,7 +520,7 @@ fn native_decision_data_retains_exact_selected_genesis_and_all_three_parents() {
     }
     let bounded = &proofs[2..];
     let checkpoint = original
-        .with_independently_authenticated_decision_data(bounded)
+        .with_independently_authenticated_decision_data(bounded, fixture.root_scope().into())
         .unwrap();
     let actual = fixture
         .verifier()
@@ -518,26 +541,28 @@ fn native_decision_data_retains_exact_selected_genesis_and_all_three_parents() {
     admitted.verify_retained_decision(fixture.latest()).unwrap();
     assert!(
         original
-            .with_independently_authenticated_decision_data(&bounded[1..])
+            .with_independently_authenticated_decision_data(
+                &bounded[1..],
+                fixture.root_scope().into()
+            )
             .is_err()
     );
     assert!(
         original
-            .with_independently_authenticated_decision_data(&[
-                bounded[1].clone(),
-                bounded[0].clone(),
-                bounded[2].clone()
-            ])
+            .with_independently_authenticated_decision_data(
+                &[bounded[1].clone(), bounded[0].clone(), bounded[2].clone()],
+                fixture.root_scope().into()
+            )
             .is_err()
     );
     assert!(
         original
-            .with_independently_authenticated_decision_data(&proofs)
+            .with_independently_authenticated_decision_data(&proofs, fixture.root_scope().into())
             .is_err()
     );
     assert!(
         original
-            .with_independently_authenticated_decision_data(&[])
+            .with_independently_authenticated_decision_data(&[], fixture.root_scope().into())
             .is_err()
     );
 }
@@ -550,7 +575,10 @@ fn decoded_decision_equality_never_labels_different_execution_as_native() {
         .verifier()
         .verify_retained_decision(fixture.latest())
         .unwrap();
-    let decoded = fixture.latest().decode_checked().unwrap();
+    let decoded = fixture
+        .latest()
+        .decode_checked(CertifiedResultScope::TairaGlobal)
+        .unwrap();
     assert!(decoded.matches_native_execution_decision(
         &fixture.latest().block_header.hash(),
         genuine.core_hash().0,
@@ -766,8 +794,38 @@ fn checkpoint_import_handoff_preserves_exact_witness_scope_and_resource_errors()
             SumeragiFinalityVerifier::from_trusted_checkpoint(&selected, &fixture.network, CHAIN)
         })
         .unwrap_err();
-        assert!(matches!(handoff, FinalityReadError::DecodeResource(_)));
-        assert_eq!(format!("{handoff:?}"), format!("{ordinary:?}"));
+        // Each API opens an independent attempt. Compare the exact typed refusal,
+        // not Debug output containing intentionally distinct opaque boundary identities.
+        let original_resource = |error| {
+            let FinalityReadError::DecodeResource(error) = error else {
+                panic!("expected original decode resource refusal: {error:?}");
+            };
+            assert_eq!(
+                error.kind(),
+                norito::core::DecodeAttemptErrorKind::EnclosingLimit
+            );
+            let original = error.into_error();
+            assert!(matches!(
+                &original,
+                norito::core::Error::ScopedDecodeResource(_)
+            ));
+            let fields = original
+                .decode_resource_error()
+                .expect("original resource fields");
+            assert!(matches!(fields,
+                norito::core::DecodeResourceError::TotalAllocationExceeded {
+                    attempted, limit: 0
+                } if attempted > 0
+            ));
+            let norito::core::Error::ScopedDecodeResource(scoped) = original else {
+                unreachable!("the original scoped variant was checked above");
+            };
+            (scoped, fields)
+        };
+        let (ordinary_error, expected) = original_resource(ordinary);
+        let (handoff_error, actual) = original_resource(handoff);
+        assert_eq!(actual, expected);
+        assert_ne!(handoff_error, ordinary_error);
         let refused = std::cell::Cell::new(0_u32);
         let consumer = norito::with_decode_limits_scope(no_allocation, || {
             SumeragiFinalityVerifier::from_trusted_checkpoint_with_consumer(
@@ -778,8 +836,10 @@ fn checkpoint_import_handoff_preserves_exact_witness_scope_and_resource_errors()
             )
         })
         .unwrap_err();
-        assert!(matches!(consumer, FinalityReadError::DecodeResource(_)));
-        assert_eq!(format!("{consumer:?}"), format!("{ordinary:?}"));
+        let (consumer_error, actual) = original_resource(consumer);
+        assert_eq!(actual, expected);
+        assert_ne!(consumer_error, ordinary_error);
+        assert_ne!(consumer_error, handoff_error);
         let owned_source = selected.clone();
         let owned_refusal = norito::with_decode_limits_scope(no_allocation, || {
             SumeragiFinalityVerifier::from_trusted_checkpoint_with_consumer(
@@ -790,11 +850,11 @@ fn checkpoint_import_handoff_preserves_exact_witness_scope_and_resource_errors()
             )
         })
         .unwrap_err();
-        assert!(matches!(
-            owned_refusal,
-            FinalityReadError::DecodeResource(_)
-        ));
-        assert_eq!(format!("{owned_refusal:?}"), format!("{ordinary:?}"));
+        let (owned_error, actual) = original_resource(owned_refusal);
+        assert_eq!(actual, expected);
+        assert_ne!(owned_error, ordinary_error);
+        assert_ne!(owned_error, handoff_error);
+        assert_ne!(owned_error, consumer_error);
         assert_eq!(refused.get(), 0);
         assert_eq!(selected.encode_canonical().unwrap(), original);
         let retried = SumeragiFinalityVerifier::from_trusted_checkpoint_with_consumer(

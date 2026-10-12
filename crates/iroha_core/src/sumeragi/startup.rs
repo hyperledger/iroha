@@ -47,7 +47,7 @@ pub enum StartupError {
     LaneStep(#[source] super::lanes::step::LaneStepError),
     /// The original executed genesis and witness cannot form their commitment.
     #[error("genesis execution commitment is invalid: {0}")]
-    ExecutionCommitment(#[source] iroha_data_model::sumeragi_finality::CommitmentError),
+    ExecutionCommitment(#[source] iroha_data_model::sumeragi_finality::CertifiedResultError),
     /// The genesis committee or schedule is invalid.
     #[error("genesis schedule is invalid: {0}")]
     Schedule(String),
@@ -109,8 +109,8 @@ pub fn apply_genesis(
     consensus_mode: ConsensusMode,
     stored: Option<&CommitCertificate>,
 ) -> Result<GenesisTip, StartupError> {
-    let signed_epoch = super::epoch::authenticated_genesis(&genesis)
-        .map(|genesis| genesis.into_parts().0)
+    let (signed_epoch, root_scope) = super::epoch::authenticated_genesis(&genesis)
+        .map(|genesis| genesis.into_parts())
         .map_err(|error| {
             match crate::execution_attempt::genesis_read_attempt_error(error, |error| {
                 StartupError::Schedule(error.to_string())
@@ -131,6 +131,7 @@ pub fn apply_genesis(
         &TimeSource::new_system(),
         state,
         consensus_mode,
+        root_scope,
     )
     .unpack(|_| {})
     .map_err(|(_, error)| StartupError::InvalidGenesis(error))?;
@@ -140,6 +141,7 @@ pub fn apply_genesis(
         valid,
         overlay,
         &signed_epoch,
+        root_scope,
         block_hash,
         stored,
     )
@@ -155,6 +157,7 @@ fn finish_genesis(
     valid: ValidBlock,
     mut overlay: Box<StateBlock<'_>>,
     signed_epoch: &ValidatorEpochContextV1,
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
     block_hash: Hash32,
     stored: Option<&CommitCertificate>,
 ) -> Result<GenesisTip, StartupError> {
@@ -183,17 +186,23 @@ fn finish_genesis(
     let transition = overlay
         .world_state_transition()
         .map_err(StartupError::Local)?;
+    let header = overlay
+        .sealed_sccp_finality_header(valid.as_ref())
+        .map_err(StartupError::Local)?;
     let retained_result = execution_result(
         &mut witness,
         valid.as_ref(),
         &transition,
         inputs,
         native_lanes,
+        header,
+        root_scope.into(),
     )
     .map_err(StartupError::ExecutionCommitment)?;
     let preimage = encode_result_preimage(&retained_result, &budget)
         .map_err(|error| StartupError::Local(error.to_string()))?;
-    let result = result_of_preimage(preimage.as_slice());
+    let result = result_of_preimage(preimage.as_slice())
+        .ok_or_else(|| StartupError::Local("encoded genesis result is malformed".into()))?;
     let empty_header = iroha_allocation::ChargedBuffer::new(0, &budget)
         .map_err(|error| StartupError::Local(error.to_string()))?;
     let empty_qc = iroha_allocation::ChargedBuffer::new(0, &budget)
@@ -257,6 +266,7 @@ fn finish_genesis(
                     },
                     state: std::ptr::from_ref(state) as usize,
                     tip: crate::state::native_execution_tip::NativeExecutionTipRecord {
+                        root_scope,
                         height: GENESIS_HEIGHT,
                         creation_time_ms: u64::try_from(
                             committed.as_ref().header().creation_time().as_millis(),
@@ -318,7 +328,8 @@ pub fn stored_genesis(
     };
     let tip = GenesisTip {
         block_hash: core_hash_of(&block),
-        result: result_of_preimage(certificate.result_preimage()),
+        result: result_of_preimage(certificate.result_preimage())
+            .ok_or(StartupError::GenesisDiverged)?,
     };
     let proposal = block
         .canonical_resultless_proposal()

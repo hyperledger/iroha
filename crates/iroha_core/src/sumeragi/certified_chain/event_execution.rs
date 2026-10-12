@@ -55,7 +55,7 @@ pub(crate) fn read_event_execution(
         Ok(())
     };
     let genesis = source.block_with_admission(NonZeroUsize::MIN, &mut admit)?;
-    let (_, instance) = authenticate_genesis(&genesis, &network, chain_id).map_err(|error| {
+    let (_, instance, _) = authenticate_genesis(&genesis, &network, chain_id).map_err(|error| {
         error.map_rejection(|error| QueryExecutionFail::Conversion(error.to_string()))
     })?;
     let mut parent = None;

@@ -329,7 +329,7 @@ async fn assert_private_retry_state_and_restore(
     })
     .await?
     .state_payload_hex;
-    let block_hash = exact_block(client, height).await?.hash();
+    let block_hash = exact_block(client, height, &network).await?.hash();
     for peer in network.peers() {
         let peer_client = peer.client();
         assert_eq!(
@@ -383,7 +383,7 @@ async fn assert_private_retry_state_and_restore(
         expected
     );
     assert_eq!(
-        exact_block(&peer.client(), height).await?.hash(),
+        exact_block(&peer.client(), height, &network).await?.hash(),
         block_hash
     );
     let status = read_on_dedicated_thread({

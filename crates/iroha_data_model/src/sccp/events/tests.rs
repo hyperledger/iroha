@@ -26,8 +26,8 @@ fn point() -> SccpLcPointV1 {
 
 /// Codec index of every variant, in declaration order. Indices 2 to 9 belonged to the events of
 /// the attestation transport and stay unassigned.
-const CODEC_INDICES: [u32; 18] = [
-    0, 1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+const CODEC_INDICES: [u32; 23] = [
+    0, 1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
 ];
 
 /// One event of every variant, in declaration order, with its JSON tag.
@@ -204,7 +204,10 @@ fn every_event() -> Vec<(SccpEvent, &'static str)> {
                 network: ETH,
                 revision: 1,
                 control_nonce: 1,
-                paused: true,
+                track: 1,
+                parliament_paused: true,
+                fast_pause_until_ms: 0,
+                certificate_id: [4; 32],
                 height: 30,
                 commitment_index: 0,
             }),
@@ -220,6 +223,45 @@ fn every_event() -> Vec<(SccpEvent, &'static str)> {
                 ],
             }),
             "governance_enacted",
+        ),
+        (
+            SccpEvent::CommitteeGenerationCreated(SccpCommitteeGenerationCreatedV1 {
+                generation: 1,
+                cause: SccpGenerationCauseV1::Genesis,
+                committee_root: [23; 32],
+                start_height: 1,
+                deadline_ms: 1_758_604_800_000,
+            }),
+            "committee_generation_created",
+        ),
+        (
+            SccpEvent::GenerationMemberUnslashable(SccpGenerationMemberUnslashableV1 {
+                generation: 1,
+                index: 3,
+            }),
+            "generation_member_unslashable",
+        ),
+        (
+            SccpEvent::CommitteeResync(SccpCommitteeResyncV1 {
+                generation: 2,
+                committee_root: [24; 32],
+                start_height: 10,
+            }),
+            "committee_resync",
+        ),
+        (
+            SccpEvent::GenerationDestinationCleared(SccpGenerationDestinationClearedV1 {
+                generation: 1,
+                lc: 1_759_000_000_000,
+            }),
+            "generation_destination_cleared",
+        ),
+        (
+            SccpEvent::FinalityDegraded(SccpFinalityDegradedV1 {
+                height: 11,
+                reason: SccpFinalityDegradedReasonV1::MissingInputs,
+            }),
+            "finality_degraded",
         ),
     ]
 }
@@ -261,7 +303,7 @@ fn sccp_event_rejects_the_retired_attestation_and_roster_tags() {
 
     // The freed indices and the first index above the last variant decode to nothing, whatever
     // payload follows.
-    for index in (2_u32..=9).chain([26, u32::MAX]) {
+    for index in (2_u32..=9).chain([31, u32::MAX]) {
         for filler in [0, 1, 32, 256] {
             let mut encoded = index.encode();
             encoded.extend_from_slice(&vec![0x11; filler]);
@@ -383,4 +425,34 @@ fn amounts_are_decimal_strings() {
         "{json}"
     );
     assert!(json.contains("\"fee_due\":\"10000000\""), "{json}");
+}
+
+#[test]
+fn every_native_degradation_reason_is_copyable_closed_and_roundtrips() {
+    use norito::codec::DecodeAll as _;
+    fn copy_value<T: Copy>(value: T) -> (T, T) {
+        (value, value)
+    }
+    for (index, reason) in [
+        SccpFinalityDegradedReasonV1::MissingInputs,
+        SccpFinalityDegradedReasonV1::InvalidInputs,
+        SccpFinalityDegradedReasonV1::MissingGeneration,
+        SccpFinalityDegradedReasonV1::InvalidGeneration,
+        SccpFinalityDegradedReasonV1::MissingParent,
+        SccpFinalityDegradedReasonV1::CounterExhausted,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let (original, copied) = copy_value(reason);
+        assert_eq!(original, copied);
+        roundtrip(&reason);
+        assert!(reason.encode().starts_with(&(index as u32).encode()));
+        let event = SccpFinalityDegradedV1 { height: 3, reason };
+        roundtrip(&SccpEvent::FinalityDegraded(event));
+        assert_eq!(copy_value(event), (event, event));
+    }
+    assert!(SccpFinalityDegradedReasonV1::decode_all(&mut 6_u32.encode().as_slice()).is_err());
+    let retired = r#"{"height":3,"reason":"missing_inputs"}"#;
+    assert!(norito::json::from_json::<SccpFinalityDegradedV1>(retired).is_err());
 }

@@ -112,10 +112,13 @@ fn snapshot_evidence_fixture(network_id: NetworkId) -> (Evidence, EvidenceAttrib
             sig: NativeSignature([0; SIGNATURE_LEN]),
         };
         vote.sig = NativeSignature(
-            Signature::new(key.private_key(), &vote.preimage())
-                .payload()
-                .try_into()
-                .unwrap(),
+            Signature::from_bytes(
+                &iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &vote.preimage())
+                    .unwrap(),
+            )
+            .payload()
+            .try_into()
+            .unwrap(),
         );
         vote
     };

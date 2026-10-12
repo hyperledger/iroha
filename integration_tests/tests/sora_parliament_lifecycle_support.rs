@@ -779,8 +779,9 @@ pub(super) fn lifecycle_certificate_replacing(
 pub(super) async fn pulse_at(
     client: &Client,
     height: u64,
+    network: &iroha_test_network::Network,
 ) -> Result<iroha::data_model::consensus::FinalizedGlobalThresholdBeaconPulseV1> {
-    exact_block(client, height)
+    exact_block(client, height, &network)
         .await?
         .global_beacon_pulse()
         .cloned()
@@ -932,16 +933,23 @@ pub(super) fn public_finding_root(
     .into()
 }
 
-pub(super) async fn exact_block(client: &Client, height: u64) -> Result<SignedBlock> {
+pub(super) async fn exact_block(
+    client: &Client,
+    height: u64,
+    network: &iroha_test_network::Network,
+) -> Result<SignedBlock> {
     let requested_height =
         NonZeroU64::new(height).ok_or_else(|| eyre!("finalized block height must be nonzero"))?;
+    let root_scope = iroha_genesis::signed_genesis_consensus_metadata(&network.genesis().0)?
+        .sumeragi_context
+        .root_scope;
     // Signed queries no longer admit an unbounded `FindBlocks` listing. The finality-proof
     // route returns exactly one finalized block for exactly one requested height.
     let proof = read_on_dedicated_thread({
         let client = client.client().clone();
         move || {
             client
-                .get_sumeragi_finality_proof(requested_height)
+                .get_sumeragi_finality_proof(requested_height, root_scope)
                 .map_err(|error| eyre!("read finalized block for exact height {height}: {error}"))
         }
     })
@@ -966,8 +974,9 @@ pub(super) async fn assert_no_global_beacon_pulse_at(
     client: &Client,
     height: u64,
     label: &str,
+    network: &iroha_test_network::Network,
 ) -> Result<()> {
-    let block = exact_block(client, height)
+    let block = exact_block(client, height, &network)
         .await
         .wrap_err_with(|| format!("{label}: exact finalized block is unavailable"))?;
     if block.global_beacon_pulse().is_some() {
@@ -1090,7 +1099,7 @@ pub(super) async fn await_native_sortition_pulse(
     observe_exact_height(client, slot, label).await?;
     let mut pulses = Vec::with_capacity(network.peers().len());
     for peer in network.peers() {
-        pulses.push(pulse_at(&peer.client(), slot).await?);
+        pulses.push(pulse_at(&peer.client(), slot, &network).await?);
     }
     if !pulses.windows(2).all(|pair| pair[0] == pair[1]) {
         return Err(eyre!(
@@ -1191,10 +1200,10 @@ pub(crate) async fn enact_publication_proposal(
     let proposer = client_for(&network.client(), &account, &keys);
     let enacted =
         enactment::enact(network, proposal, vec![preliminary.into()], Some(proposer)).await?;
-    let first = exact_block(&network.client(), enacted.height).await?;
+    let first = exact_block(&network.client(), enacted.height, &network).await?;
     for peer in network.peers() {
         let client = peer.client();
-        let block = exact_block(&client, enacted.height).await?;
+        let block = exact_block(&client, enacted.height, &network).await?;
         assert_eq!(block.hash(), first.hash());
         let attempt = read_attempt(&client, enacted.attempt_id).await?;
         assert_eq!(attempt.attempt().status, GovernanceAttemptStatusV1::Enacted);

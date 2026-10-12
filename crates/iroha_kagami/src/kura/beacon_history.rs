@@ -10,13 +10,14 @@ use iroha_crypto::Hash;
 use iroha_data_model::{
     block::{
         SignedBlock,
+        consensus::SumeragiRootScope,
         execution_output::{ExecutionOutputV1, TriggerFailureRootV1},
     },
     isi::{
         InstructionBox,
         consensus_keys::{ApplyThresholdKeyLifecycleCertificateV1, ThresholdKeyLifecycleActionV1},
     },
-    sumeragi_finality::ExecutionResultCommitment,
+    sumeragi_finality::{CertifiedResultV1, authenticated_genesis},
     transaction::{Executable, ExecutableBatchItem, signed::TransactionEntrypoint},
 };
 use norito::json::{self, Value};
@@ -297,7 +298,11 @@ fn outcome(
     }
 }
 
-fn project_block(block: &SignedBlock, projection: &mut Projection) -> Result<()> {
+fn project_block(
+    block: &SignedBlock,
+    projection: &mut Projection,
+    root_scope: Option<SumeragiRootScope>,
+) -> Result<()> {
     block
         .validate_proposal_commitments()
         .map_err(|_| eyre!("block proposal commitments differ"))?;
@@ -317,7 +322,7 @@ fn project_block(block: &SignedBlock, projection: &mut Projection) -> Result<()>
             projection.entrypoint(entrypoint, block, "resultless_proposal_only", index, None)?;
         }
     }
-    project_native_pulse(block, projection)?;
+    project_native_pulse(block, projection, root_scope)?;
     // Recorded trigger steps are included; dynamic VM/contract effects still require native replay.
     projection
         .gaps
@@ -327,13 +332,26 @@ fn project_block(block: &SignedBlock, projection: &mut Projection) -> Result<()>
 
 /// Decode a bounded native result claim and bind it to this exact stored execution.
 /// Structural coherence never grants finality, signature verification, or replay authority.
-fn project_native_pulse(block: &SignedBlock, projection: &mut Projection) -> Result<()> {
+fn project_native_pulse(
+    block: &SignedBlock,
+    projection: &mut Projection,
+    root_scope: Option<SumeragiRootScope>,
+) -> Result<()> {
     let Some(certificate) = block.commit_certificate() else {
         projection.gap("native_result_preimage_unavailable");
         return Ok(());
     };
-    let commitment = ExecutionResultCommitment::decode(certificate.result_preimage())
+    let root_scope = root_scope
+        .ok_or_else(|| eyre!("certified result requires authenticated signed-genesis scope"))?;
+    let certified = CertifiedResultV1::decode(certificate.result_preimage(), root_scope.into())
         .map_err(|error| eyre!("invalid canonical native result preimage: {error}"))?;
+    certified
+        .check_block(
+            block.header().height().get(),
+            u64::try_from(block.header().creation_time().as_millis())?,
+        )
+        .map_err(|error| eyre!("native result header differs from its block: {error}"))?;
+    let commitment = certified.commitment();
     let (wire_len, wire_hash) = block.executed_block_wire_identity()?;
     if commitment.height != block.header().height().get()
         || commitment.execution.executed_block_wire_len != wire_len
@@ -358,6 +376,26 @@ fn project_native_pulse(block: &SignedBlock, projection: &mut Projection) -> Res
             "pulse_signature_verified": false}))?;
     }
     Ok(())
+}
+
+// This selects only result-layout scope from original signed genesis. It does not
+// authenticate the inspected range, journal contents, execution, or beacon claims.
+fn stored_root_scope(store: &mut BlockStore) -> Result<SumeragiRootScope> {
+    let mut indices = [BlockIndex {
+        start: 0,
+        length: 0,
+    }];
+    store.read_block_indices(0, &mut indices)?;
+    let entry = indices[0];
+    if entry.length == 0 || entry.length > MAX_EXECUTED_BLOCK_WIRE_BYTES {
+        return Err(eyre!("invalid signed-genesis wire bound"));
+    }
+    let mut bytes = vec![0; usize::try_from(entry.length)?];
+    store.read_block_data(entry.start, &mut bytes)?;
+    let genesis = decode_framed_signed_block(&bytes).wrap_err("invalid signed genesis framing")?;
+    let authenticated = authenticated_genesis(&genesis)
+        .map_err(|error| eyre!("invalid signed genesis authority: {error}"))?;
+    Ok(authenticated.metadata().sumeragi_context.root_scope)
 }
 
 fn same_metadata(left: &fs::Metadata, right: &fs::Metadata) -> bool {
@@ -404,6 +442,7 @@ pub(super) fn inspect(
     let mut previous = None;
     let mut first_hash = None;
     let mut last_hash = None;
+    let mut root_scope = None;
     for index in start..end {
         let mut indices = [BlockIndex {
             start: 0,
@@ -429,7 +468,12 @@ pub(super) fn inspect(
         first_hash.get_or_insert_with(|| block.hash().to_string());
         last_hash = Some(block.hash().to_string());
         previous = Some(block.hash());
-        project_block(&block, &mut projection)?;
+        // Proposal-only inspection remains data-only. A certified frame cannot select
+        // its own layout policy: authenticate H1 even when the requested range starts later.
+        if block.commit_certificate().is_some() && root_scope.is_none() {
+            root_scope = Some(stored_root_scope(&mut store)?);
+        }
+        project_block(&block, &mut projection, root_scope)?;
     }
     for (name, before) in ["blocks.index", "blocks.data", "blocks.hashes"]
         .into_iter()
@@ -822,7 +866,7 @@ mod tests {
             (bad_owner, "typed output ownership or Merkle cache"),
         ] {
             let corrupt: SignedBlock = json::from_value(value).expect("structural fixture");
-            let error = project_block(&corrupt, &mut Projection::default())
+            let error = project_block(&corrupt, &mut Projection::default(), None)
                 .expect_err("reject changed commitment");
             assert!(error.to_string().contains(expected), "{error}");
         }
@@ -891,7 +935,7 @@ mod tests {
                 ],
             );
             let mut projection = Projection::default();
-            project_block(&block, &mut projection).expect("typed candidate projection");
+            project_block(&block, &mut projection, None).expect("typed candidate projection");
             assert_eq!(
                 projection.records.len(),
                 5,
@@ -923,7 +967,7 @@ mod tests {
         let terminal = ExecutionOutputV1::time_output_limit_rejection(time_invocation(&omitted));
         attach_outputs(&mut omitted, vec![network_output(Vec::new()), terminal]);
         let mut projection = Projection::default();
-        project_block(&omitted, &mut projection).expect("omitted rejected program");
+        project_block(&omitted, &mut projection, None).expect("omitted rejected program");
         assert!(projection.records.is_empty());
         assert!(projection.gaps.contains("rejected_trigger_program_omitted"));
     }
@@ -1052,7 +1096,7 @@ mod tests {
             ],
         );
         let mut projection = Projection::default();
-        project_block(&executed, &mut projection).expect("native output projection");
+        project_block(&executed, &mut projection, None).expect("native output projection");
         assert_eq!(projection.records.len(), 2);
         assert_eq!(
             projection.records[0]["occurrence"]["source"].as_str(),
@@ -1077,7 +1121,41 @@ mod tests {
         let chain = iroha_core::sumeragi::test_chain::CertifiedTestChain::npos_boundary_fixture();
         let pulse_block = chain.committed(9).block().clone();
         let mut projection = Projection::default();
-        project_block(&pulse_block, &mut projection).expect("actual native pulse execution");
+        project_block(&pulse_block, &mut projection, Some(chain.root_scope()))
+            .expect("actual native pulse execution");
+        assert!(project_native_pulse(&pulse_block, &mut Projection::default(), None).is_err());
+        let certificate = pulse_block.commit_certificate().unwrap();
+        let current =
+            CertifiedResultV1::decode(certificate.result_preimage(), chain.root_scope().into())
+                .unwrap();
+        let wrong_time = iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::from_fields(
+            &iroha_data_model::sumeragi_finality::SccpFinalityHeaderFieldsV1 {
+                timestamp_ms: current.header().timestamp_ms() + 1,
+                ..current.header().fields()
+            },
+        )
+        .unwrap();
+        let mut time_preimage = wrong_time.as_bytes().to_vec();
+        time_preimage.extend_from_slice(&current.commitment().preimage().unwrap());
+        for preimage in [time_preimage, current.commitment().preimage().unwrap()] {
+            let mut changed = pulse_block.as_ref().clone();
+            changed.set_commit_certificate(Some(
+                iroha_data_model::block::CommitCertificate::from_untrusted_parts(
+                    certificate.consensus_header().to_vec(),
+                    certificate.commit_qc().to_vec(),
+                    preimage,
+                    certificate.availability().to_vec(),
+                ),
+            ));
+            assert!(
+                project_native_pulse(
+                    &changed,
+                    &mut Projection::default(),
+                    Some(chain.root_scope())
+                )
+                .is_err()
+            );
+        }
         let pulse = projection
             .records
             .iter()
@@ -1087,7 +1165,14 @@ mod tests {
         assert_eq!(pulse["pulse_signature_verified"].as_bool(), Some(false));
         let mut foreign = chain.committed(8).block().as_ref().clone();
         foreign.set_commit_certificate(pulse_block.commit_certificate().cloned());
-        assert!(project_native_pulse(&foreign, &mut Projection::default()).is_err());
+        assert!(
+            project_native_pulse(
+                &foreign,
+                &mut Projection::default(),
+                Some(chain.root_scope())
+            )
+            .is_err()
+        );
         let malformed = iroha_data_model::block::CommitCertificate::from_untrusted_parts(
             Vec::new(),
             Vec::new(),
@@ -1095,7 +1180,14 @@ mod tests {
             Vec::new(),
         );
         foreign.set_commit_certificate(Some(malformed));
-        assert!(project_native_pulse(&foreign, &mut Projection::default()).is_err());
+        assert!(
+            project_native_pulse(
+                &foreign,
+                &mut Projection::default(),
+                Some(chain.root_scope())
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -1182,6 +1274,47 @@ mod tests {
                 "./public-core"
             ])
             .is_err()
+        );
+    }
+    #[test]
+    fn beacon_history_requires_signed_genesis_scope_for_certified_range() {
+        use iroha_core::{
+            state::World,
+            sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
+        };
+        let mut chain =
+            CertifiedTestChain::start(TestChainConfig::new(World::default(), 1_000)).unwrap();
+        chain.commit(Vec::new());
+        let genesis = chain.committed(1);
+        let successor = chain.committed(2);
+        let valid = store(genesis.block());
+        BlockStore::new(valid.path())
+            .append_block_to_chain(successor.block())
+            .unwrap();
+        let mut output = Vec::new();
+        inspect(&mut output, valid.path(), Some(1), &options()).unwrap();
+        let report: Value = json::from_slice(&output).unwrap();
+        assert_eq!(report["decoded_blocks"].as_u64(), Some(1));
+        assert_eq!(
+            report["authenticated_history_verified"].as_bool(),
+            Some(false)
+        );
+        // A valid later result must not infer Global policy from itself or from a
+        // resultless H1 carrier lacking an authenticated native genesis contract.
+        let invalid = store(&block(vec![lifecycle()]));
+        BlockStore::new(invalid.path())
+            .append_block_to_chain(successor.block())
+            .unwrap();
+        output.clear();
+        let error = inspect(&mut output, invalid.path(), Some(1), &options()).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("invalid signed genesis authority")
+        );
+        assert!(
+            output.is_empty(),
+            "failed selection publishes no partial report"
         );
     }
 }

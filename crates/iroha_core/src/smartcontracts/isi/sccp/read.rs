@@ -6,16 +6,30 @@
 //! detail, history paths) live in [`views`]; history paths go through the validated `O(log n)`
 //! node cache of `history`.
 //!
-//! No message or control proof bundle is assembled here: destinations verify Taira's Sumeragi
-//! `CommitQC`, and the finality header and certificate a bundle needs are not produced yet.
+//! The certificate projection borrows an authenticated native Global receipt and preserves
+//! its original finality header, result-body digest, Sumeragi `CommitQC` and historical keys
+//! under the caller's original allocation pool. The message producer joins that original
+//! receipt to payload, block and history paths with one complete request admission. Durable
+//! history nodes retain their separate original cache pool; no process-global cache exists.
 //!
-//! TODO: Torii work package (TT-A2): assemble the message and control proof bundles of §6 on
-//! certificates (`?at=record|latest|<H>`): the leaf's block path, the history proof of an older
-//! block, the block reference and the certificate.
+//! TODO(TT-A2): close request-funded native receipt acquisition before connecting message
+//! HTTP selectors to these producers. Current control records retain the exact authenticated
+//! effect cause; record presence alone is never proof authority.
 
+mod certificate;
+mod committee;
+mod control;
 mod history;
+mod membership;
+mod message;
 mod views;
 
+pub use certificate::{RetainedSccpCertificate, SccpCertificateReadError, certificate_from_native};
+pub use committee::{RetainedSccpGenerationView, committee, current_committee};
+pub use control::{RetainedSccpControlProof, control_proof_from_native};
+pub use history::funded::{RetainedSccpHistoryPath, SccpHistoryNodeCache, SccpHistoryReadError};
+pub use membership::SccpProofReadError;
+pub use message::{RetainedSccpMessageProof, message_proof_from_native};
 pub use views::*;
 
 use super::{light_clients, store};
@@ -25,7 +39,6 @@ pub use iroha_sccp::api::{self, MAX_CONTROLS_PAGE, MAX_OUTBOUND_PAGE, MAX_RECENT
 use iroha_sccp::{
     api::{SccpCapabilitiesV1, SccpLcProfileStatusV1, SccpReadLimitsV1},
     light_client::profile::{SCCP_LC_PROFILE_NETWORKS_V1, SccpLcProfileCatalogV1},
-    v1::eip712::domain_separator,
 };
 
 /// Why a read cannot be served.
@@ -44,10 +57,8 @@ pub enum SccpReadError {
 
 /// Assemble `GET /v1/sccp/capabilities` (§6).
 ///
-/// TODO: Torii work package (TT-A1): the finality constants, the current committee generation
-/// with its deadline, the liability clock, the forgery-hold summary, the seated panel ids and
-/// the launch-gate state of §6. The `domain_separator` field is a revision 4 encoding that
-/// WP-S1 phase 2 deletes with `iroha_sccp::v1::eip712`.
+/// TODO: Torii work package (TT-A1): the coalition floor, forgery-hold summary, seated panel
+/// ids and launch-gate state of §6 still need their committed owners.
 #[must_use]
 pub fn capabilities(view: &(impl StateReadOnly + ?Sized)) -> SccpCapabilitiesV1 {
     let world = view.world();
@@ -55,7 +66,26 @@ pub fn capabilities(view: &(impl StateReadOnly + ?Sized)) -> SccpCapabilitiesV1 
     let committed_height = u64::try_from(view.height()).unwrap_or(u64::MAX);
     SccpCapabilitiesV1 {
         network_id,
-        domain_separator: domain_separator(&network_id),
+        consensus_instance: iroha_sumeragi::preimage::instance_id(
+            &crate::sumeragi::crypto::BlsCrypto::new(),
+            &iroha_sumeragi::types::Hash32(network_id),
+            view.chain_id().as_str().as_bytes(),
+            iroha_sumeragi::preimage::InstanceKind::Global,
+            0,
+        )
+        .0,
+        finality: api::SccpFinalityConstantsV1::current(),
+        current_generation: store::committee_generations::get(
+            world,
+            store::committee_current::get(world),
+        )
+        .map(|generation| api::SccpCurrentGenerationV1 {
+            generation: generation.generation,
+            committee_root: generation.committee_root,
+            start_height: generation.start_height,
+            deadline_ms: generation.deadline_ms,
+        }),
+        liability_clock: *store::liability_clock::get(world),
         parameters: *store::parameters::get(world),
         committed_height,
         light_client_profiles: light_client_profiles(world, committed_height.saturating_add(1)),
@@ -193,7 +223,22 @@ mod tests {
         let empty = capabilities(&stx);
         assert_eq!(empty.parameters, None);
         assert_eq!(empty.network_id, *stx.network_id().as_bytes());
-        assert_eq!(empty.domain_separator, domain_separator(&empty.network_id));
+        assert_eq!(empty.current_generation, None);
+        assert_eq!(empty.liability_clock, 0);
+        assert_eq!(empty.finality, api::SccpFinalityConstantsV1::current());
+        assert_eq!(
+            empty.consensus_instance,
+            iroha_data_model::block::consensus::SumeragiRootScope::Global
+                .instance_id(
+                    &crate::sumeragi::crypto::BlsCrypto::new(),
+                    *stx.network_id(),
+                    stx.chain_id().as_str()
+                )
+                .unwrap()
+                .0
+        );
+        let json = norito::json::to_value(&empty).unwrap();
+        assert!(json.get("domain_separator").is_none());
         assert_eq!(empty.limits, SccpReadLimitsV1::v1());
         store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
         let reported = capabilities(&stx);

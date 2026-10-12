@@ -2941,6 +2941,7 @@ mod tests {
                 Arc::clone(&kura),
                 crypto.clone(),
                 startup::GENESIS_HEIGHT,
+                source.root_scope(),
                 staging.clone(),
                 state.ivm_execution_budget(),
                 schedule,
@@ -2948,11 +2949,12 @@ mod tests {
             let (events, _) = tokio::sync::broadcast::channel(16);
             let executor = StateExecutor::spawn(ExecutorContext {
                 state: Arc::clone(&state),
+                root_scope: source.root_scope(),
                 native_context_archive: Arc::new(
                     iroha_core::query::native_context_archive::NativeContextArchive::open(
-                        state.kura(),
+                        &kura,
                         state.ivm_execution_budget(),
-                        state.kura().native_context_archive_max_bytes(),
+                        kura.native_context_archive_max_bytes(),
                     )
                     .unwrap(),
                 ),
@@ -3794,7 +3796,7 @@ mod tests {
     #[tokio::test]
     async fn push_replay_verification_slot_capacity_preserves_original_wait_and_resumes() {
         use iroha_core::sumeragi::certified_chain::{CertifiedPrefix, CommittedBlock};
-        use iroha_data_model::sumeragi_finality::ExecutionResultCommitment;
+        use iroha_data_model::sumeragi_finality::certified_result::CertifiedResultV1;
         use std::{
             future::Future,
             mem::size_of,
@@ -3809,7 +3811,7 @@ mod tests {
         let shell_bytes = SharedSignedBlock::allocation_layout().size();
         let prefix_bytes = size_of::<CertifiedPrefix>();
         let committed_bytes = size_of::<CommittedBlock>();
-        let result_bytes = size_of::<ExecutionResultCommitment>();
+        let result_bytes = size_of::<CertifiedResultV1>();
         // Each stage fails at an actual allocation in the shipping replay. The
         // last case admits the receipt slot before its result slot refuses, so
         // retaining only the wire, shell and prefix would still self-wake.
@@ -4053,6 +4055,9 @@ mod tests {
     #[test]
     fn push_replay_cursor_receipt_is_operation_local_and_rejects_rebound_state() {
         let chain = native_push_chain(false);
+        // Authenticate the replacement before exhausting the original pool: reading
+        // certified history itself requires that pool's allocation authority.
+        let replacement_hash = chain.committed(2).block_hash();
         let state = chain.state();
         let pool = state.ivm_execution_budget();
         let baseline = pool.reserved_bytes();
@@ -4102,7 +4107,7 @@ mod tests {
         assert_eq!(fresh.pending.as_ref().unwrap().height().get(), 2);
         // A changed durable cursor cannot borrow a previously verified receipt,
         // nor can it retarget the pending successor's retained physical owners.
-        bridge.applied_block_cursor.lock().block_hash = Some(chain.committed(2).block_hash());
+        bridge.applied_block_cursor.lock().block_hash = Some(replacement_hash);
         let changed_cursor = bridge.applied_block_cursor.lock().clone();
         assert!(matches!(
             fresh.reconcile(&bridge, PushReplayTarget::Height(2)),
@@ -4127,7 +4132,7 @@ mod tests {
         // so the mandatory current-State binding check is the rejecting control.
         state.block_hashes.block_and_revert().commit_for_tests();
         let mut replacement = state.block_hashes.block_and_revert();
-        replacement.push_for_tests(chain.committed(2).block_hash());
+        replacement.push_for_tests(replacement_hash);
         replacement.commit_for_tests();
         assert_eq!(state.committed_height(), 1);
         assert!(matches!(

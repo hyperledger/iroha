@@ -124,14 +124,22 @@ fn rejected_genesis_outputs_fail_before_schedule_finalization() {
     drop(recorder);
 
     let topology = Topology::new(validators.iter().map(|(peer, _)| peer.clone()));
-    let (rejected, error) = ValidBlock::validate_signed_genesis(
-        source.clone(),
-        &topology,
-        &account,
-        &TimeSource::new_system(),
-        &state,
-        iroha_data_model::block::consensus::ConsensusMode::Permissioned,
-    )
+    let (rejected, error) = {
+        let selected_genesis = source.clone();
+        let selected_scope = crate::sumeragi::epoch::authenticated_genesis(&selected_genesis)
+            .expect("signed fixture root scope")
+            .into_parts()
+            .1;
+        ValidBlock::validate_signed_genesis(
+            selected_genesis,
+            &topology,
+            &account,
+            &TimeSource::new_system(),
+            &state,
+            iroha_data_model::block::consensus::ConsensusMode::Permissioned,
+            selected_scope,
+        )
+    }
     .unpack(|_| {})
     .err()
     .expect("the original invalid genesis must remain rejected");

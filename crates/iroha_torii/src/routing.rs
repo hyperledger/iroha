@@ -3507,23 +3507,25 @@ fn quote_app_api_transaction_builder(
             "failed to quote {context} transaction fees: multi-route execution is unsupported"
         )));
     };
-    let latest_header = state.latest_block_header_fast();
-    let observation_time_ms = latest_header
-        .as_ref()
-        .map_or(0, |header| header.creation_time_ms);
-    let next_block_height = latest_header
-        .as_ref()
-        .map_or(1, |header| header.height().get().saturating_add(1));
-    let nexus = state.nexus_snapshot();
-    let pipeline = state.pipeline_snapshot();
+    let quote_view = state.query_view();
+    let sccp_committed_time_ms = iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&quote_view).map_err(|error| {
+        Error::Query(iroha_data_model::ValidationFail::InternalError(format!(
+            "fee quote has invalid committed time: {error:?}"
+        )))
+    })?;
+    let observation_time_ms = sccp_committed_time_ms.unwrap_or(0);
+    let next_block_height = u64::try_from(quote_view.height())
+        .ok()
+        .and_then(|height| height.checked_add(1))
+        .ok_or_else(|| conversion_error("fee quote committed height overflow".to_owned()))?;
     let quote = {
-        let world = state.world_view();
         iroha_core::executor::quote_nexus_fee_admission_draft(
-            &world,
-            &nexus,
-            &pipeline,
+            quote_view.world(),
+            quote_view.nexus(),
+            quote_view.pipeline(),
             &payload,
             observation_time_ms,
+            sccp_committed_time_ms,
             next_block_height,
             Some(route.route.dataspace_id),
         )
@@ -3539,6 +3541,7 @@ fn quote_app_api_transaction_builder(
             error.code()
         )),
     })?;
+    drop(quote_view);
     if !payload
         .fee_payment
         .has_same_payer_and_gas_bound(&quote.recommended_intent)
@@ -7518,10 +7521,16 @@ mod evidence_list_query_contract_tests {
                 sig: Signature([0; iroha_sumeragi::types::SIGNATURE_LEN]),
             };
             vote.sig = Signature(
-                iroha_crypto::Signature::new(key.private_key(), &vote.preimage())
-                    .payload()
-                    .try_into()
+                iroha_crypto::Signature::from_bytes(
+                    &iroha_crypto::bls::consensus::sign_preimage(
+                        key.private_key(),
+                        &vote.preimage(),
+                    )
                     .unwrap(),
+                )
+                .payload()
+                .try_into()
+                .unwrap(),
             );
             vote
         };
@@ -54679,7 +54688,7 @@ fn transaction_detail_at_height(
     };
     let block = HistoryReadBudget::new().read(state, nonzero_height)?;
     let block_ref = block.as_ref();
-    for (entrypoint_index, entrypoint_hash, tx, result) in
+    for (entrypoint_index, entrypoint_hash, tx, _) in
         external_signed_transaction_results(block_ref)
     {
         if !visibility.allows_external_entrypoint(block_ref, entrypoint_index) {
@@ -54705,7 +54714,7 @@ fn instruction_detail_at_height(
     };
     let block = HistoryReadBudget::new().read(state, nonzero_height)?;
     let block_ref = block.as_ref();
-    for (entrypoint_index, entrypoint_hash, tx, result) in
+    for (entrypoint_index, entrypoint_hash, tx, _) in
         external_signed_transaction_results(block_ref)
     {
         if !visibility.allows_external_entrypoint(block_ref, entrypoint_index) {
@@ -54714,7 +54723,7 @@ fn instruction_detail_at_height(
         if !signed_transaction_carrier_matches_indexed_identity(&entrypoint_hash, &tx, &target) {
             continue;
         }
-        let instruction = tx
+        tx
             .instructions()
             .explicit_instructions()
             .nth(lookup_index)

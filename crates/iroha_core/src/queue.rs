@@ -1212,6 +1212,11 @@ impl<W: WorldReadOnly> QueueAdmissionStateAccess for EagerAdmissionStateAccess<'
             self.pipeline,
             self.next_block_height,
             route_dataspace_id,
+            self.sccp_view
+                .sccp_committed_time_ms()
+                .map_err(|error| Error::AdmissionInvariant {
+                    reason: error.to_string(),
+                })?,
         )
     }
     fn extract_lane_identity_metadata(
@@ -2729,6 +2734,7 @@ impl Queue {
             }
         }
     }
+    #[allow(clippy::too_many_arguments)] // Original SCCP time is distinct from the fee horizon.
     fn recheck_external_nexus_fee_admission(
         &self,
         tx: &AcceptedTransaction<'static>,
@@ -2737,6 +2743,7 @@ impl Queue {
         pipeline: &Pipeline,
         next_block_height: u64,
         route_dataspace_id: Option<DataSpaceId>,
+        sccp_committed_time_ms: Option<u64>,
     ) -> Result<Option<FeeAdmissionReservation>, Error> {
         let Some(transaction) = tx.external() else {
             return Ok(None);
@@ -2748,6 +2755,7 @@ impl Queue {
             pipeline,
             transaction,
             observation_time_ms,
+            sccp_committed_time_ms,
             next_block_height,
             route_dataspace_id,
         )
@@ -2982,6 +2990,8 @@ impl Queue {
         state_view: &StateView<'_>,
         max_scan: NonZeroUsize,
     ) -> Option<Vec<AcceptedTransaction<'static>>> {
+        let sccp_committed_time_ms =
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(state_view).ok()?;
         let _ = self.cull_expired_entries_if_due();
         if self.admission_faulted() {
             return None;
@@ -3038,6 +3048,7 @@ impl Queue {
                         crate::smartcontracts::isi::sccp::admission::exempt_class_of_entrypoint(
                             state_view.world(),
                             tx.as_accepted().entrypoint(),
+                            sccp_committed_time_ms,
                         ),
                     )
                     .then(|| tx.value().clone())
@@ -9214,7 +9225,12 @@ pub mod tests {
         let classes = snapshot
             .iter()
             .filter_map(|transaction| {
-                admission::exempt_class_of_entrypoint(view.world(), transaction.entrypoint())
+                admission::exempt_class_of_entrypoint(
+                    view.world(),
+                    transaction.entrypoint(),
+                    crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                        .expect("original fixture time"),
+                )
             })
             .collect::<Vec<_>>();
         assert_eq!(classes, vec![SccpExemptClassV1::SelfClaim]);

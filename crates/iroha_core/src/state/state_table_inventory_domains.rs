@@ -56,6 +56,22 @@ pub(super) struct OtherDomains {
 pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     OtherDomains {
         usage: Use::Record,
+        reason: "SCCP fast-pause effect binds its network identity, external network and head; certificate identity binds the exact certificate content. These are record identities, not a commitment over the complete State",
+        literals: &[
+            r"iroha.sccp.fast_pause.effect.v1",
+            r"iroha.sccp.fast_pause.certificate.id.v1",
+        ],
+    },
+    OtherDomains {
+        usage: Use::LocalArtifact,
+        reason: "Release wire identity binds the typed schema digest to the fixed certified-result byte layout, hash recipe and bounds. These domains describe the compiled protocol contract and contain no current State data",
+        literals: &[
+            r"iroha/certified-result-wire-contract/v1",
+            r"iroha/native-wire-identity/v1",
+        ],
+    },
+    OtherDomains {
+        usage: Use::Record,
         reason: "Hashes of the finite variant names and codes of one ordinary enum or application-error schema, excluding nominal identity. Each binds one supplied descriptor's content and commits no State tables or cells",
         literals: &[
             r"iroha:kotodama:enum-schema:v1\0",

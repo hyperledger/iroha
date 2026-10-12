@@ -1144,6 +1144,9 @@ fn genuine_signed_quantity_effect_capture_bytes() -> Vec<u8> {
         .seal_execution_outputs(&mut source, |state, _, routes| {
             assert_eq!(routes.len(), 1);
             Ok::<_, String>(crate::state::output_capacity::ExecutionOutputSealMetadata {
+                sccp_finality_header: iroha_data_model::sumeragi_finality::certified_result::SccpFinalityHeaderV1::inactive(
+                    *state.network_id.as_bytes(), state._curr_block.height().get(), state._curr_block.creation_time_ms,
+                ).expect("original component carrier"),
                 committed_fragment_count: u64::try_from(state.committed_fragment_count()).unwrap(),
             })
         })
@@ -2412,6 +2415,9 @@ fn with_sealed_quantity_source_census(
         .seal_execution_outputs(&mut source, |state, _, routes| {
             assert_eq!(routes.len(), 3);
             Ok::<_, String>(crate::state::output_capacity::ExecutionOutputSealMetadata {
+                sccp_finality_header: iroha_data_model::sumeragi_finality::certified_result::SccpFinalityHeaderV1::inactive(
+                    *state.network_id.as_bytes(), state._curr_block.height().get(), state._curr_block.creation_time_ms,
+                ).expect("original component carrier"),
                 committed_fragment_count: u64::try_from(state.committed_fragment_count()).unwrap(),
             })
         })
@@ -2841,6 +2847,9 @@ fn signed_account_removal_captures_original_supply_first_burn_and_exact_source_c
             .seal_execution_outputs(&mut source, |state, _, routes| {
                 assert_eq!(routes.len(), 1);
                 Ok::<_, String>(crate::state::output_capacity::ExecutionOutputSealMetadata {
+                sccp_finality_header: iroha_data_model::sumeragi_finality::certified_result::SccpFinalityHeaderV1::inactive(
+                    *state.network_id.as_bytes(), state._curr_block.height().get(), state._curr_block.creation_time_ms,
+                ).expect("original component carrier"),
                     committed_fragment_count: u64::try_from(state.committed_fragment_count())
                         .unwrap(),
                 })
@@ -3237,6 +3246,9 @@ fn signed_definition_and_domain_retirement_capture_exact_original_enumeration_an
             .seal_execution_outputs(&mut source, |state, _, routes| {
                 assert_eq!(routes.len(), 1);
                 Ok::<_, String>(crate::state::output_capacity::ExecutionOutputSealMetadata {
+                sccp_finality_header: iroha_data_model::sumeragi_finality::certified_result::SccpFinalityHeaderV1::inactive(
+                    *state.network_id.as_bytes(), state._curr_block.height().get(), state._curr_block.creation_time_ms,
+                ).expect("original component carrier"),
                     committed_fragment_count: u64::try_from(state.committed_fragment_count())
                         .unwrap(),
                 })
@@ -4860,6 +4872,9 @@ fn mandatory_source_bytes_ignore_optional_archive_loss_and_refusal() {
             .seal_execution_outputs(&mut source, |state, _, routes| {
                 assert_eq!(routes.len(), 1);
                 Ok::<_, String>(crate::state::output_capacity::ExecutionOutputSealMetadata {
+                sccp_finality_header: iroha_data_model::sumeragi_finality::certified_result::SccpFinalityHeaderV1::inactive(
+                    *state.network_id.as_bytes(), state._curr_block.height().get(), state._curr_block.creation_time_ms,
+                ).expect("original component carrier"),
                     committed_fragment_count: u64::try_from(state.committed_fragment_count())
                         .unwrap(),
                 })
@@ -4926,6 +4941,9 @@ fn mandatory_source_finalizer_memory_refusal_is_original_local_deferred_without_
         .seal_execution_outputs(&mut source, |state, _, routes| {
             assert_eq!(routes.len(), 1);
             Ok::<_, String>(crate::state::output_capacity::ExecutionOutputSealMetadata {
+                sccp_finality_header: iroha_data_model::sumeragi_finality::certified_result::SccpFinalityHeaderV1::inactive(
+                    *state.network_id.as_bytes(), state._curr_block.height().get(), state._curr_block.creation_time_ms,
+                ).expect("original component carrier"),
                 committed_fragment_count: u64::try_from(state.committed_fragment_count()).unwrap(),
             })
         })
@@ -5028,6 +5046,9 @@ fn mandatory_source_marks_only_actual_untyped_quantity_mutation_as_unsupported()
                 .unwrap();
             transaction.apply();
             Ok::<_, String>(crate::state::output_capacity::ExecutionOutputSealMetadata {
+                sccp_finality_header: iroha_data_model::sumeragi_finality::certified_result::SccpFinalityHeaderV1::inactive(
+                    *state.network_id.as_bytes(), state._curr_block.height().get(), state._curr_block.creation_time_ms,
+                ).expect("original component carrier"),
                 committed_fragment_count: u64::try_from(state.committed_fragment_count()).unwrap(),
             })
         })

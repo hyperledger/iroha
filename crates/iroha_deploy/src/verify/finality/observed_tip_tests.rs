@@ -79,7 +79,7 @@ fn observation_refusals_and_pending_progress_keep_the_original_tip_owner() {
     let mut qc = commit_qc(&malformed);
     qc.agg_sig.0[0] ^= 1;
     let header = core(&malformed);
-    let execution = result(&malformed);
+    let execution = result(&malformed, chain.root_scope());
     replace_certificate(&mut malformed, &header, &qc, &execution);
     let mut source = selected_source(&chain, 2);
     for key in &chain.epoch(2).keys {

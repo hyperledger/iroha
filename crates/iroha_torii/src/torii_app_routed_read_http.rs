@@ -8,6 +8,7 @@ struct AppRoutedReadHttpAdmission {
 tokio::task_local! {
     static APP_ROUTED_READ_HTTP_ADMISSION: AppRoutedReadHttpAdmission;
 }
+#[cfg(feature = "app_api")]
 fn current_app_routed_read_fanout_reservation(
     app: &SharedAppState,
 ) -> Option<QueryFanoutMemoryReservation> {
@@ -21,14 +22,17 @@ fn current_app_routed_read_decode_plan() -> Option<ToriiRoutedReadRequestDecodeP
         .try_with(|admission| admission.decode_plan)
         .ok()
 }
+#[cfg(feature = "app_api")]
 fn app_routed_read_http_admission_is_active() -> bool {
     APP_ROUTED_READ_HTTP_ADMISSION.try_with(|_| ()).is_ok()
 }
 #[derive(Clone, Debug)]
 struct AdmittedAppRoutedReadBody {
     bytes: Bytes,
+    #[cfg(feature = "app_api")]
     destination_bytes: usize,
 }
+#[cfg(feature = "app_api")]
 fn admitted_app_routed_read_body(request: &Request<Body>) -> Option<Bytes> {
     if !app_routed_read_http_admission_is_active() {
         return None;
@@ -43,47 +47,57 @@ fn admitted_app_routed_read_body(request: &Request<Body>) -> Option<Bytes> {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AppRoutedReadHttpDecoder {
+    #[cfg(feature = "app_api")]
     None,
+    #[cfg(feature = "app_api")]
     Query(&'static str),
     StringQuery(&'static str),
+    #[cfg(feature = "app_api")]
     JsonOrNorito(&'static str),
+    #[cfg(feature = "app_api")]
     Json(&'static str),
+    #[cfg(feature = "app_api")]
     ExactInternalAssetScope,
 }
 impl AppRoutedReadHttpDecoder {
     fn body_type_name(self) -> Option<&'static str> {
         match self {
+            #[cfg(feature = "app_api")]
             Self::JsonOrNorito(name) | Self::Json(name) => Some(name),
-            Self::None | Self::Query(_) | Self::StringQuery(_) | Self::ExactInternalAssetScope => {
-                None
-            }
+            #[cfg(feature = "app_api")]
+            Self::None | Self::Query(_) | Self::ExactInternalAssetScope => None,
+            Self::StringQuery(_) => None,
         }
     }
     fn typed_request_name(self) -> Option<&'static str> {
         match self {
-            Self::Query(name)
-            | Self::StringQuery(name)
-            | Self::JsonOrNorito(name)
-            | Self::Json(name) => Some(name),
+            #[cfg(feature = "app_api")]
+            Self::Query(name) | Self::JsonOrNorito(name) | Self::Json(name) => Some(name),
+            Self::StringQuery(name) => Some(name),
+            #[cfg(feature = "app_api")]
             Self::None | Self::ExactInternalAssetScope => None,
         }
     }
-    fn preflight_media(self, headers: &HeaderMap) -> Result<(), Response> {
+    fn preflight_media(self, _headers: &HeaderMap) -> Result<(), Response> {
         match self {
-            Self::JsonOrNorito(_) => crate::utils::typed_request_content_format(headers).map(drop),
-            Self::Json(_) => crate::utils::canonical_json_request_content_type(headers),
-            Self::None | Self::Query(_) | Self::StringQuery(_) | Self::ExactInternalAssetScope => {
-                Ok(())
-            }
+            #[cfg(feature = "app_api")]
+            Self::JsonOrNorito(_) => crate::utils::typed_request_content_format(_headers).map(drop),
+            #[cfg(feature = "app_api")]
+            Self::Json(_) => crate::utils::canonical_json_request_content_type(_headers),
+            #[cfg(feature = "app_api")]
+            Self::None | Self::Query(_) | Self::ExactInternalAssetScope => Ok(()),
+            Self::StringQuery(_) => Ok(()),
         }
     }
 }
 #[derive(Clone, Copy, Debug)]
+#[cfg(feature = "app_api")]
 struct AppRoutedReadHttpEndpoint {
     endpoint: ToriiReadEndpointV1,
     route: iroha_torii_shared::route_catalog::RouteDescriptor,
     decoder: AppRoutedReadHttpDecoder,
 }
+#[cfg(feature = "app_api")]
 macro_rules! app_routed_read_endpoint {
     ($endpoint:ident, $route:path, $decoder:expr) => {
         AppRoutedReadHttpEndpoint {
@@ -93,6 +107,7 @@ macro_rules! app_routed_read_endpoint {
         }
     };
 }
+#[cfg(feature = "app_api")]
 const APP_ROUTED_READ_HTTP_ENDPOINTS_V1: [AppRoutedReadHttpEndpoint; 49] = [
     app_routed_read_endpoint!(AccountPermissionsQuery, route_catalog::application_api::ACCOUNTS_BY_ACCOUNT_ID_PERMISSIONS_QUERY_POST, AppRoutedReadHttpDecoder::Json("ListQuery")),
     app_routed_read_endpoint!(UaidManifestsQuery, route_catalog::application_api::SPACE_DIRECTORY_UAIDS_BY_UAID_MANIFESTS_QUERY_POST, AppRoutedReadHttpDecoder::Json("ListQuery")),
@@ -146,6 +161,7 @@ const APP_ROUTED_READ_HTTP_ENDPOINTS_V1: [AppRoutedReadHttpEndpoint; 49] = [
 ];
 /// Closed local collections share the HTTP owner without inventing wire endpoints.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg(feature = "app_api")]
 enum AppLocalCollectionRead {
     ContractActivity,
     ContractEvents,
@@ -175,8 +191,11 @@ enum AppLocalCollectionRead {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AppReadHttpIdentity {
+    #[cfg(feature = "app_api")]
     Routed(ToriiReadEndpointV1),
+    #[cfg(feature = "app_api")]
     LocalCollection(AppLocalCollectionRead),
+    Sccp(SccpHttpRead),
 }
 #[derive(Clone, Copy, Debug)]
 struct AppReadHttpRoute {
@@ -184,6 +203,7 @@ struct AppReadHttpRoute {
     route: iroha_torii_shared::route_catalog::RouteDescriptor,
     decoder: AppRoutedReadHttpDecoder,
 }
+#[cfg(feature = "app_api")]
 const APP_LOCAL_COLLECTION_HTTP_ROUTES_V1: [AppReadHttpRoute; 41] = [
     AppReadHttpRoute {
         endpoint: AppReadHttpIdentity::LocalCollection(AppLocalCollectionRead::ContractActivity),
@@ -420,16 +440,52 @@ const APP_LOCAL_COLLECTION_HTTP_ROUTES_V1: [AppReadHttpRoute; 41] = [
         decoder: AppRoutedReadHttpDecoder::None,
     },
 ];
+/// Closed SCCP selectors reuse the exact bodyless request admission and decoder corridor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SccpHttpRead {
+    History,
+    MessageProof,
+    ControlProof,
+}
+const SCCP_HTTP_READ_ROUTES_V1: [AppReadHttpRoute; 3] = [
+    AppReadHttpRoute {
+        endpoint: AppReadHttpIdentity::Sccp(SccpHttpRead::History),
+        route: route_catalog::sccp::HISTORY,
+        decoder: AppRoutedReadHttpDecoder::StringQuery("HistoryQuery"),
+    },
+    AppReadHttpRoute {
+        endpoint: AppReadHttpIdentity::Sccp(SccpHttpRead::MessageProof),
+        route: route_catalog::sccp::MESSAGE_PROOF,
+        decoder: AppRoutedReadHttpDecoder::StringQuery("ProofQuery"),
+    },
+    AppReadHttpRoute {
+        endpoint: AppReadHttpIdentity::Sccp(SccpHttpRead::ControlProof),
+        route: route_catalog::sccp::CONTROL_PROOF,
+        decoder: AppRoutedReadHttpDecoder::StringQuery("ProofQuery"),
+    },
+];
 fn app_routed_read_http_endpoint(route_id: &str) -> Option<AppReadHttpRoute> {
-    APP_ROUTED_READ_HTTP_ENDPOINTS_V1
+    if let Some(entry) = SCCP_HTTP_READ_ROUTES_V1
         .iter()
-        .map(|entry| AppReadHttpRoute {
-            endpoint: AppReadHttpIdentity::Routed(entry.endpoint),
-            route: entry.route,
-            decoder: entry.decoder,
-        })
-        .chain(APP_LOCAL_COLLECTION_HTTP_ROUTES_V1.iter().copied())
+        .copied()
         .find(|entry| entry.route.stable_route_id() == route_id)
+    {
+        return Some(entry);
+    }
+    #[cfg(feature = "app_api")]
+    {
+        return APP_ROUTED_READ_HTTP_ENDPOINTS_V1
+            .iter()
+            .map(|entry| AppReadHttpRoute {
+                endpoint: AppReadHttpIdentity::Routed(entry.endpoint),
+                route: entry.route,
+                decoder: entry.decoder,
+            })
+            .chain(APP_LOCAL_COLLECTION_HTTP_ROUTES_V1.iter().copied())
+            .find(|entry| entry.route.stable_route_id() == route_id);
+    }
+    #[cfg(not(feature = "app_api"))]
+    None
 }
 async fn enforce_app_routed_read_http_admission(
     State(app): State<SharedAppState>,
@@ -446,7 +502,12 @@ async fn enforce_app_routed_read_http_admission(
     if let Err(response) = endpoint.decoder.preflight_media(request.headers()) {
         return response;
     }
-    let decode_plan = match torii_routed_read_request_preflight_plan(&app) {
+    let decode_plan = match ToriiRoutedReadMemoryBudget::new(
+        app.query_fanout_working_set_bytes,
+        app.torii_proxy_max_response_bytes,
+    )
+    .and_then(|budget| budget.request_decode_plan_for_path(endpoint.route.path()))
+    {
         Ok(plan) => plan,
         Err(response) => return response,
     };
@@ -496,7 +557,7 @@ async fn enforce_app_routed_read_http_admission(
         },
         app.torii_proxy_max_response_bytes,
     )
-    .request_decode_plan()
+    .request_decode_plan_for_path(endpoint.route.path())
     {
         Ok(plan) => plan,
         Err(response) => return hold_query_fanout_memory_in_response_body(response, reservation),
@@ -730,6 +791,7 @@ async fn collect_app_routed_read_body(
     };
     Ok(AdmittedAppRoutedReadBody {
         bytes,
+        #[cfg(feature = "app_api")]
         destination_bytes,
     })
 }
@@ -752,5 +814,9 @@ impl AsRef<[u8]> for ExactAppRoutedReadBody {
         unsafe { std::slice::from_raw_parts(self.storage.as_ptr().cast::<u8>(), self.len) }
     }
 }
-#[cfg(test)]
+#[cfg(all(test, feature = "app_api"))]
 include!("tests/lib_routed_reads/app_routed_read_http_admission.rs");
+
+#[cfg(test)]
+#[path = "tests/lib_routed_reads/sccp_http_admission.rs"]
+mod sccp_http_admission_tests;

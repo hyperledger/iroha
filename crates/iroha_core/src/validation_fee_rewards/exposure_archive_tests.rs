@@ -221,6 +221,8 @@ fn archived_exposure_survives_hot_rollover_replay_and_signed_claims() {
         view.pipeline(),
         draft.payload(),
         timestamp,
+        crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+            .expect("original committed fixture time"),
         chain.height() + 1,
         None,
     )

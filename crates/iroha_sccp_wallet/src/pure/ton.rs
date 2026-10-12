@@ -1,52 +1,53 @@
 //! TON destination encodings (spec §5.3.2, §5.3.3, §7.1, §7.2).
 //!
 //! Minter message bodies built from verified bundles and rotation plans (`sccp_finalize*`,
-//! `sccp_void_*`, `sccp_rotate`, `sccp_apply_control*`, `sccp_init`, `sccp_deploy_buckets`,
+//! `sccp_void_*`, `sccp_checkpoint`, `sccp_apply_control*`, `sccp_init`, `sccp_deploy_buckets`,
 //! `sccp_retry`), internal messages, wallet-v5 (`v5r1`) external messages signed with an
 //! owner-only Ed25519 key file, the TVM stack encoding of get-method arguments and results, and
 //! the values a sender attaches (§5.3.5): a margin over the minter's quotes and the deployment
-//! funding of `MINTER_FLOOR`. Roster members are never sent: the minter reads them from storage.
+//! funding of `MINTER_FLOOR`. The minter verifies with its stored keys; only an authenticated key-changing checkpoint sends successor keys.
 
 use std::path::Path;
 
 use ed25519_dalek::{Signer as _, SigningKey};
 use iroha_sccp::v1::{
-    eip712::AttestationFieldsV1,
-    evm_abi::RotationV1,
-    proof::{ControlProofV1, HistoryProofV1, MessageProofV1},
-    roster::RosterV1,
-    signature::SignatureSetV1,
+    constants::{MAX_BLOCK_PATH, MAX_HISTORY_PATH, MAX_PAYLOAD_BYTES},
+    destination::{
+        BlockRefV1, CheckpointRefV1, ControlProofV1, MessageProofV1, TairaCertificateV1,
+    },
+    finality::{QcFixedV1, SccpFinalityHeaderV1},
     ton_cell::{
-        Cell, CellBuilder, TonCellError, cell_from_boc, hash_chunks, member_chunks, snake_bytes,
+        Cell, CellBuilder, TonCellError, cell_from_boc, hash_chunks, key_chunks, snake_bytes,
         ton_minter_floor_at_mainnet_prices,
     },
 };
 use zeroize::Zeroizing;
 
 use super::{
-    bundle::{BundlePurposeV1, VerifiedMessageBundleV1},
+    bundle::{BundlePurposeV1, VerifiedCertificateSourceV1, VerifiedMessageBundleV1},
     control::VerifiedControlBundleV1,
     evm::{KeyFileError, load_key_file_secret},
+    rotation::VerifiedRotationV1,
 };
 
 /// `sccp_init`.
 pub const OP_SCCP_INIT: u32 = 0x5343_4930;
 /// `sccp_finalize`.
 pub const OP_SCCP_FINALIZE: u32 = 0x5343_4631;
-/// `sccp_finalize_historical`.
-pub const OP_SCCP_FINALIZE_HISTORICAL: u32 = 0x5343_4632;
+/// `sccp_finalize_checkpoint`.
+pub const OP_SCCP_FINALIZE_CHECKPOINT: u32 = 0x5343_4632;
 /// `sccp_void_expired`.
 pub const OP_SCCP_VOID_EXPIRED: u32 = 0x5343_5631;
-/// `sccp_void_expired_historical`.
-pub const OP_SCCP_VOID_EXPIRED_HISTORICAL: u32 = 0x5343_5632;
+/// `sccp_void_expired_checkpoint`.
+pub const OP_SCCP_VOID_EXPIRED_CHECKPOINT: u32 = 0x5343_5632;
 /// `sccp_void_frozen`.
 pub const OP_SCCP_VOID_FROZEN: u32 = 0x5343_5633;
-/// `sccp_rotate`.
-pub const OP_SCCP_ROTATE: u32 = 0x5343_5231;
+/// `sccp_checkpoint`.
+pub const OP_SCCP_CHECKPOINT: u32 = 0x5343_4b31;
 /// `sccp_apply_control`.
 pub const OP_SCCP_APPLY_CONTROL: u32 = 0x5343_4d31;
-/// `sccp_apply_control_historical`.
-pub const OP_SCCP_APPLY_CONTROL_HISTORICAL: u32 = 0x5343_4d32;
+/// `sccp_apply_control_checkpoint`.
+pub const OP_SCCP_APPLY_CONTROL_CHECKPOINT: u32 = 0x5343_4d32;
 /// `sccp_deploy_buckets`.
 pub const OP_SCCP_DEPLOY_BUCKETS: u32 = 0x5343_4431;
 /// `sccp_retry`.
@@ -70,8 +71,10 @@ pub enum TonError {
     Cell(TonCellError),
     /// The bundle was verified for another purpose.
     WrongPurpose,
-    /// A path, roster or signature set does not fit its TL-B field.
+    /// A proof path or fixed certificate field does not fit its current TL-B shape.
     FieldTooLarge,
+    /// QC or finality header bytes are not the current fixed layout.
+    BadCertificate,
     /// A wallet transfer carries no message or more than 255.
     BadActionCount,
     /// The key file was refused.
@@ -88,6 +91,7 @@ impl core::fmt::Display for TonError {
                 formatter.write_str("the bundle was verified for another purpose")
             }
             Self::FieldTooLarge => formatter.write_str("a value does not fit its TL-B field"),
+            Self::BadCertificate => formatter.write_str("malformed current certificate"),
             Self::BadActionCount => {
                 formatter.write_str("a wallet transfer carries 1..=255 messages")
             }
@@ -109,119 +113,117 @@ impl From<TonCellError> for TonError {
 // Cell formats (§5.3.2)
 // ---------------------------------------------------------------------------------------------
 
-/// `attestation#_ height epoch timestamp_ms message_count history_size block_hash sccp_root
-/// tail:^AttestationTail`.
+/// `x_head#_ bytes:bits872 tail:^XTail`, with the original fixed 221-byte header.
 ///
 /// # Errors
-///
-/// Never fails for well-formed fields; the `Result` mirrors the builder.
-pub fn attestation_cell(attestation: &AttestationFieldsV1) -> Result<Cell, TonError> {
+/// Returns a cell-capacity error.
+pub fn header_cell(header: &SccpFinalityHeaderV1) -> Result<Cell, TonError> {
     let mut tail = CellBuilder::new();
-    tail.store_bytes(&attestation.history_root)?
-        .store_bytes(&attestation.roster_digest)?
-        .store_bytes(&attestation.next_roster_digest)?;
-    let mut cell = CellBuilder::new();
-    cell.store_uint(u128::from(attestation.height), 64)?
-        .store_uint(u128::from(attestation.epoch), 64)?
-        .store_uint(u128::from(attestation.timestamp_ms), 64)?
-        .store_uint(u128::from(attestation.message_count), 32)?
-        .store_uint(u128::from(attestation.history_size), 64)?
-        .store_bytes(&attestation.block_hash)?
-        .store_bytes(&attestation.sccp_root)?
-        .store_ref(tail.build())?;
-    Ok(cell.build())
+    tail.store_bytes(header.tail())?;
+    let mut head = CellBuilder::new();
+    head.store_bytes(header.head())?.store_ref(tail.build())?;
+    Ok(head.build())
 }
 
-/// `signatures#_ signer_bitmap first:^SignatureCell`, one `r s v next` cell per signature in
-/// ascending bitmap order.
+/// `taira_cert#_ signature:bits768 signers:uint32 qc:^QcFixed x:^XHead`.
+/// This only encodes the current wire shape; callers supply an authenticated certificate.
 ///
 /// # Errors
-///
-/// Returns [`TonError::FieldTooLarge`] for a set without signatures or with a partial one.
-pub fn signatures_cell(set: &SignatureSetV1) -> Result<Cell, TonError> {
-    if set.signatures.is_empty() || !set.signatures.len().is_multiple_of(65) {
+/// Rejects a malformed QC/header or a compressed signature whose length is not 96 bytes.
+pub fn certificate_cell(certificate: &TairaCertificateV1) -> Result<Cell, TonError> {
+    let qc = QcFixedV1::parse(&certificate.qc).map_err(|_| TonError::BadCertificate)?;
+    let header =
+        SccpFinalityHeaderV1::parse(&certificate.header).map_err(|_| TonError::BadCertificate)?;
+    if certificate.ton_signature.len() != 96 {
         return Err(TonError::FieldTooLarge);
     }
-    let mut next: Option<Cell> = None;
-    for signature in set.signatures.chunks_exact(65).rev() {
-        let mut cell = CellBuilder::new();
-        cell.store_bytes(&signature[..64])?
-            .store_uint(u128::from(signature[64]), 8)?
-            .store_maybe_ref(next.take())?;
-        next = Some(cell.build());
-    }
+    let mut fixed = CellBuilder::new();
+    fixed
+        .store_uint(u128::from(qc.epoch), 64)?
+        .store_bytes(&qc.epoch_context)?
+        .store_uint(u128::from(qc.view), 64)?
+        .store_bytes(&qc.block_hash)?
+        .store_bytes(&qc.result_body)?;
     let mut cell = CellBuilder::new();
-    cell.store_uint(u128::from(set.signer_bitmap), 32)?
-        .store_ref(next.ok_or(TonError::FieldTooLarge)?)?;
+    cell.store_bytes(&certificate.ton_signature)?
+        .store_uint(u128::from(qc.signers), 32)?
+        .store_ref(fixed.build())?
+        .store_ref(header_cell(&header)?)?;
     Ok(cell.build())
 }
 
-fn path_len(path: &[[u8; 32]]) -> Result<u128, TonError> {
+/// `checkpoint_ref#_ x:^XHead`; the original header identifies the stored checkpoint.
+///
+/// # Errors
+/// Rejects a malformed fixed header or a cell-capacity error.
+pub fn checkpoint_ref_cell(reference: &CheckpointRefV1) -> Result<Cell, TonError> {
+    let header =
+        SccpFinalityHeaderV1::parse(&reference.header).map_err(|_| TonError::BadCertificate)?;
+    let mut cell = CellBuilder::new();
+    cell.store_ref(header_cell(&header)?)?;
+    Ok(cell.build())
+}
+
+fn path_len(path: &[[u8; 32]], maximum: usize) -> Result<u128, TonError> {
+    if path.len() > maximum {
+        return Err(TonError::FieldTooLarge);
+    }
     u8::try_from(path.len())
         .map(u128::from)
         .map_err(|_| TonError::FieldTooLarge)
 }
 
-/// `message_proof#_ leaf_index path_len payload:^SnakeBytes path:(Maybe ^HashChunk)`.
+/// `block_ref#_ height root count history_index path_len path:(Maybe ^HashChunk)`.
 ///
 /// # Errors
+/// Rejects a history path longer than 32 or a cell-capacity error.
+pub fn block_ref_cell(block: &BlockRefV1) -> Result<Cell, TonError> {
+    let mut cell = CellBuilder::new();
+    cell.store_uint(u128::from(block.height), 64)?
+        .store_bytes(&block.sccp_root)?
+        .store_uint(u128::from(block.message_count), 32)?
+        .store_uint(u128::from(block.history_index), 64)?
+        .store_uint(path_len(&block.history_path, MAX_HISTORY_PATH)?, 8)?
+        .store_maybe_ref(hash_chunks(&block.history_path)?)?;
+    Ok(cell.build())
+}
+
+/// `message_proof#_ leaf_index path_len payload:^SnakeBytes path:(Maybe ^HashChunk) block:^BlockRef`.
 ///
-/// Returns a cell error or [`TonError::FieldTooLarge`].
+/// # Errors
+/// Rejects an oversized payload/path or a cell-capacity error.
 pub fn message_proof_cell(proof: &MessageProofV1) -> Result<Cell, TonError> {
+    if proof.payload.len() > MAX_PAYLOAD_BYTES {
+        return Err(TonError::FieldTooLarge);
+    }
     let mut cell = CellBuilder::new();
     cell.store_uint(u128::from(proof.leaf_index), 32)?
-        .store_uint(path_len(&proof.path)?, 8)?
+        .store_uint(path_len(&proof.path, MAX_BLOCK_PATH)?, 8)?
         .store_ref(snake_bytes(&proof.payload)?)?
-        .store_maybe_ref(hash_chunks(&proof.path)?)?;
+        .store_maybe_ref(hash_chunks(&proof.path)?)?
+        .store_ref(block_ref_cell(&proof.block)?)?;
     Ok(cell.build())
 }
 
-/// `history_proof#_ height sccp_root message_count leaf_index path_len path:(Maybe ^HashChunk)`.
+/// Current 690-bit control proof, including both pause mechanisms and the authenticated cause.
 ///
 /// # Errors
-///
-/// Returns a cell error or [`TonError::FieldTooLarge`].
-pub fn history_proof_cell(history: &HistoryProofV1) -> Result<Cell, TonError> {
-    let mut cell = CellBuilder::new();
-    cell.store_uint(u128::from(history.block.height), 64)?
-        .store_bytes(&history.block.sccp_root)?
-        .store_uint(u128::from(history.block.message_count), 32)?
-        .store_uint(u128::from(history.leaf_index), 64)?
-        .store_uint(path_len(&history.path)?, 8)?
-        .store_maybe_ref(hash_chunks(&history.path)?)?;
-    Ok(cell.build())
-}
-
-/// `control_proof#_ control_nonce paused leaf_index path_len path:(Maybe ^HashChunk)`.
-///
-/// # Errors
-///
-/// Returns a cell error or [`TonError::FieldTooLarge`].
+/// Rejects a non-boolean Parliament byte, an oversized path or a cell-capacity error.
 pub fn control_proof_cell(control: &ControlProofV1) -> Result<Cell, TonError> {
+    if control.parliament_paused > 1 {
+        return Err(TonError::FieldTooLarge);
+    }
     let mut cell = CellBuilder::new();
     cell.store_uint(u128::from(control.control_nonce), 64)?
-        .store_bit(control.paused)?
+        .store_uint(u128::from(control.track), 8)?
+        .store_bit(control.parliament_paused != 0)?
+        .store_uint(u128::from(control.fast_pause_until_ms), 64)?
+        .store_bytes(&control.certificate_id)?
+        .store_bytes(&control.effect_hash)?
         .store_uint(u128::from(control.leaf_index), 32)?
-        .store_uint(path_len(&control.path)?, 8)?
-        .store_maybe_ref(hash_chunks(&control.path)?)?;
-    Ok(cell.build())
-}
-
-/// `roster_spec#_ generation valid_from_ms valid_until_ms n t members:^MemberChunk`.
-///
-/// # Errors
-///
-/// Returns a cell error or [`TonError::FieldTooLarge`].
-pub fn roster_spec_cell(roster: &RosterV1) -> Result<Cell, TonError> {
-    let n = u8::try_from(roster.n()).map_err(|_| TonError::FieldTooLarge)?;
-    let t = u8::try_from(roster.threshold()).map_err(|_| TonError::FieldTooLarge)?;
-    let mut cell = CellBuilder::new();
-    cell.store_uint(u128::from(roster.generation), 64)?
-        .store_uint(u128::from(roster.valid_from_ms), 64)?
-        .store_uint(u128::from(roster.valid_until_ms), 64)?
-        .store_uint(u128::from(n), 8)?
-        .store_uint(u128::from(t), 8)?
-        .store_ref(member_chunks(&roster.members)?)?;
+        .store_uint(path_len(&control.path, MAX_BLOCK_PATH)?, 8)?
+        .store_maybe_ref(hash_chunks(&control.path)?)?
+        .store_ref(block_ref_cell(&control.block)?)?;
     Ok(cell.build())
 }
 
@@ -240,12 +242,10 @@ fn header(op: u32, query_id: u64, response: &TonAccountV1) -> Result<CellBuilder
     Ok(cell)
 }
 
-/// `sccp_finalize` (or `sccp_finalize_historical`) for a bundle verified with
-/// [`BundlePurposeV1::Finalize`]; excess value returns to `response`.
+/// Finalize a verified direct or historical message using its verified inline/checkpoint source.
 ///
 /// # Errors
-///
-/// Returns [`TonError::WrongPurpose`] or a cell error.
+/// Returns `WrongPurpose` or a current certificate/proof encoding error.
 pub fn finalize_body(
     bundle: &VerifiedMessageBundleV1,
     query_id: u64,
@@ -254,28 +254,24 @@ pub fn finalize_body(
     if bundle.purpose != BundlePurposeV1::Finalize {
         return Err(TonError::WrongPurpose);
     }
-    let signed = &bundle.attested.signed;
-    let op = if bundle.history.is_some() {
-        OP_SCCP_FINALIZE_HISTORICAL
-    } else {
-        OP_SCCP_FINALIZE
+    let (op, source) = match &bundle.certificate.source {
+        VerifiedCertificateSourceV1::Inline(certificate) => {
+            (OP_SCCP_FINALIZE, certificate_cell(certificate)?)
+        }
+        VerifiedCertificateSourceV1::Checkpoint(reference) => {
+            (OP_SCCP_FINALIZE_CHECKPOINT, checkpoint_ref_cell(reference)?)
+        }
     };
     let mut body = header(op, query_id, response)?;
-    body.store_ref(attestation_cell(&signed.attestation)?)?
-        .store_ref(signatures_cell(&signed.signatures)?)?;
-    if let Some(history) = &bundle.history {
-        body.store_ref(history_proof_cell(history)?)?;
-    }
-    body.store_ref(message_proof_cell(&bundle.proof)?)?;
+    body.store_ref(source)?
+        .store_ref(message_proof_cell(&bundle.proof)?)?;
     Ok(body.build())
 }
 
-/// `sccp_void_expired` (or its historical variant) for a bundle verified with
-/// [`BundlePurposeV1::VoidExpired`]; the `nonce` field is the payload nonce.
+/// Void an expired verified message using its verified inline/checkpoint source.
 ///
 /// # Errors
-///
-/// Returns [`TonError::WrongPurpose`] or a cell error.
+/// Returns `WrongPurpose` or a current certificate/proof encoding error.
 pub fn void_expired_body(
     bundle: &VerifiedMessageBundleV1,
     query_id: u64,
@@ -284,20 +280,19 @@ pub fn void_expired_body(
     if bundle.purpose != BundlePurposeV1::VoidExpired {
         return Err(TonError::WrongPurpose);
     }
-    let signed = &bundle.attested.signed;
-    let op = if bundle.history.is_some() {
-        OP_SCCP_VOID_EXPIRED_HISTORICAL
-    } else {
-        OP_SCCP_VOID_EXPIRED
+    let (op, source) = match &bundle.certificate.source {
+        VerifiedCertificateSourceV1::Inline(certificate) => {
+            (OP_SCCP_VOID_EXPIRED, certificate_cell(certificate)?)
+        }
+        VerifiedCertificateSourceV1::Checkpoint(reference) => (
+            OP_SCCP_VOID_EXPIRED_CHECKPOINT,
+            checkpoint_ref_cell(reference)?,
+        ),
     };
     let mut body = header(op, query_id, response)?;
     body.store_uint(u128::from(bundle.nonce()), 64)?
-        .store_ref(attestation_cell(&signed.attestation)?)?
-        .store_ref(signatures_cell(&signed.signatures)?)?;
-    if let Some(history) = &bundle.history {
-        body.store_ref(history_proof_cell(history)?)?;
-    }
-    body.store_ref(message_proof_cell(&bundle.proof)?)?;
+        .store_ref(source)?
+        .store_ref(message_proof_cell(&bundle.proof)?)?;
     Ok(body.build())
 }
 
@@ -312,7 +307,12 @@ pub fn void_frozen_body(
     query_id: u64,
     response: &TonAccountV1,
 ) -> Result<Cell, TonError> {
-    if count == 0 || count > 512 {
+    if count == 0
+        || count > 512
+        || first_nonce
+            .checked_add(u64::from(count) - 1)
+            .is_none_or(|last| last >> 9 != first_nonce >> 9)
+    {
         return Err(TonError::FieldTooLarge);
     }
     let mut body = header(OP_SCCP_VOID_FROZEN, query_id, response)?;
@@ -321,46 +321,42 @@ pub fn void_frozen_body(
     Ok(body.build())
 }
 
-/// `sccp_rotate` of one verified rotation (TON rotates one generation per message).
+/// One verified checkpoint; TON successor keys are sent only for an actual key change.
 ///
 /// # Errors
-///
-/// Returns a cell error or [`TonError::FieldTooLarge`].
-pub fn rotate_body(
-    rotation: &RotationV1,
+/// Returns a current certificate/key encoding error.
+pub fn checkpoint_body(
+    checkpoint: &VerifiedRotationV1,
     query_id: u64,
     response: &TonAccountV1,
 ) -> Result<Cell, TonError> {
-    let mut body = header(OP_SCCP_ROTATE, query_id, response)?;
-    body.store_ref(attestation_cell(&rotation.attestation)?)?
-        .store_ref(signatures_cell(&rotation.signatures)?)?
-        .store_ref(roster_spec_cell(&rotation.next)?)?;
+    let mut body = header(OP_SCCP_CHECKPOINT, query_id, response)?;
+    body.store_ref(certificate_cell(checkpoint.certificate())?)?
+        .store_maybe_ref(checkpoint.next_keys().map(key_chunks).transpose()?)?;
     Ok(body.build())
 }
 
-/// `sccp_apply_control` (or its historical variant) for a verified control bundle.
+/// Apply a verified complete control using its verified inline/checkpoint source.
 ///
 /// # Errors
-///
-/// Returns a cell error.
+/// Returns a current certificate/control encoding error.
 pub fn apply_control_body(
     bundle: &VerifiedControlBundleV1,
     query_id: u64,
     response: &TonAccountV1,
 ) -> Result<Cell, TonError> {
-    let signed = &bundle.attested.signed;
-    let op = if bundle.history.is_some() {
-        OP_SCCP_APPLY_CONTROL_HISTORICAL
-    } else {
-        OP_SCCP_APPLY_CONTROL
+    let (op, source) = match &bundle.certificate.source {
+        VerifiedCertificateSourceV1::Inline(certificate) => {
+            (OP_SCCP_APPLY_CONTROL, certificate_cell(certificate)?)
+        }
+        VerifiedCertificateSourceV1::Checkpoint(reference) => (
+            OP_SCCP_APPLY_CONTROL_CHECKPOINT,
+            checkpoint_ref_cell(reference)?,
+        ),
     };
     let mut body = header(op, query_id, response)?;
-    body.store_ref(attestation_cell(&signed.attestation)?)?
-        .store_ref(signatures_cell(&signed.signatures)?)?;
-    if let Some(history) = &bundle.history {
-        body.store_ref(history_proof_cell(history)?)?;
-    }
-    body.store_ref(control_proof_cell(&bundle.control)?)?;
+    body.store_ref(source)?
+        .store_ref(control_proof_cell(&bundle.control)?)?;
     Ok(body.build())
 }
 
@@ -410,7 +406,7 @@ pub fn retry_body(nonce: u64, query_id: u64, response: &TonAccountV1) -> Result<
 // Attached values (§5.3.5)
 // ---------------------------------------------------------------------------------------------
 
-/// The value to attach for a minter quote (`finalize_required_value`, `rotate_required_value`,
+/// The value to attach for a minter quote (`finalize_required_value`, `checkpoint_required_value`,
 /// ...): the quote plus 10%, and at least [`QUOTE_MARGIN_MIN`] more. The minter returns every
 /// nanoton its step does not use to the `response` address, so the margin only absorbs price
 /// and balance changes between the quote and the send.
@@ -674,18 +670,29 @@ impl Bits<'_> {
     }
 }
 
-fn read_value(bits: &mut Bits<'_>) -> Result<Option<TvmIntV1>, TonError> {
-    match bits.read(8)? {
-        0x00 => Ok(None),
+/// Supported get-method stack values. Cells remain intact for canonical committee-key parsing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TvmStackValueV1 {
+    /// A TVM null value.
+    Null,
+    /// A signed TVM integer.
+    Integer(TvmIntV1),
+    /// An ordinary cell, referenced by the stack node.
+    Cell(Cell),
+}
+
+fn read_value(bits: &mut Bits<'_>) -> Result<TvmStackValueV1, TonError> {
+    let value = match bits.read(8)? {
+        0x00 => TvmStackValueV1::Null,
         0x01 => {
             let raw = u64::try_from(bits.read(64)?).map_err(|_| TonError::BadStack)?;
             let value = raw.cast_signed();
             let mut out = [if value < 0 { 0xff } else { 0 }; 33];
             out[25..].copy_from_slice(&value.to_be_bytes());
-            Ok(Some(TvmIntV1(out)))
+            TvmStackValueV1::Integer(TvmIntV1(out))
         }
         0x02 => {
-            // `vm_stk_int#0201_`: seven more tag bits (`0000000`), then an `int257`.
+            // `vm_stk_int#0201_`: seven more tag bits, then an int257.
             if bits.read(7)? != 0 {
                 return Err(TonError::BadStack);
             }
@@ -696,31 +703,53 @@ fn read_value(bits: &mut Bits<'_>) -> Result<Option<TvmIntV1>, TonError> {
             out[0] = if sign { 0xff } else { 0 };
             out[1..17].copy_from_slice(&high.to_be_bytes());
             out[17..].copy_from_slice(&low.to_be_bytes());
-            Ok(Some(TvmIntV1(out)))
+            TvmStackValueV1::Integer(TvmIntV1(out))
         }
-        _ => Err(TonError::BadStack),
+        0x03 => TvmStackValueV1::Cell(
+            bits.cell
+                .refs()
+                .get(1)
+                .and_then(|reference| reference.cell())
+                .ok_or(TonError::BadStack)?
+                .clone(),
+        ),
+        _ => return Err(TonError::BadStack),
+    };
+    let refs = if matches!(value, TvmStackValueV1::Cell(_)) {
+        2
+    } else {
+        1
+    };
+    if bits.offset != bits.cell.bit_len() || bits.cell.refs().len() != refs {
+        return Err(TonError::BadStack);
     }
+    Ok(value)
 }
 
-/// The integers of a get-method result stack, bottom (first returned value) first; `None` for
-/// a null entry.
+/// Decode integer, null and cell get-method results in their return order.
+/// The advertised depth cannot exceed the original BoC byte count: every stack node
+/// consumes at least its tag byte. Each node and the final empty list are consumed exactly.
 ///
 /// # Errors
-///
-/// Returns [`TonError::BadStack`] for a malformed stack or a non-integer entry.
-pub fn parse_int_stack(boc: &[u8]) -> Result<Vec<Option<TvmIntV1>>, TonError> {
+/// Returns an error for malformed, truncated, excessive-depth or unsupported stack values.
+pub fn parse_stack(boc: &[u8]) -> Result<Vec<TvmStackValueV1>, TonError> {
     let root = cell_from_boc(boc)?;
     let mut bits = Bits {
         cell: &root,
         offset: 0,
     };
     let depth = usize::try_from(bits.read(24)?).map_err(|_| TonError::BadStack)?;
-    let mut values = Vec::with_capacity(depth);
+    if depth > boc.len() {
+        return Err(TonError::BadStack);
+    }
+    let mut values = Vec::new();
+    values
+        .try_reserve_exact(depth)
+        .map_err(|_| TonError::BadStack)?;
     let mut node = &root;
     let mut offset = 24;
     for _ in 0..depth {
-        let mut reader = Bits { cell: node, offset };
-        values.push(read_value(&mut reader)?);
+        values.push(read_value(&mut Bits { cell: node, offset })?);
         node = node
             .refs()
             .first()
@@ -728,8 +757,26 @@ pub fn parse_int_stack(boc: &[u8]) -> Result<Vec<Option<TvmIntV1>>, TonError> {
             .ok_or(TonError::BadStack)?;
         offset = 0;
     }
+    if node.bit_len() != offset || !node.refs().is_empty() {
+        return Err(TonError::BadStack);
+    }
     values.reverse();
     Ok(values)
+}
+
+/// Integer-only get-method results, with `None` for null.
+///
+/// # Errors
+/// Rejects malformed stacks and every cell or unsupported value.
+pub fn parse_int_stack(boc: &[u8]) -> Result<Vec<Option<TvmIntV1>>, TonError> {
+    parse_stack(boc)?
+        .into_iter()
+        .map(|value| match value {
+            TvmStackValueV1::Null => Ok(None),
+            TvmStackValueV1::Integer(value) => Ok(Some(value)),
+            TvmStackValueV1::Cell(_) => Err(TonError::BadStack),
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -804,14 +851,13 @@ mod tests {
         let retry = retry_body(513, 1, &[3; 32]).expect("body");
         assert_eq!(&retry.data()[..4], &OP_SCCP_RETRY.to_be_bytes());
         assert_eq!(retry.bit_len(), 32 + 64 + 267 + 64);
-        let set = SignatureSetV1 {
-            signer_bitmap: 0b11,
-            signatures: vec![1; 130],
-        };
-        let cell = signatures_cell(&set).expect("signatures");
-        assert_eq!(cell.bit_len(), 32);
-        let first = cell.refs()[0].cell().expect("first");
-        assert_eq!(first.bit_len(), 521);
-        assert_eq!(first.refs().len(), 1);
+        assert!(void_frozen_body(511, 2, 1, &[3; 32]).is_err());
+        assert!(void_frozen_body(u64::MAX, 2, 1, &[3; 32]).is_err());
+        assert!(void_frozen_body(512, 512, 1, &[3; 32]).is_ok());
+        assert!(void_frozen_body(u64::MAX, 1, 1, &[3; 32]).is_ok());
     }
 }
+
+#[cfg(test)]
+#[path = "ton/current_tests.rs"]
+mod current_tests;

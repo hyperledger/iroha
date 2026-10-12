@@ -240,7 +240,7 @@ fn original_paid_intent_capacity_refusal_retains_completed_context_and_same_pool
                 PublicationPhase::Executed { valid, .. } => valid.as_ref(),
                 _ => panic!("original executed phase"),
             },
-            live.commitment().get(),
+            live.commitment().get().commitment(),
             live.witness.as_ref().unwrap(),
         );
     });
@@ -425,13 +425,13 @@ fn original_paid_intent_capture_rejects_changed_carrier_execution_and_foreign_po
             let pointer = context.canonical_bytes().as_ptr();
             assert!(original.witness.matches_original_native_execution(
                 original.valid.as_ref(),
-                result.get().execution
+                result.get().commitment().execution
             ));
             assert!(!original.witness.matches_original_native_execution(
                 chain.committed(1).block(),
-                result.get().execution
+                result.get().commitment().execution
             ));
-            let mut changed_execution = result.get().execution;
+            let mut changed_execution = result.get().commitment().execution;
             changed_execution.ordinary_writes_root =
                 iroha_crypto::Hash::new(b"substituted native writes");
             assert!(
@@ -539,7 +539,7 @@ fn original_paid_prepared_witness_survives_same_block_pruning_before_intent_comm
                     crate::query::native_context_archive::prepared_intent_test_helpers::verify_original(
                         source.prepared_intent_bytes().unwrap(), overlay,
                         match &live.phase { PublicationPhase::Executed { valid, .. } => valid.as_ref(), _ => panic!("original executed phase") },
-                        live.commitment().get(), witness);
+                        live.commitment().get().commitment(), witness);
                     let target = path(chain, source.height(), source.carrier_hash());
                     let expected = source.prepared_intent_bytes().unwrap().to_vec();
                     worker.prepare(&block, &qc).unwrap(); blocks.append(&block, &qc).unwrap(); worker.commit(&block, &qc).unwrap();

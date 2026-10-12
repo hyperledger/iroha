@@ -1410,10 +1410,16 @@ mod tests {
                 sig: NativeSignature([0; iroha_sumeragi::types::SIGNATURE_LEN]),
             };
             vote.sig = NativeSignature(
-                Signature::new(keys[signer as usize].private_key(), &vote.preimage())
-                    .payload()
-                    .try_into()
+                Signature::from_bytes(
+                    &iroha_crypto::bls::consensus::sign_preimage(
+                        keys[signer as usize].private_key(),
+                        &vote.preimage(),
+                    )
                     .unwrap(),
+                )
+                .payload()
+                .try_into()
+                .unwrap(),
             );
             vote
         };
@@ -3712,10 +3718,16 @@ mod tests {
         for vote in [&mut first, &mut second] {
             vote.height = 1_000;
             vote.sig = iroha_sumeragi::types::Signature(
-                Signature::new(roster_keys()[1].private_key(), &vote.preimage())
-                    .payload()
-                    .try_into()
+                Signature::from_bytes(
+                    &iroha_crypto::bls::consensus::sign_preimage(
+                        roster_keys()[1].private_key(),
+                        &vote.preimage(),
+                    )
                     .unwrap(),
+                )
+                .payload()
+                .try_into()
+                .unwrap(),
             );
         }
         let proof = Evidence::from_native(&iroha_sumeragi::message::Evidence::VoteEquivocation(

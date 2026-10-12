@@ -212,6 +212,7 @@ fn executor_in(chain: &CertifiedTestChain, consensus_mode: ConsensusMode) -> Sta
         events: tokio::sync::broadcast::channel(16).0,
         genesis_account: chain.genesis_account().clone(),
         consensus_mode,
+        root_scope: chain.root_scope(),
         applied: (chain.height(), chain.committed(chain.height()).core_hash()),
         // Replay verifies each certified CommitQC; the worker admits the scheduled committee
         // from its authenticated proofs of possession, as the node's executor does.

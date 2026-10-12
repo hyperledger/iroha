@@ -628,6 +628,31 @@ capture_world_table_once!(
 );
 
 capture_world_table_once!(
+    capture_sccp_fast_pauses_once,
+    sccp_fast_pauses,
+    "world.sccp_fast_pauses"
+);
+capture_world_table_once!(
+    capture_sccp_fast_pause_suspended_until_ms_once,
+    sccp_fast_pause_suspended_until_ms,
+    "world.sccp_fast_pause_suspended_until_ms"
+);
+capture_world_table_once!(
+    capture_sccp_fast_pause_rounds_once,
+    sccp_fast_pause_rounds,
+    "world.sccp_fast_pause_rounds"
+);
+capture_world_table_once!(
+    capture_sccp_committee_generations_once,
+    sccp_committee_generations,
+    "world.sccp_committee_generations"
+);
+capture_world_table_once!(
+    capture_sccp_anchor_chunks_once,
+    sccp_anchor_chunks,
+    "world.sccp_anchor_chunks"
+);
+capture_world_table_once!(
     capture_sccp_block_leaves_once,
     sccp_block_leaves,
     "world.sccp_block_leaves"
@@ -945,12 +970,17 @@ const TABLE_MATERIALIZERS: &[TableMaterializer] = &[
     native_world::capture_global_beacon_active_session_once::MATERIALIZER,
     native_world::capture_global_beacon_latest_pulse_once::MATERIALIZER,
     native_world::capture_global_beacon_pulses_once::MATERIALIZER,
+    capture_sccp_committee_generations_once::MATERIALIZER,
+    capture_sccp_anchor_chunks_once::MATERIALIZER,
     capture_sccp_block_leaves_once::MATERIALIZER,
     capture_sccp_block_commitments_once::MATERIALIZER,
     capture_sccp_history_leaves_once::MATERIALIZER,
     capture_sccp_outbound_messages_once::MATERIALIZER,
     capture_sccp_outbound_by_nonce_once::MATERIALIZER,
     capture_sccp_control_messages_once::MATERIALIZER,
+    capture_sccp_fast_pauses_once::MATERIALIZER,
+    capture_sccp_fast_pause_suspended_until_ms_once::MATERIALIZER,
+    capture_sccp_fast_pause_rounds_once::MATERIALIZER,
     capture_sccp_routes_once::MATERIALIZER,
     capture_sccp_destination_words_once::MATERIALIZER,
     capture_sccp_governance_revisions_once::MATERIALIZER,
@@ -1336,12 +1366,17 @@ mod tests {
             "world.global_beacon_active_session",
             "world.global_beacon_latest_pulse",
             "world.global_beacon_pulses",
+            "world.sccp_committee_generations",
+            "world.sccp_anchor_chunks",
             "world.sccp_block_leaves",
             "world.sccp_block_commitments",
             "world.sccp_history_leaves",
             "world.sccp_outbound_messages",
             "world.sccp_outbound_by_nonce",
             "world.sccp_control_messages",
+            "world.sccp_fast_pauses",
+            "world.sccp_fast_pause_suspended_until_ms",
+            "world.sccp_fast_pause_rounds",
             "world.sccp_routes",
             "world.sccp_destination_words",
             "world.sccp_governance_revisions",
@@ -1452,6 +1487,150 @@ mod tests {
             );
         }
         drop(guard);
+    }
+
+    #[test]
+    fn sccp_pause_readers_bind_actual_values_and_reject_substitution() {
+        use crate::smartcontracts::isi::sccp::{
+            pause_record::{RetainedSccpFastPause, RetainedSccpFastPauseRound},
+            test_support::{sample_fast_pause, sample_fast_pause_round},
+        };
+        use iroha_data_model::{bridge::SccpNetworkV1, sccp::fast_pause::SccpPanelRoleV1};
+        let mut state = state();
+        let budget = state.ivm_execution_budget();
+        let network = SccpNetworkV1::EthereumMainnet;
+        macro_rules! check {
+            ($field:ident, $capture:ident, $key:expr, $first:expr, $next:expr) => {{
+                let key = $key;
+                let id = concat!("world.", stringify!($field));
+                state.world.$field.insert(key, $first);
+                let before = $capture(&state, limits()).unwrap().unwrap();
+                state.world.$field.insert(key, $next);
+                let after = $capture(&state, limits()).unwrap().unwrap();
+                assert_eq!(before.table_id(), id);
+                assert_eq!(after.table_id(), id);
+                assert_eq!(before.row_count(), 1);
+                assert_eq!(after.row_count(), 1);
+                assert_ne!(before.root(), after.root());
+                let proof = after.prove_lookup(id, &key).unwrap();
+                CanonicalTableLeafSet::verify_paired_lookup(
+                    id,
+                    limits(),
+                    &after.root(),
+                    &after.ordered_root(),
+                    &key,
+                    &proof,
+                )
+                .unwrap();
+                assert!(matches!(
+                    CanonicalTableLeafSet::verify_paired_lookup(
+                        id,
+                        limits(),
+                        &before.root(),
+                        &after.ordered_root(),
+                        &key,
+                        &proof
+                    ),
+                    Err(LeafError::RootMismatch)
+                ));
+            }};
+        }
+        check!(
+            sccp_fast_pauses,
+            capture_sccp_fast_pauses_once,
+            network,
+            RetainedSccpFastPause::admit(&sample_fast_pause(1), &budget).unwrap(),
+            RetainedSccpFastPause::admit(&sample_fast_pause(2), &budget).unwrap()
+        );
+        check!(
+            sccp_fast_pause_rounds,
+            capture_sccp_fast_pause_rounds_once,
+            (network, SccpPanelRoleV1::Primary),
+            RetainedSccpFastPauseRound::admit(&sample_fast_pause_round(1), &budget).unwrap(),
+            RetainedSccpFastPauseRound::admit(&sample_fast_pause_round(2), &budget).unwrap()
+        );
+        check!(
+            sccp_fast_pause_suspended_until_ms,
+            capture_sccp_fast_pause_suspended_until_ms_once,
+            network,
+            1_000_u64,
+            2_000_u64
+        );
+    }
+
+    #[test]
+    fn sccp_generation_and_anchor_readers_bind_actual_values_and_reject_substitution() {
+        use crate::smartcontracts::isi::sccp::{
+            generation_record::RetainedSccpGeneration, test_support::sample_generation,
+        };
+        let mut state = state();
+        let budget = state.ivm_execution_budget();
+        let generation = sample_generation(1);
+        state.world.sccp_committee_generations.insert(
+            1,
+            RetainedSccpGeneration::admit(&generation, &budget).unwrap(),
+        );
+        state.world.sccp_anchor_chunks.insert(0, [1; 32]);
+        let before_generation = capture_sccp_committee_generations_once(&state, limits())
+            .unwrap()
+            .unwrap();
+        let before_anchor = capture_sccp_anchor_chunks_once(&state, limits())
+            .unwrap()
+            .unwrap();
+        let mut changed = generation;
+        changed.progress_cap_ms -= 1;
+        state
+            .world
+            .sccp_committee_generations
+            .insert(1, RetainedSccpGeneration::admit(&changed, &budget).unwrap());
+        state.world.sccp_anchor_chunks.insert(0, [2; 32]);
+        let after_generation = capture_sccp_committee_generations_once(&state, limits())
+            .unwrap()
+            .unwrap();
+        let after_anchor = capture_sccp_anchor_chunks_once(&state, limits())
+            .unwrap()
+            .unwrap();
+        for (id, key, before, after) in [
+            (
+                "world.sccp_committee_generations",
+                1_u64,
+                &before_generation,
+                &after_generation,
+            ),
+            (
+                "world.sccp_anchor_chunks",
+                0_u64,
+                &before_anchor,
+                &after_anchor,
+            ),
+        ] {
+            assert_eq!(before.table_id(), id);
+            assert_eq!(after.table_id(), id);
+            assert_eq!(before.row_count(), 1);
+            assert_eq!(after.row_count(), 1);
+            assert_ne!(before.root(), after.root());
+            let proof = after.prove_lookup(id, &key).unwrap();
+            CanonicalTableLeafSet::verify_paired_lookup(
+                id,
+                limits(),
+                &after.root(),
+                &after.ordered_root(),
+                &key,
+                &proof,
+            )
+            .expect("the new original row proves against its own paired roots");
+            assert!(matches!(
+                CanonicalTableLeafSet::verify_paired_lookup(
+                    id,
+                    limits(),
+                    &before.root(),
+                    &after.ordered_root(),
+                    &key,
+                    &proof,
+                ),
+                Err(LeafError::RootMismatch)
+            ));
+        }
     }
 
     #[test]

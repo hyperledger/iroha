@@ -11157,7 +11157,7 @@ mod tests {
             let voters = iroha_core::sumeragi::schedule::genesis_validators(&provisional)
                 .expect("signed genesis voters");
             let topology = Topology::new(voters.into_keys());
-            let (mode, _) =
+            let (mode, context) =
                 signed_genesis_context_metadata(&provisional.0).expect("signed genesis mode");
             match ValidBlock::validate_signed_genesis(
                 provisional.0,
@@ -11166,6 +11166,7 @@ mod tests {
                 &TimeSource::new_system(),
                 &state,
                 mode,
+                context.root_scope,
             )
             .unpack(|_| {})
             {

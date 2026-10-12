@@ -166,6 +166,32 @@ cell_value! {
     reset_nonce => sccp_reset_nonce: Option<[u8; 32]>
 }
 storage_map! {
+    /// Immutable committee trust and liability records (§4.2).
+    committee_generations => sccp_committee_generations: u64 => crate::smartcontracts::isi::sccp::generation_record::RetainedSccpGeneration,
+    valid(generation, record) => *generation == record.generation && record.is_well_formed()
+}
+cell_value! {
+    /// Current committee generation; zero before initialization.
+    committee_current => sccp_committee_current: u64
+}
+cell_value! {
+    /// Bounded liability clock of the executing block (§4.8 S0).
+    liability_clock => sccp_liability_clock: u64
+}
+cell_value! {
+    /// Consecutive heights missing authenticated SCCP inputs (§4.6).
+    degraded_run => sccp_degraded_run: u32
+}
+cell_value! {
+    /// Consensus anchors in the not-yet-complete chunk (§4.2 A1).
+    anchor_open => sccp_anchor_open: crate::smartcontracts::isi::sccp::anchor_record::RetainedSccpAnchors
+}
+storage_map! {
+    /// Immutable roots of complete 4096-height anchor chunks (§4.2 A1).
+    anchor_chunks => sccp_anchor_chunks: u64 => [u8; 32],
+    valid(chunk, _root) => chunk.checked_add(1).and_then(|count| count.checked_mul(4096)).is_some()
+}
+storage_map! {
     /// Leaf references by `(height, commitment_index)` (§4.5); see [`super::leaves`]. Indices
     /// stay below the 512-leaf block limit.
     block_leaves => sccp_block_leaves: (u64, u32) => SccpLeafRefV1,
@@ -197,7 +223,26 @@ storage_map! {
     /// Destination control records by `(network, revision, control_nonce)` (§4.14.6), whose
     /// leaf indices stay below the 512-leaf block limit.
     control_messages => sccp_control_messages: (SccpNetworkV1, u32, u64) => SccpControlRecordV1,
-    valid(_key, record) => record.commitment_index < SCCP_MESSAGES_MAX_PER_BLOCK_V1
+    valid(key, record) => key.0.is_external() && key.1 != 0 && key.2 != 0 && record.has_valid_shape()
+}
+storage_map! {
+    /// Current emergency parts and their original certificate cause (§4.14.7).
+    fast_pauses => sccp_fast_pauses: SccpNetworkV1 => crate::smartcontracts::isi::sccp::pause_record::RetainedSccpFastPause,
+    valid(network, record) => network.is_external() && record.has_valid_shape()
+}
+storage_map! {
+    /// Nonzero Parliament suspension deadlines (§4.14.7); zero removes the entry.
+    fast_pause_suspended_until_ms => sccp_fast_pause_suspended_until_ms: SccpNetworkV1 => u64,
+    valid(network, until) => network.is_external() && *until != 0
+}
+storage_map! {
+    /// Independent current-head primary/backup rounds, retaining original endorsement graphs.
+    fast_pause_rounds => sccp_fast_pause_rounds: (SccpNetworkV1, iroha_data_model::sccp::fast_pause::SccpPanelRoleV1) => crate::smartcontracts::isi::sccp::pause_record::RetainedSccpFastPauseRound,
+    valid(key, _record) => key.0.is_external()
+}
+cell_value! {
+    /// Chain-wide original draw and accepted members; empty before the first valid boundary.
+    pause_panel => sccp_pause_panel: Option<crate::smartcontracts::isi::sccp::pause_record::RetainedSccpPausePanel>
 }
 storage_map! {
     /// Route registry by external network (§4.14.1), each route under its own network.
@@ -316,15 +361,144 @@ mod tests {
     use crate::smartcontracts::isi::sccp::test_support::{blank_state, header, sample_route};
 
     #[test]
+    fn generation_and_anchor_stores_preserve_validation_and_transaction_rollback() {
+        use crate::smartcontracts::isi::sccp::test_support::sample_generation;
+        use iroha_data_model::sccp::generation::SccpAnchorV1;
+        let state = blank_state();
+        let mut block = state.block(header(5));
+        let budget = state.ivm_execution_budget();
+        let original = super::super::generation_record::RetainedSccpGeneration::admit(
+            &sample_generation(1),
+            &budget,
+        )
+        .unwrap();
+        assert!(committee_generations::valid_entry(&1, &original));
+        assert!(!committee_generations::valid_entry(&2, &original));
+        {
+            let mut stx = block.transaction();
+            assert!(committee_generations::insert(&mut stx, 2, original.clone()).is_err());
+            assert!(committee_generations::is_empty(&*stx.world));
+            assert_eq!(
+                committee_generations::insert(&mut stx, 1, original.clone()).unwrap(),
+                None
+            );
+            assert_eq!(committee_generations::get(&*stx.world, &1), Some(&original));
+            assert_eq!(committee_current::set(&mut stx, 1), 0);
+            assert_eq!(liability_clock::set(&mut stx, 1_000), 0);
+            assert_eq!(degraded_run::set(&mut stx, 2), 0);
+            assert_eq!(*committee_current::get(&*stx.world), 1);
+            assert_eq!(*liability_clock::get(&*stx.world), 1_000);
+            assert_eq!(*degraded_run::get(&*stx.world), 2);
+            let anchor = SccpAnchorV1 {
+                core_hash: [1; 32],
+                result: [2; 32],
+            };
+            let anchors =
+                super::super::anchor_record::RetainedSccpAnchors::admit(&[anchor], &budget)
+                    .unwrap();
+            assert!(anchor_open::set(&mut stx, anchors).as_slice().is_empty());
+            assert_eq!(anchor_open::get(&*stx.world).as_slice(), &[anchor]);
+            assert!(anchor_chunks::insert(&mut stx, u64::MAX, [3; 32]).is_err());
+            assert_eq!(anchor_chunks::insert(&mut stx, 0, [3; 32]).unwrap(), None);
+            assert_eq!(anchor_chunks::get(&*stx.world, &0), Some(&[3; 32]));
+            // Dropping the complete transaction retains neither metadata nor new trust state.
+        }
+        assert!(committee_generations::is_empty(&block.world));
+        assert!(anchor_chunks::is_empty(&block.world));
+        assert!(anchor_open::get(&block.world).as_slice().is_empty());
+        assert_eq!(*committee_current::get(&block.world), 0);
+        assert_eq!(*liability_clock::get(&block.world), 0);
+        assert_eq!(*degraded_run::get(&block.world), 0);
+    }
+
+    #[test]
+    fn pause_stores_reject_local_network_and_preserve_funded_transaction_rollback() {
+        use crate::smartcontracts::isi::sccp::{
+            pause_record::{
+                RetainedSccpFastPause, RetainedSccpFastPauseRound, RetainedSccpPausePanel,
+            },
+            test_support::{sample_fast_pause, sample_fast_pause_round, sample_pause_panel},
+        };
+        use iroha_data_model::sccp::fast_pause::SccpPanelRoleV1;
+        let state = blank_state();
+        let budget = state.ivm_execution_budget();
+        let mut block = state.block(header(5));
+        let before = budget.reserved_bytes();
+        let pause = RetainedSccpFastPause::admit(&sample_fast_pause(1), &budget).unwrap();
+        let round =
+            RetainedSccpFastPauseRound::admit(&sample_fast_pause_round(1), &budget).unwrap();
+        let panel = RetainedSccpPausePanel::admit(&sample_pause_panel(1), &budget).unwrap();
+        let retained = budget.reserved_bytes();
+        let network = SccpNetworkV1::EthereumMainnet;
+        {
+            let mut stx = block.transaction();
+            assert!(
+                fast_pauses::insert(&mut stx, SccpNetworkV1::SoraTaira, pause.clone()).is_err()
+            );
+            assert!(
+                fast_pause_rounds::insert(
+                    &mut stx,
+                    (SccpNetworkV1::SoraTaira, SccpPanelRoleV1::Primary),
+                    round.clone()
+                )
+                .is_err()
+            );
+            assert!(fast_pause_suspended_until_ms::insert(&mut stx, network, 0).is_err());
+            assert!(
+                fast_pause_suspended_until_ms::insert(&mut stx, SccpNetworkV1::SoraTaira, 1)
+                    .is_err()
+            );
+            assert_eq!(
+                fast_pauses::insert(&mut stx, network, pause.clone()).unwrap(),
+                None
+            );
+            assert_eq!(
+                fast_pause_rounds::insert(
+                    &mut stx,
+                    (network, SccpPanelRoleV1::Primary),
+                    round.clone()
+                )
+                .unwrap(),
+                None
+            );
+            assert_eq!(
+                fast_pause_suspended_until_ms::insert(&mut stx, network, 5_000).unwrap(),
+                None
+            );
+            assert_eq!(pause_panel::set(&mut stx, Some(panel.clone())), None);
+            assert_eq!(fast_pauses::get(&*stx.world, &network), Some(&pause));
+            assert_eq!(
+                fast_pause_rounds::get(&*stx.world, &(network, SccpPanelRoleV1::Primary)),
+                Some(&round)
+            );
+            assert_eq!(pause_panel::get(&*stx.world), &Some(panel.clone()));
+        }
+        assert!(fast_pauses::is_empty(&block.world));
+        assert!(fast_pause_rounds::is_empty(&block.world));
+        assert!(fast_pause_suspended_until_ms::is_empty(&block.world));
+        assert!(pause_panel::get(&block.world).is_none());
+        assert_eq!(
+            budget.reserved_bytes(),
+            retained,
+            "rollback preserves the original readers' graphs"
+        );
+        drop((pause, round, panel));
+        assert_eq!(budget.reserved_bytes(), before);
+    }
+
+    #[test]
     fn storage_helpers_write_read_iterate_and_roll_back() {
         let state = blank_state();
         let mut block = state.block(header(3));
         let record = |paused| SccpControlRecordV1 {
-            paused,
+            track: 1,
+            parliament_paused: paused,
+            fast_pause_until_ms: 0,
             height: 3,
             commitment_index: 0,
             leaf: [1; 32],
-            proposal_id: [2; 32],
+            certificate_id: [2; 32],
+            effect_hash: [5; 32],
         };
         {
             let mut stx = block.transaction();

@@ -756,7 +756,12 @@ fn state_promotion_accepts_another_exact_quorum_for_the_same_certified_decision(
     qc.signers = Bitmap::from_indices(4, [1, 2, 3]).expect("another exact quorum");
     let signatures: Vec<_> = keys[1..]
         .iter()
-        .map(|key| iroha_crypto::Signature::try_new(key.private_key(), &qc.preimage()).unwrap())
+        .map(|key| {
+            iroha_crypto::Signature::from_bytes(
+                &iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &qc.preimage())
+                    .unwrap(),
+            )
+        })
         .collect();
     qc.agg_sig = AggregateSignature(
         iroha_crypto::bls_normal_aggregate_signatures(

@@ -7221,6 +7221,8 @@ pub struct Torii {
     pub query_fanout_max_retained_bytes: Bytes,
     /// Maximum complete working set for one query, independent of aggregate capacity.
     pub query_fanout_max_working_set_bytes: Bytes,
+    /// Bytes retained by this node's authenticated SCCP history-node cache.
+    pub sccp_history_cache_max_bytes: Bytes,
     /// Absolute deadline for one admitted App routed-read body.
     pub app_api_routed_read_body_read_timeout: Duration,
     /// Maximum time a query waits for execution capacity before Torii rejects it.
@@ -7435,6 +7437,10 @@ impl fmt::Debug for Torii {
             .field(
                 "query_fanout_max_working_set_bytes",
                 &self.query_fanout_max_working_set_bytes,
+            )
+            .field(
+                "sccp_history_cache_max_bytes",
+                &self.sccp_history_cache_max_bytes,
             )
             .field("require_api_token", &self.require_api_token)
             .field("api_tokens", &self.api_tokens)

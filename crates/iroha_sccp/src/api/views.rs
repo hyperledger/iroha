@@ -28,7 +28,7 @@ use iroha_data_model::{
 };
 use norito::codec::{Decode, Encode};
 
-use super::SccpHistoryProofV1;
+use super::SccpBlockRefV1;
 
 /// Largest `GET /v1/sccp/messages/recent` page (§6).
 pub const MAX_RECENT_MESSAGES: usize = 50;
@@ -319,7 +319,7 @@ pub struct SccpRecentMessagesV1 {
 pub struct SccpControlViewV1 {
     /// Control nonce (`≥ 1`, strictly increasing per revision).
     pub control_nonce: u64,
-    /// The stored record (pause state, height, commitment index, leaf, enacting proposal).
+    /// The stored combined pause state, certificate cause and committed leaf location.
     pub record: SccpControlRecordV1,
 }
 
@@ -629,7 +629,7 @@ pub struct SccpHistoryPathViewV1 {
     /// `history_root(S)`.
     pub history_root: [u8; 32],
     /// The block, its history leaf index and the path.
-    pub proof: SccpHistoryProofV1,
+    pub proof: SccpBlockRefV1,
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -687,6 +687,8 @@ pub struct SccpReadLimitsV1 {
     pub outbound_page: u32,
     /// `GET /v1/sccp/controls/{network}/{revision}`.
     pub controls_page: u32,
+    /// `GET /v1/sccp/committees/rotations`.
+    pub rotations_page: u32,
 }
 
 impl SccpReadLimitsV1 {
@@ -698,6 +700,7 @@ impl SccpReadLimitsV1 {
             recent_messages: 50,
             outbound_page: 256,
             controls_page: 64,
+            rotations_page: 16,
         }
     }
 }
@@ -888,10 +891,13 @@ mod tests {
         );
         assert_eq!(u32::try_from(MAX_OUTBOUND_PAGE), Ok(limits.outbound_page));
         assert_eq!(u32::try_from(MAX_CONTROLS_PAGE), Ok(limits.controls_page));
-        // The rotations page of the attestation transport has no limit entry.
+        assert_eq!(
+            usize::try_from(limits.rotations_page),
+            Ok(crate::v1::destination::MAX_CERTIFICATES_PER_CALL)
+        );
         let json = norito::json::to_value(&limits).expect("JSON");
         assert!(json.get("rotation_steps").is_none());
-        assert_eq!(json.as_object().expect("object").len(), 3);
+        assert_eq!(json.as_object().expect("object").len(), 4);
     }
 
     #[test]
@@ -958,11 +964,14 @@ mod tests {
             controls: vec![SccpControlViewV1 {
                 control_nonce: 2,
                 record: SccpControlRecordV1 {
-                    paused: true,
+                    track: 1,
+                    parliament_paused: true,
+                    fast_pause_until_ms: 0,
                     height: 12,
                     commitment_index: 0,
                     leaf: [1; 32],
-                    proposal_id: [2; 32],
+                    certificate_id: [2; 32],
+                    effect_hash: [5; 32],
                 },
             }],
             next_after_nonce: None,
@@ -978,12 +987,12 @@ mod tests {
         roundtrip(&SccpHistoryPathViewV1 {
             history_size: 3,
             history_root: [4; 32],
-            proof: SccpHistoryProofV1 {
+            proof: SccpBlockRefV1 {
                 height: 10,
                 sccp_root: [5; 32],
                 message_count: 1,
-                leaf_index: 0,
-                path: vec![[6; 32]],
+                history_index: 0,
+                history_path: vec![[6; 32]],
             },
         });
         for phase in [
@@ -1030,11 +1039,14 @@ mod tests {
         let control = SccpControlViewV1 {
             control_nonce: 2,
             record: SccpControlRecordV1 {
-                paused: true,
+                track: 1,
+                parliament_paused: true,
+                fast_pause_until_ms: 0,
                 height: 12,
                 commitment_index: 0,
                 leaf: [1; 32],
-                proposal_id: [2; 32],
+                certificate_id: [2; 32],
+                effect_hash: [5; 32],
             },
         };
         assert_closed(&control, "record");

@@ -23,10 +23,8 @@
 //! A destination that applies a leaf stores its fast-pause expiry clamped to
 //! [`MAX_FAST_PAUSE_MS`] from its own clock ([`applied_fast_pause_until_ms`], §5.1.6).
 //!
-//! TODO: WP-S4 moves Taira's control recording and every caller to this module and deletes
-//! the 126-byte revision-4 leaf (`super::hashes::control_leaf`, `control_leaf_preimage`,
-//! `CONTROL_LEAF_PREIMAGE_BYTES` and `LeafError`). Until then both layouts exist side by side
-//! and only this one matches `fixtures/sccp/control_v1.json`.
+//! Core records this sole current layout from the complete committed pause State and the
+//! exact certificate cause. No retired control-leaf constructor or fallback is retained.
 
 use iroha_data_model::bridge::SccpNetworkV1;
 

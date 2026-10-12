@@ -392,6 +392,9 @@ fn transfer_mint_transfer_keeps_one_accounted_entry_before_d7_relation_activatio
             .seal_execution_outputs::<String>(&mut source, |block, _, routes| {
                 assert_eq!(routes.len(), 1);
                 Ok(crate::state::ExecutionOutputSealMetadata {
+                sccp_finality_header: iroha_data_model::sumeragi_finality::certified_result::SccpFinalityHeaderV1::inactive(
+                    *block.network_id.as_bytes(), block._curr_block.height().get(), block._curr_block.creation_time_ms,
+                ).expect("original component carrier"),
                     committed_fragment_count: u64::try_from(block.committed_fragment_count())
                         .unwrap(),
                 })

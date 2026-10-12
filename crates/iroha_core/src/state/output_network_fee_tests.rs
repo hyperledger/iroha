@@ -673,3 +673,150 @@ fn local_vm_refusal_publishes_no_network_result_or_fee_and_same_source_can_retry
         assert_eq!(balance(&retry, &asset, &ALICE_ID), Quantity::from(9_u32));
     }
 }
+
+fn fee_tail_work(block: &StateBlock<'_>) -> (u64, u32, u32, u64, u64) {
+    (
+        block.gas_used_in_block,
+        block.zk_confidential_ops_in_block,
+        block.zk_verify_calls_in_block,
+        block.zk_proof_bytes_in_block,
+        block.confidential_gas_used_in_block,
+    )
+}
+
+fn assert_fee_tail_state(block: &StateBlock<'_>, asset: &AssetDefinitionId, remaining: u32) {
+    assert_eq!(balance(block, asset, &ALICE_ID), Quantity::from(remaining));
+    assert_eq!(
+        balance(block, asset, &iroha_test_samples::BOB_ID),
+        Quantity::zero()
+    );
+    assert_eq!(
+        block
+            .world
+            .asset_definition(asset)
+            .unwrap()
+            .total_quantity(),
+        &Quantity::from(remaining)
+    );
+    assert!(
+        block
+            .world
+            .account(&ALICE_ID)
+            .unwrap()
+            .metadata()
+            .get("rolled_back_fee_body")
+            .is_none()
+    );
+}
+
+/// A refused fee-only tail must abandon the disposable block without publishing a row.
+/// These fixtures use the real output producer and signed source, not native finality.
+fn fee_decoder_refusal_preserves_original_attempt_and_fresh_retry(sccp: bool) {
+    use crate::state::output_capacity::producer::network::fee_decode_test_scope;
+    use ivm::error::ExecutionDeferral;
+
+    let _fee_guard = crate::status::nexus_fee_test_lock().lock().unwrap();
+    let (state, asset) = priced_fixture(None);
+    if sccp {
+        commit_sccp_parameters(&state);
+    }
+    let body = if sccp {
+        sccp_keeper_advance()
+    } else {
+        failing_body()
+    };
+    let gas = crate::gas::meter_instructions(&body);
+    assert!(gas > 0);
+    let charge = if sccp { 2_u32 } else { 3 };
+    let source = carrier(
+        &state,
+        vec![input(&state, body, payment(&asset, charge), false)],
+    );
+    let source_hash = source.hash();
+    let work_after_refusal;
+    {
+        let (mut block, _recording) = recorded_network_block(&state, &source);
+        let fragments = block.committed_fragment_count();
+        let probe = fee_decode_test_scope::refuse_actual_fee_decode();
+        let outcome = execute(&mut block, &source);
+        let (calls, deferred) = probe.observe();
+        assert_eq!(calls, 1, "the original fee-only decoder must actually run");
+        let original = deferred.expect("the real fee decoder must retain its original refusal");
+        assert_eq!(original.reason(), ExecutionDeferral::ActiveMemoryCapacity);
+        assert!(
+            original.allocation_refusal().is_none(),
+            "a cumulative decoder limit has no physical release owner"
+        );
+        assert_eq!(
+            outcome,
+            Err(ExecutionOutputAttemptError::Deferred(original)),
+            "the original fee-tail deferral must not become a completed Network rejection"
+        );
+        assert_eq!(source.hash(), source_hash);
+        assert!(block.retained_execution_outputs_for_test().is_err());
+        assert!(matches!(
+            block.execution_output_plan,
+            Some(ExecutionOutputPlanState::Poisoned)
+        ));
+        assert_eq!(block.committed_fragment_count(), fragments);
+        assert_fee_tail_state(&block, &asset, 10);
+        // Direct work is retained exactly once in this poisoned, disposable block.
+        // Neither fixture has governance ballot penalties or confidential operations.
+        work_after_refusal = fee_tail_work(&block);
+        assert_eq!(work_after_refusal, (gas, 0, 0, 0, 0));
+        assert!(
+            execute(&mut block, &source).is_err(),
+            "a poisoned block cannot retry in place"
+        );
+        assert_eq!(
+            probe.observe().0,
+            1,
+            "in-place refusal must not execute or settle again"
+        );
+        assert_eq!(fee_tail_work(&block), work_after_refusal);
+        assert_eq!(block.committed_fragment_count(), fragments);
+        assert_fee_tail_state(&block, &asset, 10);
+    }
+    // Dropping the abandoned block discards all speculative state and accounting.
+    // Recovery reacquires the same source from the original committed State.
+    let (mut retry, _recording) = recorded_network_block(&state, &source);
+    let fragments = retry.committed_fragment_count();
+    assert_eq!(retry.gas_used_in_block, 0);
+    assert_fee_tail_state(&retry, &asset, 10);
+    execute(&mut retry, &source).expect("same source completes after the fee decoder recovers");
+    assert_eq!(source.hash(), source_hash);
+    let row = network_row(&retry, 0);
+    let reason = format!("{:?}", row.result.0);
+    assert!(row.result.is_err());
+    assert!(
+        reason.contains(if sccp {
+            "SCCP light client"
+        } else {
+            "fee_missing_trigger"
+        }),
+        "original business rejection survives retry: {reason}"
+    );
+    assert!(
+        row.result.nexus_fee_receipt().is_some(),
+        "the completed charge retains its actual receipt"
+    );
+    assert!(row.completions.is_empty());
+    assert!(row.result.batch_transfer_outcomes().is_empty());
+    assert_eq!(retry.committed_fragment_count(), fragments + 1);
+    assert_fee_tail_state(&retry, &asset, 10 - charge);
+    assert_eq!(
+        fee_tail_work(&retry),
+        work_after_refusal,
+        "fresh retry accounts the original direct work exactly once"
+    );
+}
+
+#[test]
+fn sccp_failure_fee_decoder_refusal_keeps_original_deferral_and_retry() {
+    fee_decoder_refusal_preserves_original_attempt_and_fresh_retry(true);
+}
+
+#[test]
+fn ordinary_failure_fee_decoder_refusal_keeps_original_deferral_and_retry() {
+    fee_decoder_refusal_preserves_original_attempt_and_fresh_retry(false);
+}

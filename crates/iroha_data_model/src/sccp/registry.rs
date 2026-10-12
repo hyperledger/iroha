@@ -4,7 +4,10 @@
 //! one escrow account and a map of revisions. Each revision binds one destination deployment and
 //! carries its own liability, nonces and activation state.
 
-use super::{control::SCCP_FIRST_CONTROL_NONCE_V1, deployment::SccpDeploymentV1};
+use super::{
+    control::SCCP_FIRST_CONTROL_NONCE_V1,
+    deployment::{SccpCommitteePinV1, SccpDeploymentV1},
+};
 use crate::{
     DeriveJsonDeserialize, DeriveJsonSerialize, account::AccountId, bridge::SccpNetworkV1,
 };
@@ -113,8 +116,8 @@ impl SccpRouteActivationV1 {
 
 /// One route revision (§4.14.1).
 ///
-/// TODO: WP-S4: add `initial_committee: SccpCommitteePinV1`, pinned at registration (§4.14.3
-/// P1). Until then a revision names no committee, and Core refuses to register one.
+/// Each revision retains the exact immutable committee pin checked at registration. The pin
+/// is data, not standalone authority: current generation/finality verification remains required.
 #[derive(
     Debug,
     Clone,
@@ -140,6 +143,8 @@ pub struct SccpRouteRevisionV1 {
     pub revision: u32,
     /// Bound destination deployment.
     pub deployment: SccpDeploymentV1,
+    /// Original committee pin of the destination deployment.
+    pub initial_committee: SccpCommitteePinV1,
     /// §3.4 destination word of the deployment.
     pub destination_word: [u8; 32],
     /// Activation state.
@@ -165,11 +170,13 @@ pub struct SccpRouteRevisionV1 {
 }
 
 impl SccpRouteRevisionV1 {
-    /// Build a freshly registered `Staged` revision.
+    /// Build a freshly registered `Staged` revision from the exact P1–P5-checked pin.
+    /// This data constructor does not authenticate a pin or bypass the registration launch gate.
     #[must_use]
     pub fn staged(
         revision: u32,
         deployment: SccpDeploymentV1,
+        initial_committee: SccpCommitteePinV1,
         max_wrapped_supply: u128,
         registered_at_height: u64,
     ) -> Self {
@@ -177,6 +184,7 @@ impl SccpRouteRevisionV1 {
             revision,
             destination_word: deployment.destination_word(),
             deployment,
+            initial_committee,
             activation: SccpRouteActivationV1::Staged,
             destination_frozen: false,
             destination_paused: false,
@@ -304,6 +312,12 @@ mod tests {
             ..SccpRouteRevisionV1::staged(
                 number,
                 evm(u8::try_from(number).expect("small")),
+                crate::sccp::deployment::SccpCommitteePinV1 {
+                    generation: 1,
+                    committee_root: [0x44; 32],
+                    start_height: 1,
+                    until_ms: 1_801_209_600_000,
+                },
                 10_000,
                 50,
             )
@@ -389,8 +403,28 @@ mod tests {
     #[test]
     fn staged_revision_defaults() {
         let deployment = evm(9);
-        let staged = SccpRouteRevisionV1::staged(2, deployment, 1_000, 99);
+        let staged = SccpRouteRevisionV1::staged(
+            2,
+            deployment,
+            crate::sccp::deployment::SccpCommitteePinV1 {
+                generation: 1,
+                committee_root: [0x44; 32],
+                start_height: 1,
+                until_ms: 1_801_209_600_000,
+            },
+            1_000,
+            99,
+        );
         assert_eq!(staged.revision, 2);
+        assert_eq!(
+            staged.initial_committee,
+            SccpCommitteePinV1 {
+                generation: 1,
+                committee_root: [0x44; 32],
+                start_height: 1,
+                until_ms: 1_801_209_600_000
+            }
+        );
         assert_eq!(staged.destination_word, deployment.destination_word());
         assert_eq!(staged.activation, SccpRouteActivationV1::Staged);
         assert_eq!(staged.next_control_nonce, 1);
@@ -455,10 +489,18 @@ mod tests {
         roundtrip(&route);
         assert_rejects_unknown_field(&route, &[]);
         assert_rejects_unknown_field(&route, &["revisions", "1"]);
+        assert_rejects_unknown_field(&route, &["revisions", "1", "initial_committee"]);
         // The roster pin of the attestation transport is not a field of a revision.
         let mut value =
             norito::json::to_value(&revision(1, SccpRouteActivationV1::Staged)).expect("value");
         let object = value.as_object_mut().expect("object");
+        assert!(object.contains_key("initial_committee"));
+        let mut missing = object.clone();
+        missing.remove("initial_committee");
+        assert!(
+            norito::json::from_value::<SccpRouteRevisionV1>(norito::json::Value::Object(missing))
+                .is_err()
+        );
         assert!(!object.contains_key("initial_roster_generation"));
         assert!(!object.contains_key("initial_roster_digest"));
         object.insert(

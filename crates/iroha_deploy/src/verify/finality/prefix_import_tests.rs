@@ -62,7 +62,7 @@ fn prefix_import_preserves_native_tip_successor_and_member_witness_checks() {
         let mut qc = commit_qc(&malformed);
         qc.agg_sig.0[0] ^= 1;
         let header = core(&malformed);
-        let execution = result(&malformed);
+        let execution = result(&malformed, chain.root_scope());
         replace_certificate(&mut malformed, &header, &qc, &execution);
         let actual_error = actual.place(&malformed, epoch, None).unwrap_err();
         let expected_error = expected.place(&malformed, epoch, None).unwrap_err();
@@ -82,10 +82,10 @@ fn prefix_import_refuses_a_foreign_retained_decision_without_replacing_its_sourc
     // This API builds untrusted restart data. Each proof is individually well-formed,
     // but the foreign height-two committee cannot replace the selected signed genesis.
     let malformed = checkpoint
-        .with_independently_authenticated_decision_data(&[
-            chain.proof(1).clone(),
-            foreign.proof(2).clone(),
-        ])
+        .with_independently_authenticated_decision_data(
+            &[chain.proof(1).clone(), foreign.proof(2).clone()],
+            chain.verifier().root_scope().unwrap().into(),
+        )
         .unwrap();
     let malformed_bytes = malformed.encode_canonical().unwrap();
     for _ in 0..2 {

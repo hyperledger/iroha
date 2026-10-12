@@ -6061,6 +6061,7 @@ dependencies = [
  "iroha_p2p",
  "iroha_panic_hook",
  "iroha_primitives",
+ "iroha_sccp",
  "iroha_schema",
  "iroha_schema_gen",
  "iroha_service_model",

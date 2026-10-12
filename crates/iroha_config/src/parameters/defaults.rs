@@ -2394,6 +2394,8 @@ pub mod torii {
     pub const QUERY_FANOUT_MAX_RETAINED_BYTES: Bytes = Bytes(512_000_000);
     /// Maximum complete working set owned by one query, independent of aggregate concurrency.
     pub const QUERY_FANOUT_MAX_WORKING_SET_BYTES: Bytes = Bytes(48_000_000);
+    /// Persistent SCCP history-node backing, independent of transient query leases.
+    pub const SCCP_HISTORY_CACHE_MAX_BYTES: Bytes = Bytes(8_000_000);
     /// Minimum aggregate V1 query-memory pool for four ingress slots plus one fanout.
     pub const QUERY_FANOUT_MIN_POOL_BYTES_V1: u64 = 20_000_000;
     /// Source-derived route/catalogue/key/candidate bytes in one V1 fanout.

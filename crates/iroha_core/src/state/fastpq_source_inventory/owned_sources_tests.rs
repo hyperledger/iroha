@@ -423,6 +423,8 @@ fn fixture_with_effects_in_root(
                 &state.pipeline,
                 tx.payload(),
                 u64::try_from(header.creation_time().as_millis()).unwrap(),
+                crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                    .expect("original committed fixture time"),
                 header.height().get(),
                 Some(dataspace),
             )
@@ -468,6 +470,13 @@ fn execute(block: &mut StateBlock<'_>, source: &SignedBlock) {
 
 fn seal_metadata(block: &mut StateBlock<'_>) -> Result<ExecutionOutputSealMetadata, String> {
     Ok(ExecutionOutputSealMetadata {
+        sccp_finality_header:
+            iroha_data_model::sumeragi_finality::certified_result::SccpFinalityHeaderV1::inactive(
+                *block.network_id.as_bytes(),
+                block._curr_block.height().get(),
+                block._curr_block.creation_time_ms,
+            )
+            .expect("original component carrier"),
         committed_fragment_count: u64::try_from(block.committed_fragment_count()).unwrap(),
     })
 }

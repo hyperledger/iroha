@@ -1,26 +1,23 @@
-//! SCCP v1 signatures and signature sets (spec §3.8).
+//! secp256k1 signatures for external EVM transactions.
 //!
 //! - A signature is 65 bytes `r ‖ s ‖ v` with `v ∈ {27, 28}`, `1 ≤ r < N`, `1 ≤ s ≤ HALF_N`
 //!   (low-S); recovery that yields the zero address is invalid.
 //! - Signers use RFC 6979 deterministic nonces over the 32-byte digest (prehash). If the
 //!   recovery id is 2 or 3 (`v` would be 29 or 30, probability about `2^-127`), the signer
 //!   discards the signature and re-signs with fresh RFC 6979 extra entropy.
-//! - A signature set is `(signer_bitmap: u32, signatures)`: bit `i` names roster member `i`,
-//!   bits `≥ n` are zero, and `signatures` concatenates one signature per set bit in ascending
-//!   bit order. Each set bit's member is nonzero and equals the recovered address.
 //! - The address of a key is `keccak256(X ‖ Y)[12..32]`; verifiers mask a recovered address
 //!   word to its low 160 bits before any comparison.
 
 use iroha_crypto::{EcdsaSecp256k1Sha256, KeyGenOption};
 use sha2::{Digest as _, Sha256};
 
-use super::constants::{SECP256K1_HALF_N, SECP256K1_N, SIGNATURE_BYTES};
+use super::constants::{SECP256K1_HALF_N, SECP256K1_N};
 
 /// Upper bound on signing attempts before [`SignatureError::SigningExhausted`].
 pub const MAX_SIGNING_ATTEMPTS: u32 = 8;
 
 unit_error! {
-    /// Signature, signature-set and signing errors.
+    /// External transaction signature and signing errors.
     pub enum SignatureError {
         /// `v` is not 27 or 28.
         BadRecoveryByte => "signature v must be 27 or 28",
@@ -32,24 +29,14 @@ unit_error! {
         RecoveryFailed => "signature public-key recovery failed",
         /// Recovery yielded the zero address.
         ZeroAddress => "signature recovers the zero address",
-        /// The recovered address differs from the expected member.
+        /// The expected address is zero.
+        ZeroExpectedAddress => "expected signer address is zero",
+        /// The recovered address differs from the expected address.
         WrongSigner => "signature recovers a different address",
-        /// A set bit at or above `n`.
-        BitmapOutOfRange => "signer bitmap has a bit at or above n",
-        /// A set bit addresses a zero (keyless) member.
-        ZeroMember => "signer bitmap addresses a zero member",
-        /// `signatures` is not exactly 65 bytes per set bit.
-        BadLength => "signatures must be 65 bytes per set bitmap bit",
-        /// Fewer than `t` signatures.
-        TooFewSignatures => "signature set has fewer than t signatures",
-        /// The roster has more than 32 members.
-        RosterTooLarge => "a signer bitmap addresses at most 32 members",
-        /// A signer index is repeated or out of range while building a set.
-        BadSignerIndex => "signer indexes must be distinct and below n",
         /// The secret key is not a valid secp256k1 scalar.
-        InvalidSecret => "bridge key secret is not a valid secp256k1 scalar",
+        InvalidSecret => "transaction key secret is not a valid secp256k1 scalar",
         /// The public key is not a canonical compressed secp256k1 point.
-        InvalidPublicKey => "bridge public key is not a canonical compressed secp256k1 point",
+        InvalidPublicKey => "transaction public key is not a canonical compressed secp256k1 point",
         /// The signing backend failed.
         SigningFailed => "secp256k1 signing failed",
         /// Fresh entropy could not be drawn from the OS.
@@ -182,7 +169,7 @@ pub fn recover_address(
 ///
 /// # Errors
 ///
-/// Returns [`SignatureError::ZeroMember`] for a zero expected address, any
+/// Returns [`SignatureError::ZeroExpectedAddress`] for a zero expected address, any
 /// [`recover_address`] error, or [`SignatureError::WrongSigner`].
 pub fn verify_signature(
     digest: &[u8; 32],
@@ -190,7 +177,7 @@ pub fn verify_signature(
     expected: &[u8; 20],
 ) -> Result<(), SignatureError> {
     if *expected == [0; 20] {
-        return Err(SignatureError::ZeroMember);
+        return Err(SignatureError::ZeroExpectedAddress);
     }
     if recover_address(digest, signature)? == *expected {
         Ok(())
@@ -215,116 +202,6 @@ pub fn normalize_low_s(signature: &[u8; 65]) -> [u8; 65] {
         other => other ^ 1,
     };
     out
-}
-
-// ---------------------------------------------------------------------------------------------
-// Signature sets
-// ---------------------------------------------------------------------------------------------
-
-/// A §3.8 signature set (`SignaturesV1` of §5.2.2).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
-pub struct SignatureSetV1 {
-    /// Bit `i` set iff roster member `i` signed.
-    pub signer_bitmap: u32,
-    /// One 65-byte signature per set bit, in ascending bit order.
-    pub signatures: Vec<u8>,
-}
-
-impl SignatureSetV1 {
-    /// Assemble a set from `(member index, signature)` pairs for a roster of `n` members.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SignatureError::BadSignerIndex`] for a repeated index or one `≥ n`, and
-    /// [`SignatureError::RosterTooLarge`] for `n > 32`.
-    pub fn from_signers(n: usize, signers: &[(usize, [u8; 65])]) -> Result<Self, SignatureError> {
-        if n > 32 {
-            return Err(SignatureError::RosterTooLarge);
-        }
-        let mut sorted = signers.to_vec();
-        sorted.sort_by_key(|(index, _)| *index);
-        let mut bitmap = 0_u32;
-        let mut signatures = Vec::with_capacity(sorted.len() * SIGNATURE_BYTES);
-        for (index, signature) in &sorted {
-            if *index >= n || bitmap & (1 << index) != 0 {
-                return Err(SignatureError::BadSignerIndex);
-            }
-            bitmap |= 1 << index;
-            signatures.extend_from_slice(signature);
-        }
-        Ok(Self {
-            signer_bitmap: bitmap,
-            signatures,
-        })
-    }
-
-    /// Number of set bits.
-    #[must_use]
-    pub fn popcount(&self) -> u32 {
-        self.signer_bitmap.count_ones()
-    }
-
-    /// Verify the set against the roster `members` and return its popcount.
-    ///
-    /// # Errors
-    ///
-    /// See [`verify_signature_set`].
-    pub fn verify(&self, digest: &[u8; 32], members: &[[u8; 20]]) -> Result<u32, SignatureError> {
-        verify_signature_set(digest, members, self.signer_bitmap, &self.signatures)
-    }
-
-    /// Verify the set and require at least `threshold` signatures.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SignatureError::TooFewSignatures`] or any [`verify_signature_set`] error.
-    pub fn verify_quorum(
-        &self,
-        digest: &[u8; 32],
-        members: &[[u8; 20]],
-        threshold: usize,
-    ) -> Result<u32, SignatureError> {
-        let count = self.verify(digest, members)?;
-        if (count as usize) < threshold {
-            return Err(SignatureError::TooFewSignatures);
-        }
-        Ok(count)
-    }
-}
-
-/// Verify a signature set: bits `≥ n` zero, exactly 65 bytes per set bit, and each set bit's
-/// member nonzero and equal to the address recovered from its signature. Returns the popcount.
-///
-/// # Errors
-///
-/// Returns the first violated [`SignatureError`].
-pub fn verify_signature_set(
-    digest: &[u8; 32],
-    members: &[[u8; 20]],
-    signer_bitmap: u32,
-    signatures: &[u8],
-) -> Result<u32, SignatureError> {
-    let n = members.len();
-    if n > 32 {
-        return Err(SignatureError::RosterTooLarge);
-    }
-    if n < 32 && signer_bitmap >> n != 0 {
-        return Err(SignatureError::BitmapOutOfRange);
-    }
-    let count = signer_bitmap.count_ones();
-    if signatures.len() != count as usize * SIGNATURE_BYTES {
-        return Err(SignatureError::BadLength);
-    }
-    let mut chunks = signatures.chunks_exact(SIGNATURE_BYTES);
-    for (index, member) in members.iter().enumerate() {
-        if signer_bitmap & (1 << index) == 0 {
-            continue;
-        }
-        let chunk = chunks.next().ok_or(SignatureError::BadLength)?;
-        let signature = <[u8; 65]>::try_from(chunk).map_err(|_| SignatureError::BadLength)?;
-        verify_signature(digest, &signature, member)?;
-    }
-    Ok(count)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -581,7 +458,7 @@ mod tests {
         );
         assert_eq!(
             verify_signature(&message, &signature, &[0; 20]),
-            Err(SignatureError::ZeroMember)
+            Err(SignatureError::ZeroExpectedAddress)
         );
     }
 
@@ -729,87 +606,27 @@ mod tests {
     }
 
     #[test]
-    fn signature_sets() {
+    fn single_transaction_signature_rejects_zero_wrong_and_rebound_signers() {
+        let key = secret(10);
         let message = digest(7);
-        let keys: Vec<[u8; 32]> = (10..14).map(secret).collect();
-        let mut members: Vec<[u8; 20]> = keys
-            .iter()
-            .map(|key| address_of_secret(key).unwrap())
-            .collect();
-        members.sort_unstable();
-        members[0] = [0; 20];
-        let key_of = |address: &[u8; 20]| {
-            keys.iter()
-                .find(|key| address_of_secret(key).unwrap() == *address)
-                .copied()
-                .unwrap()
-        };
-        let signers: Vec<(usize, [u8; 65])> = [3_usize, 1, 2]
-            .iter()
-            .map(|index| {
-                (
-                    *index,
-                    sign_digest(&key_of(&members[*index]), &message).unwrap(),
-                )
-            })
-            .collect();
-        let set = SignatureSetV1::from_signers(4, &signers).unwrap();
-        assert_eq!(set.signer_bitmap, 0b1110);
-        assert_eq!(set.signatures.len(), 3 * 65);
-        assert_eq!(&set.signatures[..65], &signers[1].1[..]);
-        assert_eq!(set.popcount(), 3);
-        assert_eq!(set.verify(&message, &members), Ok(3));
-        assert_eq!(set.verify_quorum(&message, &members, 3), Ok(3));
+        let address = address_of_secret(&key).unwrap();
+        let signature = sign_digest(&key, &message).unwrap();
+        assert_eq!(verify_signature(&message, &signature, &address), Ok(()));
         assert_eq!(
-            set.verify_quorum(&message, &members, 4),
-            Err(SignatureError::TooFewSignatures)
+            verify_signature(&message, &signature, &[0; 20]),
+            Err(SignatureError::ZeroExpectedAddress)
         );
-        // Bit >= n.
         assert_eq!(
-            verify_signature_set(
+            verify_signature(
                 &message,
-                &members,
-                set.signer_bitmap | 0b1_0000,
-                &set.signatures
+                &signature,
+                &address_of_secret(&secret(11)).unwrap()
             ),
-            Err(SignatureError::BitmapOutOfRange)
-        );
-        // Wrong length.
-        assert_eq!(
-            verify_signature_set(
-                &message,
-                &members,
-                set.signer_bitmap,
-                &set.signatures[..130]
-            ),
-            Err(SignatureError::BadLength)
-        );
-        // A bit addressing the zero member.
-        let mut padded = signers[1].1.to_vec();
-        padded.extend_from_slice(&set.signatures);
-        assert_eq!(
-            verify_signature_set(&message, &members, 0b1111, &padded),
-            Err(SignatureError::ZeroMember)
-        );
-        // Swapped order fails.
-        let mut swapped = set.signatures.clone();
-        swapped[..65].copy_from_slice(&set.signatures[65..130]);
-        swapped[65..130].copy_from_slice(&set.signatures[..65]);
-        assert_eq!(
-            verify_signature_set(&message, &members, set.signer_bitmap, &swapped),
             Err(SignatureError::WrongSigner)
         );
         assert_eq!(
-            SignatureSetV1::from_signers(4, &[(1, [0; 65]), (1, [0; 65])]),
-            Err(SignatureError::BadSignerIndex)
-        );
-        assert_eq!(
-            SignatureSetV1::from_signers(4, &[(4, [0; 65])]),
-            Err(SignatureError::BadSignerIndex)
-        );
-        assert_eq!(
-            verify_signature_set(&message, &[[1; 20]; 33], 0, &[]),
-            Err(SignatureError::RosterTooLarge)
+            verify_signature(&digest(8), &signature, &address),
+            Err(SignatureError::WrongSigner)
         );
     }
 

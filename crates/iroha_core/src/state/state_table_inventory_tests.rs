@@ -1096,6 +1096,57 @@ const ROOTS: &[Root] = &[
         ],
     },
     Root {
+        id: "sccp_block_message_root",
+        class: RootClass::CertifiedWitnessRoot,
+        carrier: "the original fixed X carried with the canonical result body and bound by every native commit certificate",
+        keyed: false,
+        scope: "the ordered transfer/control leaves of this block from world.sccp_block_leaves",
+        construction: "canonical SCCP v1 leaf Merkle tree",
+        witnesses: "SCCP ordered leaf path under the original sealed X.sccp_root",
+        owner: "SCCP native finality",
+        disposition: "Retained in its protocol role; it does not authenticate a complete State snapshot or a general State read",
+        defect: None,
+        domains: &[],
+        evidence: &[(
+            "crates/iroha_core/src/smartcontracts/isi/sccp/commitment.rs",
+            "pub fn commit_block(",
+        )],
+    },
+    Root {
+        id: "sccp_certified_history_root",
+        class: RootClass::CertifiedWitnessRoot,
+        carrier: "the original fixed X carried with the canonical result body and bound by every native commit certificate",
+        keyed: false,
+        scope: "the exact SCCP history accumulator in world.sccp_history, binding completed block commitments and history size",
+        construction: "canonical SCCP v1 history accumulator root",
+        witnesses: "SCCP history path plus its block leaf path under original sealed X.history_root",
+        owner: "SCCP native finality",
+        disposition: "Retained in its protocol role; it does not authenticate a complete State snapshot or a general State read",
+        defect: None,
+        domains: &[],
+        evidence: &[(
+            "crates/iroha_core/src/smartcontracts/isi/sccp/commitment.rs",
+            "pub fn history_root_and_size(",
+        )],
+    },
+    Root {
+        id: "sccp_generation_committee_root",
+        class: RootClass::ConsensusBinding,
+        carrier: "the original fixed X carried with the canonical result body and bound by every native commit certificate",
+        keyed: false,
+        scope: "the original authenticated committee keys of world.sccp_committee_generations; the outgoing and optional successor generation at this native height",
+        construction: "canonical sorted BLS-normal committee key root under SCCP/COMMITTEE/V1",
+        witnesses: "none over State; the original X and authenticated native schedule bind committee authority",
+        owner: "SCCP native finality",
+        disposition: "Retained in its protocol role; it does not authenticate a complete State snapshot or a general State read",
+        defect: None,
+        domains: &[],
+        evidence: &[(
+            "crates/iroha_data_model/src/sumeragi_finality/certified_result.rs",
+            "pub fn committee_root(keys:",
+        )],
+    },
+    Root {
         id: "sccp_state_delta_digest",
         class: RootClass::CertifiedWitnessValue,
         carrier: "the height and digest of the SCCP state delta: one fixed-key write under ordinary_writes_root, present when the block changed an SCCP field",
@@ -1520,6 +1571,22 @@ const APPLICATION_ACCUMULATORS: &[ApplicationAccumulator] = &[
         )],
     },
     ApplicationAccumulator {
+        id: "sccp_consensus_anchor_chunks",
+        fields: &["world.sccp_anchor_open", "world.sccp_anchor_chunks"],
+        statement: "membership of one actual native core hash and certified result at its nonzero height in a retained complete 4096-anchor chunk; this application statement does not authenticate arbitrary State reads",
+        domains: &[r"sccp/anchor-leaf/v1", r"sccp/anchor-node/v1"],
+        evidence: &[
+            (
+                "crates/iroha_data_model/src/sccp/generation.rs",
+                "pub fn anchor_chunk_root_v1(",
+            ),
+            (
+                "crates/iroha_core/src/smartcontracts/isi/sccp/hook.rs",
+                "stx.world.sccp_anchor_chunks.insert(chunk, root);",
+            ),
+        ],
+    },
+    ApplicationAccumulator {
         id: "kaigi_roster_root",
         fields: &["world.domains"],
         statement: "membership of a participant commitment in the roster of one Kaigi call, whose record is domain metadata, proved inside Kaigi roster proofs",
@@ -1648,12 +1715,14 @@ const CONSTRUCTION_USES: &[ConstructionUse] = &[
         owner: UseOwner::Accumulator("sccp_message_accumulator"),
     },
     ConstructionUse {
-        path: "crates/iroha_core/src/smartcontracts/isi/sccp/read/history.rs",
+        path: "crates/iroha_core/src/smartcontracts/isi/sccp/hook.rs",
         uses: &[("HistoryAccumulator", 2)],
-        owner: UseOwner::Other(
-            Use::Test,
-            "Reference history accumulator for the inline cached-history root and path parity tests",
-        ),
+        owner: UseOwner::Roots(&["sccp_certified_history_root"]),
+    },
+    ConstructionUse {
+        path: "crates/iroha_core/src/smartcontracts/isi/sccp/read/history/funded.rs",
+        uses: &[("HistoryAccumulator", 2)],
+        owner: UseOwner::Accumulator("sccp_message_accumulator"),
     },
     ConstructionUse {
         path: "crates/iroha_core/src/smartcontracts/isi/sccp/witness.rs",
@@ -2369,6 +2438,7 @@ const STATE_READER_TYPES: &[&str] = &[
     "BlockHashesBlock",
     "BlockHashesTransaction",
     "BlockHashesView",
+    "BorrowedHistorySource",
     "CanonicalRuntimeProjection",
     "Cell",
     "CellBlock",
@@ -2380,6 +2450,7 @@ const STATE_READER_TYPES: &[&str] = &[
     "DetachedStateTransactionDelta",
     "DetachedTransactionsBlock",
     "DetachedWorld",
+    "HistoryDraft",
     "PreparedBlockHashes",
     "PreparedDetachedTransactionsBlock",
     "PreparedSet",
@@ -2389,6 +2460,7 @@ const STATE_READER_TYPES: &[&str] = &[
     "PublishedBlockHashes",
     "PublishedSet",
     "PublishedTransactions",
+    "SccpHistoryNodeCache",
     "Set",
     "SetBlock",
     "SetBlockFields",
@@ -2418,6 +2490,7 @@ const STATE_READER_TYPES: &[&str] = &[
     "WorldBlock",
     "WorldBlockFields",
     "WorldData",
+    "WorldHistory",
     "WorldReadOnly",
     "WorldStateSnapshot",
     "WorldTransaction",
@@ -2449,6 +2522,8 @@ const ROOT_BEARING_RECORDS: &[&str] = &[
     "NativeExecutionTipRecord",
     "PredecessorWorldReceipt",
     "QueryProjectionCheckpoint",
+    "RetainedSccpHistoryPath",
+    "RetainedSccpHistoryView",
     "StateCellDigestSliceV1",
     "WorldNetDelta",
     "WorldPublicationDelta",
@@ -2812,6 +2887,7 @@ fn implementing_type(header: &str) -> Option<&str> {
 /// The reader traits among [`STATE_READER_TYPES`]: a type that implements one is a reader.
 const STATE_READER_TRAITS: &[&str] = &[
     "BlockHashRead",
+    "BorrowedHistorySource",
     "SetReadOnly",
     "StateReadOnly",
     "StateReadOnlyWithTransactions",
@@ -3974,6 +4050,8 @@ struct Carrier {
 const HEADER_MODEL: &str = "crates/iroha_data_model/src/block/header.rs";
 const CONSENSUS_MODEL: &str = "crates/iroha_data_model/src/block/consensus.rs";
 const RESULT_MODEL: &str = "crates/iroha_data_model/src/sumeragi_finality/commitment.rs";
+const CERTIFIED_RESULT_MODEL: &str =
+    "crates/iroha_data_model/src/sumeragi_finality/certified_result.rs";
 const EPOCH_GRAPH_MODEL: &str = "crates/iroha_data_model/src/sumeragi_finality/epoch_graph.rs";
 const EPOCH_MODEL: &str = "crates/iroha_data_model/src/sumeragi/epoch.rs";
 const BEACON_MODEL: &str = "crates/iroha_data_model/src/consensus.rs";
@@ -4460,8 +4538,13 @@ const CARRIERS: &[Carrier] = &[
     },
     Carrier {
         id: "execution_result",
-        object: "R = H(RESULT_TAG ‖ norito(ExecutionResultCommitment)), which every commit vote and certificate binds",
+        object: "R = raw SHA-256(RESULT_TAG ‖ original fixed X ‖ H_iroha(RESULT_BODY_TAG ‖ canonical Norito body)); stored preimage is X ‖ body, and every commit vote and certificate binds this complete result",
         types: &[
+            (CERTIFIED_RESULT_MODEL, "pub struct CertifiedResultV1 {"),
+            (
+                CERTIFIED_RESULT_MODEL,
+                "pub struct SccpFinalityHeaderFieldsV1 {",
+            ),
             (RESULT_MODEL, "pub struct ExecutionResultCommitment {"),
             (RESULT_MODEL, "pub struct ExecutionCommitment {"),
             (EPOCH_GRAPH_MODEL, "pub struct ScheduleOutcome {"),
@@ -4512,6 +4595,26 @@ const CARRIERS: &[Carrier] = &[
             ),
         ],
         hashes: &[
+            (
+                "SccpFinalityHeaderFieldsV1.network_id",
+                HashUse::Block("original signed-genesis network identity"),
+            ),
+            (
+                "SccpFinalityHeaderFieldsV1.sccp_root",
+                HashUse::State("sccp_block_message_root"),
+            ),
+            (
+                "SccpFinalityHeaderFieldsV1.history_root",
+                HashUse::State("sccp_certified_history_root"),
+            ),
+            (
+                "SccpFinalityHeaderFieldsV1.committee_root",
+                HashUse::State("sccp_generation_committee_root"),
+            ),
+            (
+                "SccpFinalityHeaderFieldsV1.next_committee_root",
+                HashUse::State("sccp_generation_committee_root"),
+            ),
             (
                 "ExecutionCommitment.parent_state_root",
                 HashUse::State("execution_witness_roots"),
@@ -4667,6 +4770,42 @@ const CARRIERS: &[Carrier] = &[
         ],
         reviewed: &[],
         content: &[
+            (
+                "CertifiedResultV1.header",
+                "original fixed 221-byte X; every decoded field is walked as SccpFinalityHeaderFieldsV1",
+            ),
+            (
+                "CertifiedResultV1.commitment",
+                "canonical Norito body; every field is walked as ExecutionResultCommitment",
+            ),
+            (
+                "SccpFinalityHeaderFieldsV1.height",
+                "same carrier native height",
+            ),
+            (
+                "SccpFinalityHeaderFieldsV1.timestamp_ms",
+                "same carrier signed creation time",
+            ),
+            (
+                "SccpFinalityHeaderFieldsV1.flags",
+                "active/rotation bits; no other bit is admitted",
+            ),
+            (
+                "SccpFinalityHeaderFieldsV1.message_count",
+                "number of ordered SCCP leaves at this height",
+            ),
+            (
+                "SccpFinalityHeaderFieldsV1.history_size",
+                "size of the certified append-only history",
+            ),
+            (
+                "SccpFinalityHeaderFieldsV1.generation",
+                "outgoing committee generation identifier",
+            ),
+            (
+                "SccpFinalityHeaderFieldsV1.validity_ms",
+                "successor trust duration only on a rotation",
+            ),
             ("ExecutionResultCommitment.height", "height of the block"),
             (
                 "ExecutionResultCommitment.execution",
@@ -4794,6 +4933,8 @@ const CARRIERS: &[Carrier] = &[
             ),
         ],
         exhaustive: &[
+            "CertifiedResultV1",
+            "SccpFinalityHeaderFieldsV1",
             "ExecutionResultCommitment",
             "ExecutionCommitment",
             "ValidatorCommitteeMemberV1",
@@ -4804,6 +4945,10 @@ const CARRIERS: &[Carrier] = &[
             "ValidatorElectionPolicyV1",
         ],
         opaque: &[
+            (
+                "SccpFinalityHeaderV1",
+                "validated inline fixed X bytes; its complete field layout is exhaustively walked through SccpFinalityHeaderFieldsV1 and bound by the release wire identity",
+            ),
             ("ChainParamsRecord", "chain parameters: numbers"),
             ("NetworkId", "network identity fixed at genesis"),
             ("ConsensusMode", "enumeration without a hash payload"),
@@ -6969,6 +7114,7 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
     }
 
     let world = World::default();
+    let budget = iroha_allocation::AllocationBudget::new(16 * 1024 * 1024);
     let mut covered = Vec::new();
     macro_rules! typed_table {
         ($field:ident, $key:expr, $value:expr, $changed:expr) => {{
@@ -7010,7 +7156,7 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
                 "{}: remove",
                 stringify!($field)
             );
-            covered.push(concat!("world.", stringify!($field)));
+            covered.push((concat!("world.", stringify!($field)), Commitment::Certified));
         }};
     }
     typed_table!(
@@ -7081,7 +7227,7 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
                 stringify!($field)
             );
             assert_eq!(changed.entries(), parent.entries());
-            covered.push(concat!("world.", stringify!($field)));
+            covered.push((concat!("world.", stringify!($field)), Commitment::Certified));
         }};
     }
     typed_cell!(soradns_last_publish_ms, Some(42_u64));
@@ -7092,6 +7238,68 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
     typed_cell!(merge_hint_roots, vec![Hash::new(b"hint")]);
     typed_cell!(merge_global_state_root, Some(Hash::new(b"root")));
     typed_cell!(sccp_reset_nonce, Some([1_u8; 32]));
+    typed_cell!(sccp_committee_current, 7_u64);
+    typed_cell!(sccp_liability_clock, 1_000_u64);
+    typed_cell!(sccp_degraded_run, 2_u32);
+    typed_cell!(
+        sccp_anchor_open,
+        crate::smartcontracts::isi::sccp::anchor_record::RetainedSccpAnchors::admit(
+            &[iroha_data_model::sccp::generation::SccpAnchorV1 {
+                core_hash: [1; 32],
+                result: [2; 32]
+            }],
+            &budget,
+        )
+        .unwrap()
+    );
+    typed_table!(sccp_anchor_chunks, 0_u64, [1_u8; 32], [2_u8; 32]);
+    let generation = crate::smartcontracts::isi::sccp::test_support::sample_generation(1);
+    let mut changed = generation.clone();
+    changed.progress_cap_ms -= 1;
+    let generation =
+        crate::smartcontracts::isi::sccp::generation_record::RetainedSccpGeneration::admit(
+            &generation,
+            &budget,
+        )
+        .unwrap();
+    let changed =
+        crate::smartcontracts::isi::sccp::generation_record::RetainedSccpGeneration::admit(
+            &changed, &budget,
+        )
+        .unwrap();
+    typed_table!(sccp_committee_generations, 1_u64, generation, changed);
+    {
+        use crate::smartcontracts::isi::sccp::{
+            pause_record::{
+                RetainedSccpFastPause, RetainedSccpFastPauseRound, RetainedSccpPausePanel,
+            },
+            test_support::{sample_fast_pause, sample_fast_pause_round, sample_pause_panel},
+        };
+        use iroha_data_model::{bridge::SccpNetworkV1, sccp::fast_pause::SccpPanelRoleV1};
+        let network = SccpNetworkV1::EthereumMainnet;
+        typed_table!(
+            sccp_fast_pauses,
+            network,
+            RetainedSccpFastPause::admit(&sample_fast_pause(1), &budget).unwrap(),
+            RetainedSccpFastPause::admit(&sample_fast_pause(2), &budget).unwrap()
+        );
+        typed_table!(
+            sccp_fast_pause_rounds,
+            (network, SccpPanelRoleV1::Primary),
+            RetainedSccpFastPauseRound::admit(&sample_fast_pause_round(1), &budget).unwrap(),
+            RetainedSccpFastPauseRound::admit(&sample_fast_pause_round(2), &budget).unwrap()
+        );
+        typed_table!(
+            sccp_fast_pause_suspended_until_ms,
+            network,
+            1_000_u64,
+            2_000_u64
+        );
+        typed_cell!(
+            sccp_pause_panel,
+            Some(RetainedSccpPausePanel::admit(&sample_pause_panel(1), &budget).unwrap())
+        );
+    }
 
     macro_rules! typed_derived {
         ($field:ident, $key:expr, $value:expr) => {{
@@ -7110,7 +7318,7 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
                 "{}",
                 stringify!($field)
             );
-            covered.push(concat!("world.", stringify!($field)));
+            covered.push((concat!("world.", stringify!($field)), Commitment::Derived));
         }};
     }
     typed_derived!(
@@ -7125,19 +7333,14 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
 
     // Each typed field is inventoried in the class the typed mutation observed.
     let rows = rows();
-    for (position, id) in covered.iter().enumerate() {
+    for &(id, expected) in &covered {
         let row = rows
             .iter()
-            .find(|row| row.field.id == *id)
+            .find(|row| row.field.id == id)
             .unwrap_or_else(|| panic!("{id} is not inventoried"));
-        let expected = if position < 26 {
-            Commitment::Certified
-        } else {
-            Commitment::Derived
-        };
         assert_eq!(row.commitment, expected, "{id}");
     }
-    assert_eq!(covered.len(), 31);
+    assert_eq!(covered.len(), 32);
 }
 
 /// Canonical State-level fields reach no certified root: the truth that open defect
@@ -8669,7 +8872,15 @@ fn every_listed_commitment_has_one_owner_and_disposition() {
     assert_eq!(binding.class, RootClass::ConsensusBinding);
     assert_eq!(binding.defect, None);
     assert_eq!(binding.owner, "Sumeragi (specs/sumeragi.md §§3, 4.1, 10)");
-    // The lane instances have the same binding for their own authority.
+    let sccp_binding = listed("sccp_generation_committee_root");
+    assert_eq!(sccp_binding.class, RootClass::ConsensusBinding);
+    assert_eq!(sccp_binding.owner, "SCCP native finality");
+    assert_eq!(sccp_binding.defect, None);
+    assert_eq!(
+        sccp_binding.witnesses,
+        "none over State; the original X and authenticated native schedule bind committee authority"
+    );
+    // Lane and SCCP committee bindings retain their separate consensus authority.
     assert_eq!(
         ROOTS
             .iter()
@@ -8678,7 +8889,8 @@ fn every_listed_commitment_has_one_owner_and_disposition() {
             .collect::<Vec<_>>(),
         [
             ("consensus_authority_binding", None),
-            ("lane_authority_binding", None)
+            ("lane_authority_binding", None),
+            ("sccp_generation_committee_root", None)
         ]
     );
     assert_eq!(
@@ -8810,7 +9022,6 @@ fn witness_families_cover_every_witness_key_tag() {
     assert_eq!(
         fields_of("parliament_timed_ovn_casting"),
         [
-            "world.global_beacon_pulses",
             "world.parliament_attempts",
             "world.timed_ovn_evidence",
             "world.tle_key_sessions"
@@ -8947,7 +9158,7 @@ fn witness_families_cover_every_witness_key_tag() {
     );
     assert_eq!(
         sources.into_iter().collect::<Vec<_>>(),
-        ["world.global_beacon_pulses", "world.parliament_attempts"]
+        ["world.parliament_attempts"]
     );
 }
 

@@ -117,6 +117,8 @@ pub enum TryReadError {
     InvalidSnapshotBoundary(String),
     /// Original finite resources refused immutable native evidence restore: {0}
     StateEvidence(#[source] crate::sumeragi::evidence::record::EvidenceRecordRestoreError),
+    /// SCCP snapshot syntax or original resource refusal: {0}
+    StateSccp(#[source] crate::state::SccpRestoreError),
     /// Snapshot state is incompatible with runtime ZK configuration: {0}
     ZkConfigInstall(#[source] ZkConfigInstallError),
     /// Snapshot is in a non-consistent state. Snapshot has greater height (`{snapshot_height}`) than kura block store (`{kura_height}`)
@@ -184,6 +186,7 @@ impl From<crate::state::deserialize::StateRestoreError> for TryReadError {
             crate::state::deserialize::StateRestoreError::Evidence(error) => {
                 Self::StateEvidence(error)
             }
+            crate::state::deserialize::StateRestoreError::Sccp(error) => Self::StateSccp(error),
         }
     }
 }
@@ -343,5 +346,35 @@ mod evidence_restore_tests {
         assert_eq!(budget.reserved_bytes(), 64);
         drop(original);
         assert_eq!(budget.reserved_bytes(), 0);
+    }
+}
+
+#[cfg(test)]
+mod sccp_restore_tests {
+    //! Original pool identity survives the public snapshot read error boundary.
+    use super::TryReadError;
+    use crate::state::{SccpRestoreError, deserialize::StateRestoreError};
+    use iroha_allocation::{AllocationBudget, AllocationRefusal};
+
+    #[test]
+    fn original_sccp_restore_refusal_survives_snapshot_read_boundary() {
+        let budget = AllocationBudget::new(64);
+        let owner = budget.try_reserve_bytes(64).unwrap();
+        let original = budget.try_reserve_bytes(8).unwrap_err();
+        let error = TryReadError::from(StateRestoreError::Sccp(SccpRestoreError::Admission(
+            original,
+        )));
+        let TryReadError::StateSccp(SccpRestoreError::Admission(actual)) = error else {
+            panic!("original resource refusal is not snapshot syntax or invalid protocol data");
+        };
+        assert!(matches!(actual, AllocationRefusal::Capacity { .. }));
+        assert_eq!(actual, budget.try_reserve_bytes(8).unwrap_err());
+        assert_eq!(budget.reserved_bytes(), 64);
+        drop(owner);
+        assert_eq!(budget.reserved_bytes(), 0);
+        let retry = budget
+            .try_reserve_bytes(8)
+            .expect("original pool released its owner");
+        assert_eq!(retry.remaining_bytes(), 8);
     }
 }

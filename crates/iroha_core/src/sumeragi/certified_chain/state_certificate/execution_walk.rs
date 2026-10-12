@@ -145,7 +145,7 @@ where
             NonZeroUsize::new(height).expect("nonzero successor"),
             &mut self.before_read,
         )?;
-        let current = read_frame(block, height as u64)
+        let current = read_frame(block, height as u64, self.chain.root_scope())
             .map_err(|error| verification_attempt_failure(VerificationReadError::from(error)))?;
         self.chain
             .verify_executed_successor(self.parent.as_ref().unwrap(), current)
@@ -221,7 +221,12 @@ where
             // Retain through the existing bounded original codec, not an infallible deep clone.
             // No source I/O or QC verification is repeated, and the same cumulative scope funds it.
             self.parent = Some(
-                read_frame(certified.block().clone(), height as u64).map_err(|error| {
+                read_frame(
+                    certified.block().clone(),
+                    height as u64,
+                    self.chain.root_scope(),
+                )
+                .map_err(|error| {
                     verification_attempt_failure(VerificationReadError::from(error))
                 })?,
             );

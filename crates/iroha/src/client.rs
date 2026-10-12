@@ -11471,10 +11471,16 @@ mod evidence_http_tests {
                 sig: NativeSignature([0; SIGNATURE_LEN]),
             };
             vote.sig = NativeSignature(
-                Signature::new(key.private_key(), &vote.preimage())
-                    .payload()
-                    .try_into()
-                    .expect("BLS signature width"),
+                Signature::from_bytes(
+                    &iroha_crypto::bls::consensus::sign_preimage(
+                        key.private_key(),
+                        &vote.preimage(),
+                    )
+                    .unwrap(),
+                )
+                .payload()
+                .try_into()
+                .expect("BLS signature width"),
             );
             vote
         };

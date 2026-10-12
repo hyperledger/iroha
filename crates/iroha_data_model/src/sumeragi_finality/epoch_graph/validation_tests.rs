@@ -114,7 +114,19 @@ fn scoped_canonical_commitment_decode_preserves_bytes_and_all_other_validation()
             ExecutionResultCommitment::decode_with_validation(&bytes, &mut validation).unwrap();
         assert_eq!(decoded, value);
         assert_eq!(decoded.preimage().unwrap(), bytes);
-        assert_eq!(decoded.result().unwrap(), value.result().unwrap());
+        let x = crate::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+            *value.schedule.current.network_id.as_bytes(),
+            value.height,
+            0,
+        )
+        .unwrap();
+        let result = |body: &ExecutionResultCommitment| {
+            crate::sumeragi_finality::certified_result::outer_result(
+                &x,
+                &crate::sumeragi_finality::certified_result::body_digest(&body.preimage().unwrap()),
+            )
+        };
+        assert_eq!(result(&decoded), result(&value));
         decoded.validate_with_validation(&mut validation).unwrap();
     }
     assert_eq!(validation.validations, 1);

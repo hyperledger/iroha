@@ -45,9 +45,11 @@ fn checkpoint_epoch_work_is_lexical_and_standalone_proofs_remain_independent() {
         signed_epoch,
         checkpoint
             .tip()
-            .decode_checked()
+            .decode_checked(CertifiedResultScope::TairaGlobal)
             .unwrap()
-            .commitment
+            .certified_result
+            .into_parts()
+            .1
             .schedule
             .current
     );
@@ -90,7 +92,10 @@ fn checkpoint_epoch_work_is_lexical_and_standalone_proofs_remain_independent() {
     // Neither public structural reading nor public retained authentication receives an
     // importer workspace. Their original result/core and successor/config scopes remain.
     let before = validation_counts::calls();
-    checkpoint.tip().decode_checked().unwrap();
+    checkpoint
+        .tip()
+        .decode_checked(CertifiedResultScope::TairaGlobal)
+        .unwrap();
     assert_eq!(validation_counts::calls() - before, 2);
     let before = validation_counts::calls();
     verifier.verify_retained_decision(checkpoint.tip()).unwrap();

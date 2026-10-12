@@ -1041,7 +1041,9 @@ fn capture_merged_lane_finality_proof_fixture() {
         &signer,
     )
     .expect("challenge-bound durable-tip attestation");
-    attestation.verify().expect("the node's own signature");
+    attestation
+        .verify(fixture.chain.root_scope().into())
+        .expect("the node's own signature under the original signed root");
     assert_eq!(&attestation.body.finality_proof, proof);
     let attestation_json =
         compact(norito::json::to_value(&attestation).expect("attestation JSON value"));

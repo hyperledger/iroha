@@ -106,6 +106,8 @@ pub mod isi {
         collections::{BTreeMap, BTreeSet},
         str::FromStr,
     };
+    #[cfg(test)]
+    pub(crate) use tests::seed_sccp_native_proof_certificate_before_genesis;
     // Governance ISIs
     use iroha_data_model::isi::confidential;
     // Bring runtime upgrade ISIs into scope
@@ -8629,10 +8631,25 @@ pub mod isi {
                         "certified SCCP proposal belongs to a different exact NetworkId".into(),
                     ));
                 }
+                let cause = crate::smartcontracts::isi::sccp::controls::ControlCauseV1 {
+                    track: iroha_sccp::v1::control::TRACK_PARLIAMENT,
+                    certificate_id:
+                        *iroha_data_model::governance::types::GovernanceCertificateId::derive_v1(
+                            certificate,
+                        )
+                        .as_bytes(),
+                    effect_hash: certificate.effect_preimage_hash,
+                };
+                #[cfg(all(test, sumeragi_core_mutation = "HC237"))]
+                let cause = crate::smartcontracts::isi::sccp::controls::ControlCauseV1 {
+                    certificate_id: proposal_id,
+                    ..cause
+                };
                 crate::smartcontracts::isi::sccp::governance::enact(
                     state_transaction,
                     &payload.proposal,
                     proposal_id,
+                    cause,
                 )
             }
             ProposalKind::SorafsProviderGovernance(payload) => {
@@ -18104,6 +18121,25 @@ pub mod isi {
                         "NPoS epoch_length_blocks must equal the signed Sumeragi epoch_length_blocks",
                     ));
                 }
+                if crate::smartcontracts::isi::sccp::params::exists(&state_transaction.world) {
+                    use iroha_data_model::parameter::system::SumeragiParameter;
+                    let current = state_transaction.world.parameters.get().sumeragi();
+                    let proposed = match change {
+                        SumeragiParameter::EpochLengthBlocks(epoch) => {
+                            Some((epoch.get(), current.block_cadence_ms.get()))
+                        }
+                        _ => None,
+                    };
+                    if proposed.is_some_and(|(epoch, cadence)| {
+                        !crate::smartcontracts::isi::sccp::generations::epoch_duration_is_valid(
+                            epoch, cadence,
+                        )
+                    }) {
+                        return Err(invalid_smart_contract_parameter(
+                            "SCCP requires epoch_length_blocks * block_cadence_ms >= 3600000",
+                        ));
+                    }
+                }
                 // Sumeragi chain parameters take effect at `h + 2` through the consensus
                 // schedule; the demotion window is a genesis constant (`specs/sumeragi.md` §10.1).
                 crate::sumeragi::schedule::validate_parameter_change(
@@ -20862,6 +20898,43 @@ pub mod isi {
                 .body(&body_instance_id)
                 .and_then(|body| body.result_height())
                 .expect("completed due-certificate body result height")
+        }
+
+        /// Seed only the fixture's pristine World with the existing reducer-produced due
+        /// certificate. This is not a native block, a CommitQC or live ballot qualification.
+        /// The later genuine native H60 block alone executes the scheduled effect.
+        pub(crate) fn seed_sccp_native_proof_certificate_before_genesis(
+            state: &State,
+            proposal: &iroha_data_model::sccp::governance::SccpGovernanceProposalV1,
+        ) -> GovernanceCertificateV1 {
+            assert_eq!(
+                state.view().height(),
+                0,
+                "fixture seeding precedes native genesis"
+            );
+            assert_eq!(*state.view().network_id(), proposal.network_id);
+            let header = iroha_data_model::block::BlockHeader::new(
+                NonZeroU64::new(PARLIAMENT_DUE_CERTIFICATE_HEIGHT).unwrap(),
+                None,
+                None,
+                PARLIAMENT_DUE_CERTIFICATE_HEIGHT * 1_000,
+                0,
+            );
+            let mut block = state.block(header);
+            let fixture = {
+                let mut transaction = block.transaction();
+                let fixture = seed_due_parliament_certificate(
+                    &mut transaction,
+                    sccp_route_governance_test_kind(proposal),
+                );
+                transaction.apply();
+                fixture
+            };
+            block
+                .commit_world_overlay_for_testing()
+                .expect("publish pristine fixture preconditions");
+            assert_eq!(state.view().height(), 0);
+            fixture.certificate
         }
 
         fn seed_due_parliament_certificate(
@@ -32657,6 +32730,26 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             .expect_execute_err(&ALICE_ID, &mut stx, "conflicting scheduled epoch cannot commit");
             assert_contains!(format!("{error:?}"), "must equal the signed Sumeragi epoch_length_blocks");
             assert_eq!(stx.world.parameters.get().sumeragi().epoch_length_blocks, previous);
+        });
+        world_test!(set_parameter_preserves_sccp_epoch_duration_before_any_parameter_write {
+            blank_state_transaction!(state, block, state_block, stx);
+            *stx.world.sccp_parameters.get_mut() =
+                Some(iroha_data_model::sccp::params::SccpParametersV1::taira_default());
+            let cadence = stx.world.parameters.get().sumeragi().block_cadence_ms.get();
+            let minimum = 3_600_000_u64.div_ceil(cadence);
+            assert!(minimum > 1);
+            let previous = stx.world.parameters.get().sumeragi().epoch_length_blocks;
+            let error = SetParameter::new(Parameter::Sumeragi(SumeragiParameter::EpochLengthBlocks(
+                NonZeroU64::new(minimum - 1).unwrap(),
+            )))
+            .expect_execute_err(&ALICE_ID, &mut stx, "short SCCP epoch must fail before publication");
+            assert_contains!(format!("{error:?}"), "SCCP requires epoch_length_blocks");
+            assert_eq!(stx.world.parameters.get().sumeragi().epoch_length_blocks, previous);
+            SetParameter::new(Parameter::Sumeragi(SumeragiParameter::EpochLengthBlocks(
+                NonZeroU64::new(minimum).unwrap(),
+            )))
+            .expect_execute(&ALICE_ID, &mut stx, "the exact minimum SCCP epoch is valid");
+            assert_eq!(stx.world.parameters.get().sumeragi().epoch_length_blocks.get(), minimum);
         });
         world_test!(set_parameter_keeps_npos_epoch_length_immutable {
             blank_state_transaction!(state, block, state_block, stx);

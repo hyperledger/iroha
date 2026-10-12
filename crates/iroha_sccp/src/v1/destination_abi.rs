@@ -11,11 +11,6 @@
 //! ([`super::destination`]). Cross-check harnesses compare outcomes by
 //! [`DestinationError::name`], which is the same on every chain.
 //!
-//! TODO: WP-S1 deletes the revision-4 selector, topic and proof tables of
-//! [`super::constants`] and [`super::proof`]. Until then a name that exists in both
-//! (`SIG_FINALIZE_FROM_TAIRA`, `EVENT_CONTROL_APPLIED`, `SELECTORS`, …) is the revision-5 one
-//! only in this module.
-
 use core::fmt;
 
 /// Decode a hex literal of exactly `2 · N` digits at compile time.

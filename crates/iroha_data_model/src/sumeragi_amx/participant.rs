@@ -255,7 +255,10 @@ impl AmxParticipantStateV1 {
         let leg = transaction
             .leg(self.dataspace)
             .ok_or_else(|| rejected("this dataspace is not a participant"))?;
-        let verified = self.global.verify_record(begin)?;
+        let verified = self.global.verify_record(
+            begin,
+            crate::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        )?;
         let Err(index) = self
             .prepared
             .binary_search_by(|entry| entry.tx.cmp(&record.tx))
@@ -316,7 +319,10 @@ impl AmxParticipantStateV1 {
         let AmxRecordV1::Decision(record) = &decision.record else {
             return Err(AmxError::Record("a settlement needs a Decision proof").into());
         };
-        let verified = self.global.verify_record(decision)?;
+        let verified = self.global.verify_record(
+            decision,
+            crate::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        )?;
         let outcome = match self
             .prepared
             .binary_search_by(|entry| entry.tx.cmp(&record.tx))
@@ -379,7 +385,10 @@ impl AmxParticipantStateV1 {
     /// # Errors
     /// The proof does not verify.
     pub fn handoff(&mut self, proof: &AmxHandoffProofV1) -> Result<AmxHandoffOutcome, AmxError> {
-        let outcome = self.global.apply_handoff(proof)?;
+        let outcome = self.global.apply_handoff(
+            proof,
+            crate::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        )?;
         if let Some(previous) = &self.global.previous {
             self.observe(previous.authorization.last_height);
         }

@@ -2474,10 +2474,13 @@ struct AppState {
     query_ingress_inflight: Arc<tokio::sync::Semaphore>,
     /// Byte-weighted capacity shared by complete fanout and ordinary-query work.
     query_fanout_inflight: ByteWeightedMemoryPool,
+    /// App-local authenticated history nodes, retained independently of request leases.
+    sccp_history:
+        std::sync::Mutex<iroha_core::smartcontracts::isi::sccp::read::SccpHistoryNodeCache>,
+    /// Original finite allocation owner for the retained history-node backing.
+    sccp_history_budget: iroha_core::state::AllocationBudget,
     /// Bounded bodyless HTTP waiters; they hold no decoded query or fanout working set.
-    #[cfg(feature = "app_api")]
     app_routed_read_waiters: Arc<tokio::sync::Semaphore>,
-    #[cfg(feature = "app_api")]
     app_api_routed_read_body_read_timeout: Duration,
     /// Immutable app-local ordinary-query geometry and configuration identity.
     ordinary_query_policy: OrdinaryQueryServerPolicy,
@@ -17835,11 +17838,8 @@ include!("torii_fanout_decode_helpers.rs");
 // compile it today.
 #[cfg(all(test, feature = "app_api"))]
 include!("torii_app_fanout_memory.rs");
-#[cfg(feature = "app_api")]
 include!("torii_app_routed_read_memory.rs");
-#[cfg(feature = "app_api")]
 include!("torii_app_routed_read_request.rs");
-#[cfg(feature = "app_api")]
 include!("torii_app_routed_read_http.rs");
 #[cfg(feature = "app_api")]
 include!("torii_app_routed_read_source.rs");
@@ -32447,22 +32447,32 @@ pub(crate) fn quote_internal_fee_payment_from_parts(
     }
     let route = fee_quote_routing_decision_from_parts(queue, state, payload)
         .map_err(|code| rejected(code, "payload routing could not be resolved"))?;
-    let latest_header = state.latest_block_header_fast();
-    let ledger_time_ms = latest_header
-        .as_ref()
-        .map_or(0, |header| header.creation_time_ms);
-    let next_block_height = latest_header
-        .as_ref()
-        .map_or(1, |header| header.height().get().saturating_add(1));
-    let nexus = state.nexus_snapshot();
-    let pipeline = state.pipeline_snapshot();
-    let world = state.world_view();
+    let quote_view = state.query_view();
+    let sccp_committed_time_ms = iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(
+        &quote_view,
+    )
+    .map_err(|error| {
+        Error::Query(iroha_data_model::ValidationFail::InternalError(format!(
+            "internal fee quote has invalid committed time: {error:?}"
+        )))
+    })?;
+    let ledger_time_ms = sccp_committed_time_ms.unwrap_or(0);
+    let next_block_height = u64::try_from(quote_view.height())
+        .ok()
+        .and_then(|height| height.checked_add(1))
+        .ok_or_else(|| {
+            rejected(
+                FeeRejectionCode::InvalidProgramConfiguration,
+                "committed height overflow",
+            )
+        })?;
     iroha_core::executor::quote_nexus_fee_admission_draft(
-        &world,
-        &nexus,
-        &pipeline,
+        quote_view.world(),
+        quote_view.nexus(),
+        quote_view.pipeline(),
         payload,
         ledger_time_ms,
+        sccp_committed_time_ms,
         next_block_height,
         Some(route.dataspace_id),
     )
@@ -32508,13 +32518,24 @@ async fn handler_fee_quote(
             "fee quoting requires canonical request signing",
         ));
     };
-    let latest_header = app.state.latest_block_header_fast();
-    let ledger_time_ms = latest_header
-        .as_ref()
-        .map_or(0, |header| header.creation_time_ms);
-    let next_block_height = latest_header
-        .as_ref()
-        .map_or(1, |header| header.height().get().saturating_add(1));
+    let quote_view = app.state.query_view();
+    let sccp_committed_time_ms = iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(
+        &quote_view,
+    )
+    .map_err(|error| {
+        Error::Query(iroha_data_model::ValidationFail::InternalError(format!(
+            "fee quote has invalid committed time: {error:?}"
+        )))
+    })?;
+    let ledger_time_ms = sccp_committed_time_ms.unwrap_or(0);
+    let next_block_height = u64::try_from(quote_view.height())
+        .ok()
+        .and_then(|height| height.checked_add(1))
+        .ok_or_else(|| {
+            Error::Query(iroha_data_model::ValidationFail::InternalError(
+                "fee quote committed height overflow".to_owned(),
+            ))
+        })?;
     let request: FeeQuoteRequest = match norito::json::from_slice(body.as_ref()) {
         Ok(request) => request,
         Err(_) => {
@@ -32562,20 +32583,19 @@ async fn handler_fee_quote(
             ));
         }
     };
-    let nexus = app.state.nexus_snapshot();
-    let pipeline = app.state.pipeline_snapshot();
     let quote = {
-        let world = app.state.world_view();
         iroha_core::executor::quote_nexus_fee_admission_draft(
-            &world,
-            &nexus,
-            &pipeline,
+            quote_view.world(),
+            quote_view.nexus(),
+            quote_view.pipeline(),
             &request.payload,
             ledger_time_ms,
+            sccp_committed_time_ms,
             next_block_height,
             Some(route.dataspace_id),
         )
     };
+    drop(quote_view);
     let draft_quote = match quote {
         Ok(quote) => quote,
         Err(iroha_core::execution_attempt::ExecutionAttemptError::Deferred(_)) => {
@@ -35070,7 +35090,7 @@ pub struct Torii {
     query_heavy_max_inflight: usize,
     query_fanout_max_retained_bytes: usize,
     query_fanout_max_working_set_bytes: usize,
-    #[cfg(feature = "app_api")]
+    sccp_history_cache_max_bytes: usize,
     app_api_routed_read_body_read_timeout: Duration,
     app_query_limits: routing::AppQueryLimits,
     query_queue_timeout: Duration,
@@ -37550,6 +37570,9 @@ impl Torii {
         mount_catalog_route_rows!(
             builder, sccp;
             CAPABILITIES => public_get(sccp::handler_capabilities);
+            CURRENT_COMMITTEE => public_get(sccp::handler_current_committee);
+            COMMITTEE_ROTATIONS => public_get(sccp::handler_rotations);
+            COMMITTEE => public_get(sccp::handler_committee);
             GOVERNANCE => public_get(sccp::handler_governance);
             GOVERNANCE_PROPOSALS => public_get(sccp::handler_governance_proposals);
             GOVERNANCE_PROPOSAL => public_get(sccp::handler_governance_proposal);
@@ -37565,9 +37588,6 @@ impl Torii {
             OUTBOUND_BY_NONCE => public_get(sccp::handler_outbound);
             CONTROLS => public_get(sccp::handler_controls);
             CONTROL_PROOF => public_get(sccp::handler_control_proof);
-            ROSTER_CURRENT => public_get(sccp::handler_roster_current);
-            ROSTER_ROTATIONS => public_get(sccp::handler_rotations);
-            ROSTER => public_get(sccp::handler_roster);
         );
     }
     /// Musubi Kotodama package-registry routes.
@@ -40305,6 +40325,16 @@ impl Torii {
                     "per-query working-set ceiling does not fit the platform address space",
                 )
             })?;
+        let sccp_history_cache_max_bytes =
+            usize::try_from(config.sccp_history_cache_max_bytes.get())
+                .ok()
+                .filter(|bytes| *bytes > 0)
+                .ok_or_else(|| {
+                    ToriiBuildError::invalid_configuration(
+                        "sccp_history_cache_max_bytes",
+                        "cache capacity must be nonzero and fit the platform address space",
+                    )
+                })?;
         let soracloud_public_max_response_bytes =
             usize::try_from(config.soracloud_public_max_response_bytes.get()).map_err(|_| {
                 ToriiBuildError::invalid_configuration(
@@ -40392,7 +40422,7 @@ impl Torii {
             query_heavy_max_inflight: config.query_heavy_max_inflight.get(),
             query_fanout_max_retained_bytes,
             query_fanout_max_working_set_bytes,
-            #[cfg(feature = "app_api")]
+            sccp_history_cache_max_bytes,
             app_api_routed_read_body_read_timeout: config.app_api_routed_read_body_read_timeout,
             app_query_limits,
             query_queue_timeout: config.query_queue_timeout,
@@ -41267,9 +41297,13 @@ impl Torii {
             torii_proxy_receiver_memory_inflight,
             query_ingress_inflight,
             query_fanout_inflight,
-            #[cfg(feature = "app_api")]
+            sccp_history: std::sync::Mutex::new(
+                iroha_core::smartcontracts::isi::sccp::read::SccpHistoryNodeCache::new(),
+            ),
+            sccp_history_budget: iroha_core::state::AllocationBudget::new(
+                self.sccp_history_cache_max_bytes,
+            ),
             app_routed_read_waiters: Arc::new(tokio::sync::Semaphore::new(query_max_inflight)),
-            #[cfg(feature = "app_api")]
             app_api_routed_read_body_read_timeout: self.app_api_routed_read_body_read_timeout,
             ordinary_query_policy,
             transaction_ingress_compute_inflight,
@@ -41635,7 +41669,6 @@ impl Torii {
             .fallback(handler_route_not_found_or_sorafs_site)
             .layer(axum::middleware::from_fn(enforce_route_timeout));
         // App admission stays inside authentication but outside body extractors.
-        #[cfg(feature = "app_api")]
         let router = router.layer(axum::middleware::from_fn_with_state(
             app_state.clone(),
             enforce_app_routed_read_http_admission,

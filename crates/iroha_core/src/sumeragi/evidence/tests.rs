@@ -355,10 +355,13 @@ pub(super) fn vote_pair(
             sig: Signature([0; iroha_sumeragi::types::SIGNATURE_LEN]),
         };
         vote.sig = Signature(
-            iroha_crypto::Signature::new(key.private_key(), &vote.preimage())
-                .payload()
-                .try_into()
-                .unwrap(),
+            iroha_crypto::Signature::from_bytes(
+                &iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &vote.preimage())
+                    .unwrap(),
+            )
+            .payload()
+            .try_into()
+            .unwrap(),
         );
         vote
     };

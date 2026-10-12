@@ -119,14 +119,14 @@ fn ascending_native_continuation_refuses_same_proposal_changed_result_before_fir
     let (chain, _) = chain();
     let original = frame(&chain, 4);
     let changed = with_parts(&original, |_, qc, preimage| {
-        let mut result = ExecutionResultCommitment::decode(preimage).unwrap();
+        let (original_x, mut result) = fixture_result_parts(preimage);
         result.execution.world_state_root =
             Hash::new(b"different quorum-certified execution result");
-        *preimage = result.preimage().unwrap();
+        *preimage = fixture_result_preimage(&original_x, &result);
         *qc = chain.commit_qc(
             4,
             qc.block_hash,
-            result_of_preimage(preimage),
+            result_of_preimage(preimage).unwrap(),
             Signers::Quorum,
         );
     });
@@ -134,7 +134,10 @@ fn ascending_native_continuation_refuses_same_proposal_changed_result_before_fir
     let view = chain.state().view();
     let reader = CertifiedChain::new(&view).unwrap();
     let candidate = reader
-        .verify_executed_successor(&chain.committed(3), read_frame(changed.clone(), 4).unwrap())
+        .verify_executed_successor(
+            &chain.committed(3),
+            read_frame(changed.clone(), 4, chain.root_scope()).unwrap(),
+        )
         .expect("genuine quorum over the same proposal and a different result");
     assert_eq!(candidate.block_hash(), chain.committed(4).block_hash());
     assert_ne!(candidate.result(), chain.committed(4).result());
@@ -374,7 +377,10 @@ fn state_certificate_checks_quorum_and_signed_availability_after_execution_authe
     let original = frame(&chain, 4);
     let parent = chain.committed(3);
     reader
-        .verify_executed_successor(&parent, read_frame(original.clone(), 4).unwrap())
+        .verify_executed_successor(
+            &parent,
+            read_frame(original.clone(), 4, chain.root_scope()).unwrap(),
+        )
         .unwrap();
     let (_, qc) = decode_certificate(original.commit_certificate().unwrap()).unwrap();
     for signers in [Signers::BelowQuorum, Signers::All] {
@@ -383,14 +389,17 @@ fn state_certificate_checks_quorum_and_signed_availability_after_execution_authe
         });
         assert!(
             reader
-                .verify_executed_successor(&parent, read_frame(changed, 4).unwrap())
+                .verify_executed_successor(
+                    &parent,
+                    read_frame(changed, 4, chain.root_scope()).unwrap()
+                )
                 .is_err()
         );
     }
     let forged = with_parts(&original, |_, qc, _| qc.agg_sig.0[5] ^= 1);
     assert!(
         reader
-            .verify_executed_successor(&parent, read_frame(forged, 4).unwrap())
+            .verify_executed_successor(&parent, read_frame(forged, 4, chain.root_scope()).unwrap())
             .is_err()
     );
     let certificate = original.commit_certificate().unwrap();
@@ -416,7 +425,7 @@ fn state_certificate_checks_quorum_and_signed_availability_after_execution_authe
             )),
         );
         assert!(
-            read_frame(changed, 4)
+            read_frame(changed, 4, chain.root_scope())
                 .map_err(VerificationReadError::from)
                 .and_then(|current| reader.verify_executed_successor(&parent, current))
                 .is_err()
@@ -452,7 +461,7 @@ fn state_certificate_verifies_actual_native_npos_boundary() {
             *qc = chain.commit_qc(10, qc.block_hash, qc.result, signers);
         });
         assert!(matches!(
-            reader.verify_executed_successor(&parent, read_frame(changed, 10).unwrap()),
+            reader.verify_executed_successor(&parent, read_frame(changed, 10, chain.root_scope()).unwrap()),
             Err(VerificationReadError::Source(ChainReadError::Certificate {
                 height: 10,
                 error,
@@ -461,7 +470,10 @@ fn state_certificate_verifies_actual_native_npos_boundary() {
     }
     let forged = with_parts(&original, |_, qc, _| qc.agg_sig.0[8] ^= 1);
     assert!(matches!(
-        reader.verify_executed_successor(&parent, read_frame(forged, 10).unwrap()),
+        reader.verify_executed_successor(
+            &parent,
+            read_frame(forged, 10, chain.root_scope()).unwrap()
+        ),
         Err(VerificationReadError::Source(ChainReadError::Certificate {
             height: 10,
             error: CertError::BadSignature,
@@ -740,9 +752,9 @@ fn state_certificate_signed_availability_scratch_uses_original_query_allowance()
 
     let (chain, _) = chain();
     let source = frame(&chain, 3);
-    let current = read_frame(Clone::clone(&source), 3).unwrap();
+    let current = read_frame(Clone::clone(&source), 3, chain.root_scope()).unwrap();
     let parent = chain.committed(2);
-    let schedule::ScheduledSlot::Ready(scheduled) = &parent.commitment.schedule.next else {
+    let schedule::ScheduledSlot::Ready(scheduled) = &parent.commitment().schedule.next else {
         panic!("original executed parent authorizes height 3");
     };
     let mut validation = EpochValidationScope::new();
@@ -818,7 +830,7 @@ fn state_certificate_native_qc_decode_refusal_is_capacity_and_retries_original_s
     let reader = CertifiedChain::new(&view).unwrap();
     let current = chain.committed(3);
     let parent = chain.committed(2);
-    let schedule::ScheduledSlot::Ready(scheduled) = &parent.commitment.schedule.next else {
+    let schedule::ScheduledSlot::Ready(scheduled) = &parent.commitment().schedule.next else {
         panic!("original parent authorizes the source");
     };
     let mut validation = EpochValidationScope::new();
@@ -862,7 +874,7 @@ fn state_certificate_pairing_constructor_refusal_preserves_original_source_for_r
     let reader = CertifiedChain::new(&view).unwrap();
     let parent = chain.committed(2);
     let current = chain.committed(3);
-    let backing = iroha_crypto::BlsNormalAggregateScratch::<()>::backing_bytes();
+    let backing = iroha_crypto::bls::consensus::ConsensusAggregateScratch::<()>::backing_bytes();
     let check = |limit| {
         norito::core::with_decode_limits_measured(
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, limit, 128),
@@ -971,7 +983,7 @@ fn parent_service_common_proposal_is_independent_of_local_certificate_subset() {
         .verify_parent_service_at(
             &proposal,
             &predecessor,
-            &read_frame(source, 5).unwrap(),
+            &read_frame(source, 5, chain.root_scope()).unwrap(),
             offered,
         )
         .unwrap()
@@ -980,7 +992,7 @@ fn parent_service_common_proposal_is_independent_of_local_certificate_subset() {
         .verify_parent_service_at(
             &proposal,
             &predecessor,
-            &read_frame(other_source, 5).unwrap(),
+            &read_frame(other_source, 5, chain.root_scope()).unwrap(),
             offered,
         )
         .unwrap()
@@ -1371,11 +1383,16 @@ fn admitted_receipt_malformed_frame_preserves_rejection_and_refunds_original_slo
     let malformed = with_parts(&original, |header, _, _| header.height = 6);
     let budget = chain.state().ivm_execution_budget();
     let baseline = budget.reserved_bytes();
-    let expected = read_frame(malformed.clone(), 5).unwrap_err();
-    let actual =
-        AdmittedCommittedBlock::read(malformed, 5, &mut EpochValidationScope::new(), &budget)
-            .err()
-            .expect("the same canonical malformed frame must remain rejected");
+    let expected = read_frame(malformed.clone(), 5, chain.root_scope()).unwrap_err();
+    let actual = AdmittedCommittedBlock::read(
+        malformed,
+        5,
+        chain.root_scope(),
+        &mut EpochValidationScope::new(),
+        &budget,
+    )
+    .err()
+    .expect("the same canonical malformed frame must remain rejected");
     match (expected, actual) {
         (ExecutionAttemptError::Rejected(expected), ExecutionAttemptError::Rejected(actual)) => {
             assert_eq!(actual, expected);
@@ -1386,6 +1403,7 @@ fn admitted_receipt_malformed_frame_preserves_rejection_and_refunds_original_slo
     let receipt = AdmittedCommittedBlock::read(
         original.clone(),
         5,
+        chain.root_scope(),
         &mut EpochValidationScope::new(),
         &budget,
     )

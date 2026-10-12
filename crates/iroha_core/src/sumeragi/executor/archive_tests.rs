@@ -200,6 +200,7 @@ fn context(
             events,
             genesis_account: chain.genesis_account().clone(),
             consensus_mode: ConsensusMode::Permissioned,
+            root_scope: chain.root_scope(),
             applied: (1, chain.committed(1).core_hash()),
             crypto: Some(crypto),
             applied_watch: Arc::new(crate::sumeragi::lanes::global::AppliedWatch::new(1, None)),
@@ -247,6 +248,7 @@ fn prepare_and_append(worker: &mut Worker<'_>, block: &AvailableBody, qc: &Qc) -
         worker.state.kura_handle(),
         worker.context.crypto.as_ref().unwrap().clone(),
         1,
+        worker.context.root_scope,
         worker.context.staging.clone(),
         worker.state.ivm_execution_budget(),
         Arc::new(

@@ -84,6 +84,8 @@ mod element_sequence_tests;
 pub mod heuristics;
 pub mod hw;
 #[cfg(test)]
+mod ordered_map_projection_tests;
+#[cfg(test)]
 #[path = "core/payload_decode_tests.rs"]
 mod payload_decode_tests;
 #[cfg(test)]
@@ -2143,13 +2145,23 @@ where
     }
     Some(total)
 }
-fn encode_map_payloads<'a, K, V, I>(
+/// Write the canonical map layout directly from borrowed entries in strict key order.
+///
+/// This is the same kernel used by `BTreeMap` and sorted `HashMap` serialization. It owns no
+/// staging map or entry buffer. Every key/value keeps its source custody while it is measured
+/// and emitted, and a counting destination preserves the normal one-pass leaf measurement.
+///
+/// # Errors
+///
+/// Rejects missing/extra entries, duplicate or descending keys, and propagates the original
+/// field measurement or destination error. The caller must discard partial output on error.
+pub fn write_ordered_map_entries<'a, K, V, I>(
     writer: &mut Encoder<'_>,
     len: usize,
     entries: I,
 ) -> Result<(), Error>
 where
-    K: SerializePayload + 'a,
+    K: SerializePayload + Ord + 'a,
     V: SerializePayload + 'a,
     I: IntoIterator<Item = (&'a K, &'a V)>,
 {
@@ -2159,8 +2171,9 @@ where
     )?;
     let flags = effective_layout_flags();
     let mut count = 0usize;
+    let mut previous: Option<&K> = None;
     for (key, value) in entries {
-        if count == len {
+        if count == len || previous.is_some_and(|previous| previous >= key) {
             return Err(Error::LengthMismatch);
         }
         for item in [key as &dyn SerializePayload, value as &dyn SerializePayload] {
@@ -2172,6 +2185,7 @@ where
             )?;
             write_counted_payload(item, writer, encoded_len)?;
         }
+        previous = Some(key);
         count += 1;
     }
     (count == len).then_some(()).ok_or(Error::LengthMismatch)
@@ -2900,7 +2914,7 @@ where
     V: SerializePayload,
 {
     fn serialize(&self, writer: &mut Encoder<'_>) -> Result<(), Error> {
-        encode_map_payloads(writer, self.len(), self.iter())
+        write_ordered_map_entries(writer, self.len(), self.iter())
     }
     fn encoded_len_hint(&self) -> Option<usize> {
         map_encoded_len_hint(self.iter())
@@ -2953,7 +2967,7 @@ where
             })?;
         entries.extend(self.iter());
         entries.sort_unstable_by(|(ka, _), (kb, _)| ka.cmp(kb));
-        encode_map_payloads(writer, entries.len(), entries.iter().copied())
+        write_ordered_map_entries(writer, entries.len(), entries.iter().copied())
     }
     fn encoded_len_hint(&self) -> Option<usize> {
         map_encoded_len_hint(self.iter())

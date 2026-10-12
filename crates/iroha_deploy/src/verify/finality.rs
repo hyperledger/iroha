@@ -464,6 +464,16 @@ impl FinalityVerifier {
         )?
     }
 
+    /// Original signed-genesis scope retained by this independently authenticated prefix.
+    ///
+    /// # Errors
+    /// The retained checkpoint's native authentication or original decoder admission fails.
+    pub fn root_scope(
+        &self,
+    ) -> Result<iroha_data_model::block::consensus::SumeragiRootScope, FinalityError> {
+        Ok(self.verified_tip_ref()?.root_scope())
+    }
+
     /// Complete native checkpoint to persist for independently authenticated restart.
     pub fn checkpoint(&self) -> &SumeragiFinalityCheckpoint {
         self.checkpoint.as_ref()
@@ -647,7 +657,12 @@ impl FinalityVerifier {
         challenge: &[u8; 32],
         attestation: &SumeragiFinalityAttestation,
     ) -> Result<AttestedTip, FinalityError> {
-        verify_identity(self.checkpoint.network_id(), challenge, attestation)?;
+        verify_identity(
+            self.checkpoint.network_id(),
+            challenge,
+            attestation,
+            self.root_scope()?,
+        )?;
         if !self.members().contains(&attestation.body.node_id) {
             return Err(FinalityError::NotInCommittee {
                 peer: Box::new(attestation.body.node_id.clone()),
@@ -833,6 +848,7 @@ impl Read {
         peer: &PeerId,
         challenge: &[u8; 32],
         network: NetworkId,
+        root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
     ) -> Self {
         match response {
             Err(error) => Self::Unreachable(error),
@@ -846,10 +862,12 @@ impl Read {
                     return Self::Invalid(Box::new(error));
                 }
                 match attestation {
-                    FinalityAttestation::Raw(attestation) => match attestation.verify() {
-                        Ok(()) => Self::Claim(Box::new(attestation)),
-                        Err(error) => Self::Invalid(Box::new(error.into())),
-                    },
+                    FinalityAttestation::Raw(attestation) => {
+                        match attestation.verify(root_scope.into()) {
+                            Ok(()) => Self::Claim(Box::new(attestation)),
+                            Err(error) => Self::Invalid(Box::new(error.into())),
+                        }
+                    }
                     // The private SDK carrier retains the exact statement it already checked.
                     // Request rebinding above and trusted prefix placement below remain fresh.
                     FinalityAttestation::Authenticated(attestation) => {
@@ -891,6 +909,7 @@ fn read_members<S: FinalitySource + ?Sized>(
             &peer,
             challenge,
             network,
+            prefix.native.root_scope(),
         );
         reads.insert(peer, read);
     }
@@ -1149,9 +1168,10 @@ fn verify_identity(
     network: NetworkId,
     challenge: &[u8; 32],
     attestation: &SumeragiFinalityAttestation,
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
 ) -> Result<(), FinalityError> {
     verify_request_binding(network, challenge, attestation)?;
-    attestation.verify()?;
+    attestation.verify(root_scope.into())?;
     // Structural consistency binds the decoded genesis to the selected network; the tip
     // still requires exact retained-decision or contiguous-successor authentication.
     Ok(())

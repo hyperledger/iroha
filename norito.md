@@ -1124,6 +1124,12 @@ Maps encode deterministically with the same active layout flags:
 - `HashMap` encodes entries in sorted key order for deterministic output;
   `BTreeMap` uses its natural ordering.
 
+`core::write_ordered_map_entries` exposes the same binary kernel for borrowed,
+strictly increasing entries without constructing a staging map. It rejects
+duplicate or descending keys and declared-count mismatches, and preserves field
+measurement and destination errors. Its output is identical to `BTreeMap` under
+the selected layout flags; an error requires discarding partial output.
+
 JSON objects have a separate key contract. `JsonObjectKey` supplies canonical,
 unquoted text; the map writer adds quotes and applies the same escaping as JSON
 strings. `JsonObjectKeyOwned` parses that text directly when decoding. Numeric

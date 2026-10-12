@@ -266,11 +266,11 @@ fn executed_successor_authority(
         return Err(ChainReadError::Discontinuous { height }.into());
     }
     parent
-        .commitment
+        .commitment()
         .schedule
-        .validate_successor(&current.commitment.schedule)
+        .validate_successor(&current.commitment().schedule)
         .map_err(|error| malformed(error.to_string()))?;
-    let schedule::ScheduledSlot::Ready(scheduled) = &parent.commitment.schedule.next else {
+    let schedule::ScheduledSlot::Ready(scheduled) = &parent.commitment().schedule.next else {
         return Err(malformed("parent has no authorized successor".into()).into());
     };
     let mut validation = EpochValidationScope::new();
@@ -280,7 +280,7 @@ fn executed_successor_authority(
     // Resource admission precedes the boolean signature relation and keeps
     // the original inherited cumulative allowance. No refusal is converted
     // to an invalid certificate or hidden in a new per-frame scope.
-    let scratch = iroha_crypto::BlsNormalAggregateScratch::new(|bytes| {
+    let scratch = iroha_crypto::bls::consensus::ConsensusAggregateScratch::new(|bytes| {
         #[cfg(all(test, sumeragi_core_mutation = "HC13"))]
         {
             let _ = bytes;
@@ -444,7 +444,13 @@ mod allocation_tests {
         let occupied = budget.try_reserve_bytes(occupied_bytes).unwrap();
         let expected: ExecutionDeferred = budget.try_reserve_bytes(slot_bytes).unwrap_err().into();
         let mut validation = EpochValidationScope::new();
-        let refused = AdmittedCommittedBlock::read(block.clone(), 3, &mut validation, &budget);
+        let refused = AdmittedCommittedBlock::read(
+            block.clone(),
+            3,
+            chain.root_scope(),
+            &mut validation,
+            &budget,
+        );
         let Err(ExecutionAttemptError::Deferred(actual)) = refused else {
             panic!("the exact original receipt slot must refuse before decoding")
         };
@@ -455,8 +461,14 @@ mod allocation_tests {
         ));
         drop(occupied);
         assert_eq!(budget.reserved_bytes(), baseline);
-        let receipt = AdmittedCommittedBlock::read(block.clone(), 3, &mut validation, &budget)
-            .expect("retry uses the original source and released original pool");
+        let receipt = AdmittedCommittedBlock::read(
+            block.clone(),
+            3,
+            chain.root_scope(),
+            &mut validation,
+            &budget,
+        )
+        .expect("retry uses the original source and released original pool");
         assert!(receipt.belongs_to(&budget));
         assert_eq!(receipt.slot_bytes(), slot_bytes);
         assert_eq!(
@@ -496,9 +508,7 @@ mod allocation_tests {
             .unwrap();
         let baseline = budget.reserved_bytes();
         let receipt_bytes = Layout::array::<CommittedBlock>(1).unwrap().size();
-        let result_bytes = Layout::array::<ExecutionResultCommitment>(1)
-            .unwrap()
-            .size();
+        let result_bytes = Layout::array::<CertifiedResultV1>(1).unwrap().size();
         let occupied_bytes = budget
             .limit_bytes()
             .checked_sub(baseline + receipt_bytes + result_bytes - 1)
@@ -515,7 +525,13 @@ mod allocation_tests {
             panic!("the unchanged original pool has temporary capacity occupied")
         };
         let mut validation = EpochValidationScope::new();
-        let refused = AdmittedCommittedBlock::read(block.clone(), 3, &mut validation, &budget);
+        let refused = AdmittedCommittedBlock::read(
+            block.clone(),
+            3,
+            chain.root_scope(),
+            &mut validation,
+            &budget,
+        );
         let Err(ExecutionAttemptError::Deferred(actual)) = refused else {
             panic!("the complete result slot must refuse before its decoder starts")
         };
@@ -542,8 +558,14 @@ mod allocation_tests {
         );
         drop(occupied);
         assert_eq!(budget.reserved_bytes(), baseline);
-        let receipt =
-            AdmittedCommittedBlock::read(block.clone(), 3, &mut validation, &budget).unwrap();
+        let receipt = AdmittedCommittedBlock::read(
+            block.clone(),
+            3,
+            chain.root_scope(),
+            &mut validation,
+            &budget,
+        )
+        .unwrap();
         assert!(receipt.belongs_to(&budget));
         assert_eq!(budget.reserved_bytes(), baseline + receipt_bytes);
         assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
@@ -1076,7 +1098,7 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
             .verify_commit_qc_original(current, &authority, &qc)
             .map_err(|error| ParentServiceError::Invalid(error.to_string()))?;
         verify_boundary_source(current, parent, &authority).map_err(parent_source_failure)?;
-        let committee = &current.commitment.schedule.current.committee;
+        let committee = &current.commitment().schedule.current.committee;
         let mut signers = Vec::new();
         let count = qc.signers.ones().count();
         let bytes = count

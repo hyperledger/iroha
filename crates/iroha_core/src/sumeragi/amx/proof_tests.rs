@@ -130,7 +130,13 @@ fn persisted_amx_records_survive_deadline_pruning_and_certified_replay() {
         .unwrap()
         .unwrap();
     assert!(matches!(begin.canonical().record, AmxRecordV1::Begin(_)));
-    assert_eq!(tracker.verify_record(begin.canonical()).unwrap().height, 2);
+    assert_eq!(
+        tracker
+            .verify_record(begin.canonical(), chain.root_scope().into())
+            .unwrap()
+            .height,
+        2
+    );
     assert!(
         read_proof(&chain, 2, AmxRecordKind::Decision, tx)
             .unwrap()
@@ -161,7 +167,9 @@ fn persisted_amx_records_survive_deadline_pruning_and_certified_replay() {
         decision.canonical().record,
         AmxRecordV1::Decision(_)
     ));
-    tracker.verify_record(decision.canonical()).unwrap();
+    tracker
+        .verify_record(decision.canonical(), chain.root_scope().into())
+        .unwrap();
     assert_eq!(
         read_proof(&chain, 2, AmxRecordKind::Begin, tx)
             .unwrap()
@@ -177,7 +185,9 @@ fn persisted_amx_records_survive_deadline_pruning_and_certified_replay() {
     ] {
         let proof = read_proof(&restored, height, kind, tx).unwrap().unwrap();
         assert_eq!(proof, expected);
-        tracker.verify_record(proof.canonical()).unwrap();
+        tracker
+            .verify_record(proof.canonical(), chain.root_scope().into())
+            .unwrap();
     }
 }
 
@@ -345,7 +355,13 @@ fn persisted_amx_original_read_retains_acquired_inode_and_exact_pool_through_dec
             .unwrap(),
     )
     .unwrap();
-    assert_eq!(tracker.verify_record(proof.canonical()).unwrap().height, 2);
+    assert_eq!(
+        tracker
+            .verify_record(proof.canonical(), chain.root_scope().into())
+            .unwrap()
+            .height,
+        2
+    );
     assert!(matches!(&proof.canonical().record, AmxRecordV1::Begin(begin) if begin.tx == tx));
     assert!(
         read.complete().is_err(),
@@ -533,7 +549,13 @@ fn persisted_amx_completed_proof_retains_exact_graph_through_final_namespace_ref
             .unwrap(),
     )
     .unwrap();
-    assert_eq!(tracker.verify_record(proof.canonical()).unwrap().height, 2);
+    assert_eq!(
+        tracker
+            .verify_record(proof.canonical(), chain.root_scope().into())
+            .unwrap()
+            .height,
+        2
+    );
     assert!(matches!(&proof.canonical().record, AmxRecordV1::Begin(begin) if begin.tx == tx));
     assert!(
         read.complete().is_err(),
@@ -685,7 +707,13 @@ fn persisted_amx_detached_source_keeps_original_frame_pool_and_retry_after_view_
             .unwrap(),
     )
     .unwrap();
-    assert_eq!(tracker.verify_record(proof.canonical()).unwrap().height, 2);
+    assert_eq!(
+        tracker
+            .verify_record(proof.canonical(), chain.root_scope().into())
+            .unwrap()
+            .height,
+        2
+    );
     assert!(matches!(&proof.canonical().record, AmxRecordV1::Begin(begin) if begin.tx == tx));
     assert!(owned.complete().is_err());
     let before_drop = budget.reserved_bytes();
@@ -739,7 +767,9 @@ fn persisted_amx_detach_pins_partial_inode_and_continues_without_original_view()
             .unwrap(),
     )
     .unwrap();
-    tracker.verify_record(proof.canonical()).unwrap();
+    tracker
+        .verify_record(proof.canonical(), chain.root_scope().into())
+        .unwrap();
     assert!(owned.complete().is_err());
     fs::remove_file(&archive).unwrap();
     fs::rename(&retained_path, &archive).unwrap();

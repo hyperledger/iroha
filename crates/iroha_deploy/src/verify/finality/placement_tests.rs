@@ -74,7 +74,7 @@ fn exact_tip_and_alternate_certificate_keep_native_placement_results() {
         // The same block with a different corrupt QC must never inherit the exact tip verdict.
         let mut invalid = alternate;
         let header = core(&invalid);
-        let execution = result(&invalid);
+        let execution = result(&invalid, chain.root_scope());
         let mut qc = commit_qc(&invalid);
         qc.agg_sig.0[0] ^= 1;
         replace_certificate(&mut invalid, &header, &qc, &execution);

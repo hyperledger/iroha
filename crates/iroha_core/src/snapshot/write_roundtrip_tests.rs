@@ -1324,7 +1324,11 @@ async fn signed_snapshot_roundtrip_preserves_every_sccp_map() {
     let state = state_factory();
     for seed in [1, 2] {
         let mut block = state.world.block();
-        crate::smartcontracts::isi::sccp::test_support::populate_every_sccp_map(&mut block, seed);
+        crate::smartcontracts::isi::sccp::test_support::populate_every_sccp_map(
+            &mut block,
+            seed,
+            &state.ivm_execution_budget(),
+        );
         block.commit();
     }
     let key_pair = checked_random_snapshot_keypair();

@@ -827,7 +827,13 @@ impl Harness {
             .ok_or_else(|| eyre!("missing parent receipt"))?;
         let height =
             NonZeroU64::new(confirmed.parent_height).ok_or_else(|| eyre!("zero parent height"))?;
-        let source = source_for(prepared, config, peers, verifier.checkpoint().height())?;
+        let source = source_for(
+            prepared,
+            config,
+            peers,
+            verifier.checkpoint().height(),
+            verifier.root_scope()?,
+        )?;
         let block = source.finality_proof(height)?;
         verifier.advance(&source, &block)?;
         let client = Client::builder(config.clone())
@@ -1034,6 +1040,7 @@ fn source_for(
     config: &Config,
     peers: &[PeerId],
     height: u64,
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
 ) -> TestResult<HttpFinalitySource> {
     ensure!(
         prepared.peers.len() == 4 && peers.len() == 4,
@@ -1054,6 +1061,7 @@ fn source_for(
         clients.clone(),
         peers.iter().cloned().zip(clients).collect(),
         Instant::now() + Duration::from_secs(20),
+        root_scope,
     )?)
 }
 
@@ -1063,7 +1071,15 @@ fn independently_observed_parent(
     anchor: &GenesisAnchor,
     peers: &[PeerId],
 ) -> TestResult<FinalityVerifier> {
-    let source = source_for(prepared, config, peers, 1)?;
+    let source = source_for(
+        prepared,
+        config,
+        peers,
+        1,
+        iroha_genesis::signed_genesis_consensus_metadata(&anchor.genesis)?
+            .sumeragi_context
+            .root_scope,
+    )?;
     let mut verifier = FinalityVerifier::from_genesis(
         anchor,
         &source.finality_proof(NonZeroU64::new(1).unwrap())?,

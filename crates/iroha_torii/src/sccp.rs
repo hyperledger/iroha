@@ -2,9 +2,8 @@
 //!
 //! Every honest peer serves identical bytes derived only from committed state; wallets and
 //! destinations never trust them and verify every bundle themselves. Responses are Norito or
-//! JSON by `Accept`. Proof routes answer `409 sccp_attestation_pending` until the chosen
-//! subject is attested and `410 sccp_pruned` once its signatures were pruned by retention; the
-//! checkpoint cover answers `410` when the head covers the height but no checkpoint at or above
+//! JSON by `Accept`. Proofs select a committed certificate with `?at=record|latest|<H>`.
+//! The checkpoint cover answers `410` when the head covers the height but no checkpoint at or above
 //! it is retained. Immutable responses (proof bundles, history paths of an explicit size and
 //! final message states) carry a strong `ETag` over the selected representation and answer a
 //! matching `If-None-Match` with `304`.
@@ -12,24 +11,27 @@
 //! Each handler is a thin extractor over a `*_response` function of a state view, so the
 //! seeded-state tests exercise exactly what the routes serve.
 //!
-//! TODO(ws35): attestation and bridge-key views (being redesigned), the remaining §6 governance
-//! targets (`/proposals?status&after` filters, diffs, readiness), and the Kura fallback for
-//! pruned signatures.
+//! TODO: complete the §6 committee, evidence and governance views alongside the native
+//! finality producer. Retired attestation and roster routes are not mounted.
+//! TODO(TT-A2): known message/control proof requests currently return explicit 503
+//! `sccp_proof_unavailable` until request-funded original native receipt acquisition and the
+//! current control-record producer are integrated. Record existence alone cannot authorize a proof or a cache validator.
 
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse as _, Response},
 };
+use iroha_core::smartcontracts::isi::sccp::read::api::SccpProofHeightV1;
 use iroha_core::{
     smartcontracts::isi::sccp::{
         read::{
-            self, MAX_CONTROLS_PAGE, MAX_OUTBOUND_PAGE, MAX_RECENT_MESSAGES,
-            SccpAttestationChoiceV1, SccpDirectionV1, SccpReadError,
+            self, MAX_CONTROLS_PAGE, MAX_OUTBOUND_PAGE, MAX_RECENT_MESSAGES, SccpDirectionV1,
+            SccpReadError,
         },
         store,
     },
-    state::{StateReadOnly, WorldReadOnly},
+    state::StateReadOnly,
 };
 use iroha_data_model::bridge::SccpNetworkV1;
 use norito::json::{Map, Value};
@@ -39,23 +41,13 @@ use norito::json::{Map, Value};
 // turn `?from_nonce=1` into a JSON number that an `Option<String>` field refuses.
 use crate::{JsonBody, NoritoStringQuery, SharedAppState, utils::extractors::ExtractAccept};
 
-/// `?attestation=own|latest|<height>` of the proof routes (default `own`).
+/// `?at=record|latest|<height>` of the proof routes (default `record`).
 #[derive(Debug, Default, Clone, crate::json_macros::JsonDeserialize)]
-pub(crate) struct AttestationQuery {
-    /// Which subject attests the leaf.
+#[norito(deny_unknown_fields)]
+pub(crate) struct ProofQuery {
+    /// Committed certificate height covering the leaf.
     #[norito(default)]
-    pub attestation: Option<String>,
-}
-
-/// `?after_generation=G&limit=N` of the rotation-chain route (decimal strings).
-#[derive(Debug, Default, Clone, crate::json_macros::JsonDeserialize)]
-pub(crate) struct RotationQuery {
-    /// Generation to rotate from (default 1).
-    #[norito(default)]
-    pub after_generation: Option<String>,
-    /// Page size, at most 16.
-    #[norito(default)]
-    pub limit: Option<String>,
+    pub at: Option<String>,
 }
 
 /// `?direction=outbound|inbound&network=&before=&limit=` of the recent-messages route.
@@ -105,8 +97,21 @@ pub(crate) struct CoveringQuery {
     pub covering: Option<String>,
 }
 
+/// Bounded native committee catch-up page; values stay textual until explicit validation.
+#[derive(Debug, Default, Clone, crate::json_macros::JsonDeserialize)]
+#[norito(deny_unknown_fields)]
+pub(crate) struct RotationsQuery {
+    /// Last independently authenticated generation.
+    #[norito(default)]
+    pub after_generation: Option<String>,
+    /// Number of ending-generation certificates, at most sixteen.
+    #[norito(default)]
+    pub limit: Option<String>,
+}
+
 /// `?size=S` of the history route.
 #[derive(Debug, Default, Clone, crate::json_macros::JsonDeserialize)]
+#[norito(deny_unknown_fields)]
 pub(crate) struct HistoryQuery {
     /// History size (default: the current size).
     #[norito(default)]
@@ -137,11 +142,6 @@ fn read_error(read: &SccpReadError) -> Response {
         SccpReadError::NotFound(_) => {
             error(StatusCode::NOT_FOUND, "sccp_not_found", read.to_string())
         }
-        SccpReadError::Pending(_) => error(
-            StatusCode::CONFLICT,
-            "sccp_attestation_pending",
-            read.to_string(),
-        ),
         SccpReadError::Pruned(_) => error(StatusCode::GONE, "sccp_pruned", read.to_string()),
         SccpReadError::Invalid(_) => error(
             StatusCode::BAD_REQUEST,
@@ -253,16 +253,16 @@ fn parse_network(text: &str) -> Result<SccpNetworkV1, Response> {
         })
 }
 
-fn parse_choice(query: &AttestationQuery) -> Result<SccpAttestationChoiceV1, Response> {
+fn parse_choice(query: &ProofQuery) -> Result<SccpProofHeightV1, Response> {
     query
-        .attestation
+        .at
         .as_deref()
-        .map_or(Ok(SccpAttestationChoiceV1::Own), |text| {
-            SccpAttestationChoiceV1::parse(text).ok_or_else(|| {
+        .map_or(Ok(SccpProofHeightV1::Record), |text| {
+            text.parse().map_err(|_| {
                 error(
                     StatusCode::BAD_REQUEST,
                     "sccp_invalid_query",
-                    "attestation must be `own`, `latest` or a height",
+                    "at must be `record`, `latest` or a positive decimal height",
                 )
             })
         })
@@ -295,6 +295,58 @@ pub(crate) fn capabilities_response(
         .map(|route| route.path().to_owned())
         .collect();
     respond(accept, capabilities)
+}
+
+/// Current or explicit generation over one immutable view, with original graph custody.
+pub(crate) fn committee_response(
+    view: &(impl StateReadOnly + ?Sized),
+    generation: Option<u64>,
+    accept: Option<&ExtractAccept>,
+) -> Response {
+    let result = generation.map_or_else(
+        || read::current_committee(view.world()),
+        |generation| read::committee(view.world(), generation),
+    );
+    respond_result(accept, result)
+}
+
+/// Validate a native rotation request without substituting World records for certificates.
+pub(crate) fn rotations_response(
+    view: &(impl StateReadOnly + ?Sized),
+    query: &RotationsQuery,
+) -> Response {
+    let after = match parse_number(query.after_generation.as_deref(), 0_u64) {
+        Ok(value) if value > 0 => value,
+        Ok(_) => {
+            return error(
+                StatusCode::BAD_REQUEST,
+                "sccp_invalid_query",
+                "after_generation must be positive",
+            );
+        }
+        Err(response) => return response,
+    };
+    let maximum = iroha_sccp::v1::destination::MAX_CERTIFICATES_PER_CALL;
+    let limit = match parse_number(query.limit.as_deref(), maximum) {
+        Ok(value) if (1..=maximum).contains(&value) => value,
+        Ok(_) => {
+            return error(
+                StatusCode::BAD_REQUEST,
+                "sccp_invalid_query",
+                "limit must be between 1 and 16",
+            );
+        }
+        Err(response) => return response,
+    };
+    // TODO(TT-A2): detach the original funded native rotation archive request and retain
+    // its certified source/read/retry owners before assembling up to `limit` responses.
+    // Neither a retained generation record nor its end fields authorize a certificate.
+    let _ = (view, after, limit);
+    error(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "sccp_rotation_unavailable",
+        "native rotation archive is unavailable",
+    )
 }
 
 /// `GET /v1/sccp/messages/{message_id}` over `view`; final states carry an `ETag`.
@@ -390,50 +442,164 @@ pub(crate) fn controls_response(
     )
 }
 
-/// `GET /v1/sccp/messages/{message_id}/proof` over `view` (`ETag`ged).
+/// Explicit implementation unavailability; no record, cache header or requested representation
+/// can substitute for an authenticated certificate and verified membership paths.
+fn proof_unavailable() -> Response {
+    error(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "sccp_proof_unavailable",
+        "request-funded native SCCP proof acquisition is unavailable",
+    )
+}
+
+/// `GET /v1/sccp/messages/{message_id}/proof` over `view`.
+///
+/// TODO(TT-A2): connect the Core native message producer after request-funded receipt
+/// acquisition is complete. Only an authenticated completed bundle may receive an ETag.
 pub(crate) fn message_proof_response(
     view: &(impl StateReadOnly + ?Sized),
     message_id: &str,
-    query: &AttestationQuery,
-    accept: Option<&ExtractAccept>,
-    headers: &HeaderMap,
+    query: &ProofQuery,
+    _accept: Option<&ExtractAccept>,
+    _headers: &HeaderMap,
 ) -> Response {
-    let (message_id, choice) = match (parse_word(message_id), parse_choice(query)) {
+    let (message_id, _choice) = match (parse_word(message_id), parse_choice(query)) {
         (Ok(id), Ok(choice)) => (id, choice),
         (Err(response), _) | (_, Err(response)) => return response,
     };
-    match read::message_proof(view, &message_id, choice) {
-        Ok(bundle) => respond_immutable(accept, headers, bundle),
-        Err(failure) => read_error(&failure),
+    if !store::outbound_messages::contains(view.world(), &message_id) {
+        return read_error(&SccpReadError::NotFound("outbound message".into()));
     }
+    // Existence proves neither native finality nor retention of every required proof fact.
+    // Do not misreport this missing implementation as a pruned certificate or a missing record.
+    proof_unavailable()
 }
 
-/// `GET /v1/sccp/controls/{network}/{revision}/{control_nonce}/proof` over `view`
-/// (`ETag`ged).
+/// `GET /v1/sccp/controls/{network}/{revision}/{control_nonce}/proof` over `view`.
+///
+/// TODO(TT-A2): connect the current Core control producer after request-funded native
+/// acquisition, source joining and encoded response custody are complete.
 pub(crate) fn control_proof_response(
     view: &(impl StateReadOnly + ?Sized),
     (network, revision, control_nonce): (&str, u32, u64),
-    query: &AttestationQuery,
-    accept: Option<&ExtractAccept>,
-    headers: &HeaderMap,
+    query: &ProofQuery,
+    _accept: Option<&ExtractAccept>,
+    _headers: &HeaderMap,
 ) -> Response {
-    let (network, choice) = match (parse_network(network), parse_choice(query)) {
+    let (network, _choice) = match (parse_network(network), parse_choice(query)) {
         (Ok(network), Ok(choice)) => (network, choice),
         (Err(response), _) | (_, Err(response)) => return response,
     };
-    match read::control_proof(view, network, revision, control_nonce, choice) {
-        Ok(bundle) => respond_immutable(accept, headers, bundle),
-        Err(failure) => read_error(&failure),
+    if !store::control_messages::contains(view.world(), &(network, revision, control_nonce)) {
+        return read_error(&SccpReadError::NotFound("control message".into()));
+    }
+    proof_unavailable()
+}
+
+fn history_read_error(failure: read::SccpHistoryReadError) -> Response {
+    use read::SccpHistoryReadError as Failure;
+    match failure {
+        Failure::MissingCommitment => error(
+            StatusCode::NOT_FOUND,
+            "sccp_not_found",
+            "no SCCP commitment at the requested height",
+        ),
+        Failure::SizeOutOfRange | Failure::IndexOutOfRange => error(
+            StatusCode::BAD_REQUEST,
+            "sccp_invalid_query",
+            failure.to_string(),
+        ),
+        Failure::Admission(_) | Failure::Backing(_) => {
+            crate::native_projection_response::capacity().into_response()
+        }
+        Failure::Inconsistent | Failure::ForeignPool => error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "sccp_history_inconsistent",
+            "stored history cannot be served from its original owner",
+        ),
     }
 }
 
-/// `GET /v1/sccp/history/{height}?size=S` over `view`; an explicit size is `ETag`ged.
+/// Encode directly from a borrowed funded graph; every returned byte retains the actual
+/// admitted query owner, including a slice extracted after the HTTP body has been dropped.
+fn respond_funded<T>(
+    owner: &crate::history_producer::HistoryProducerOwner,
+    accept: Option<&ExtractAccept>,
+    headers: &HeaderMap,
+    value: &T,
+    immutable: bool,
+) -> Response
+where
+    T: norito::json::JsonSerialize + norito::core::NoritoSerialize,
+{
+    use crate::utils::ResponseFormat;
+    let selected = match format(accept) {
+        Ok(value) => value,
+        Err(response) => return owner.response(response),
+    };
+    let (content_type, bytes) = match selected {
+        ResponseFormat::Norito => {
+            let encoded = match owner
+                .scope(|| norito::core::to_bytes_bounded(value, owner.response_bytes()))
+            {
+                Ok(bytes) => bytes,
+                Err(_) => return crate::native_projection_response::capacity().into_response(),
+            };
+            (
+                crate::utils::NORITO_MIME_TYPE,
+                crate::response_memory_custody::owned(encoded, owner),
+            )
+        }
+        ResponseFormat::Json => {
+            let encoded = match owner
+                .scope(|| norito::json::to_json_bounded_boxed(value, owner.response_bytes()))
+            {
+                Ok(bytes) => bytes,
+                Err(_) => return crate::native_projection_response::capacity().into_response(),
+            };
+            (
+                "application/json",
+                crate::response_memory_custody::owned(encoded, owner),
+            )
+        }
+    };
+    let bytes = match bytes {
+        Ok(bytes) => bytes,
+        Err(_) => return crate::native_projection_response::capacity().into_response(),
+    };
+    let etag = immutable.then(|| format!("\"{}\"", blake3::hash(&bytes).to_hex()));
+    let mut response = if etag
+        .as_ref()
+        .is_some_and(|etag| crate::utils::if_none_match_matches(headers, etag))
+    {
+        drop(bytes);
+        owner.response(StatusCode::NOT_MODIFIED.into_response())
+    } else {
+        let mut response = match crate::response_memory_custody::json(bytes, owner) {
+            Ok(response) => response,
+            Err(_) => return crate::native_projection_response::capacity().into_response(),
+        };
+        response
+            .headers_mut()
+            .insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+        response
+    };
+    if let Some(etag) = etag {
+        validator_headers(&mut response, &etag);
+    }
+    response
+}
+
+/// `GET /v1/sccp/history/{height}?size=S` under its original query and application owners.
 pub(crate) fn history_response(
     view: &(impl StateReadOnly + ?Sized),
     height: u64,
     query: &HistoryQuery,
     accept: Option<&ExtractAccept>,
     headers: &HeaderMap,
+    cache: &mut read::SccpHistoryNodeCache,
+    cache_budget: &iroha_allocation::AllocationBudget,
+    owner: &crate::history_producer::HistoryProducerOwner,
 ) -> Response {
     let size = match query
         .size
@@ -442,12 +608,21 @@ pub(crate) fn history_response(
         .transpose()
     {
         Ok(size) => size,
-        Err(response) => return response,
+        Err(response) => return owner.response(response),
     };
-    match read::history_path_view(view.world(), height, size) {
-        Ok(path) if size.is_some() => respond_immutable(accept, headers, path),
-        Ok(path) => respond(accept, path),
-        Err(failure) => read_error(&failure),
+    let result = owner.scope(|| {
+        read::history_path_view(
+            view.world(),
+            height,
+            size,
+            cache,
+            cache_budget,
+            owner.cold_frames(),
+        )
+    });
+    match result {
+        Ok(path) => respond_funded(owner, accept, headers, path.view(), size.is_some()),
+        Err(failure) => owner.response(history_read_error(failure)),
     }
 }
 
@@ -500,18 +675,6 @@ pub(crate) fn governance_proposal_response(
     }
 }
 
-fn roster_response(
-    world: &(impl WorldReadOnly + ?Sized),
-    network_id: &[u8; 32],
-    generation: u64,
-    accept: Option<&ExtractAccept>,
-) -> Response {
-    match read::roster_view(world, network_id, generation) {
-        Some(roster) => respond(accept, roster),
-        None => read_error(&SccpReadError::NotFound(format!("generation {generation}"))),
-    }
-}
-
 // ---------------------------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------------------------
@@ -522,6 +685,34 @@ pub(crate) async fn handler_capabilities(
     accept: Option<ExtractAccept>,
 ) -> Response {
     capabilities_response(&app.state.view(), accept.as_ref())
+}
+
+/// `GET /v1/sccp/committees/current`: retain the original committed generation graph.
+pub(crate) async fn handler_current_committee(
+    State(app): State<SharedAppState>,
+    accept: Option<ExtractAccept>,
+) -> Response {
+    committee_response(&app.state.view(), None, accept.as_ref())
+}
+
+/// `GET /v1/sccp/committees/{generation}`: positive generation, with live liability.
+pub(crate) async fn handler_committee(
+    State(app): State<SharedAppState>,
+    Path(generation): Path<String>,
+    accept: Option<ExtractAccept>,
+) -> Response {
+    match parse_number(Some(&generation), 0_u64) {
+        Ok(generation) => committee_response(&app.state.view(), Some(generation), accept.as_ref()),
+        Err(response) => response,
+    }
+}
+
+/// `GET /v1/sccp/committees/rotations`: native certificate catch-up only.
+pub(crate) async fn handler_rotations(
+    State(app): State<SharedAppState>,
+    NoritoStringQuery(query): NoritoStringQuery<RotationsQuery>,
+) -> Response {
+    rotations_response(&app.state.view(), &query)
 }
 
 /// `GET /v1/sccp/registry`: every route with its escrow, stranded balance and revisions.
@@ -589,11 +780,11 @@ pub(crate) async fn handler_controls(
     )
 }
 
-/// `GET /v1/sccp/messages/{message_id}/proof?attestation=`.
+/// `GET /v1/sccp/messages/{message_id}/proof?at=`.
 pub(crate) async fn handler_message_proof(
     State(app): State<SharedAppState>,
     Path(message_id): Path<String>,
-    NoritoStringQuery(query): NoritoStringQuery<AttestationQuery>,
+    NoritoStringQuery(query): NoritoStringQuery<ProofQuery>,
     headers: HeaderMap,
     accept: Option<ExtractAccept>,
 ) -> Response {
@@ -606,11 +797,11 @@ pub(crate) async fn handler_message_proof(
     )
 }
 
-/// `GET /v1/sccp/controls/{network}/{revision}/{control_nonce}/proof?attestation=`.
+/// `GET /v1/sccp/controls/{network}/{revision}/{control_nonce}/proof?at=`.
 pub(crate) async fn handler_control_proof(
     State(app): State<SharedAppState>,
     Path((network, revision, control_nonce)): Path<(String, u32, u64)>,
-    NoritoStringQuery(query): NoritoStringQuery<AttestationQuery>,
+    NoritoStringQuery(query): NoritoStringQuery<ProofQuery>,
     headers: HeaderMap,
     accept: Option<ExtractAccept>,
 ) -> Response {
@@ -631,7 +822,24 @@ pub(crate) async fn handler_history(
     headers: HeaderMap,
     accept: Option<ExtractAccept>,
 ) -> Response {
-    history_response(&app.state.view(), height, &query, accept.as_ref(), &headers)
+    let owner = match crate::history_producer::HistoryProducerOwner::current() {
+        Ok(owner) => owner,
+        Err(error) => return error.into_response(),
+    };
+    let mut cache = app
+        .sccp_history
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    history_response(
+        &app.state.view(),
+        height,
+        &query,
+        accept.as_ref(),
+        &headers,
+        &mut cache,
+        &app.sccp_history_budget,
+        &owner,
+    )
 }
 
 /// `GET /v1/sccp/light-clients`: every installed light client with its head and freeze state.
@@ -703,51 +911,6 @@ pub(crate) async fn handler_governance_proposal(
     accept: Option<ExtractAccept>,
 ) -> Response {
     governance_proposal_response(&app.state.view(), &proposal_id, accept.as_ref())
-}
-
-/// `GET /v1/sccp/rosters/current`.
-pub(crate) async fn handler_roster_current(
-    State(app): State<SharedAppState>,
-    accept: Option<ExtractAccept>,
-) -> Response {
-    let view = app.state.view();
-    let generation = *store::roster_current::get(view.world());
-    match read::roster_view(view.world(), view.network_id().as_bytes(), generation) {
-        Some(roster) => respond(accept.as_ref(), roster),
-        None => read_error(&SccpReadError::NotFound("no roster generation yet".into())),
-    }
-}
-
-/// `GET /v1/sccp/rosters/{generation}`.
-pub(crate) async fn handler_roster(
-    State(app): State<SharedAppState>,
-    Path(generation): Path<u64>,
-    accept: Option<ExtractAccept>,
-) -> Response {
-    let view = app.state.view();
-    roster_response(
-        view.world(),
-        view.network_id().as_bytes(),
-        generation,
-        accept.as_ref(),
-    )
-}
-
-/// `GET /v1/sccp/rosters/rotations?after_generation=&limit=`.
-pub(crate) async fn handler_rotations(
-    State(app): State<SharedAppState>,
-    NoritoStringQuery(query): NoritoStringQuery<RotationQuery>,
-    accept: Option<ExtractAccept>,
-) -> Response {
-    let (after_generation, limit) = match (
-        parse_number(query.after_generation.as_deref(), 1_u64),
-        parse_number(query.limit.as_deref(), read::MAX_ROTATION_STEPS),
-    ) {
-        (Ok(after_generation), Ok(limit)) => (after_generation, limit),
-        (Err(response), _) | (_, Err(response)) => return response,
-    };
-    let chain = read::rotation_chain(&app.state.view(), after_generation, limit);
-    respond(accept.as_ref(), chain)
 }
 
 #[cfg(test)]

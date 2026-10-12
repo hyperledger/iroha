@@ -269,9 +269,9 @@ fn build_history(retain: bool) -> Vec<iroha_data_model::block::SharedSignedBlock
         Some(policy),
     )
     .unwrap();
-    let mut current = crate::sumeragi::epoch::authenticated_genesis(&genesis)
-        .map(|genesis| genesis.into_parts().0)
-        .unwrap();
+    let (mut current, root_scope) = crate::sumeragi::epoch::authenticated_genesis(&genesis)
+        .unwrap()
+        .into_parts();
     assert_eq!(current.authorization.last_height, 6);
     let network = NetworkId::from_genesis_hash(genesis.hash());
     let instance =
@@ -319,10 +319,16 @@ fn build_history(retain: bool) -> Vec<iroha_data_model::block::SharedSignedBlock
         .unwrap(),
     )
     .unwrap();
+    let original_x = SccpFinalityHeaderV1::inactive(
+        *network.as_bytes(),
+        1,
+        u64::try_from(genesis.header().creation_time().as_millis()).unwrap(),
+    )
+    .unwrap();
     genesis = genesis.with_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
         Vec::new(),
         Vec::new(),
-        result.preimage().unwrap(),
+        fixture_result_preimage(&original_x, &result),
         Vec::new(),
     )));
     let mut history = vec![crate::block::reserve_block_for_tests().initialize(genesis)];
@@ -334,7 +340,7 @@ fn build_history(retain: bool) -> Vec<iroha_data_model::block::SharedSignedBlock
         &active_keys,
     );
     for height in 2..=14 {
-        let parent = read_frame(history.last().unwrap().clone(), height - 1).unwrap();
+        let parent = read_frame(history.last().unwrap().clone(), height - 1, root_scope).unwrap();
         let block_time = parent.block().header().creation_time() + Duration::from_millis(1);
         let (_, time_source) = iroha_primitives::time::TimeSource::new_mock(block_time);
         let mut transaction = iroha_data_model::transaction::TransactionBuilder::new(
@@ -518,8 +524,19 @@ fn build_history(retain: bool) -> Vec<iroha_data_model::block::SharedSignedBlock
             .unwrap(),
         )
         .unwrap();
-        let preimage = commitment.preimage().unwrap();
-        let qc = certificate(&active_keys, &header, result_of_preimage(&preimage), false);
+        let original_x = SccpFinalityHeaderV1::inactive(
+            *network.as_bytes(),
+            height,
+            u64::try_from(block.header().creation_time().as_millis()).unwrap(),
+        )
+        .unwrap();
+        let preimage = fixture_result_preimage(&original_x, &commitment);
+        let qc = certificate(
+            &active_keys,
+            &header,
+            result_of_preimage(&preimage).unwrap(),
+            false,
+        );
         block = block.with_commit_certificate(Some(
             commit_certificate(&header, &qc, preimage, availability).unwrap(),
         ));
@@ -626,7 +643,7 @@ fn historical_authority_missing_reordered_or_forged_proofs_fail_closed() {
     for mutation in 0..5 {
         let mut corrupt = history.clone();
         corrupt[5] = with_parts(&corrupt[5], |_, _, bytes| {
-            let mut result = ExecutionResultCommitment::decode(bytes).unwrap();
+            let (original_x, mut result) = fixture_result_parts(bytes);
             let next = &mut result.schedule.boundary.as_mut().unwrap().next;
             match mutation {
                 0 => {
@@ -645,7 +662,7 @@ fn historical_authority_missing_reordered_or_forged_proofs_fail_closed() {
                     config.epoch = changed.clone();
                 }
             }
-            *bytes = norito::encode_canonical(&result).unwrap();
+            *bytes = fixture_result_preimage(&original_x, &result);
         });
         let state = state_with_history(&corrupt);
         let view = state.view();
@@ -714,7 +731,7 @@ fn nonempty_boundary_checks_exact_fresh_pulse() {
         let mut history = original.clone();
         history[5] = with_parts(&history[5], |header, qc, bytes| {
             {
-                let mut result = ExecutionResultCommitment::decode(bytes).unwrap();
+                let (original_x, mut result) = fixture_result_parts(bytes);
                 let boundary = result.schedule.boundary.as_mut().unwrap();
                 if mutation == 1 {
                     boundary.selection_anchor =
@@ -729,10 +746,15 @@ fn nonempty_boundary_checks_exact_fresh_pulse() {
                         next.epoch = changed;
                     }
                 }
-                *bytes = result.preimage().unwrap();
+                *bytes = fixture_result_preimage(&original_x, &result);
             }
 
-            *qc = certificate(&keys(false), header, result_of_preimage(bytes), false);
+            *qc = certificate(
+                &keys(false),
+                header,
+                result_of_preimage(bytes).unwrap(),
+                false,
+            );
         });
         let state = state_with_history(&history);
         let view = state.view();
@@ -778,21 +800,31 @@ fn unsigned_genesis_result_cannot_substitute_the_signed_epoch_root() {
     let mut history = history();
     let original = history[0].as_ref();
     let certificate = original.commit_certificate().unwrap();
-    let mut result = ExecutionResultCommitment::decode(certificate.result_preimage()).unwrap();
+    let (original_x, mut result) = fixture_result_parts(certificate.result_preimage());
     let mut changed = result.schedule.current.clone();
     changed.leader_seed[0] ^= 1;
     result.schedule = outcome(1, &changed, None);
     let certificate = CommitCertificate::from_untrusted_parts(
         certificate.consensus_header().to_vec(),
         certificate.commit_qc().to_vec(),
-        result.preimage().unwrap(),
+        fixture_result_preimage(&original_x, &result),
         certificate.availability().to_vec(),
     );
     history[0] = crate::block::reserve_block_for_tests()
         .initialize(original.clone().with_commit_certificate(Some(certificate)));
     let state = state_with_history(&history);
     let view = state.view();
-    assert!(read_frame(Clone::clone(&history[0]), 1).is_ok());
+    assert!(
+        read_frame(
+            Clone::clone(&history[0]),
+            1,
+            iroha_genesis::signed_genesis_consensus_metadata(&history[0])
+                .unwrap()
+                .sumeragi_context
+                .root_scope
+        )
+        .is_ok()
+    );
     assert!(
         committed_block(&view, 1).is_err(),
         "stored frames and a hash index cannot replace original execution provenance"
@@ -811,7 +843,7 @@ fn result_pulses_require_exact_height_network_session_and_parent_bindings() {
     for mutation in 0..7 {
         let original = &history[if mutation == 6 { 10 } else { 4 }];
         let certificate = original.commit_certificate().unwrap();
-        let mut result = ExecutionResultCommitment::decode(certificate.result_preimage()).unwrap();
+        let (_original_x, mut result) = fixture_result_parts(certificate.result_preimage());
         if mutation == 0 {
             result.beacon = None;
         } else {
@@ -840,16 +872,28 @@ fn result_pulses_require_exact_height_network_session_and_parent_bindings() {
     }
     // A well-shaped pulse for a different parent still cannot authenticate this stored frame.
     let bad = with_parts(&history[4], |header, qc, bytes| {
-        let mut result = ExecutionResultCommitment::decode(bytes).unwrap();
+        let (original_x, mut result) = fixture_result_parts(bytes);
         let pulse = result.beacon.as_mut().unwrap();
         pulse.finalized_chain_anchor.block_hash =
             HashOf::from_untyped_unchecked(Hash::new(b"other parent"));
         pulse.pulse_id = crate::beacon::global_threshold_beacon_pulse_id_v1(pulse, pulse.seed);
-        *bytes = result.preimage().unwrap();
-        *qc = certificate(&keys(false), header, result_of_preimage(bytes), false);
+        *bytes = fixture_result_preimage(&original_x, &result);
+        *qc = certificate(
+            &keys(false),
+            header,
+            result_of_preimage(bytes).unwrap(),
+            false,
+        );
     });
     assert!(matches!(
-        read_frame(bad, 5),
+        read_frame(
+            bad,
+            5,
+            iroha_genesis::signed_genesis_consensus_metadata(&history[0])
+                .unwrap()
+                .sumeragi_context
+                .root_scope
+        ),
         Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
             ChainReadError::Malformed { height: 5, .. }
         ))
@@ -925,11 +969,19 @@ fn pinned_restoration_reuses_full_boundary_verification_and_one_authority_cursor
 fn historical_pulse_requires_signed_header_bytes_and_complete_native_context() {
     let history = history();
     let original = &history[4]; // genuine threshold pulse immediately before the first boundary
-    let valid = read_frame(original.clone(), 5).unwrap();
+    let valid = read_frame(
+        original.clone(),
+        5,
+        iroha_genesis::signed_genesis_consensus_metadata(&history[0])
+            .unwrap()
+            .sumeragi_context
+            .root_scope,
+    )
+    .unwrap();
     assert!(!valid.header().unwrap().control_witness.is_empty());
     for mutation in 0..3 {
         let corrupt = with_parts(original, |header, qc, bytes| {
-            let mut result = ExecutionResultCommitment::decode(bytes).unwrap();
+            let (original_x, mut result) = fixture_result_parts(bytes);
             if mutation == 0 {
                 header.control_witness = iroha_sumeragi::types::ControlWitness::empty();
             } else {
@@ -949,12 +1001,25 @@ fn historical_pulse_requires_signed_header_bytes_and_complete_native_context() {
                 result.beacon = Some(pulses[0]);
                 header.control_witness =
                     crate::sumeragi::epoch_beacon::control::encode(result.beacon).unwrap();
-                *bytes = result.preimage().unwrap();
+                *bytes = fixture_result_preimage(&original_x, &result);
             }
-            *qc = certificate(&keys(false), header, result_of_preimage(bytes), false);
+            *qc = certificate(
+                &keys(false),
+                header,
+                result_of_preimage(bytes).unwrap(),
+                false,
+            );
         });
         assert!(
-            read_frame(corrupt, 5).is_err(),
+            read_frame(
+                corrupt,
+                5,
+                iroha_genesis::signed_genesis_consensus_metadata(&history[0])
+                    .unwrap()
+                    .sumeragi_context
+                    .root_scope
+            )
+            .is_err(),
             "genuine threshold and QC signatures cannot rebind a pulse to another source"
         );
     }

@@ -254,6 +254,8 @@ mod tests {
             &Pipeline::default(),
             transaction.payload(),
             0,
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                .expect("original committed fixture time"),
             2,
             Some(ds),
         )
@@ -445,6 +447,8 @@ mod tests {
             &Pipeline::default(),
             transaction.payload(),
             0,
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                .expect("original committed fixture time"),
             2,
             Some(ds),
         )

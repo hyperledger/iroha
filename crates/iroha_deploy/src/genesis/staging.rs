@@ -542,10 +542,18 @@ fn staged_genesis_with_projection_on_bounded_stack<T>(
     project: impl FnOnce(&iroha_core::state::StateBlock<'_>) -> Result<T, color_eyre::eyre::Error>,
 ) -> Result<StagedGenesisProjection<T>, color_eyre::eyre::Error> {
     let _chain_discriminant = staged_genesis_chain_discriminant(genesis);
-    let consensus_mode = match genesis.consensus_mode() {
+    let signed_metadata = iroha_genesis::signed_genesis_consensus_metadata(&provisional.0)
+        .wrap_err("read signed genesis consensus context before staging")?;
+    if signed_metadata.mode != genesis.consensus_mode() {
+        return Err(eyre!(
+            "genesis manifest consensus mode differs from signed metadata"
+        ));
+    }
+    let consensus_mode = match signed_metadata.mode {
         SumeragiConsensusMode::Permissioned => ConsensusMode::Permissioned,
         SumeragiConsensusMode::Npos => ConsensusMode::Npos,
     };
+    let root_scope = signed_metadata.sumeragi_context.root_scope;
     let (state, _, authority) = configured_initial_genesis_state(genesis, config, &provisional)?;
     let voters = iroha_core::sumeragi::schedule::genesis_validators(&provisional)
         .map_err(|error| eyre!("invalid signed Sumeragi genesis roster: {error}"))?;
@@ -562,6 +570,7 @@ fn staged_genesis_with_projection_on_bounded_stack<T>(
         &TimeSource::new_system(),
         &state,
         consensus_mode,
+        root_scope,
     )
     .unpack(|_| {})
     .map_err(|(block, error)| {
@@ -967,5 +976,14 @@ mod tests {
         );
         iroha_data_model::nexus::decode_nexus_amx_context_v1(&restaged.nexus_amx_context_preimage)
             .expect("the staged preimage is a canonical Nexus/AMX context");
+        let different_mode = bound_manifest.with_consensus_mode(SumeragiConsensusMode::Npos);
+        let mismatch = restage_signed_sumeragi_context_hashes(&different_mode, None, &signed.0)
+            .err()
+            .expect("a manifest cannot replace the signed consensus mode");
+        assert!(
+            mismatch
+                .to_string()
+                .contains("genesis manifest consensus mode differs from signed metadata")
+        );
     }
 }

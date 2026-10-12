@@ -396,6 +396,10 @@ fn execute_fixture_genesis(
     let topology = Topology::new(
         iroha_core::sumeragi::startup::genesis_committee_peers(&provisional.0).unwrap(),
     );
+    let root_scope = iroha_genesis::signed_genesis_consensus_metadata(&provisional.0)
+        .unwrap()
+        .sumeragi_context
+        .root_scope;
     let validation = ValidBlock::validate_signed_genesis(
         provisional.0,
         &topology,
@@ -403,6 +407,7 @@ fn execute_fixture_genesis(
         &iroha_primitives::time::TimeSource::new_system(),
         &state,
         iroha_data_model::block::consensus::ConsensusMode::Npos,
+        root_scope,
     )
     .unpack(|_| {});
     let (valid, staged) = match validation {

@@ -77,6 +77,8 @@ pub(crate) enum ScheduleStep {
     Requested {
         /// Original complete context, guards and same-pool nested allocations.
         captured: CapturedExecution,
+        /// Original root scope authenticated before transaction effects, retained on retry.
+        root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
         /// Fixed-width transported proof authenticated against that same original cut.
         pulse: epoch_beacon::VerifiedEpochPulse,
     },
@@ -99,6 +101,22 @@ impl fmt::Debug for ScheduleStep {
     }
 }
 impl ScheduleStep {
+    /// Borrow the original signed genesis authority before any transaction effects.
+    /// The completed or absent lifecycle cannot grant initialization authority.
+    pub(crate) fn original_genesis_context(
+        &self,
+    ) -> Option<&iroha_data_model::sumeragi::epoch::ValidatorEpochContextV1> {
+        match self {
+            Self::Requested {
+                captured,
+                root_scope: iroha_data_model::block::consensus::SumeragiRootScope::Global,
+                ..
+            } if captured.inputs().schedule.height == 1 => {
+                Some(&captured.inputs().schedule.current)
+            }
+            _ => None,
+        }
+    }
     pub(crate) fn frozen_boundary(&self) -> Option<&FrozenEpochBoundary> {
         match self {
             Self::Requested {
@@ -347,7 +365,11 @@ impl StateBlock<'_> {
                 .global_beacon_latest_pulse
                 .insert(GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY, link);
         }
-        self.sumeragi_schedule = ScheduleStep::Requested { captured, pulse };
+        self.sumeragi_schedule = ScheduleStep::Requested {
+            captured,
+            pulse,
+            root_scope,
+        };
         Ok(())
     }
 
@@ -357,7 +379,12 @@ impl StateBlock<'_> {
         &mut self,
     ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<ScheduleError>> {
         let step = std::mem::take(&mut self.sumeragi_schedule);
-        let ScheduleStep::Requested { captured, pulse } = step else {
+        let ScheduleStep::Requested {
+            captured,
+            pulse,
+            root_scope,
+        } = step
+        else {
             self.sumeragi_schedule = step;
             return Ok(());
         };
@@ -386,7 +413,11 @@ impl StateBlock<'_> {
         })();
         match prepare {
             Err(error) => {
-                self.sumeragi_schedule = ScheduleStep::Requested { captured, pulse };
+                self.sumeragi_schedule = ScheduleStep::Requested {
+                    captured,
+                    pulse,
+                    root_scope,
+                };
                 Err(error)
             }
             Ok((graph, params)) => {

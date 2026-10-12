@@ -12,7 +12,10 @@ use iroha_crypto::KeyPair;
 use std::{num::NonZeroU64, time::Duration};
 
 fn fixture_successor(fixture: &Fixture) -> SumeragiFinalityProof {
-    let parent = fixture.second.decode_checked().unwrap();
+    let parent = fixture
+        .second
+        .decode_checked(CertifiedResultScope::TairaGlobal)
+        .unwrap();
     let header = BlockHeader::new(
         NonZeroU64::new(3).unwrap(),
         Some(parent.block.hash()),
@@ -34,7 +37,10 @@ fn fixture_successor(fixture: &Fixture) -> SumeragiFinalityProof {
     builder.push_transaction(transaction);
     let mut block = builder.build(BlockSignatures::default());
     output_test_support::install_network(&mut block, vec![Ok(Vec::new())]).unwrap();
-    let result = tests::result(&block, &parent.commitment.schedule.current);
+    let result = tests::result(
+        &block,
+        &parent.certified_result.commitment().schedule.current,
+    );
     tests::certify_successor(
         &fixture.keys,
         &fixture.validators,

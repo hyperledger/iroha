@@ -16,6 +16,7 @@ pub(super) struct CommittedRead {
     height: u64,
     budget: AllocationBudget,
     crypto: SharedCrypto,
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
     schedule: Arc<dyn AvailabilitySchedule>,
 
     phase: Phase,
@@ -27,12 +28,14 @@ impl CommittedRead {
         budget: AllocationBudget,
         crypto: SharedCrypto,
         schedule: Arc<dyn AvailabilitySchedule>,
+        root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
     ) -> Self {
         Self {
             height,
             phase: Phase::Certificate(CertificateRead::new(block, budget.clone())),
             budget,
             crypto,
+            root_scope,
             schedule,
         }
     }
@@ -86,6 +89,7 @@ impl CommittedRead {
                         decoded,
                         self.budget.clone(),
                         self.crypto.clone(),
+                        self.root_scope,
                     ));
                 }
                 Phase::Projecting(mut job) => match job.poll_with_qc(&self.budget) {

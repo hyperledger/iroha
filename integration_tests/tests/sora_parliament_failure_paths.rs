@@ -1017,7 +1017,7 @@ async fn finalize_failure_path_policy_ballot(
     network.ensure_blocks(release_height).await?;
     let mut pulses = Vec::with_capacity(network.peers().len());
     for peer in network.peers() {
-        pulses.push(pulse_at(&peer.client(), release_height).await?);
+        pulses.push(pulse_at(&peer.client(), release_height, &network).await?);
     }
     assert!(pulses.windows(2).all(|pair| pair[0] == pair[1]));
     submit_transition(
@@ -2077,6 +2077,7 @@ async fn four_validator_hidden_capacity_retains_then_releases_citizenship_bond_i
             &client,
             height,
             "pre-request capacity evidence must not consume or demand a beacon pulse",
+            &network,
         )
         .await?;
     }

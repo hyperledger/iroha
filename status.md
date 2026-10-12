@@ -28,11 +28,15 @@ hold detailed acceptance criteria. Routine repair receipts belong in PRs and CI.
 
 ## Immediate blockers
 
-The merged SCCP revision removes the attestation, bridge-key and roster model,
-but Core and Rust client consumers still reference those retired interfaces.
-The node dependency graph does not compile until those consumers complete the
-native-finality migration; current daemon, Push and network qualification is
-blocked at compilation. Restoring retired types is not an accepted repair.
+SCCP uses native finality, current committee generations and the 199-byte control
+leaf. Message and control projections share native receipt, block and history
+verification. Control enactment binds the exact governance certificate and effect
+to both pause fields; pause records are included in current and undo State capture.
+Current-candidate validation of these changes remains pending. Torii proof queries
+return explicit unavailability for known records until request-funded native
+acquisition, source joining and response custody are complete. Fast-pause production,
+casting-open provenance and the shared lifecycle pass remain open. Daemon, Push,
+full client and network qualification remain pending.
 
 The Nexus proposal/status repairs and original invocation binding are preserved.
 The paid Nexus workload exposed an AMX retry defect: a completed State visibility

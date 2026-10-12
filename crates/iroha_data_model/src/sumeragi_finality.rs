@@ -53,7 +53,7 @@ pub mod certified_result;
 pub use certified_result::{
     CertifiedResultError, CertifiedResultScope, CertifiedResultV1, FinalityHeaderError,
     MAX_RESULT_BODY_BYTES, RESULT_BODY_TAG, SccpFinalityHeaderFieldsV1, SccpFinalityHeaderV1,
-    committee_root, context_committee_root,
+    committee_root, context_committee_root, result_of_preimage,
 };
 mod checkpoint;
 pub use checkpoint::{MAX_FINALITY_CHECKPOINT_BYTES, SumeragiFinalityCheckpoint};
@@ -76,7 +76,8 @@ use std::collections::BTreeMap;
 
 use iroha_crypto::{
     Algorithm, BlsNormalPopVerifiedKey, Hash, HashOf, PublicKey, SignatureOf,
-    bls_normal_aggregate_signatures, bls_normal_verify_preaggregated_multi_message,
+    bls::consensus::{ConsensusAggregateScratch, ConsensusDigest},
+    bls_normal_aggregate_signatures,
 };
 use iroha_model_base::peer::PeerId;
 use iroha_sumeragi::{
@@ -462,7 +463,7 @@ pub struct DecodedSumeragiBlock {
     availability: Option<AvailabilityFrame>,
     core_hash: Hash32,
     result: Hash32,
-    commitment: ExecutionResultCommitment,
+    certified_result: CertifiedResultV1,
     committee_digest: [u8; 32],
 }
 
@@ -483,7 +484,7 @@ impl DecodedSumeragiBlock {
         self.block.hash() == *block_hash
             && self.core_hash.0 == core_hash
             && self.result.0 == result
-            && &self.commitment == commitment
+            && self.certified_result.commitment() == commitment
     }
 
     /// Structurally checked execution under the proof's candidate committee.
@@ -492,7 +493,7 @@ impl DecodedSumeragiBlock {
     /// Remote consumers must use `SumeragiFinalityVerifier` before trusting it.
     #[must_use]
     pub fn execution(&self) -> &ExecutionCommitment {
-        &self.commitment.execution
+        &self.certified_result.commitment().execution
     }
 }
 
@@ -508,8 +509,11 @@ impl SumeragiFinalityProof {
     ///
     /// # Errors
     /// Malformed, empty, inconsistent, oversized or cryptographically invalid material.
-    pub fn decode_checked(&self) -> Result<DecodedSumeragiBlock, FinalityError> {
-        self.decode_parts().map(|(decoded, _, _)| decoded)
+    pub fn decode_checked(
+        &self,
+        scope: CertifiedResultScope,
+    ) -> Result<DecodedSumeragiBlock, FinalityError> {
+        self.decode_parts(scope).map(|(decoded, _, _)| decoded)
     }
 
     // Preserve the exact proposal image and admitted proof-key context until the trusted
@@ -517,14 +521,16 @@ impl SumeragiFinalityProof {
     // discards these; neither path manufactures native available-body custody.
     fn decode_parts(
         &self,
+        scope: CertifiedResultScope,
     ) -> Result<(DecodedSumeragiBlock, Option<Vec<u8>>, ProofCrypto), FinalityError> {
-        self.decode_parts_with_validation(None)
+        self.decode_parts_with_validation(scope, None)
     }
 
     // Enclosing checkpoint and attestation operations may supply a pure epoch workspace.
     // Independent proof readers preserve the original separate scopes and allocation charges.
     fn decode_parts_with_validation(
         &self,
+        scope: CertifiedResultScope,
         mut validation: Option<&mut EpochValidationScope>,
     ) -> Result<(DecodedSumeragiBlock, Option<Vec<u8>>, ProofCrypto), FinalityError> {
         need(
@@ -551,18 +557,26 @@ impl SumeragiFinalityProof {
         let certificate = block
             .commit_certificate()
             .ok_or_else(|| FinalityError("embedded commit certificate missing".into()))?;
-        let commitment = validation
+        let certified_result = validation
             .as_deref_mut()
             .map_or_else(
-                || ExecutionResultCommitment::decode(certificate.result_preimage()),
+                || CertifiedResultV1::decode(certificate.result_preimage(), scope),
                 |validation| {
-                    ExecutionResultCommitment::decode_with_validation(
+                    CertifiedResultV1::decode_with_validation(
                         certificate.result_preimage(),
+                        scope,
                         validation,
                     )
                 },
             )
             .map_err(malformed)?;
+        certified_result
+            .check_block(
+                self.height(),
+                u64::try_from(block.header().creation_time().as_millis()).map_err(malformed)?,
+            )
+            .map_err(malformed)?;
+        let commitment = certified_result.commitment();
         need(
             commitment.height == self.height(),
             "result height differs from its block",
@@ -591,7 +605,8 @@ impl SumeragiFinalityProof {
                 |validation| validation.core_epoch(&commitment.schedule.current),
             )
             .map_err(malformed)?;
-        let result = result_of_preimage(certificate.result_preimage());
+        let result = result_of_preimage(certificate.result_preimage())
+            .ok_or_else(|| FinalityError("invalid certified result preimage".into()))?;
         let (len, hash) = block.executed_block_wire_identity().map_err(malformed)?;
         need(
             commitment.execution.executed_block_wire_len == len
@@ -659,7 +674,7 @@ impl SumeragiFinalityProof {
                 availability,
                 core_hash,
                 result,
-                commitment,
+                certified_result,
                 committee_digest,
             },
             payload,
@@ -670,8 +685,18 @@ impl SumeragiFinalityProof {
 
 /// Execution authenticated by the verifier's independently anchored contiguous prefix.
 #[derive(Debug, Clone)]
-pub struct VerifiedSumeragiBlock(DecodedSumeragiBlock);
+pub struct VerifiedSumeragiBlock(
+    DecodedSumeragiBlock,
+    crate::block::consensus::SumeragiRootScope,
+);
 impl VerifiedSumeragiBlock {
+    /// Original root scope retained from the independently authenticated signed genesis.
+    /// Reading this fixed scalar does not decode a checkpoint or copy its authority graph.
+    #[must_use]
+    pub const fn root_scope(&self) -> crate::block::consensus::SumeragiRootScope {
+        self.1
+    }
+
     /// The authenticated Iroha header.
     #[must_use]
     pub fn header(&self) -> BlockHeader {
@@ -705,12 +730,17 @@ impl VerifiedSumeragiBlock {
     /// The authenticated execution commitment.
     #[must_use]
     pub fn execution(&self) -> &ExecutionCommitment {
-        &self.0.commitment.execution
+        &self.0.certified_result.commitment().execution
     }
     /// Complete current result and next schedule commitment.
     #[must_use]
     pub fn commitment(&self) -> &ExecutionResultCommitment {
-        &self.0.commitment
+        self.0.certified_result.commitment()
+    }
+    /// Original certified header and body authenticated by this verifier's selected root.
+    #[must_use]
+    pub fn certified_result(&self) -> &CertifiedResultV1 {
+        &self.0.certified_result
     }
     /// Require the authenticated successor to belong to the exact selected Global root.
     ///
@@ -1005,7 +1035,7 @@ impl SumeragiFinalityVerifier {
         )?;
         let decoded = self.check(proof)?;
         self.decisions.insert(next, Self::decision(&decoded));
-        Ok(VerifiedSumeragiBlock(decoded))
+        Ok(VerifiedSumeragiBlock(decoded, self.root_scope()))
     }
     /// Re-verify an alternate certificate witness for a decision already in this prefix.
     /// Equal inputs still undergo cryptographic verification and prefix-membership checks.
@@ -1048,8 +1078,8 @@ impl SumeragiFinalityVerifier {
             .decisions
             .get(&candidate.height())
             .ok_or_else(|| FinalityError("decision is outside authenticated prefix".into()))?;
-        let (decoded, proposal, crypto) =
-            candidate.decode_parts_with_validation(validation.as_deref_mut())?;
+        let (decoded, proposal, crypto) = candidate
+            .decode_parts_with_validation(self.root_scope().into(), validation.as_deref_mut())?;
         self.check_trusted(
             candidate,
             &decoded,
@@ -1067,13 +1097,23 @@ impl SumeragiFinalityVerifier {
                 && decoded.core_hash == expected.core_hash
                 && decoded.result == expected.result
                 && decoded.committee_digest == expected.committee_digest
-                && decoded.commitment.schedule == expected.schedule
-                && decoded.commitment.beacon == expected.beacon
-                && decoded.commitment.execution.executed_block_wire_hash == expected.executed_hash
-                && decoded.commitment.execution.executed_block_wire_len == expected.executed_len,
+                && decoded.certified_result.commitment().schedule == expected.schedule
+                && decoded.certified_result.commitment().beacon == expected.beacon
+                && decoded
+                    .certified_result
+                    .commitment()
+                    .execution
+                    .executed_block_wire_hash
+                    == expected.executed_hash
+                && decoded
+                    .certified_result
+                    .commitment()
+                    .execution
+                    .executed_block_wire_len
+                    == expected.executed_len,
             "proof differs from retained authenticated decision",
         )?;
-        Ok(VerifiedSumeragiBlock(decoded))
+        Ok(VerifiedSumeragiBlock(decoded, self.root_scope()))
     }
 
     fn decision(value: &DecodedSumeragiBlock) -> Decision {
@@ -1082,14 +1122,22 @@ impl SumeragiFinalityVerifier {
             core_hash: value.core_hash,
             result: value.result,
             committee_digest: value.committee_digest,
-            schedule: value.commitment.schedule.clone(),
-            beacon: value.commitment.beacon,
-            executed_hash: value.commitment.execution.executed_block_wire_hash,
-            executed_len: value.commitment.execution.executed_block_wire_len,
+            schedule: value.certified_result.commitment().schedule.clone(),
+            beacon: value.certified_result.commitment().beacon,
+            executed_hash: value
+                .certified_result
+                .commitment()
+                .execution
+                .executed_block_wire_hash,
+            executed_len: value
+                .certified_result
+                .commitment()
+                .execution
+                .executed_block_wire_len,
         }
     }
     fn check(&self, proof: &SumeragiFinalityProof) -> Result<DecodedSumeragiBlock, FinalityError> {
-        let (decoded, proposal, crypto) = proof.decode_parts()?;
+        let (decoded, proposal, crypto) = proof.decode_parts(self.root_scope().into())?;
         self.check_trusted(proof, &decoded, proposal.as_deref(), &crypto, None)?;
         Ok(decoded)
     }
@@ -1127,16 +1175,20 @@ impl SumeragiFinalityVerifier {
                             .encode_wire()
                             .map_err(malformed)?
                     && decoded.committee_digest == self.genesis_committee_digest
-                    && decoded.commitment.schedule.current == self.genesis_epoch,
+                    && decoded.certified_result.commitment().schedule.current == self.genesis_epoch,
                 "genesis proof differs from independently selected signed root",
             )?;
             validation
                 .as_deref_mut()
                 .map_or_else(
-                    || ConsensusSchedule::from_genesis_outcome(&decoded.commitment.schedule),
+                    || {
+                        ConsensusSchedule::from_genesis_outcome(
+                            &decoded.certified_result.commitment().schedule,
+                        )
+                    },
                     |validation| {
                         ConsensusSchedule::from_genesis_outcome_with_validation(
-                            &decoded.commitment.schedule,
+                            &decoded.certified_result.commitment().schedule,
                             validation,
                         )
                     },
@@ -1153,17 +1205,17 @@ impl SumeragiFinalityVerifier {
                     || {
                         parent
                             .schedule
-                            .validate_successor(&decoded.commitment.schedule)
+                            .validate_successor(&decoded.certified_result.commitment().schedule)
                     },
                     |validation| {
                         parent.schedule.validate_successor_with_validation(
-                            &decoded.commitment.schedule,
+                            &decoded.certified_result.commitment().schedule,
                             validation,
                         )
                     },
                 )
                 .map_err(malformed)?;
-            if let Some(boundary) = &decoded.commitment.schedule.boundary {
+            if let Some(boundary) = &decoded.certified_result.commitment().schedule.boundary {
                 need(
                     boundary.selection_anchor == parent.block_hash,
                     "boundary selection anchor differs from certified parent",
@@ -1184,8 +1236,19 @@ impl SumeragiFinalityVerifier {
                     need(
                         preparation.election_seed
                             == election_seed(
-                                decoded.commitment.schedule.current.network_id,
-                                decoded.commitment.schedule.current.authorization.epoch,
+                                decoded
+                                    .certified_result
+                                    .commitment()
+                                    .schedule
+                                    .current
+                                    .network_id,
+                                decoded
+                                    .certified_result
+                                    .commitment()
+                                    .schedule
+                                    .current
+                                    .authorization
+                                    .epoch,
                                 pulse,
                             )
                             .map_err(malformed)?,
@@ -1291,7 +1354,7 @@ impl SumeragiFinalityAttestationBody {
     ///
     /// # Errors
     /// Wrong challenge, runtime identity, status, genesis, height or certificate binding.
-    pub fn validate_consistency(&self) -> Result<(), FinalityError> {
+    pub fn validate_consistency(&self, scope: CertifiedResultScope) -> Result<(), FinalityError> {
         need(
             self.challenge != [0; 32]
                 && self.observed_at_unix_ms != 0
@@ -1313,8 +1376,8 @@ impl SumeragiFinalityAttestationBody {
         )?;
         let (genesis, tip) = if norito::core::decode_limits_active() {
             // Preserve both independent decodes and every original cumulative admission.
-            let genesis = self.genesis_finality_proof.decode_checked()?;
-            let tip = self.finality_proof.decode_checked()?;
+            let genesis = self.genesis_finality_proof.decode_checked(scope)?;
+            let tip = self.finality_proof.decode_checked(scope)?;
             (genesis, tip)
         } else {
             // Share only exact immutable epoch validation inside this one statement. Each
@@ -1322,11 +1385,11 @@ impl SumeragiFinalityAttestationBody {
             let mut validation = EpochValidationScope::new();
             let genesis = self
                 .genesis_finality_proof
-                .decode_parts_with_validation(Some(&mut validation))
+                .decode_parts_with_validation(scope, Some(&mut validation))
                 .map(|(decoded, _, _)| decoded)?;
             let tip = self
                 .finality_proof
-                .decode_parts_with_validation(Some(&mut validation))
+                .decode_parts_with_validation(scope, Some(&mut validation))
                 .map(|(decoded, _, _)| decoded)?;
             (genesis, tip)
         };
@@ -1339,7 +1402,7 @@ impl SumeragiFinalityAttestationBody {
             need(
                 tip.core_hash == genesis.core_hash
                     && tip.result == genesis.result
-                    && tip.commitment == genesis.commitment,
+                    && tip.certified_result == genesis.certified_result,
                 "height-one attestation carries different genesis execution",
             )?;
         }
@@ -1373,8 +1436,8 @@ impl SumeragiFinalityAttestation {
     ///
     /// # Errors
     /// Malformed body or invalid BLS signature.
-    pub fn verify(&self) -> Result<(), FinalityError> {
-        self.body.validate_consistency()?;
+    pub fn verify(&self, scope: CertifiedResultScope) -> Result<(), FinalityError> {
+        self.body.validate_consistency(scope)?;
         self.signature
             .verify_hash(self.body.node_id.public_key(), self.body.signing_hash())
             .map_err(malformed)
@@ -1428,11 +1491,13 @@ impl Crypto for ProofCrypto {
         Hash32(Hash::new_from_chunks(chunks).into())
     }
     fn verify(&self, pk: &CoreKey, msg: &[u8], signature: &Signature) -> bool {
-        PublicKey::from_bytes(Algorithm::BlsNormal, pk.as_bytes()).is_ok_and(|key| {
-            iroha_crypto::Signature::from_bytes(&signature.0)
-                .verify(&key, msg)
-                .is_ok()
-        })
+        let Some(digest) = ConsensusDigest::from_preimage(msg) else {
+            return false;
+        };
+        let Ok(key) = <&[u8; 48]>::try_from(pk.as_bytes()) else {
+            return false;
+        };
+        iroha_crypto::bls::consensus::verify_public_key(key, &digest, &signature.0)
     }
     fn aggregate(&self, signatures: &[Signature]) -> AggregateSignature {
         let slices: Vec<&[u8]> = signatures
@@ -1452,30 +1517,42 @@ impl Crypto for ProofCrypto {
         message: &[u8],
         signature: &AggregateSignature,
     ) -> bool {
-        self.verify_aggregate_multi(&[(keys.to_vec(), message.to_vec())], signature)
+        let Some(digest) = ConsensusDigest::from_preimage(message) else {
+            return false;
+        };
+        if keys.iter().any(|key| !self.keys.contains_key(*key)) {
+            return false;
+        }
+        let mut scratch =
+            ConsensusAggregateScratch::new(|_| Ok::<_, core::convert::Infallible>(()))
+                .unwrap_or_else(|never| match never {});
+        scratch.verify_fast_aggregate(
+            keys.iter().filter_map(|key| self.keys.get(*key)),
+            &digest,
+            &signature.0,
+        )
     }
     fn verify_aggregate_multi(
         &self,
         groups: &[(Vec<&CoreKey>, Vec<u8>)],
         signature: &AggregateSignature,
     ) -> bool {
-        let Some(keys) = groups
-            .iter()
-            .map(|(keys, _)| {
-                keys.iter()
-                    .map(|key| self.keys.get(*key))
-                    .collect::<Option<Vec<_>>>()
-            })
-            .collect::<Option<Vec<_>>>()
-        else {
+        if groups.iter().any(|(keys, message)| {
+            ConsensusDigest::from_preimage(message).is_none()
+                || keys.iter().any(|key| !self.keys.contains_key(*key))
+        }) {
             return false;
-        };
-        let groups: Vec<(&[&BlsNormalPopVerifiedKey], &[u8])> = keys
-            .iter()
-            .zip(groups)
-            .map(|(keys, (_, message))| (keys.as_slice(), message.as_slice()))
-            .collect();
-        bls_normal_verify_preaggregated_multi_message(&groups, &signature.0).is_ok()
+        }
+        let mut scratch =
+            ConsensusAggregateScratch::new(|_| Ok::<_, core::convert::Infallible>(()))
+                .unwrap_or_else(|never| match never {});
+        scratch.verify_aggregate_multi(
+            groups.iter().filter_map(|(keys, message)| {
+                ConsensusDigest::from_preimage(message)
+                    .map(|digest| (keys.iter().filter_map(|key| self.keys.get(*key)), digest))
+            }),
+            &signature.0,
+        )
     }
 }
 

@@ -1,6 +1,6 @@
 //! The execution result `R` of a block (`specs/sumeragi.md` §4.1; option R1 of the integration
-//! plan): `R = H("iroha/sumeragi/result/v1" ‖ norito(ExecutionResultCommitment))`, where `H` is
-//! the chain hash (`iroha_crypto::Hash`) and `norito(·)` the canonical Norito frame.
+//! plan): `R = SHA-256(RESULT_TAG ‖ X ‖ H(RESULT_BODY_TAG ‖ body))`. The stored
+//! preimage is the original sealed finality header `X` followed by the canonical Norito body.
 //!
 //! [`ExecutionResultCommitment`] binds:
 //! - the [`ExecutionCommitment`]: the complete World state roots before and after the block's
@@ -63,8 +63,9 @@ use iroha_allocation::{AllocationBudget, ChargedBuffer, ChargedBufferError, Reta
 use iroha_data_model::sumeragi_finality::NativeLaneStateProof;
 
 pub use iroha_data_model::sumeragi_finality::{
-    CommitmentError, ExecutionCommitment, ExecutionResultCommitment, MAX_RESULT_PREIMAGE_BYTES,
-    RESULT_TAG, chain_hash, result_of_preimage,
+    CertifiedResultError, CertifiedResultScope, CertifiedResultV1, CommitmentError,
+    ExecutionCommitment, ExecutionResultCommitment, MAX_RESULT_BODY_BYTES,
+    MAX_RESULT_PREIMAGE_BYTES, SccpFinalityHeaderV1, chain_hash, result_of_preimage,
 };
 
 /// The complete-World part of one block's execution (`specs/sumeragi.md` §4.1, Appendix E,
@@ -162,29 +163,45 @@ pub(crate) fn execution_result(
     transition: &WorldStateTransition,
     inputs: RetainedPayload<NativeExecutionInputs>,
     native_lanes: NativeLaneStateProof,
-) -> Result<RetainedPayload<ExecutionResultCommitment>, CommitmentError> {
+    header: SccpFinalityHeaderV1,
+    scope: CertifiedResultScope,
+) -> Result<RetainedPayload<CertifiedResultV1>, CertifiedResultError> {
     let height = executed.header().height().get();
     let execution = witness.prepare_native_execution(executed, transition)?;
     // SAFETY: only the two original canonical fields move, without clone, growth, sharing or
     // extraction. The new height, slim execution commitment and fixed context proof contain
-    // no owned allocations.
+    // no owned allocations; the original sealed X is an inline fixed-size array.
     // The original allocation ledger follows the whole R owner through publication and drop.
     let commitment = unsafe {
-        inputs.map_payload(|inputs| ExecutionResultCommitment {
-            height,
-            execution,
-            schedule: inputs.schedule,
-            beacon: inputs.beacon,
-            native_lanes,
+        inputs.map_payload(|inputs| {
+            CertifiedResultV1::from_parts_unvalidated(
+                header,
+                ExecutionResultCommitment {
+                    height,
+                    execution,
+                    schedule: inputs.schedule,
+                    beacon: inputs.beacon,
+                    native_lanes,
+                },
+            )
         })
     };
-    commitment.get().validate()?;
-    if commitment.get().beacon.as_ref().is_some_and(|pulse| {
-        Some(pulse.finalized_chain_anchor.block_hash) != executed.header().prev_block_hash()
-    }) {
-        return Err(CommitmentError::Beacon(
-            "pulse anchor differs from executed parent".into(),
-        ));
+    commitment.get().validate(scope)?;
+    let timestamp_ms = u64::try_from(executed.header().creation_time().as_millis())
+        .map_err(|_| CommitmentError::Encoding("block time exceeds u64 milliseconds".into()))?;
+    commitment.get().check_block(height, timestamp_ms)?;
+    if commitment
+        .get()
+        .commitment()
+        .beacon
+        .as_ref()
+        .is_some_and(|pulse| {
+            Some(pulse.finalized_chain_anchor.block_hash) != executed.header().prev_block_hash()
+        })
+    {
+        return Err(
+            CommitmentError::Beacon("pulse anchor differs from executed parent".into()).into(),
+        );
     }
     Ok(commitment)
 }
@@ -229,13 +246,32 @@ impl ResultPreimageError {
 /// Returns a source mismatch, protocol bound, exact original-pool refusal or codec failure.
 /// The caller must retain its original executed block and overlay when retrying allocation.
 pub(crate) fn encode_result_preimage(
-    commitment: &RetainedPayload<ExecutionResultCommitment>,
+    commitment: &RetainedPayload<CertifiedResultV1>,
     budget: &AllocationBudget,
 ) -> Result<ChargedBuffer<u8>, ResultPreimageError> {
     if !commitment.belongs_to(budget) {
         return Err(ResultPreimageError::ForeignBudget);
     }
-    encode_canonical_part(commitment.get(), budget, MAX_RESULT_PREIMAGE_BYTES)
+    let result = commitment.get();
+    let body_len = norito::canonical_frame_len(result.commitment())?;
+    let length = result
+        .header()
+        .as_bytes()
+        .len()
+        .checked_add(body_len)
+        .ok_or(ResultPreimageError::PreimageLength(usize::MAX))?;
+    if body_len > MAX_RESULT_BODY_BYTES || length > MAX_RESULT_PREIMAGE_BYTES {
+        return Err(ResultPreimageError::PreimageLength(length));
+    }
+    let mut buffer = ChargedBuffer::new(length, budget)?;
+    let mut writer = ResultPreimageWriter(&mut buffer);
+    std::io::Write::write_all(&mut writer, result.header().as_bytes())
+        .map_err(norito::Error::from)?;
+    norito::core::write_canonical_to_writer(result.commitment(), &mut writer)?;
+    if buffer.as_slice().len() != length {
+        return Err(ResultPreimageError::Encoding(norito::Error::LengthMismatch));
+    }
+    Ok(buffer)
 }
 
 /// An immutable consensus artifact whose canonical frame is carried by a certificate.
@@ -410,7 +446,7 @@ mod tests {
         executed: &SignedBlock,
         schedule: ScheduleOutcome,
         beacon: Option<FinalizedGlobalThresholdBeaconPulseV1>,
-    ) -> Result<(ExecutionResultCommitment, Vec<u8>, Hash32), CommitmentError> {
+    ) -> Result<(ExecutionResultCommitment, Vec<u8>, Hash32), CertifiedResultError> {
         let height = executed.header().height().get();
         let witness = with_context_write(witness.clone(), schedule.current.network_id, height);
         let native_lanes = context_proof(&witness);
@@ -421,9 +457,24 @@ mod tests {
             beacon,
             native_lanes,
         )?;
-        let preimage = commitment.preimage()?;
-        let result = result_of_preimage(&preimage);
+        let full = fixture_certified_result(&commitment, executed);
+        full.validate(CertifiedResultScope::TairaGlobal)?;
+        let preimage = full.preimage()?;
+        let result = result_of_preimage(&preimage).expect("fixture encoded current result");
         Ok((commitment, preimage, result))
+    }
+
+    fn fixture_certified_result(
+        body: &ExecutionResultCommitment,
+        block: &SignedBlock,
+    ) -> CertifiedResultV1 {
+        let header = SccpFinalityHeaderV1::inactive(
+            *body.schedule.current.network_id.as_bytes(),
+            body.height,
+            u64::try_from(block.header().creation_time().as_millis()).unwrap(),
+        )
+        .unwrap();
+        CertifiedResultV1::from_parts_unvalidated(header, body.clone())
     }
 
     fn members(bytes: &[u8]) -> Vec<(PublicKey, Vec<u8>)> {
@@ -499,11 +550,34 @@ mod tests {
         assert_eq!(first, second);
         assert_eq!(preimage, second_preimage);
         assert_eq!(result, second_result);
-        assert_eq!(result_of_preimage(&preimage), result);
-        assert_eq!(first.result().unwrap(), result);
-        assert_eq!(ExecutionResultCommitment::decode(&preimage).unwrap(), first);
-        assert!(ExecutionResultCommitment::decode(&preimage[1..]).is_err());
-        assert_eq!(result.0[31] & 1, 1);
+        assert_eq!(result_of_preimage(&preimage), Some(result));
+        assert_eq!(
+            fixture_certified_result(&first, &block).result().unwrap(),
+            result
+        );
+        assert_eq!(
+            CertifiedResultV1::decode(&preimage, CertifiedResultScope::TairaGlobal)
+                .unwrap()
+                .commitment(),
+            &first
+        );
+        assert!(
+            CertifiedResultV1::decode(&preimage[1..], CertifiedResultScope::TairaGlobal).is_err()
+        );
+        let header = SccpFinalityHeaderV1::parse(
+            &preimage[..iroha_data_model::sumeragi_finality::certified_result::X_LEN],
+        )
+        .unwrap();
+        assert_eq!(
+            result,
+            iroha_data_model::sumeragi_finality::certified_result::outer_result(
+                &header,
+                &iroha_data_model::sumeragi_finality::certified_result::body_digest(
+                    &preimage[iroha_data_model::sumeragi_finality::certified_result::X_LEN..]
+                )
+            )
+        );
+        // R is raw SHA-256: the retired chain-hash marker is not applied.
     }
 
     #[test]
@@ -673,7 +747,12 @@ mod tests {
         let (valid, preimage, _) =
             result_for_test(&sample_witness(), &block, next(), None).unwrap();
         assert_eq!(valid.schedule, next());
-        assert_eq!(ExecutionResultCommitment::decode(&preimage).unwrap(), valid);
+        assert_eq!(
+            CertifiedResultV1::decode(&preimage, CertifiedResultScope::TairaGlobal)
+                .unwrap()
+                .commitment(),
+            &valid
+        );
         for mutation in 0..5 {
             let mut invalid = valid.clone();
             match mutation {
@@ -844,7 +923,7 @@ mod tests {
     #[allow(unsafe_code)]
     fn allocation_free_encoding_owner(
         budget: &AllocationBudget,
-    ) -> RetainedPayload<ExecutionResultCommitment> {
+    ) -> RetainedPayload<CertifiedResultV1> {
         let mut current = epoch(&[1, 2, 3, 4]);
         current.committee = Vec::new();
         let witness = with_context_write(sample_witness(), current.network_id, 2);
@@ -857,6 +936,13 @@ mod tests {
             beacon: None,
             native_lanes: context_proof(&witness),
         };
+        let header = SccpFinalityHeaderV1::inactive(
+            *value.schedule.current.network_id.as_bytes(),
+            value.height,
+            0,
+        )
+        .unwrap();
+        let value = CertifiedResultV1::from_parts_unvalidated(header, value);
         let ledger = ChargedBuffer::new(0, budget).unwrap();
         // SAFETY: every Vec in this encoding-only payload has zero capacity; every remaining
         // field is fixed scalar/array storage. There are no dynamic payload allocations to fund.
@@ -876,7 +962,7 @@ mod tests {
         assert_eq!(output.as_slice(), expected.as_slice());
         assert_eq!(
             result_of_preimage(output.as_slice()),
-            owner.get().result().unwrap()
+            Some(owner.get().result().unwrap())
         );
         assert!(output.belongs_to(&budget));
         assert_eq!(output.capacity(), expected.len());
@@ -891,7 +977,8 @@ mod tests {
         let budget = AllocationBudget::new(MAX_RESULT_PREIMAGE_BYTES);
         let owner = allocation_free_encoding_owner(&budget);
         let pointer = std::ptr::from_ref(owner.get());
-        let length = norito::canonical_frame_len(owner.get()).unwrap();
+        let length = owner.get().header().as_bytes().len()
+            + norito::canonical_frame_len(owner.get().commitment()).unwrap();
         budget.set_limit_bytes(length);
         let occupied = ChargedBuffer::<u8>::new(1, &budget).unwrap();
         assert!(matches!(
@@ -1149,8 +1236,18 @@ mod tests {
         independent.execution.executed_block_wire_len = wire.len() as u64;
         independent.execution.executed_block_wire_hash = Hash::new(&wire);
         assert_eq!(independent, result);
-        assert_eq!(independent.preimage().unwrap(), preimage);
-        assert_eq!(independent.result().unwrap(), digest);
+        assert_eq!(
+            fixture_certified_result(&independent, &original)
+                .preimage()
+                .unwrap(),
+            preimage
+        );
+        assert_eq!(
+            fixture_certified_result(&independent, &original)
+                .result()
+                .unwrap(),
+            digest
+        );
     }
 
     #[test]
@@ -1304,9 +1401,11 @@ mod tests {
     #[test]
     fn chain_hash_is_the_iroha_hash() {
         assert_eq!(chain_hash(b"x").0, <[u8; 32]>::from(Hash::new(b"x")));
-        let mut tagged = RESULT_TAG.to_vec();
-        tagged.extend_from_slice(b"p");
-        assert_eq!(result_of_preimage(b"p"), chain_hash(&tagged));
+        assert_eq!(
+            result_of_preimage(b"p"),
+            None,
+            "body-only bytes are not a current result"
+        );
     }
 
     #[test]

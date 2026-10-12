@@ -2,7 +2,7 @@
 
 use super::*;
 use iroha_data_model::sumeragi_finality::{
-    ExecutionResultCommitment, SumeragiCommitCheckpointV1, result_of_preimage,
+    CertifiedResultV1, SumeragiCommitCheckpointV1, result_of_preimage,
 };
 
 fn successor_epoch_source() -> (NativeLoad, SumeragiCommitCheckpointV1) {
@@ -56,12 +56,19 @@ fn successor_epoch_source() -> (NativeLoad, SumeragiCommitCheckpointV1) {
     .unwrap();
     // Retain the genuine H4 header/epoch/schedule and sign a synthetic event result with
     // the actual fixture quorum. This is native BLS gate evidence, not World execution.
-    let mut result = ExecutionResultCommitment::decode(&certificate.result_preimage).unwrap();
+    let (original_x, mut result) =
+        CertifiedResultV1::decode(&certificate.result_preimage, fixture.root_scope().into())
+            .unwrap()
+            .into_parts();
     result.execution.event_commitment = events.commitment();
     result.validate().unwrap();
-    certificate.result_preimage = result.preimage().unwrap();
+    certificate.result_preimage =
+        CertifiedResultV1::new(original_x, result, fixture.root_scope().into())
+            .unwrap()
+            .preimage()
+            .unwrap();
     let mut qc: Qc = norito::decode_canonical(&certificate.commit_qc).unwrap();
-    qc.result = result_of_preimage(&certificate.result_preimage);
+    qc.result = result_of_preimage(&certificate.result_preimage).unwrap();
     resign_fixture_quorum(&mut qc);
     certificate.commit_qc = norito::encode_canonical(&qc).unwrap();
     let evidence = KagemushaWalletLoadFinalityV1 {
@@ -91,7 +98,12 @@ fn resign_fixture_quorum(qc: &mut Qc) {
     qc.signers = iroha_sumeragi::types::Bitmap::from_indices(4, [0, 1, 2]).unwrap();
     let shares: Vec<_> = keys[..3]
         .iter()
-        .map(|key| iroha_crypto::Signature::try_new(key.private_key(), &qc.preimage()).unwrap())
+        .map(|key| {
+            iroha_crypto::Signature::from_bytes(
+                &iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &qc.preimage())
+                    .unwrap(),
+            )
+        })
         .collect();
     let references: Vec<_> = shares
         .iter()

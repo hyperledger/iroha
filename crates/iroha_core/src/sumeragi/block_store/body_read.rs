@@ -42,6 +42,7 @@ pub(super) struct StoredBodyRead {
     source: AvailabilitySource,
     budget: AllocationBudget,
     crypto: SharedCrypto,
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
     stage: Stage,
 }
 impl StoredBodyRead {
@@ -51,6 +52,7 @@ impl StoredBodyRead {
         block: Option<iroha_data_model::block::SharedSignedBlock>,
         budget: AllocationBudget,
         crypto: SharedCrypto,
+        root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
     ) -> Self {
         let stage = block.map_or(Stage::Absent, |block| {
             Stage::Certificate(CertificateRead::new(block, budget.clone()))
@@ -59,6 +61,7 @@ impl StoredBodyRead {
             source,
             budget,
             crypto,
+            root_scope,
             stage,
         }
     }
@@ -69,11 +72,13 @@ impl StoredBodyRead {
         decoded: DecodedCertificate,
         budget: AllocationBudget,
         crypto: SharedCrypto,
+        root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
     ) -> Self {
         Self {
             source,
             budget,
             crypto,
+            root_scope,
             stage: Stage::Decoded(decoded),
         }
     }
@@ -97,14 +102,15 @@ impl StoredBodyRead {
             || qc.epoch != header.epoch
             || qc.height != header.height
             || qc.block_hash != self.source.block_hash()
-            || qc.result != result
+            || Some(qc.result) != result
         {
             return Err(BodyReadError::Io(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "stored certificate does not bind the independently requested body and result",
             )));
         }
-        super::execution::validate(&decoded.source).map_err(BodyReadError::from_attempt)?;
+        super::execution::validate(&decoded.source, self.root_scope)
+            .map_err(BodyReadError::from_attempt)?;
         Ok(())
     }
 }

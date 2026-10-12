@@ -130,11 +130,24 @@ pub fn execute_record(
     if revision.destination_paused {
         return Err(refuse("the destination is paused by the Parliament"));
     }
-    // TODO: WP-S10: step 1 also refuses under the effective Taira hold `hold(r, t)` (fast
-    // pause, forgery hold and quarantine, §4.14.2) and for a revision that was ever quarantined.
-    // TODO: WP-S2: step 2, finality liveness: refuse with `SccpFinalityDegraded` while the
-    // parent's `sccp_degraded_run` is not 0 (§4.6), so no funds are locked that no active
-    // finality header would cover.
+    let timestamp_ms = state_transaction.block_unix_timestamp_ms();
+    if super::hold::taira(
+        world,
+        network,
+        instruction.expected_revision,
+        Some(timestamp_ms),
+    ) {
+        return Err(refuse("the revision is held on Taira"));
+    }
+    if super::hold::fast_destination(world, network, instruction.expected_revision, timestamp_ms) {
+        return Err(refuse("the destination revision is fast-paused"));
+    }
+    // TODO: WP-S6: refuse the real forgery/quarantine hold and any revision that was ever
+    // quarantined once their authenticated State owner is integrated (§4.14.2).
+    // Step 2 reads the parent run: only the post-execution hook changes it.
+    if !cfg!(all(test, sumeragi_core_mutation = "HC225")) && *store::degraded_run::get(world) != 0 {
+        return Err(refuse("SccpFinalityDegraded"));
+    }
     let height = state_transaction._curr_block.height().get();
     // Step 3: exact Taira units within the floor and the lane bound.
     let amount = taira_units(&instruction.amount)
@@ -394,6 +407,12 @@ mod tests {
                 address: CONTRACT,
                 runtime_code_hash: [0x34; 32],
             }),
+            iroha_data_model::sccp::deployment::SccpCommitteePinV1 {
+                generation: 1,
+                committee_root: [0x44; 32],
+                start_height: 1,
+                until_ms: 1_801_209_600_000,
+            },
             max_wrapped_supply,
             2,
         );
@@ -553,5 +572,102 @@ mod tests {
             store::outbound_by_nonce::get(&*stx.world, &(SccpNetworkV1::EthereumMainnet, 1, 0)),
             Some(&id)
         );
+    }
+    #[test]
+    fn degraded_parent_refuses_before_money_nonce_or_leaf_and_recovers() {
+        let state = funded_state();
+        let mut block = state.block(header(5));
+        let mut stx =
+            block.transaction_for_fastpq_testing(iroha_crypto::Hash::new(b"degraded-parent"));
+        setup(&mut stx, 100 * ONE_XOR);
+        let before_assets = stx
+            .world
+            .assets
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect::<Vec<_>>();
+        for run in [1, 2, u32::MAX] {
+            store::degraded_run::set(&mut stx, run);
+            let error = refusal(execute_record(
+                record(2, [0x22; 20]),
+                &authority(1),
+                &mut stx,
+            ));
+            assert!(error.contains("SccpFinalityDegraded"), "{error}");
+            let route = store::routes::get(&*stx.world, &SccpNetworkV1::EthereumMainnet).unwrap();
+            assert_eq!(route.revisions[&1].liability, 0);
+            assert_eq!(route.revisions[&1].next_outbound_nonce, 0);
+            assert_eq!(leaves::leaf_count_at(&*stx.world, 5), 0);
+            assert!(store::outbound_messages::is_empty(&*stx.world));
+            assert_eq!(
+                stx.world
+                    .assets
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect::<Vec<_>>(),
+                before_assets
+            );
+        }
+        store::degraded_run::set(&mut stx, 0);
+        execute_record(record(2, [0x22; 20]), &authority(1), &mut stx).expect("recovered parent");
+        assert_eq!(leaves::leaf_count_at(&*stx.world, 5), 1);
+    }
+    #[test]
+    fn record_obeys_fast_pause_network_revision_and_exact_expiry_without_effects() {
+        use crate::smartcontracts::isi::sccp::test_support::{
+            assert_escrow_invariant, install_consumer_fast_pause,
+        };
+        let network = SccpNetworkV1::EthereumMainnet;
+        // Route and pause are component preconditions, not a claimed governance enactment.
+        for (pause_network, taira, revisions, until_delta, held) in [
+            (network, true, vec![2], 1_i64, true),
+            (network, false, vec![1], 1, true),
+            (network, false, vec![2], 1, false),
+            (SccpNetworkV1::TonMainnet, true, vec![1], 1, false),
+            (network, true, vec![1], 0, false),
+            (network, true, vec![1], -1, false),
+        ] {
+            let state = funded_state();
+            let mut block = state.block(header(5));
+            {
+                let mut stx = block
+                    .transaction_for_fastpq_testing(iroha_crypto::Hash::new(b"fast-pause-record"));
+                setup(&mut stx, 100 * ONE_XOR);
+                let now = stx.block_unix_timestamp_ms();
+                install_consumer_fast_pause(
+                    &mut stx,
+                    pause_network,
+                    taira,
+                    revisions,
+                    now.checked_add_signed(until_delta).unwrap(),
+                );
+                let before = store::routes::get(&*stx.world, &network).unwrap().clone();
+                let result = execute_record(record(2, [0x22; 20]), &authority(1), &mut stx);
+                assert_eq!(
+                    result.is_err(),
+                    held,
+                    "the actual Record instruction must respect the exact active pause"
+                );
+                let after = store::routes::get(&*stx.world, &network).unwrap();
+                if held {
+                    assert_eq!(after, &before, "refusal preserves liability and nonce");
+                    assert_eq!(leaves::leaf_count_at(&*stx.world, 5), 0);
+                    assert!(store::outbound_messages::is_empty(&*stx.world));
+                } else {
+                    assert_eq!(after.revisions[&1].liability, 2 * ONE_XOR);
+                    assert_eq!(after.revisions[&1].next_outbound_nonce, 1);
+                    assert_eq!(leaves::leaf_count_at(&*stx.world, 5), 1);
+                }
+                assert_escrow_invariant(&*stx.world, "fast-pause record");
+            }
+            assert!(
+                store::routes::is_empty(&block.world),
+                "dropping the transaction rolls all effects back"
+            );
+            assert!(
+                store::fast_pauses::is_empty(&block.world),
+                "retained pause rolls back with its transaction"
+            );
+        }
     }
 }

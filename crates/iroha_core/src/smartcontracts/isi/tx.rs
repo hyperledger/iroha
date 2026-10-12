@@ -3002,6 +3002,10 @@ pub(crate) mod tests {
         let frame_error = crate::sumeragi::certified_chain::read_frame(
             crate::block::reserve_block_for_tests().initialize(decoded),
             expected_height,
+            iroha_genesis::signed_genesis_consensus_metadata(&fixture.store.blocks[0])
+                .unwrap()
+                .sumeragi_context
+                .root_scope,
         )
         .expect_err("original execution certificate cannot commit the changed output");
         assert!(matches!(&frame_error,

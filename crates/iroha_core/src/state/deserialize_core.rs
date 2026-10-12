@@ -40,6 +40,9 @@ pub(crate) enum StateRestoreError {
     /// Original resources refused canonical immutable evidence graph restoration.
     #[error("snapshot native evidence admission deferred: {0}")]
     Evidence(#[source] crate::sumeragi::evidence::record::EvidenceRecordRestoreError),
+    /// Original resources refused SCCP generation or anchor custody during restore.
+    #[error("snapshot SCCP custody admission failed: {0}")]
+    Sccp(#[from] sccp_snapshot_state::SccpRestoreError),
     /// The local VM image could not be constructed before restoring State.
     #[error("snapshot State VM initialization deferred: {0}")]
     VmInitialization(#[source] ivm::VMError),
@@ -770,7 +773,7 @@ impl KuraSeed {
             &mut map,
             sccp_snapshot_state::SCCP_SNAPSHOT_MEMBER,
         )?
-        .restore(&mut world)?;
+        .restore(&mut world, &self.execution_budget)?;
         let canonical_runtime: Cell<SnapshotNexusRuntime> =
             take_required(&mut map, "nexus_runtime")?;
         let snapshot_nexus_runtime = canonical_runtime.view().get().clone();
@@ -2678,7 +2681,10 @@ mod evidence_record_restore_adapter_tests {
         let canonical = json::to_json(&storage).unwrap();
         let projection = json::to_value(&storage).unwrap();
         let reordered = json::to_json(&projection).unwrap();
-        assert_ne!(canonical, reordered, "the DOM has discarded declaration order");
+        assert_ne!(
+            canonical, reordered,
+            "the DOM has discarded declaration order"
+        );
         let budget = AllocationBudget::new(1024);
         let restored = SnapshotJsonField::Borrowed { raw: &canonical }
             .decode_evidence(&budget)

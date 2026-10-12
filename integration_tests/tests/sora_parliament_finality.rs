@@ -76,7 +76,7 @@ pub(crate) async fn visit_certified_prefix(
         let client = client.with_request_deadline(deadline);
         let mut tip = None;
         for next in 1..=height {
-            let proof = client.get_sumeragi_finality_proof(NonZeroU64::new(next).unwrap())?;
+            let proof = client.get_sumeragi_finality_proof(NonZeroU64::new(next).unwrap(), verifier.root_scope())?;
             let verified = verifier.verify(&proof)?;
             let members = proof
                 .committee

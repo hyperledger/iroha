@@ -47,7 +47,7 @@ fn check_original_sequence(chain: &CertifiedTestChain) {
                 actual.block_wire,
                 chain.committed(height).block().encode_wire().unwrap()
             );
-            actual.decode_checked().unwrap();
+            actual.decode_checked(chain.root_scope().into()).unwrap();
             assert_eq!(
                 relations.frames,
                 if height == 1 {

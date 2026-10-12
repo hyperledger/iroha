@@ -65,6 +65,7 @@ fn committed_read_returns_original_qc_backing_after_projection_refusal_and_retry
     let original_header = decoded.header.clone();
     let mut read = CommittedRead {
         height: 10,
+        root_scope: chain.root_scope(),
         budget: budget.clone(),
         crypto,
         schedule,
@@ -162,8 +163,13 @@ fn body_only_read_discards_invalid_qc_before_untrusted_restoration() {
         certified_source(&schedule, &*crypto, 10, &decoded.header, &decoded.commit_qc,).is_err(),
         "the changed signature cannot authenticate a native committed body"
     );
-    let mut read =
-        body_read::StoredBodyRead::from_decoded(source.clone(), decoded, budget.clone(), crypto);
+    let mut read = body_read::StoredBodyRead::from_decoded(
+        source.clone(),
+        decoded,
+        budget.clone(),
+        crypto,
+        chain.root_scope(),
+    );
     let retained = budget.reserved_bytes();
     budget.set_limit_bytes(retained);
     assert!(matches!(
@@ -246,6 +252,7 @@ fn committed_result_decode_refusal_keeps_original_read_slot_and_retries() {
 
     let read = CommittedRead {
         height: 10,
+        root_scope: chain.root_scope(),
         budget: budget.clone(),
         crypto: crypto.clone(),
         schedule: schedule.clone(),
@@ -254,12 +261,14 @@ fn committed_result_decode_refusal_keeps_original_read_slot_and_retries() {
             decoded,
             budget.clone(),
             crypto.clone(),
+            chain.root_scope(),
         )),
     };
     let store = KuraBlockStore::new(
         chain.kura().clone(),
         crypto,
         1,
+        chain.root_scope(),
         Staging::new(),
         budget.clone(),
         schedule,
@@ -348,6 +357,7 @@ fn committed_certificate_allocator_refusal_retains_original_slot_and_retries() {
             instance: fixture.verifier().instance(),
             config: scheduled.height_config().unwrap(),
         }),
+        fixture.root_scope(),
     );
     let owners = read.retained_certificate_owners_for_test().unwrap();
     let (result, refused) =

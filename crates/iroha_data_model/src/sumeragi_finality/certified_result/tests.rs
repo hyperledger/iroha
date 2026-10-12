@@ -7,7 +7,7 @@
 
 use std::{collections::BTreeSet, path::PathBuf};
 
-use iroha_crypto::{HashOf, KeyPair};
+use iroha_crypto::{HashOf, KeyPair, keccak256};
 use iroha_model_base::peer::PeerId;
 use iroha_sumeragi::types::ChainParams;
 use norito::json::Value;
@@ -1789,10 +1789,10 @@ fn certified_result_preimage_and_result_round_trip() {
     let result = value.result().unwrap();
     assert_eq!(Some(result), result_of_preimage(&preimage));
     assert_eq!(result, outer_result(&x, &body_digest(&preimage[X_LEN..])));
-    // `R` differs from the body-only result the node certifies before WP-C2.
-    assert_ne!(
-        result,
-        crate::sumeragi_finality::result_of_preimage(&preimage[X_LEN..])
+    // The only public result hash refuses retired body-only preimages.
+    assert_eq!(
+        crate::sumeragi_finality::result_of_preimage(&preimage[X_LEN..]),
+        None
     );
     // The same body under another header is another result.
     let inactive = CertifiedResultV1::new(inactive_for(&body), body, NonGlobal).unwrap();
@@ -1814,4 +1814,23 @@ fn certified_result_check_block_enforces_c5() {
             );
         }
     }
+}
+
+#[test]
+fn certified_result_scope_maps_the_selected_signed_root_kind() {
+    use crate::block::consensus::SumeragiRootScope;
+    assert_eq!(
+        CertifiedResultScope::from(SumeragiRootScope::Global),
+        CertifiedResultScope::TairaGlobal
+    );
+    let scope = SumeragiRootScope::Dataspace {
+        parent_network_id: crate::NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
+            Hash::new(b"scope parent"),
+        )),
+        dataspace_id: iroha_model_base::topology::DataSpaceId::new(19),
+    };
+    assert_eq!(
+        CertifiedResultScope::from(scope),
+        CertifiedResultScope::NonGlobal
+    );
 }

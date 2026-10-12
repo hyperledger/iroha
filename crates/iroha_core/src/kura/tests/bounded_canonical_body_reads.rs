@@ -309,6 +309,7 @@ fn startup_history_retains_original_cold_kura_refusal_and_exact_retry() {
         kura.clone(),
         crypto,
         1,
+        chain.root_scope(),
         Staging::new(),
         budget.clone(),
         schedule,

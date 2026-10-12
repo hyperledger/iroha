@@ -24,8 +24,18 @@ impl ValidBlock {
         // SCCP commitments and history are World writes of this block after all of its
         // transactions (`specs/sccp.md` §4.5), with the authenticated consensus inputs of its
         // height.
-        let sccp_inputs = Self::sccp_height_inputs(block, state, sccp_height);
-        crate::smartcontracts::isi::sccp::hook::finalize_block(
+        let sccp_inputs_owner = Self::sccp_height_inputs(block, state, sccp_height);
+        // This owner retains the original funded schedule across every mutable hook path.
+        // Projection borrows the same immutable graph; no committee is copied or reacquired.
+        let sccp_inputs = match sccp_inputs_owner.as_ref().map(|original| original.inputs()) {
+            Some(Ok(inputs)) => Some(inputs),
+            Some(Err(error)) => {
+                iroha_logger::warn!(%error, "SCCP: original height projection failed closed");
+                None
+            }
+            None => None,
+        };
+        let sccp_finality_header = crate::smartcontracts::isi::sccp::hook::finalize_block(
             state,
             &block.header(),
             sccp_inputs.as_ref(),
@@ -34,6 +44,7 @@ impl ValidBlock {
             Self::validated_committed_fragment_count(state, advertised_fragments)?;
         Ok(crate::state::ExecutionOutputSealMetadata {
             committed_fragment_count,
+            sccp_finality_header,
         })
     }
 
@@ -47,8 +58,10 @@ impl ValidBlock {
         block: &SignedBlock,
         state: &StateBlock<'_>,
         source: crate::smartcontracts::isi::sccp::height::SccpHeightSourceV1,
-    ) -> Option<crate::smartcontracts::isi::sccp::height::SccpHeightInputsV1> {
-        use crate::smartcontracts::isi::sccp::height::{SccpHeightInputsV1, SccpHeightSourceV1};
+    ) -> Option<crate::smartcontracts::isi::sccp::height::RetainedSccpHeightInputsV1> {
+        use crate::smartcontracts::isi::sccp::height::{
+            RetainedSccpHeightInputsV1, SccpHeightSourceV1,
+        };
         if !crate::smartcontracts::isi::sccp::params::exists(&state.world) {
             return None;
         }
@@ -56,7 +69,8 @@ impl ValidBlock {
             SccpHeightSourceV1::SumeragiSchedule {
                 genesis_height,
                 mode,
-            } => SccpHeightInputsV1::from_sumeragi_schedule(
+                root_scope: iroha_data_model::block::consensus::SumeragiRootScope::Global,
+            } => RetainedSccpHeightInputsV1::from_sumeragi_schedule(
                 &state.world,
                 block.header().height().get(),
                 genesis_height,
@@ -69,7 +83,9 @@ impl ValidBlock {
                 );
             })
             .ok(),
-            SccpHeightSourceV1::Unauthenticated => None,
+            SccpHeightSourceV1::Unauthenticated | SccpHeightSourceV1::SumeragiSchedule { .. } => {
+                None
+            }
         }
     }
 
