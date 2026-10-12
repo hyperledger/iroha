@@ -140,7 +140,6 @@ use toml::{Table, Value, map::Entry};
 use tracing::{Instrument, debug, error, info, info_span, warn};
 const TEST_SNS_LEASE_PAYMENT: &str = "0.5";
 const TEST_SNS_POLICY_VERSION: u16 = 1;
-const TEST_SNS_PAYMENT_ASSET_DEFINITION: &str = "61CtjvNd9T3THAR65GsMVHr82Bjc";
 const TEST_SNS_LEASE_VISIBILITY_TIMEOUT: Duration = Duration::from_secs(120);
 const TEST_SNS_LEASE_VISIBILITY_POLL: Duration = Duration::from_millis(250);
 fn checked_key_pair_from_seed(seed: impl Into<Vec<u8>>, algorithm: Algorithm) -> KeyPair {
@@ -199,7 +198,8 @@ fn test_domain_setup_instruction(
     dataspace_id: DataSpaceId,
     owner: &AccountId,
 ) -> Result<EnsureAlias> {
-    let payment_asset = AssetDefinitionId::parse_address_literal(TEST_SNS_PAYMENT_ASSET_DEFINITION)
+    let payment_asset = iroha_config::parameters::defaults::nexus::fees::fee_asset_id()
+        .parse::<AssetDefinitionId>()
         .wrap_err("parse test SNS payment asset definition")?;
     Ok(EnsureAlias::new(
         AliasIntentV1::Domain(AliasDomainIntentV1 {
@@ -236,7 +236,8 @@ pub fn dataspace_setup_instruction(
     let canonical_name = alias
         .parse()
         .wrap_err_with(|| format!("parse test dataspace alias `{alias}`"))?;
-    let payment_asset = AssetDefinitionId::parse_address_literal(TEST_SNS_PAYMENT_ASSET_DEFINITION)
+    let payment_asset = iroha_config::parameters::defaults::nexus::fees::fee_asset_id()
+        .parse::<AssetDefinitionId>()
         .wrap_err("parse test SNS payment asset definition")?;
     Ok(EnsureAlias::new(
         AliasIntentV1::Dataspace(AliasDataSpaceIntentV1 {
@@ -264,7 +265,8 @@ pub fn account_alias_setup_instruction_in_dataspace(
     let canonical_name = alias_literal
         .parse::<AccountAliasName>()
         .wrap_err_with(|| format!("parse test account alias `{alias_literal}`"))?;
-    let payment_asset = AssetDefinitionId::parse_address_literal(TEST_SNS_PAYMENT_ASSET_DEFINITION)
+    let payment_asset = iroha_config::parameters::defaults::nexus::fees::fee_asset_id()
+        .parse::<AssetDefinitionId>()
         .wrap_err("parse test SNS payment asset definition")?;
     Ok(EnsureAlias::new(
         AliasIntentV1::AccountAlias(AliasAccountIntentV1 {
@@ -326,20 +328,46 @@ fn domain_alias_record_visible_to_client(client: &Client, domain: &DomainId) -> 
     }
 }
 fn domain_setup_ready_to_client(client: &Client, domain: &DomainId) -> Result<bool> {
-    let domain_exists = match client.client().query(FindDomains::new()).execute_all() {
-        Ok(domains) => match domains.into_iter().find(|existing| existing.id() == domain) {
-            Some(existing) if existing.owned_by() == client.client().account() => true,
-            Some(existing) => {
-                return Err(eyre!(
-                    "domain `{domain}` is owned by `{}`, not setup authority `{}`",
-                    existing.owned_by(),
-                    client.client().account()
-                ));
-            }
-            None => false,
-        },
-        Err(err) => {
-            let report = Report::from(err);
+    let read_domain = || -> Result<bool> {
+        use iroha::collections::{Collection, ListQuery, field};
+
+        // Account/domain query errors do not carry typed absence identities.
+        // Prove absence through a successful bounded exact-ID collection read.
+        let id = domain.to_string();
+        let page = client.list_page(
+            &Collection::Domains,
+            &ListQuery::new().filter(field("id").eq(id.clone())).limit(1),
+        )?;
+        if page.has_more()
+            || page.items.len() > 1
+            || page
+                .items
+                .iter()
+                .any(|row| row.get("id").and_then(JsonValue::as_str) != Some(id.as_str()))
+        {
+            return Err(eyre!(
+                "exact domain collection returned an unexpected row or continuation"
+            ));
+        }
+        if page.items.is_empty() {
+            return Ok(false);
+        }
+        let existing = client
+            .client()
+            .query_single(FindDomainById::new(domain.clone()))?;
+        if existing.id() != domain || existing.owned_by() != client.client().account() {
+            return Err(eyre!(
+                "domain `{domain}` requires the exact id and setup owner `{}`; found `{}` owned by `{}`",
+                client.client().account(),
+                existing.id(),
+                existing.owned_by()
+            ));
+        }
+        Ok(true)
+    };
+    let domain_exists = match read_domain() {
+        Ok(exists) => exists,
+        Err(report) => {
             if torii_request_error_is_transient(&report) {
                 debug!(
                     err = %report,

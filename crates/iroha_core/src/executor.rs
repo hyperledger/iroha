@@ -7141,36 +7141,20 @@ impl Executor {
         state_transaction.bind_kagemusha_load_entrypoint_v1(Some(&transaction));
         state_transaction.begin_execution_fee_meter(&transaction, tx_bytes_len, fee_exemption)?;
         state_transaction.begin_execution_effect_budget(&transaction)?;
-        // Disallow direct signing with multisig accounts; only explicit multisig
-        // proposal/approval envelopes with bundled multisig signatures are allowed.
+        // Multisig participation is signed by individual signatories. Approved
+        // inner instructions execute separately under the multisig account.
         {
             if let Ok(account) = state_transaction.world.account(authority) {
                 if account.id().controller().multisig_policy().is_some() {
-                    let only_custom_instruction_envelopes = matches!(
-                        transaction.instructions(),
-                        Executable::Instructions(items)
-                            if !items.is_empty()
-                                && items.iter().all(|instruction| {
-                                    instruction
-                                        .as_any()
-                                        .downcast_ref::<CustomInstruction>()
-                                        .is_some()
-                                })
+                    #[cfg(feature = "telemetry")]
+                    crate::telemetry::record_social_rejection(
+                        state_transaction.telemetry,
+                        "multisig_direct_sign",
                     );
-                    if only_custom_instruction_envelopes {
-                        // Allowed: custom instruction envelopes are validated by their respective
-                        // runtime handlers (including multisig propose/approve/register paths).
-                    } else {
-                        #[cfg(feature = "telemetry")]
-                        crate::telemetry::record_social_rejection(
-                            state_transaction.telemetry,
-                            "multisig_direct_sign",
-                        );
-                        return Err(ValidationFail::NotPermitted(
-                            "direct signing with multisig accounts is forbidden; use multisig propose/approve"
-                                .to_owned(),
-                        ));
-                    }
+                    return Err(ValidationFail::NotPermitted(
+                        "direct signing with multisig accounts is forbidden; use multisig propose/approve"
+                            .to_owned(),
+                    ));
                 }
             }
         }
@@ -21122,6 +21106,15 @@ mod tests {
     }
     #[test]
     fn multisig_account_direct_signing_is_rejected() {
+        assert_multisig_direct_signed_transaction_is_rejected(Vec::new());
+    }
+    #[test]
+    fn multisig_account_direct_signing_custom_envelope_is_rejected() {
+        assert_multisig_direct_signed_transaction_is_rejected(vec![
+            CustomInstruction::new("multisig-envelope").into(),
+        ]);
+    }
+    fn assert_multisig_direct_signed_transaction_is_rejected(instructions: Vec<InstructionBox>) {
         let domain_id: DomainId = DomainId::try_new("wonderland", "universal").expect("domain id");
         let signer = checked_keypair();
         let member = iroha_data_model::account::MultisigMember::new(signer.public_key().clone(), 1)
@@ -21146,15 +21139,15 @@ mod tests {
             0,
         );
         let mut block = state.block(block_header);
-        let builder = TransactionBuilder::new(
+        let tx = TransactionBuilder::new(
             state.network_id,
             multisig_id.clone(),
             iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
         )
-        .with_executable(Executable::Instructions(Vec::new().into()));
-        let signature = Signature::try_new(signer.private_key(), &builder.payload_hash_bytes())
-            .expect("fixture signer should sign the multisig-authority payload prehash");
-        let tx = builder.build_with_signature(signature);
+        .with_executable(Executable::Instructions(instructions.into()))
+        .sign_multisig([signer.private_key()]);
+        tx.verify_signature()
+            .expect("direct-signing rejection must use a valid multisig signature bundle");
         let executor = super::Executor::Initial;
         let mut ivm_cache = crate::smartcontracts::ivm::cache::IvmCache::new();
         let mut stx = block.transaction_for_fastpq_testing(Hash::from(tx.hash_as_entrypoint()));

@@ -9116,20 +9116,6 @@ fn reject_direct_multisig_signing(
     if !state.has_account(tx.authority()) {
         return None;
     }
-    let only_custom_instruction_envelopes = matches!(
-        tx.instructions(),
-        Executable::Instructions(items)
-            if !items.is_empty()
-                && items.iter().all(|instruction| {
-                    instruction
-                        .as_any()
-                        .downcast_ref::<iroha_data_model::isi::CustomInstruction>()
-                        .is_some()
-                })
-    );
-    if only_custom_instruction_envelopes {
-        return None;
-    }
     let rejection = SignatureVerificationFail::new(
         tx.signature().clone(),
         SignatureRejectionCode::UnsupportedAuthority,
@@ -9176,7 +9162,8 @@ mod multisig_guard_tests {
             iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
         )
         .with_executable(Executable::Instructions(Vec::new().into()))
-        .sign(signer_keypair.private_key());
+        .sign_multisig([signer_keypair.private_key()]);
+        tx.verify_signature().expect("valid native multisig witness");
         let rejection = reject_direct_multisig_signing(&state, &tx);
         match rejection {
             Some(AcceptTransactionFail::SignatureVerification(fail)) => {
@@ -9216,7 +9203,7 @@ mod multisig_guard_tests {
             "single-signature signatories with multisig role must pass admission guard"
         );
     }
-    routing_test! { sync multisig_authority_with_custom_instruction_envelope_is_not_rejected
+    routing_test! { sync custom_instruction_does_not_bypass_direct_multisig_admission
         let domain_id: DomainId = DomainId::try_new("wonderland", "universal").unwrap();
         let signer_keypair = super::checked_routing_fixture_keypair(
             0xe9,
@@ -9243,12 +9230,15 @@ mod multisig_guard_tests {
             iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
         )
         .with_executable(Executable::Instructions(vec![custom].into()))
-        .sign(signer_keypair.private_key());
+        .sign_multisig([signer_keypair.private_key()]);
+        tx.verify_signature().expect("valid native multisig witness");
         let rejection = reject_direct_multisig_signing(&state, &tx);
-        assert!(
-            rejection.is_none(),
-            "multisig custom instruction envelopes must pass admission guard"
-        );
+        match rejection {
+            Some(AcceptTransactionFail::SignatureVerification(fail)) => {
+                assert_eq!(fail.code(), SignatureRejectionCode::UnsupportedAuthority);
+            }
+            other => panic!("custom envelope bypassed multisig admission: {other:?}"),
+        }
     }
 }
 /// Validate a transaction at Torii ingress and return the accepted form.
@@ -20313,8 +20303,8 @@ mod multisig_selector_tests {
         query::error::QueryExecutionFail,
     };
     use iroha_executor_data_model::isi::multisig::{
-        MultisigAccountState, MultisigApprove, MultisigInvalidateOutstanding,
-        MultisigProposalValue, MultisigPropose, MultisigSpec,
+        MultisigAccountState, MultisigApprove, MultisigCancel, MultisigInvalidateOutstanding,
+        MultisigPropose, MultisigSpec,
     };
     use iroha_executor_data_model::permission::smart_contract::{
         CanManageSmartContractCode, CanUseContractPermission,
@@ -20897,13 +20887,17 @@ mod multisig_selector_tests {
                 .find(|entry| entry.name == "kaizen")
                 .unwrap()
                 .clone();
-            let mut block = state.block(dm::BlockHeader::new(
+            let genesis_header = dm::BlockHeader::new(
+                NonZeroU64::new(1).unwrap(), None, None, 1_700_000_000_000, 0,
+            );
+            let upgrade_header = dm::BlockHeader::new(
                 NonZeroU64::new(2).unwrap(),
+                Some(genesis_header.hash()),
                 None,
-                None,
+                1_700_000_001_000,
                 0,
-                0,
-            ));
+            );
+            let mut block = state.block(upgrade_header.clone());
             let mut transaction = block.transaction();
             let code_hash = register_code_bytes(
                 &authority,
@@ -20929,6 +20923,11 @@ mod multisig_selector_tests {
             ).execute(&authority, &mut transaction).unwrap();
             transaction.apply();
             block.commit_world_overlay_for_testing().unwrap();
+            // The isolated committed-world fixture also needs a matching
+            // authenticated ledger-time frontier for read-only simulation.
+            state.append_committed_block_header_for_tests(genesis_header);
+            state.append_committed_block_header_for_tests(upgrade_header);
+            assert_eq!(state.latest_block_creation_time_ms_fast(), Some(1_700_000_001_000));
             let before: BTreeMap<_, _> = state
                 .world_view()
                 .smart_contract_state()
@@ -21227,11 +21226,17 @@ mod multisig_selector_tests {
     routing_test! { sync multisig_resolve_rejects_hash_alias_and_requires_occurrence
         let id = "ab".repeat(32);
         let account = checked_multisig_selector_account_id(0x61, "strict occurrence selector");
-        let good = norito::json!({"multisig_account_id":account.to_string(),"proposal_id":id});
+        let good = norito::json!({"multisig_account_id": (account.to_string()), "proposal_id": id});
         assert!(norito::json::from_value::<MultisigProposalsResolveRequestDto>(good.clone()).is_ok());
-        let mut old = good.clone(); old.as_object_mut().unwrap().remove("proposal_id"); old["instructions_hash"] = Value::from("ab".repeat(32));
+        let mut old = good.clone();
+        let old_fields = old.as_object_mut().unwrap();
+        old_fields.remove("proposal_id");
+        old_fields.insert("instructions_hash".to_owned(), Value::from("ab".repeat(32)));
         assert!(norito::json::from_value::<MultisigProposalsResolveRequestDto>(old).is_err());
-        let mut ambiguous = good; ambiguous["instructions_hash"] = Value::from("cd".repeat(32));
+        let mut ambiguous = good;
+        ambiguous.as_object_mut().unwrap().insert(
+            "instructions_hash".to_owned(), Value::from("cd".repeat(32)),
+        );
         assert!(norito::json::from_value::<MultisigProposalsResolveRequestDto>(ambiguous).is_err());
     }
     routing_test! { sync multisig_status_filters_require_exact_canonical_values
@@ -21331,7 +21336,7 @@ mod multisig_selector_tests {
     #[test]
     fn terminal_execution_candidate_is_bounded_exact_and_never_ambiguous() {
         use iroha_core::smartcontracts::isi::multisig::multisig_proposal_terminal_execution_state_key;
-        use iroha_executor_data_model::isi::multisig::{MultisigProposalTerminalExecutionStateV1, MultisigProposalTerminalState, MultisigProposalTerminalStatus};
+        use iroha_executor_data_model::isi::multisig::{MultisigProposalTerminalExecutionStateV1, MultisigProposalTerminalStatus};
         let account = checked_multisig_selector_account_id(0x7a, "terminal candidate account");
         let instructions = vec![dm::InstructionBox::from(dm::Log::new(dm::Level::INFO, "terminal candidate".into()))];
         let hash = HashOf::new(&instructions);
@@ -21389,7 +21394,7 @@ mod multisig_selector_tests {
     }
     routing_test! { sync terminal_proposal_projection_rejects_impossible_status_timestamps
         use iroha_executor_data_model::isi::multisig::{
-            MultisigProposalTerminalState, MultisigProposalTerminalStatus,
+            MultisigProposalTerminalStatus,
         };
         let account =
             checked_multisig_selector_account_id(0x75, "derive terminal-timestamp fixture account");
@@ -22307,7 +22312,7 @@ mod multisig_selector_tests {
     }
     routing_test! { async multisig_get_fails_closed_on_conflicting_active_and_terminal_state
         use iroha_executor_data_model::isi::multisig::{
-            MultisigProposalTerminalState, MultisigProposalTerminalStatus,
+            MultisigProposalTerminalStatus,
         };
         let (mut world, multisig_account_id, signer_one, _signer_two, _alias, active_hash) =
             multisig_test_world();
@@ -23085,7 +23090,15 @@ seiyaku BytesPayloadNormalizeTest { permission CanEnactGovernance;
         )
         .expect("normalized instructions");
         let expected_hash = expected_hash.to_string();
-        assert_eq!(proposal_id, expected_hash);
+        assert_eq!(
+            proposal_id,
+            MultisigProposalId::derive(
+                state.network_id_ref(),
+                &multisig_account_id,
+                &MultisigProposalNonce::new([0x41; 32]).unwrap(),
+            ).to_string(),
+        );
+        assert_ne!(proposal_id, expected_hash);
         assert_eq!(
             response_payload["instructions_hash"].as_str(),
             Some(expected_hash.as_str())
@@ -23143,6 +23156,12 @@ seiyaku BytesPayloadNormalizeTest { permission CanEnactGovernance;
         ) = multisig_contract_test_fixture();
         let instruction: dm::InstructionBox =
             dm::Log::new(dm::Level::INFO, "multisig propose".to_owned()).into();
+        let expected_hash = HashOf::new(&vec![instruction.clone()]).to_string();
+        let expected_id = MultisigProposalId::derive(
+            state.network_id_ref(),
+            &multisig_account_id,
+            &MultisigProposalNonce::new([0x41; 32]).unwrap(),
+        ).to_string();
         let response = handle_post_multisig_propose(
             build_queue(),
             state,
@@ -23173,10 +23192,12 @@ seiyaku BytesPayloadNormalizeTest { permission CanEnactGovernance;
             .as_str()
             .expect("proposal id")
             .to_owned();
+        assert_eq!(proposal_id, expected_id);
         assert_eq!(
             payload["instructions_hash"].as_str(),
-            Some(proposal_id.as_str())
+            Some(expected_hash.as_str())
         );
+        assert_ne!(proposal_id, expected_hash);
         assert_exact_unsigned_transaction_draft(&payload);
     }
     routing_test! { async multisig_generic_propose_rejects_incomplete_detached_signature_fields
@@ -23648,7 +23669,7 @@ seiyaku BytesPayloadNormalizeTest { permission CanEnactGovernance;
             _authority_keypair,
         ) = multisig_contract_test_fixture();
         let raw = format!(
-            "{{\"multisig_account_alias\":\"{alias_literal}\",\"signer_account_id\":\"{signer_two_id}\",\"instructions\":[\"not base64!!\"]}}"
+            "{{\"proposal_nonce\":\"4141414141414141414141414141414141414141414141414141414141414141\",\"fee_payment\":{{\"payer\":\"authority\",\"value\":{{\"charge_limits\":[],\"gas_limit\":null}}}},\"multisig_account_alias\":\"{alias_literal}\",\"signer_account_id\":\"{signer_two_id}\",\"instructions\":[\"not base64!!\"]}}"
         );
         let err =
             norito::json::from_str::<MultisigProposeDtoV1>(&raw).expect_err("invalid instruction");
@@ -23668,7 +23689,7 @@ seiyaku BytesPayloadNormalizeTest { permission CanEnactGovernance;
             _authority_keypair,
         ) = multisig_contract_test_fixture();
         let raw = format!(
-            "{{\"multisig_account_alias\":\"{alias_literal}\",\"signer_account_id\":\"{signer_two_id}\",\"instructions\":[{{\"unknown_instruction\":true}}]}}"
+            "{{\"proposal_nonce\":\"4141414141414141414141414141414141414141414141414141414141414141\",\"fee_payment\":{{\"payer\":\"authority\",\"value\":{{\"charge_limits\":[],\"gas_limit\":null}}}},\"multisig_account_alias\":\"{alias_literal}\",\"signer_account_id\":\"{signer_two_id}\",\"instructions\":[{{\"unknown_instruction\":true}}]}}"
         );
         let err = norito::json::from_str::<MultisigProposeDtoV1>(&raw)
             .expect_err("unknown instruction object");
@@ -23693,7 +23714,7 @@ seiyaku BytesPayloadNormalizeTest { permission CanEnactGovernance;
             _authority_keypair,
         ) = multisig_contract_test_fixture();
         let raw = format!(
-            "{{\"multisig_account_alias\":\"{alias_literal}\",\"signer_account_id\":\"{signer_two_id}\",\"creation_time_ms\":-1,\"instructions\":[\"AQID\"]}}"
+            "{{\"proposal_nonce\":\"4141414141414141414141414141414141414141414141414141414141414141\",\"fee_payment\":{{\"payer\":\"authority\",\"value\":{{\"charge_limits\":[],\"gas_limit\":null}}}},\"multisig_account_alias\":\"{alias_literal}\",\"signer_account_id\":\"{signer_two_id}\",\"creation_time_ms\":-1,\"instructions\":[\"AQID\"]}}"
         );
         let err = norito::json::from_str::<MultisigProposeDtoV1>(&raw)
             .expect_err("negative creation time must be rejected");
@@ -23708,7 +23729,7 @@ seiyaku BytesPayloadNormalizeTest { permission CanEnactGovernance;
             "unexpected error: {message}"
         );
         let raw = format!(
-            "{{\"multisig_account_alias\":\"{alias_literal}\",\"signer_account_id\":\"{signer_two_id}\",\"instructions\":[null]}}"
+            "{{\"proposal_nonce\":\"4141414141414141414141414141414141414141414141414141414141414141\",\"fee_payment\":{{\"payer\":\"authority\",\"value\":{{\"charge_limits\":[],\"gas_limit\":null}}}},\"multisig_account_alias\":\"{alias_literal}\",\"signer_account_id\":\"{signer_two_id}\",\"instructions\":[null]}}"
         );
         let err = norito::json::from_str::<MultisigProposeDtoV1>(&raw)
             .expect_err("null instruction must be rejected");
@@ -23755,7 +23776,7 @@ seiyaku BytesPayloadNormalizeTest { permission CanEnactGovernance;
         let malformed_frame =
             base64::engine::general_purpose::STANDARD.encode([b'N', b'R', b'T', b'0', 0, 0]);
         let raw = format!(
-            "{{\"multisig_account_alias\":\"{alias_literal}\",\"signer_account_id\":\"{signer_two_id}\",\"instructions\":[\"{valid_instruction}\",\"{malformed_frame}\"]}}"
+            "{{\"proposal_nonce\":\"4141414141414141414141414141414141414141414141414141414141414141\",\"fee_payment\":{{\"payer\":\"authority\",\"value\":{{\"charge_limits\":[],\"gas_limit\":null}}}},\"multisig_account_alias\":\"{alias_literal}\",\"signer_account_id\":\"{signer_two_id}\",\"instructions\":[\"{valid_instruction}\",\"{malformed_frame}\"]}}"
         );
         let err = norito::json::from_str::<MultisigProposeDtoV1>(&raw)
             .expect_err("malformed native instruction frame");
@@ -23805,8 +23826,9 @@ seiyaku BytesPayloadNormalizeTest { permission CanEnactGovernance;
         assert_eq!(payload["proposal_id"].as_str(), Some(active_hash.as_str()));
         assert_eq!(
             payload["instructions_hash"].as_str(),
-            Some(active_hash.as_str())
+            Some(HashOf::new(&vec![InstructionBox::from(dm::Log::new(dm::Level::INFO, "active".to_owned()))]).to_string().as_str())
         );
+        assert_ne!(payload["proposal_id"], payload["instructions_hash"]);
         assert_exact_unsigned_transaction_draft(&payload);
     }
 }
@@ -37732,10 +37754,10 @@ mod explorer_lookup_tests {
         let items = payload["items"].as_array().expect("items array");
         assert_eq!(items.len(), 1);
         assert_eq!(
-            items[0]["transaction_hash"].as_str(),
-            Some(tx_hash.to_string().as_str())
+            items[0]["transaction_hash"],
+            norito::json::to_value(&tx_hash).expect("canonical native transaction hash literal")
         );
-        assert_eq!(items[0]["kind"].as_str(), Some("Custom"));
+        assert_eq!(items[0]["kind"].as_str(), Some(dm::CustomInstruction::WIRE_ID));
     }
     routing_test! { sync explorer_detail_lookup_returns_transaction_and_instruction
         let instructions = vec![
